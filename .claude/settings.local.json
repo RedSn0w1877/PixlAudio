@@ -2,7 +2,34 @@
   "permissions": {
     "allow": [
       "Bash(grep -n \"^\\\\s*\\\\\\(//\\\\|/\\\\*\\\\|\\\\*\\\\\\)\" data/stream/CloudStreamProxy.kt)",
-      "Bash(sort -t= -k2 -n)"
+      "Bash(sort -t= -k2 -n)",
+      "Bash(cd \"/c/Users/Hoa/Downloads/Code Projects/PixelPlayer-master/beta2-release\" && ls && wc -l CLAUDE.md && ls app/src/main/java/com/theveloper/pixelplay && find app/src/main/java/com/theveloper/pixelplay -name \"*.kt\" | wc -l)",
+      "Read(//c/Users/HoaVo/AppData/Local/Temp/claude/**)",
+      "Read(//c/Users/Hoa Vo/AppData/Local/Temp/claude//**)",
+      "Bash(ls /c/Users/HoaVo/AppData/Local/Temp/claude/*/*/scratchpad/ 2>/dev/null | head -50; find /c/Users/HoaVo/AppData/Local/Temp/claude/ /c/Users/Hoa/AppData/Local/Temp/claude/ -name \"spec-lyrics*\" 2>/dev/null | head)",
+      "WebSearch",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:docs.github.com)",
+      "Bash(xargs wc -l)",
+      "Bash(sort -k2)",
+      "Bash(awk '{print $1, $2}')",
+      "WebFetch(domain:github.blog)",
+      "WebFetch(domain:dev.to)",
+      "WebFetch(domain:www.apple.com)",
+      "WebFetch(domain:artists.apple.com)",
+      "Bash(sort -u -t: -k3)",
+      "Bash(cd \"/c/Users/Hoa/Downloads/Code Projects/PixelPlayer-master/beta2-release/app/src/main/java/com/theveloper/pixelplay/data/youtube\" && sed -n 165,230p YouTubeStreamResolver.kt; grep -n \"YouTubeStreamResolver\\\\|Piped\\\\|NewPipe\" ../../di/AppModule.kt | head)",
+      "Bash(sed 's/^ *//')",
+      "WebFetch(domain:www.swift.org)",
+      "WebFetch(domain:keith.github.io)",
+      "Bash(cd \"/c/Users/Hoa/Downloads/Code Projects/PixelPlayer-master/beta2-release/app/src/main/java/com/theveloper/pixelplay/presentation\" && grep -oh \"HomeGreetingCard\\\\|HomeQuickActionsRow\\\\|DailyMixSection\\\\|YourMixShelfSection\\\\|RecentlyPlayedSection\\\\|RecentlyAddedSection\\\\|HomeDiscoverySections\\\\|StatsOverviewCard\\\\|AppUpdateCard\\\\|OfflineDownloadCard\\\\|AlbumCarouselSelection\\\\|RoundedParallaxCarousel\\\\|TaisChatSheet\\\\|AiPlaylistSheet\\\\|JobsBottomSheet\\\\|AppSidebarDrawer\" screens/HomeScreen.kt | sort | uniq -c; grep -rl \"FileExplorerBottomSheet\\\\|FolderExplorerScreen\\(\" --include=*.kt . | head; grep -rl \"LyricsSyncEditorOverlay\\\\|LyricsSyncEntryPoint\" --include=*.kt . | head; grep -rl \"BrickBreakerOverlay\" --include=*.kt . ..| head -3)",
+      "Bash(grep -v \"^\\\\s*\\\\*\\\\|/\\\\*\\\\*\")",
+      "WebFetch(domain:www.testdevlab.com)",
+      "Bash(grep -v \"^\\\\s*$\")",
+      "WebFetch(domain:medium.com)",
+      "Read(//c/Users/Hoa/Downloads/Code Projects/**)",
+      "Read(//c/Users/Hoa/Downloads/Code Projects/PixelPlayer-master/**)",
+      "PowerShell(Get-ChildItem \"$env:LOCALAPPDATA\\\\Microsoft\\\\WindowsApps\\\\winget.exe\" -ErrorAction SilentlyContinue | Select-Object FullName; $b = \"C:\\\\Users\\\\Hoa\\\\Downloads\\\\Code Projects\\\\PixelPlayer-master\\\\beta2-release\"; foreach \\($d in \"app\\\\build\",\"build\",\"baselineprofile\\\\build\",\"wear\\\\build\",\".gradle\"\\) { $p = Join-Path $b $d; if \\(Test-Path $p\\) { $s = \\(Get-ChildItem $p -Recurse -File -ErrorAction SilentlyContinue | Measure-Object Length -Sum\\).Sum; \"{0,-22} {1:N1} GB\" -f $d, \\($s/1GB\\) } })"
     ]
   }
 }
