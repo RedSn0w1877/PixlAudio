@@ -1,0 +1,847 @@
+--------- beginning of main
+07-30 11:20:35.148 I/pixelplay.debug( 7882): NativeAlloc concurrent mark compact GC freed 88MB AllocSpace bytes, 0(0B) LOS objects, 88% free, 30MB/256MB, paused 1.402ms,3.896ms total 198.337ms
+07-30 11:21:07.170 I/pixelplay.debug( 7882): NativeAlloc concurrent mark compact GC freed 87MB AllocSpace bytes, 0(0B) LOS objects, 88% free, 30MB/256MB, paused 1.090ms,5.397ms total 188.569ms
+07-30 11:21:10.191 D/WindowOnBackDispatcher( 7882): setTopOnBackInvokedCallback (unwrapped): android.app.Activity$$ExternalSyntheticLambda0@bd5d234
+07-30 11:21:10.192 D/WindowOnBackDispatcher( 7882): setOnBackInvokedCallbackInfo: android.app.Activity$$ExternalSyntheticLambda0@bd5d234
+07-30 11:21:11.133 D/LyricsRepository( 7882): ===== FETCH LYRICS START: The Kid LAROI - A COLD PLAY (forceRefresh=false, source=API_FIRST) =====
+07-30 11:21:11.133 D/LyricsRepository( 7882): ===== RETURNING IN-MEMORY CACHED LYRICS =====
+07-30 11:21:11.172 D/MusicService_PixelPlay( 7882): ReplayGain: No file path for track, keeping user-selected volume
+07-30 11:21:11.174 D/MusicService_PixelPlay( 7882): ReplayGain: No file path for track, keeping user-selected volume
+07-30 11:21:11.174 D/TransitionDebug( 7882): onMediaItemTransition: -3897328402086 (reason=2)
+07-30 11:21:11.175 D/MusicService_PixelPlay( 7882): ReplayGain: No file path for track, keeping user-selected volume
+07-30 11:21:11.175 D/MusicService_PixelPlay( 7882): Playback state changed: 2
+07-30 11:21:11.177 W/MusicService_PixelPlay( 7882): onAvailableCommandsChanged. Can Seek Command? false. IsSeekable? false. Duration: -9223372036854775807
+07-30 11:21:11.183 D/MediaCodec( 7882): keep callback message for reclaim
+07-30 11:21:11.183 I/CCodecConfig( 7882): query failed after returning 8 values (BAD_INDEX)
+07-30 11:21:11.186 D/AidlBufferPool( 7882): bufferpool2 0xb400007d118a4008 : 1(7650 size) total buffers - 1(7650 size) used buffers - 530/540 (recycle/alloc) - 12/1076 (fetch/transfer)
+07-30 11:21:11.227 W/FfmpegLibrary( 7882): No opus decoder available. Check the FFmpeg build configuration.
+07-30 11:21:11.231 D/MediaCodec( 7882): keep callback message for reclaim
+07-30 11:21:11.232 I/CCodecConfig( 7882): query failed after returning 8 values (BAD_INDEX)
+07-30 11:21:11.239 D/CCodecBufferChannel( 7882): [c2.android.opus.decoder#878] MediaCodec discarded an unknown buffer
+07-30 11:21:11.239 D/CCodecBufferChannel( 7882): [c2.android.opus.decoder#878] MediaCodec discarded an unknown buffer
+07-30 11:21:11.239 D/CCodecBufferChannel( 7882): [c2.android.opus.decoder#878] MediaCodec discarded an unknown buffer
+07-30 11:21:11.239 D/CCodecBufferChannel( 7882): [c2.android.opus.decoder#878] MediaCodec discarded an unknown buffer
+07-30 11:21:11.239 D/CCodec  ( 7882): hold CodecLooper(1) until release
+07-30 11:21:11.242 I/DMCodecAdapterFactory( 7882): Creating an asynchronous MediaCodec adapter for track type audio
+07-30 11:21:11.243 I/MediaCodec( 7882): Retry enabled for HDCP failure
+07-30 11:21:11.248 D/CCodec  ( 7882): allocate(c2.android.opus.decoder)
+07-30 11:21:11.250 I/CCodec  ( 7882): setting up 'default' as default (vendor) store
+07-30 11:21:11.255 D/AidlBufferPool( 7882): bufferpool2 0xb400007d11759068 : 0(0 size) total buffers - 0(0 size) used buffers - 9756/9770 (recycle/alloc) - 17/19520 (fetch/transfer)
+07-30 11:21:11.255 D/AidlBufferPool( 7882): Destruction - bufferpool2 0xb400007d11759068 cached: 0/0M, 0/0% in use; allocs: 9770, 100% recycled; transfers: 19520, 100% unfetched
+07-30 11:21:11.256 W/pixelplay.debug( 7882): AIBinder_linkToDeath is being called with a non-null cookie and no onUnlink callback set. Use AIBinder_DeathRecipient_setOnUnlinked to manage the lifetime of the cookie. This will become an abort.
+07-30 11:21:11.256 I/CCodec  ( 7882): Created component [c2.android.opus.decoder] for [c2.android.opus.decoder]
+07-30 11:21:11.256 D/CCodecConfig( 7882): read media type: audio/opus
+07-30 11:21:11.261 D/ReflectedParamUpdater( 7882): extent() != 1 for single value type: algo.buffers.max-count.values
+07-30 11:21:11.261 D/ReflectedParamUpdater( 7882): extent() != 1 for single value type: output.subscribed-indices.values
+07-30 11:21:11.261 D/ReflectedParamUpdater( 7882): extent() != 1 for single value type: input.buffers.allocator-ids.values
+07-30 11:21:11.264 D/ReflectedParamUpdater( 7882): extent() != 1 for single value type: output.buffers.allocator-ids.values
+07-30 11:21:11.264 D/ReflectedParamUpdater( 7882): extent() != 1 for single value type: algo.buffers.allocator-ids.values
+07-30 11:21:11.264 D/ReflectedParamUpdater( 7882): extent() != 1 for single value type: output.buffers.pool-ids.values
+07-30 11:21:11.264 D/ReflectedParamUpdater( 7882): extent() != 1 for single value type: algo.buffers.pool-ids.values
+07-30 11:21:11.265 I/CCodecConfig( 7882): query failed after returning 8 values (BAD_INDEX)
+07-30 11:21:11.265 D/CCodecConfig( 7882): c2 config diff is Dict {
+07-30 11:21:11.265 D/CCodecConfig( 7882):   c2::u32 coded.bitrate.value = 6000
+07-30 11:21:11.265 D/CCodecConfig( 7882):   c2::u32 input.buffers.max-size.value = 7650
+07-30 11:21:11.265 D/CCodecConfig( 7882):   c2::u32 input.delay.value = 0
+07-30 11:21:11.265 D/CCodecConfig( 7882):   string input.media-type.value = "audio/opus"
+07-30 11:21:11.265 D/CCodecConfig( 7882):   c2::u32 output.large-frame.max-size = 0
+07-30 11:21:11.265 D/CCodecConfig( 7882):   c2::u32 output.large-frame.threshold-size = 0
+07-30 11:21:11.265 D/CCodecConfig( 7882):   string output.media-type.value = "audio/raw"
+07-30 11:21:11.265 D/CCodecConfig( 7882):   c2::u32 raw.channel-count.value = 1
+07-30 11:21:11.265 D/CCodecConfig( 7882):   c2::u32 raw.sample-rate.value = 48000
+07-30 11:21:11.265 D/CCodecConfig( 7882): }
+07-30 11:21:11.269 I/MediaCodec( 7882): MediaCodec will operate in async mode
+07-30 11:21:11.270 D/CCodec  ( 7882): [c2.android.opus.decoder] buffers are bound to CCodec for this session
+07-30 11:21:11.270 D/CCodecConfig( 7882): no c2 equivalents for log-session-id
+07-30 11:21:11.270 D/CCodecConfig( 7882): no c2 equivalents for importance
+07-30 11:21:11.270 D/CCodecConfig( 7882): no c2 equivalents for csd-1
+07-30 11:21:11.270 D/CCodecConfig( 7882): no c2 equivalents for csd-2
+07-30 11:21:11.270 D/CCodecConfig( 7882): no c2 equivalents for flags
+07-30 11:21:11.271 D/CCodecConfig( 7882): config failed => CORRUPTED
+07-30 11:21:11.271 D/CCodecConfig( 7882): c2 config diff is   c2::u32 raw.channel-count.value = 2
+07-30 11:21:11.272 D/CCodec  ( 7882): client requested max input size 5760, which is smaller than what component recommended (7650); overriding with component recommendation.
+07-30 11:21:11.272 W/CCodec  ( 7882): This behavior is subject to change. It is recommended that app developers double check whether the requested max input size is in reasonable range.
+07-30 11:21:11.272 D/CCodec  ( 7882): encoding statistics level = 0
+07-30 11:21:11.272 D/CCodec  ( 7882): setup formats input: AMessage(what = 0x00000000) = {
+07-30 11:21:11.272 D/CCodec  ( 7882):   int32_t bitrate = 6000
+07-30 11:21:11.272 D/CCodec  ( 7882):   int32_t channel-count = 2
+07-30 11:21:11.272 D/CCodec  ( 7882):   int32_t max-input-size = 7650
+07-30 11:21:11.272 D/CCodec  ( 7882):   string mime = "audio/opus"
+07-30 11:21:11.272 D/CCodec  ( 7882):   int32_t sample-rate = 48000
+07-30 11:21:11.272 D/CCodec  ( 7882): }
+07-30 11:21:11.272 D/CCodec  ( 7882): setup formats output: AMessage(what = 0x00000000) = {
+07-30 11:21:11.272 D/CCodec  ( 7882):   int32_t buffer-batch-max-output-size = 0
+07-30 11:21:11.272 D/CCodec  ( 7882):   int32_t buffer-batch-threshold-output-size = 0
+07-30 11:21:11.272 D/CCodec  ( 7882):   int32_t channel-count = 2
+07-30 11:21:11.272 D/CCodec  ( 7882):   string mime = "audio/raw"
+07-30 11:21:11.272 D/CCodec  ( 7882):   int32_t sample-rate = 48000
+07-30 11:21:11.272 D/CCodec  ( 7882):   int32_t android._config-pcm-encoding = 4
+07-30 11:21:11.272 D/CCodec  ( 7882): }
+07-30 11:21:11.272 I/CCodecConfig( 7882): query failed after returning 8 values (BAD_INDEX)
+07-30 11:21:11.272 W/CCodecResources( 7882): Failed to query component interface for required system resources: 6
+07-30 11:21:11.273 D/MediaCodec( 7882): keep callback message for reclaim
+07-30 11:21:11.276 I/libbinder.BpBinder( 7882): onLastStrongRef automatically unlinking death recipients for binder (0xb400007d4165f1a0) with descriptor: 'android.hardware.media.bufferpool2.IAccessor'
+07-30 11:21:11.276 D/CCodecBufferChannel( 7882): [c2.android.opus.decoder#966] Created input block pool with allocatorID 16 => poolID 24 - OK (0)
+07-30 11:21:11.279 I/CCodecBufferChannel( 7882): [c2.android.opus.decoder#966] Created output block pool with allocatorID 16 => poolID 11182 - OK
+07-30 11:21:11.281 D/CCodecBufferChannel( 7882): [c2.android.opus.decoder#966] Configured output block pool ids 11182 => OK
+07-30 11:21:11.293 W/MusicService_PixelPlay( 7882): onAvailableCommandsChanged. Can Seek Command? true. IsSeekable? true. Duration: 178641
+07-30 11:21:11.302 W/pixelplay.debug( 7882): AIBinder_linkToDeath is being called with a non-null cookie and no onUnlink callback set. Use AIBinder_DeathRecipient_setOnUnlinked to manage the lifetime of the cookie. This will become an abort.
+07-30 11:21:11.309 W/LoudnessCodecController( 7882): MediaCodec mime type not supported for loudness annotation
+07-30 11:21:11.309 V/LoudnessCodecController( 7882): Could not extract codec loudness information
+07-30 11:21:11.316 W/pixelplay.debug( 7882): AIBinder_linkToDeath is being called with a non-null cookie and no onUnlink callback set. Use AIBinder_DeathRecipient_setOnUnlinked to manage the lifetime of the cookie. This will become an abort.
+07-30 11:21:11.332 D/DualPlayerEngine( 7882): Audio decoder initialized: c2.android.opus.decoder (Hardware: false)
+07-30 11:21:11.386 D/MusicService_PixelPlay( 7882): Playback state changed: 3
+07-30 11:21:11.388 D/MusicService_PixelPlay( 7882): onIsPlayingChanged: true. Duration: 178641, Seekable: true
+07-30 11:21:11.391 D/MediaRouter( 7882): onRestoreRoute() : route=RouteInfo{ name=Phone, description=null, status=null, category=RouteCategory{ name=System types=ROUTE_TYPE_LIVE_AUDIO ROUTE_TYPE_LIVE_VIDEO  groupable=false }, supportedTypes=ROUTE_TYPE_LIVE_AUDIO ROUTE_TYPE_LIVE_VIDEO , presentationDisplay=null }
+07-30 11:21:11.391 V/MediaRouter( 7882): Selecting route: RouteInfo{ name=Phone, description=null, status=null, category=RouteCategory{ name=System types=ROUTE_TYPE_LIVE_AUDIO ROUTE_TYPE_LIVE_VIDEO  groupable=false }, supportedTypes=ROUTE_TYPE_LIVE_AUDIO ROUTE_TYPE_LIVE_VIDEO , presentationDisplay=null }
+07-30 11:21:11.482 D/AudioTrack( 7882): getTimestamp_l(6679): device stall time corrected using current time 349823476241632
+07-30 11:21:11.493 W/AudioTrack( 7882): getTimestamp_l(6679): retrograde timestamp time corrected, 349823468253689 < 349823476241632
+07-30 11:21:11.522 D/WindowOnBackDispatcher( 7882): setTopOnBackInvokedCallback (unwrapped): androidx.navigationevent.OnBackInvokedInput$createOnBackAnimationCallback$1@c454b4e
+07-30 11:21:11.530 D/WindowOnBackDispatcher( 7882): setOnBackInvokedCallbackInfo: androidx.navigationevent.OnBackInvokedInput$createOnBackAnimationCallback$1@c454b4e
+07-30 11:21:11.564 I/AudioManager( 7882): broadcastDeviceListChange_sync: device update event from native but no device diff found
+07-30 11:21:11.564 I/AudioManager( 7882): broadcastDeviceListChange_sync: device update event from native but no device diff found
+07-30 11:21:12.064 W/MusicService_PixelPlay( 7882): No se encontraron widgets para actualizar
+07-30 11:21:12.215 D/WearStatePublisher( 7882): Published state to Wear: A COLD PLAY (playing=true)
+07-30 11:21:12.435 W/AccessibilityDelegate( 7882): Drawing order is not available, was AccessibilityNodeInfo requested for a child node before its parent?
+07-30 11:21:12.435 W/AccessibilityDelegate( 7882): Drawing order is not available, was AccessibilityNodeInfo requested for a child node before its parent?
+07-30 11:21:12.754 D/TransitionDebug( 7882): Resolving settings for playlistId=null, -3897328402086 -> -3639194680666
+07-30 11:21:12.754 D/TransitionDebug( 7882): Missing playlistId. Using global settings.
+07-30 11:21:12.781 D/TransitionDebug( 7882): Settings resolved: Mode=OVERLAP, Duration=12000ms, GlobalEnabled=true, Source=GLOBAL_DEFAULT
+07-30 11:21:12.781 D/TransitionDebug( 7882): Preparing next track for overlap: -3639194680666
+07-30 11:21:12.792 D/TransitionDebug( 7882): Scheduled OVERLAP at 166641 ms (SongDur: 178641). Fade duration: 12000 ms
+07-30 11:21:12.792 D/TransitionDebug( 7882): Enabled pauseAtEndOfMediaItems to prevent auto-skip.
+07-30 11:21:12.821 W/FfmpegLibrary( 7882): No opus decoder available. Check the FFmpeg build configuration.
+07-30 11:21:12.826 I/DMCodecAdapterFactory( 7882): Creating an asynchronous MediaCodec adapter for track type audio
+07-30 11:21:12.827 I/MediaCodec( 7882): Retry enabled for HDCP failure
+07-30 11:21:12.830 D/CCodec  ( 7882): allocate(c2.android.opus.decoder)
+07-30 11:21:12.833 I/CCodec  ( 7882): setting up 'default' as default (vendor) store
+07-30 11:21:12.837 W/pixelplay.debug( 7882): AIBinder_linkToDeath is being called with a non-null cookie and no onUnlink callback set. Use AIBinder_DeathRecipient_setOnUnlinked to manage the lifetime of the cookie. This will become an abort.
+07-30 11:21:12.837 I/CCodec  ( 7882): Created component [c2.android.opus.decoder] for [c2.android.opus.decoder]
+07-30 11:21:12.837 D/CCodecConfig( 7882): read media type: audio/opus
+07-30 11:21:12.840 D/ReflectedParamUpdater( 7882): extent() != 1 for single value type: algo.buffers.max-count.values
+07-30 11:21:12.841 D/ReflectedParamUpdater( 7882): extent() != 1 for single value type: output.subscribed-indices.values
+07-30 11:21:12.841 D/ReflectedParamUpdater( 7882): extent() != 1 for single value type: input.buffers.allocator-ids.values
+07-30 11:21:12.841 D/ReflectedParamUpdater( 7882): extent() != 1 for single value type: output.buffers.allocator-ids.values
+07-30 11:21:12.841 D/ReflectedParamUpdater( 7882): extent() != 1 for single value type: algo.buffers.allocator-ids.values
+07-30 11:21:12.841 D/ReflectedParamUpdater( 7882): extent() != 1 for single value type: output.buffers.pool-ids.values
+07-30 11:21:12.842 D/ReflectedParamUpdater( 7882): extent() != 1 for single value type: algo.buffers.pool-ids.values
+07-30 11:21:12.843 I/CCodecConfig( 7882): query failed after returning 8 values (BAD_INDEX)
+07-30 11:21:12.843 D/CCodecConfig( 7882): c2 config diff is Dict {
+07-30 11:21:12.843 D/CCodecConfig( 7882):   c2::u32 coded.bitrate.value = 6000
+07-30 11:21:12.843 D/CCodecConfig( 7882):   c2::u32 input.buffers.max-size.value = 7650
+07-30 11:21:12.843 D/CCodecConfig( 7882):   c2::u32 input.delay.value = 0
+07-30 11:21:12.843 D/CCodecConfig( 7882):   string input.media-type.value = "audio/opus"
+07-30 11:21:12.843 D/CCodecConfig( 7882):   c2::u32 output.large-frame.max-size = 0
+07-30 11:21:12.843 D/CCodecConfig( 7882):   c2::u32 output.large-frame.threshold-size = 0
+07-30 11:21:12.843 D/CCodecConfig( 7882):   string output.media-type.value = "audio/raw"
+07-30 11:21:12.843 D/CCodecConfig( 7882):   c2::u32 raw.channel-count.value = 1
+07-30 11:21:12.843 D/CCodecConfig( 7882):   c2::u32 raw.sample-rate.value = 48000
+07-30 11:21:12.843 D/CCodecConfig( 7882): }
+07-30 11:21:12.845 I/MediaCodec( 7882): MediaCodec will operate in async mode
+07-30 11:21:12.846 D/CCodec  ( 7882): [c2.android.opus.decoder] buffers are bound to CCodec for this session
+07-30 11:21:12.846 D/CCodecConfig( 7882): no c2 equivalents for log-session-id
+07-30 11:21:12.846 D/CCodecConfig( 7882): no c2 equivalents for importance
+07-30 11:21:12.846 D/CCodecConfig( 7882): no c2 equivalents for csd-1
+07-30 11:21:12.846 D/CCodecConfig( 7882): no c2 equivalents for csd-2
+07-30 11:21:12.846 D/CCodecConfig( 7882): no c2 equivalents for flags
+07-30 11:21:12.846 D/CCodecConfig( 7882): config failed => CORRUPTED
+07-30 11:21:12.847 D/CCodecConfig( 7882): c2 config diff is   c2::u32 raw.channel-count.value = 2
+07-30 11:21:12.847 D/CCodec  ( 7882): client requested max input size 5760, which is smaller than what component recommended (7650); overriding with component recommendation.
+07-30 11:21:12.847 W/CCodec  ( 7882): This behavior is subject to change. It is recommended that app developers double check whether the requested max input size is in reasonable range.
+07-30 11:21:12.847 D/CCodec  ( 7882): encoding statistics level = 0
+07-30 11:21:12.847 D/CCodec  ( 7882): setup formats input: AMessage(what = 0x00000000) = {
+07-30 11:21:12.847 D/CCodec  ( 7882):   int32_t bitrate = 6000
+07-30 11:21:12.847 D/CCodec  ( 7882):   int32_t channel-count = 2
+07-30 11:21:12.847 D/CCodec  ( 7882):   int32_t max-input-size = 7650
+07-30 11:21:12.847 D/CCodec  ( 7882):   string mime = "audio/opus"
+07-30 11:21:12.847 D/CCodec  ( 7882):   int32_t sample-rate = 48000
+07-30 11:21:12.847 D/CCodec  ( 7882): }
+07-30 11:21:12.847 D/CCodec  ( 7882): setup formats output: AMessage(what = 0x00000000) = {
+07-30 11:21:12.847 D/CCodec  ( 7882):   int32_t buffer-batch-max-output-size = 0
+07-30 11:21:12.847 D/CCodec  ( 7882):   int32_t buffer-batch-threshold-output-size = 0
+07-30 11:21:12.847 D/CCodec  ( 7882):   int32_t channel-count = 2
+07-30 11:21:12.847 D/CCodec  ( 7882):   string mime = "audio/raw"
+07-30 11:21:12.847 D/CCodec  ( 7882):   int32_t sample-rate = 48000
+07-30 11:21:12.847 D/CCodec  ( 7882):   int32_t android._config-pcm-encoding = 4
+07-30 11:21:12.847 D/CCodec  ( 7882): }
+07-30 11:21:12.847 I/CCodecConfig( 7882): query failed after returning 8 values (BAD_INDEX)
+07-30 11:21:12.848 W/CCodecResources( 7882): Failed to query component interface for required system resources: 6
+07-30 11:21:12.850 D/MediaCodec( 7882): keep callback message for reclaim
+07-30 11:21:12.854 D/CCodecBufferChannel( 7882): [c2.android.opus.decoder#455] Created input block pool with allocatorID 16 => poolID 25 - OK (0)
+07-30 11:21:12.858 I/CCodecBufferChannel( 7882): [c2.android.opus.decoder#455] Created output block pool with allocatorID 16 => poolID 11184 - OK
+07-30 11:21:12.858 D/CCodecBufferChannel( 7882): [c2.android.opus.decoder#455] Configured output block pool ids 11184 => OK
+07-30 11:21:12.862 W/pixelplay.debug( 7882): AIBinder_linkToDeath is being called with a non-null cookie and no onUnlink callback set. Use AIBinder_DeathRecipient_setOnUnlinked to manage the lifetime of the cookie. This will become an abort.
+07-30 11:21:12.866 W/LoudnessCodecController( 7882): MediaCodec mime type not supported for loudness annotation
+07-30 11:21:12.866 V/LoudnessCodecController( 7882): Could not extract codec loudness information
+07-30 11:21:12.880 W/pixelplay.debug( 7882): AIBinder_linkToDeath is being called with a non-null cookie and no onUnlink callback set. Use AIBinder_DeathRecipient_setOnUnlinked to manage the lifetime of the cookie. This will become an abort.
+07-30 11:21:12.977 D/MusicService_PixelPlay( 7882): ReplayGain: No file path for track, keeping user-selected volume
+07-30 11:21:12.977 D/MusicService_PixelPlay( 7882): ReplayGain: No file path for track, keeping user-selected volume
+07-30 11:21:13.287 D/WindowOnBackDispatcher( 7882): setTopOnBackInvokedCallback (unwrapped): android.app.Dialog$$ExternalSyntheticLambda2@475054a
+07-30 11:21:13.288 D/WindowOnBackDispatcher( 7882): setOnBackInvokedCallbackInfo: android.app.Dialog$$ExternalSyntheticLambda2@475054a
+07-30 11:21:13.322 I/Surface ( 7882): Creating surface for consumer unnamed-7882-13 with slotExpansion=1 for 64 slots
+07-30 11:21:13.322 I/Surface ( 7882): Creating surface for consumer VRI[MainActivity]#13(BLAST Consumer)13 with slotExpansion=1 for 64 slots
+--------- beginning of system
+07-30 11:21:13.410 D/InsetsController( 7882): hide(ime())
+07-30 11:21:13.410 I/ImeTracker( 7882): com.theveloper.pixelplay.debug:7a0bdf75: onCancelled at PHASE_CLIENT_ALREADY_HIDDEN
+07-30 11:21:13.452 D/WindowOnBackDispatcher( 7882): setTopOnBackInvokedCallback (unwrapped): androidx.navigationevent.OnBackInvokedInput$createOnBackAnimationCallback$1@9dc514c
+07-30 11:21:13.452 D/WindowOnBackDispatcher( 7882): setOnBackInvokedCallbackInfo: androidx.navigationevent.OnBackInvokedInput$createOnBackAnimationCallback$1@9dc514c
+07-30 11:21:13.508 W/AccessibilityDelegate( 7882): Drawing order is not available, was AccessibilityNodeInfo requested for a child node before its parent?
+07-30 11:21:13.509 W/AccessibilityDelegate( 7882): Drawing order is not available, was AccessibilityNodeInfo requested for a child node before its parent?
+07-30 11:21:13.536 W/AccessibilityDelegate( 7882): Drawing order is not available, was AccessibilityNodeInfo requested for a child node before its parent?
+07-30 11:21:13.566 W/AccessibilityDelegate( 7882): Drawing order is not available, was AccessibilityNodeInfo requested for a child node before its parent?
+07-30 11:21:14.386 D/WindowOnBackDispatcher( 7882): setTopOnBackInvokedCallback (unwrapped): android.app.Dialog$$ExternalSyntheticLambda2@5d9251a
+07-30 11:21:14.386 D/WindowOnBackDispatcher( 7882): setTopOnBackInvokedCallback (unwrapped): androidx.navigationevent.OnBackInvokedInput$createOnBackAnimationCallback$1@2dee84b
+07-30 11:21:14.386 D/WindowOnBackDispatcher( 7882): setOnBackInvokedCallbackInfo: androidx.navigationevent.OnBackInvokedInput$createOnBackAnimationCallback$1@2dee84b
+07-30 11:21:14.386 D/WindowOnBackDispatcher( 7882): setOnBackInvokedCallbackInfo: androidx.navigationevent.OnBackInvokedInput$createOnBackAnimationCallback$1@2dee84b
+07-30 11:21:14.404 I/Surface ( 7882): Creating surface for consumer unnamed-7882-14 with slotExpansion=1 for 64 slots
+07-30 11:21:14.404 I/Surface ( 7882): Creating surface for consumer VRI[MainActivity]#14(BLAST Consumer)14 with slotExpansion=1 for 64 slots
+07-30 11:21:14.487 D/InsetsController( 7882): hide(ime())
+07-30 11:21:14.487 I/ImeTracker( 7882): com.theveloper.pixelplay.debug:3c76b6d6: onCancelled at PHASE_CLIENT_ALREADY_HIDDEN
+07-30 11:21:15.092 D/DispatchedCoroutine( 7882): [DefaultDispatcher-worker-6] - Resetting lyrics for songId: -3897328402086
+07-30 11:21:15.116 D/WindowOnBackDispatcher( 7882): setTopOnBackInvokedCallback (unwrapped): null
+07-30 11:21:15.120 D/WindowOnBackDispatcher( 7882): setTopOnBackInvokedCallback (unwrapped): null
+07-30 11:21:15.124 D/HWUI    ( 7882): endAllActiveAnimators on 0xb400007c4182a130 (UnprojectedRipple) with handle 0xb400007dd17458d0
+07-30 11:21:15.127 I/InputTransport( 7882): channel 'a3f52b2 com.theveloper.pixelplay.debug/com.theveloper.pixelplay.MainActivity' ~ Peer closed connection, got Broken pipe(32)while sending message of type TIMELINE
+07-30 11:21:15.127 W/InputEventReceiver( 7882): Failed to send outbound event on channel 'a3f52b2 com.theveloper.pixelplay.debug/com.theveloper.pixelplay.MainActivity'.  status=DEAD_OBJECT(-32)
+07-30 11:21:15.127 W/InputEventReceiver( 7882): channel 'a3f52b2 com.theveloper.pixelplay.debug/com.theveloper.pixelplay.MainActivity' ~ Could not send 0 outbound event(s), status:DEAD_OBJECT
+07-30 11:21:15.132 D/HWUI    ( 7882): endAllActiveAnimators on 0xb400007c418395d0 (UnprojectedRipple) with handle 0xb400007dd172bfe0
+07-30 11:21:15.234 D/InsetsController( 7882): hide(ime())
+07-30 11:21:15.234 I/ImeTracker( 7882): com.theveloper.pixelplay.debug:68c9135c: onCancelled at PHASE_CLIENT_ALREADY_HIDDEN
+07-30 11:21:15.991 D/WindowOnBackDispatcher( 7882): setTopOnBackInvokedCallback (unwrapped): android.app.Dialog$$ExternalSyntheticLambda2@fde3eca
+07-30 11:21:15.991 D/WindowOnBackDispatcher( 7882): setTopOnBackInvokedCallback (unwrapped): androidx.navigationevent.OnBackInvokedInput$createOnBackAnimationCallback$1@2fe783b
+07-30 11:21:16.003 D/WindowOnBackDispatcher( 7882): setOnBackInvokedCallbackInfo: androidx.navigationevent.OnBackInvokedInput$createOnBackAnimationCallback$1@2fe783b
+07-30 11:21:16.015 I/Surface ( 7882): Creating surface for consumer unnamed-7882-15 with slotExpansion=1 for 64 slots
+07-30 11:21:16.015 I/Surface ( 7882): Creating surface for consumer VRI[MainActivity]#15(BLAST Consumer)15 with slotExpansion=1 for 64 slots
+07-30 11:21:16.082 D/InsetsController( 7882): hide(ime())
+07-30 11:21:16.082 I/ImeTracker( 7882): com.theveloper.pixelplay.debug:3704ed51: onCancelled at PHASE_CLIENT_ALREADY_HIDDEN
+07-30 11:21:16.187 D/AidlBufferPool( 7882): bufferpool2 0xb400007d118a4008 : 0(0 size) total buffers - 0(0 size) used buffers - 535/549 (recycle/alloc) - 12/1076 (fetch/transfer)
+07-30 11:21:16.187 D/AidlBufferPoolAcc( 7882): evictor expired: 1, evicted: 1
+07-30 11:21:16.584 D/AidlBufferPool( 7882): bufferpool2 0xb400007d117ac218 : 4(30600 size) total buffers - 1(7650 size) used buffers - 275/280 (recycle/alloc) - 9/556 (fetch/transfer)
+07-30 11:21:16.585 D/LyricsRepositoryImpl( 7882): [DefaultDispatcher-worker-15] - Fetching lyrics from remote for: A COLD PLAY
+07-30 11:21:16.587 D/LyricsRepositoryImpl( 7882): [DefaultDispatcher-worker-15] - Searching remote for lyrics for: A COLD PLAY by The Kid LAROI
+07-30 11:21:16.590 I/OkHttp  ( 7882): --> GET https://lrclib.net/api/search?q=A%20COLD%20PLAY
+07-30 11:21:16.590 I/OkHttp  ( 7882): --> GET https://lrclib.net/api/search?track_name=A%20COLD%20PLAY&artist_name=The%20Kid%20LAROI
+07-30 11:21:16.590 I/OkHttp  ( 7882): User-Agent: PixelPlayer/1.0 (Android; Music Player)
+07-30 11:21:16.590 I/OkHttp  ( 7882): User-Agent: PixelPlayer/1.0 (Android; Music Player)
+07-30 11:21:16.590 I/OkHttp  ( 7882): Accept: application/json
+07-30 11:21:16.590 I/OkHttp  ( 7882): --> END GET
+07-30 11:21:16.590 I/OkHttp  ( 7882): Accept: application/json
+07-30 11:21:16.590 I/OkHttp  ( 7882): --> END GET
+07-30 11:21:16.597 I/OkHttp  ( 7882): --> GET https://lrclib.net/api/search?track_name=A%20COLD%20PLAY
+07-30 11:21:16.597 I/OkHttp  ( 7882): User-Agent: PixelPlayer/1.0 (Android; Music Player)
+07-30 11:21:16.597 I/OkHttp  ( 7882): Accept: application/json
+07-30 11:21:16.597 I/OkHttp  ( 7882): --> END GET
+07-30 11:21:16.607 I/OkHttp  ( 7882): --> GET https://lrclib.net/api/search?q=A%20COLD%20PLAY%20The%20Kid%20LAROI&artist_name=The%20Kid%20LAROI
+07-30 11:21:16.607 I/OkHttp  ( 7882): User-Agent: PixelPlayer/1.0 (Android; Music Player)
+07-30 11:21:16.607 I/OkHttp  ( 7882): Accept: application/json
+07-30 11:21:16.607 I/OkHttp  ( 7882): --> END GET
+07-30 11:21:17.187 D/AidlBufferPoolAcc( 7882): evictor expired: 1, evicted: 0
+07-30 11:21:17.728 I/OkHttp  ( 7882): <-- 200 OK https://lrclib.net/api/search?track_name=A%20COLD%20PLAY&artist_name=The%20Kid%20LAROI (1138ms)
+07-30 11:21:17.729 I/OkHttp  ( 7882): Server: nginx/1.26.3
+07-30 11:21:17.729 I/OkHttp  ( 7882): Date: Thu, 30 Jul 2026 04:21:15 GMT
+07-30 11:21:17.729 I/OkHttp  ( 7882): Content-Type: application/json
+07-30 11:21:17.729 I/OkHttp  ( 7882): Transfer-Encoding: chunked
+07-30 11:21:17.729 I/OkHttp  ( 7882): Connection: keep-alive
+07-30 11:21:17.729 I/OkHttp  ( 7882): vary: origin, access-control-request-method, access-control-request-headers
+07-30 11:21:17.729 I/OkHttp  ( 7882): access-control-allow-origin: *
+07-30 11:21:17.729 I/OkHttp  ( 7882): <-- END HTTP
+07-30 11:21:17.737 I/OkHttp  ( 7882): <-- 200 OK https://lrclib.net/api/search?q=A%20COLD%20PLAY (1147ms)
+07-30 11:21:17.737 I/OkHttp  ( 7882): Server: nginx/1.26.3
+07-30 11:21:17.737 I/OkHttp  ( 7882): Date: Thu, 30 Jul 2026 04:21:15 GMT
+07-30 11:21:17.737 I/OkHttp  ( 7882): Content-Type: application/json
+07-30 11:21:17.737 I/OkHttp  ( 7882): Transfer-Encoding: chunked
+07-30 11:21:17.737 I/OkHttp  ( 7882): Connection: keep-alive
+07-30 11:21:17.737 I/OkHttp  ( 7882): vary: origin, access-control-request-method, access-control-request-headers
+07-30 11:21:17.737 I/OkHttp  ( 7882): access-control-allow-origin: *
+07-30 11:21:17.737 I/OkHttp  ( 7882): <-- END HTTP
+07-30 11:21:17.741 D/LyricsRepository( 7882): Fast search hit from strategy: track+artist (20 results)
+07-30 11:21:17.742 D/LyricsRepository( 7882): Strategy track_only failed after retries: StandaloneCoroutine was cancelled
+07-30 11:21:17.742 D/LyricsRepository( 7882): Strategy query_title_only failed after retries: StandaloneCoroutine was cancelled
+07-30 11:21:17.743 I/OkHttp  ( 7882): <-- HTTP FAILED: java.net.SocketException: Socket closed. https://lrclib.net/api/search?track_name=A%20COLD%20PLAY (1145ms)
+07-30 11:21:17.743 D/LyricsRepository( 7882): Strategy query+artist failed after retries: StandaloneCoroutine was cancelled
+07-30 11:21:17.743 I/OkHttp  ( 7882): <-- HTTP FAILED: java.net.SocketException: Socket closed. https://lrclib.net/api/search?q=A%20COLD%20PLAY%20The%20Kid%20LAROI&artist_name=The%20Kid%20LAROI (1135ms)
+07-30 11:21:17.805 D/LyricsRepositoryImpl( 7882): [DefaultDispatcher-worker-12] -   Found: A COLD PLAY by The Kid LAROI (synced: true)
+07-30 11:21:17.809 D/LyricsRepositoryImpl( 7882): [DefaultDispatcher-worker-12] -   Found: A COLD PLAY by The Kid LAROI (synced: true)
+07-30 11:21:17.813 D/LyricsRepositoryImpl( 7882): [DefaultDispatcher-worker-12] -   Found: A COLD PLAY by The Kid LAROI (synced: true)
+07-30 11:21:17.816 D/LyricsRepositoryImpl( 7882): [DefaultDispatcher-worker-12] -   Found: A COLD PLAY by The Kid LAROI (synced: true)
+07-30 11:21:17.821 D/LyricsRepositoryImpl( 7882): [DefaultDispatcher-worker-12] -   Found: A COLD PLAY by The Kid LAROI (synced: true)
+07-30 11:21:17.825 D/LyricsRepositoryImpl( 7882): [DefaultDispatcher-worker-12] -   Found: A COLD PLAY by The Kid LAROI (synced: true)
+07-30 11:21:17.828 D/LyricsRepositoryImpl( 7882): [DefaultDispatcher-worker-12] -   Found: A COLD PLAY by The Kid LAROI (synced: true)
+07-30 11:21:17.831 D/LyricsRepositoryImpl( 7882): [DefaultDispatcher-worker-12] -   Found: A COLD PLAY by The Kid LAROI (synced: true)
+07-30 11:21:17.835 D/LyricsRepositoryImpl( 7882): [DefaultDispatcher-worker-12] -   Found: A COLD PLAY by The Kid LAROI (synced: true)
+07-30 11:21:17.839 D/LyricsRepositoryImpl( 7882): [DefaultDispatcher-worker-12] -   Found: A COLD PLAY by The Kid LAROI (synced: true)
+07-30 11:21:17.843 D/LyricsRepositoryImpl( 7882): [DefaultDispatcher-worker-12] -   Found: A COLD PLAY by The Kid Laroi (synced: true)
+07-30 11:21:17.846 D/LyricsRepositoryImpl( 7882): [DefaultDispatcher-worker-12] -   Found: A COLD PLAY by The Kid LAROI (synced: true)
+07-30 11:21:17.850 D/LyricsRepositoryImpl( 7882): [DefaultDispatcher-worker-12] -   Found: A COLD PLAY by The Kid Laroi (synced: true)
+07-30 11:21:17.854 D/LyricsRepositoryImpl( 7882): [DefaultDispatcher-worker-12] -   Found: A COLD PLAY by The Kid LAROI (synced: true)
+07-30 11:21:17.854 D/LyricsRepositoryImpl( 7882): [DefaultDispatcher-worker-12] - Found 14 lyrics for: A COLD PLAY (14 with synced)
+07-30 11:21:17.863 D/LyricsRepository( 7882): Saved lyrics to JSON cache: /data/user/0/com.theveloper.pixelplay.debug/files/lyrics/-3897328402086.json
+07-30 11:21:17.863 D/LyricsRepositoryImpl( 7882): [DefaultDispatcher-worker-17] - Fetched and cached remote lyrics for: A COLD PLAY
+07-30 11:21:20.188 D/AidlBufferPool( 7882): bufferpool2 0xb400007d11837508 : 5(38250 size) total buffers - 0(0 size) used buffers - 18/23 (recycle/alloc) - 6/44 (fetch/transfer)
+07-30 11:21:20.188 D/AidlBufferPoolAcc( 7882): evictor expired: 1, evicted: 1
+07-30 11:21:21.743 I/AudioManager( 7882): broadcastDeviceListChange_sync: device update event from native but no device diff found
+07-30 11:21:21.743 I/AudioManager( 7882): broadcastDeviceListChange_sync: device update event from native but no device diff found
+07-30 11:21:21.940 D/AidlBufferPool( 7882): bufferpool2 0xb400007d117ac218 : 4(30600 size) total buffers - 1(7650 size) used buffers - 543/548 (recycle/alloc) - 9/1092 (fetch/transfer)
+07-30 11:21:22.106 I/pixelplay.debug( 7882): NativeAlloc concurrent mark compact GC freed 156MB AllocSpace bytes, 72(2552KB) LOS objects, 86% free, 33MB/256MB, paused 1.378ms,5.965ms total 261.112ms
+07-30 11:21:27.389 D/AidlBufferPool( 7882): bufferpool2 0xb400007d117ac218 : 4(30600 size) total buffers - 1(7650 size) used buffers - 815/820 (recycle/alloc) - 9/1636 (fetch/transfer)
+07-30 11:21:32.563 D/AidlBufferPool( 7882): bufferpool2 0xb400007d117ac218 : 4(30600 size) total buffers - 4(30600 size) used buffers - 1076/1081 (recycle/alloc) - 9/2155 (fetch/transfer)
+07-30 11:21:37.584 D/AidlBufferPool( 7882): bufferpool2 0xb400007d117ac218 : 4(30600 size) total buffers - 1(7650 size) used buffers - 1325/1330 (recycle/alloc) - 9/2656 (fetch/transfer)
+07-30 11:21:42.750 I/pixelplay.debug( 7882): NativeAlloc concurrent mark compact GC freed 159MB AllocSpace bytes, 9(184KB) LOS objects, 87% free, 31MB/256MB, paused 2.284ms,4.809ms total 249.107ms
+07-30 11:21:42.963 D/AidlBufferPool( 7882): bufferpool2 0xb400007d117ac218 : 4(30600 size) total buffers - 2(15300 size) used buffers - 1596/1601 (recycle/alloc) - 9/3199 (fetch/transfer)
+07-30 11:21:48.245 D/AidlBufferPool( 7882): bufferpool2 0xb400007d117ac218 : 4(30600 size) total buffers - 2(15300 size) used buffers - 1860/1865 (recycle/alloc) - 9/3727 (fetch/transfer)
+07-30 11:21:53.702 D/AidlBufferPool( 7882): bufferpool2 0xb400007d117ac218 : 4(30600 size) total buffers - 1(7650 size) used buffers - 2131/2136 (recycle/alloc) - 9/4268 (fetch/transfer)
+07-30 11:21:59.228 D/AidlBufferPool( 7882): bufferpool2 0xb400007d117ac218 : 4(30600 size) total buffers - 1(7650 size) used buffers - 2407/2412 (recycle/alloc) - 9/4820 (fetch/transfer)
+07-30 11:22:03.243 I/pixelplay.debug( 7882): NativeAlloc concurrent mark compact GC freed 157MB AllocSpace bytes, 4(80KB) LOS objects, 87% free, 31MB/256MB, paused 1.300ms,4.415ms total 245.456ms
+07-30 11:22:04.669 D/AidlBufferPool( 7882): bufferpool2 0xb400007d117ac218 : 4(30600 size) total buffers - 1(7650 size) used buffers - 2679/2684 (recycle/alloc) - 9/5364 (fetch/transfer)
+07-30 11:22:10.099 D/AidlBufferPool( 7882): bufferpool2 0xb400007d117ac218 : 4(30600 size) total buffers - 1(7650 size) used buffers - 2951/2956 (recycle/alloc) - 9/5908 (fetch/transfer)
+07-30 11:22:15.485 D/AidlBufferPool( 7882): bufferpool2 0xb400007d117ac218 : 4(30600 size) total buffers - 1(7650 size) used buffers - 3222/3227 (recycle/alloc) - 9/6452 (fetch/transfer)
+07-30 11:22:20.924 D/AidlBufferPool( 7882): bufferpool2 0xb400007d117ac218 : 4(30600 size) total buffers - 1(7650 size) used buffers - 3494/3499 (recycle/alloc) - 9/6996 (fetch/transfer)
+07-30 11:22:23.152 I/pixelplay.debug( 7882): NativeAlloc concurrent mark compact GC freed 153MB AllocSpace bytes, 4(80KB) LOS objects, 87% free, 31MB/256MB, paused 1.668ms,4.633ms total 240.304ms
+07-30 11:22:26.228 D/AidlBufferPool( 7882): bufferpool2 0xb400007d117ac218 : 4(30600 size) total buffers - 1(7650 size) used buffers - 3757/3762 (recycle/alloc) - 9/7520 (fetch/transfer)
+07-30 11:22:31.585 D/AidlBufferPool( 7882): bufferpool2 0xb400007d117ac218 : 4(30600 size) total buffers - 1(7650 size) used buffers - 4025/4030 (recycle/alloc) - 9/8056 (fetch/transfer)
+07-30 11:22:36.883 D/AidlBufferPool( 7882): bufferpool2 0xb400007d117ac218 : 5(38250 size) total buffers - 4(30600 size) used buffers - 4291/4297 (recycle/alloc) - 10/8585 (fetch/transfer)
+07-30 11:22:42.261 D/AidlBufferPool( 7882): bufferpool2 0xb400007d117ac218 : 5(38250 size) total buffers - 1(7650 size) used buffers - 4558/4564 (recycle/alloc) - 10/9124 (fetch/transfer)
+07-30 11:22:43.707 I/pixelplay.debug( 7882): NativeAlloc concurrent mark compact GC freed 157MB AllocSpace bytes, 0(0B) LOS objects, 87% free, 31MB/256MB, paused 1.331ms,4.966ms total 220.059ms
+07-30 11:22:47.485 D/AidlBufferPool( 7882): bufferpool2 0xb400007d117ac218 : 5(38250 size) total buffers - 1(7650 size) used buffers - 4821/4827 (recycle/alloc) - 10/9652 (fetch/transfer)
+07-30 11:22:52.868 D/AidlBufferPool( 7882): bufferpool2 0xb400007d117ac218 : 5(38250 size) total buffers - 1(7650 size) used buffers - 5088/5094 (recycle/alloc) - 10/10184 (fetch/transfer)
+07-30 11:22:56.161 I/AudioManager( 7882): broadcastDeviceListChange_sync: device update event from native but no device diff found
+07-30 11:22:56.161 I/AudioManager( 7882): broadcastDeviceListChange_sync: device update event from native but no device diff found
+07-30 11:22:58.143 D/AidlBufferPool( 7882): bufferpool2 0xb400007d117ac218 : 5(38250 size) total buffers - 1(7650 size) used buffers - 5352/5358 (recycle/alloc) - 10/10712 (fetch/transfer)
+07-30 11:23:03.527 D/AidlBufferPool( 7882): bufferpool2 0xb400007d117ac218 : 5(38250 size) total buffers - 3(22950 size) used buffers - 5623/5629 (recycle/alloc) - 10/11254 (fetch/transfer)
+07-30 11:23:04.003 I/pixelplay.debug( 7882): NativeAlloc concurrent mark compact GC freed 154MB AllocSpace bytes, 0(0B) LOS objects, 87% free, 31MB/256MB, paused 1.718ms,4.692ms total 282.535ms
+07-30 11:23:06.323 I/AudioManager( 7882): broadcastDeviceListChange_sync: device update event from native but no device diff found
+07-30 11:23:06.323 I/AudioManager( 7882): broadcastDeviceListChange_sync: device update event from native but no device diff found
+07-30 11:23:08.828 D/AidlBufferPool( 7882): bufferpool2 0xb400007d117ac218 : 5(38250 size) total buffers - 1(7650 size) used buffers - 5886/5892 (recycle/alloc) - 10/11780 (fetch/transfer)
+07-30 11:23:14.222 D/AidlBufferPool( 7882): bufferpool2 0xb400007d117ac218 : 5(38250 size) total buffers - 1(7650 size) used buffers - 6156/6162 (recycle/alloc) - 10/12320 (fetch/transfer)
+07-30 11:23:19.499 D/AidlBufferPool( 7882): bufferpool2 0xb400007d117ac218 : 5(38250 size) total buffers - 1(7650 size) used buffers - 6420/6426 (recycle/alloc) - 10/12848 (fetch/transfer)
+07-30 11:23:24.634 I/pixelplay.debug( 7882): NativeAlloc concurrent mark compact GC freed 156MB AllocSpace bytes, 0(0B) LOS objects, 87% free, 31MB/256MB, paused 1.377ms,9.080ms total 203.651ms
+07-30 11:23:24.960 D/AidlBufferPool( 7882): bufferpool2 0xb400007d117ac218 : 5(38250 size) total buffers - 3(22950 size) used buffers - 6695/6701 (recycle/alloc) - 10/13397 (fetch/transfer)
+07-30 11:23:25.941 D/AidlBufferPool( 7882): bufferpool2 0xb400007d118a4008 : 0(0 size) total buffers - 0(0 size) used buffers - 535/549 (recycle/alloc) - 12/1076 (fetch/transfer)
+07-30 11:23:25.941 D/AidlBufferPool( 7882): Destruction - bufferpool2 0xb400007d118a4008 cached: 0/0M, 0/0% in use; allocs: 549, 97% recycled; transfers: 1076, 99% unfetched
+07-30 11:23:30.380 D/AidlBufferPool( 7882): bufferpool2 0xb400007d117ac218 : 5(38250 size) total buffers - 1(7650 size) used buffers - 6964/6970 (recycle/alloc) - 22/13936 (fetch/transfer)
+07-30 11:23:31.222 D/AidlBufferPoolAcc( 7882): evictor expired: 1, evicted: 0
+07-30 11:23:31.812 D/WindowOnBackDispatcher( 7882): setTopOnBackInvokedCallback (unwrapped): null
+07-30 11:23:31.879 D/InsetsController( 7882): hide(ime())
+07-30 11:23:31.879 I/ImeTracker( 7882): com.theveloper.pixelplay.debug:d002ed0c: onCancelled at PHASE_CLIENT_ALREADY_HIDDEN
+07-30 11:23:33.194 W/AccessibilityDelegate( 7882): Drawing order is not available, was AccessibilityNodeInfo requested for a child node before its parent?
+07-30 11:23:33.734 W/FfmpegLibrary( 7882): No opus decoder available. Check the FFmpeg build configuration.
+07-30 11:23:34.116 W/MusicService_PixelPlay( 7882): No se encontraron widgets para actualizar
+07-30 11:23:34.139 D/WearStatePublisher( 7882): Published state to Wear: A COLD PLAY (playing=true)
+07-30 11:23:35.337 D/MusicService_PixelPlay( 7882): ReplayGain: No file path for track, keeping user-selected volume
+07-30 11:23:35.337 D/MusicService_PixelPlay( 7882): ReplayGain: No file path for track, keeping user-selected volume
+07-30 11:23:35.722 D/AidlBufferPool( 7882): bufferpool2 0xb400007d117ac218 : 5(38250 size) total buffers - 3(22950 size) used buffers - 7233/7239 (recycle/alloc) - 22/14474 (fetch/transfer)
+07-30 11:23:41.061 D/AidlBufferPool( 7882): bufferpool2 0xb400007d117ac218 : 5(38250 size) total buffers - 1(7650 size) used buffers - 7498/7504 (recycle/alloc) - 22/15004 (fetch/transfer)
+07-30 11:23:42.158 I/pixelplay.debug( 7882): NativeAlloc concurrent mark compact GC freed 214MB AllocSpace bytes, 9(224KB) LOS objects, 86% free, 33MB/256MB, paused 2.432ms,6.888ms total 206.655ms
+07-30 11:23:46.427 D/AidlBufferPool( 7882): bufferpool2 0xb400007d117ac218 : 5(38250 size) total buffers - 1(7650 size) used buffers - 7766/7772 (recycle/alloc) - 22/15540 (fetch/transfer)
+07-30 11:23:51.790 D/AidlBufferPool( 7882): bufferpool2 0xb400007d117ac218 : 5(38250 size) total buffers - 1(7650 size) used buffers - 8034/8040 (recycle/alloc) - 22/16076 (fetch/transfer)
+07-30 11:23:56.673 V/TransitionDebug( 7882): Countdown: 1539 ms to transition
+07-30 11:23:57.145 D/AidlBufferPool( 7882): bufferpool2 0xb400007d117ac218 : 5(38250 size) total buffers - 1(7650 size) used buffers - 8302/8308 (recycle/alloc) - 22/16612 (fetch/transfer)
+07-30 11:23:57.205 V/TransitionDebug( 7882): Countdown: 1012 ms to transition
+07-30 11:23:57.300 I/pixelplay.debug( 7882): NativeAlloc concurrent mark compact GC freed 199MB AllocSpace bytes, 0(0B) LOS objects, 86% free, 34MB/256MB, paused 2.091ms,7.039ms total 253.726ms
+07-30 11:23:57.675 V/TransitionDebug( 7882): Countdown: 539 ms to transition
+07-30 11:23:58.196 V/TransitionDebug( 7882): Countdown: 20 ms to transition
+07-30 11:23:58.225 D/TransitionDebug( 7882): FIRING TRANSITION NOW!
+07-30 11:23:58.234 D/MusicService( 7882): Published incoming crossfade player to MediaSession.
+07-30 11:23:58.234 D/MusicService_PixelPlay( 7882): ReplayGain: No file path for track, keeping user-selected volume
+07-30 11:23:58.252 D/MediaRouter( 7882): onRestoreRoute() : route=RouteInfo{ name=Phone, description=null, status=null, category=RouteCategory{ name=System types=ROUTE_TYPE_LIVE_AUDIO ROUTE_TYPE_LIVE_VIDEO  groupable=false }, supportedTypes=ROUTE_TYPE_LIVE_AUDIO ROUTE_TYPE_LIVE_VIDEO , presentationDisplay=null }
+07-30 11:23:58.252 V/MediaRouter( 7882): Selecting route: RouteInfo{ name=Phone, description=null, status=null, category=RouteCategory{ name=System types=ROUTE_TYPE_LIVE_AUDIO ROUTE_TYPE_LIVE_VIDEO  groupable=false }, supportedTypes=ROUTE_TYPE_LIVE_AUDIO ROUTE_TYPE_LIVE_VIDEO , presentationDisplay=null }
+07-30 11:23:58.258 D/LyricsRepository( 7882): ===== FETCH LYRICS START: The Rare Occasions - Notion (forceRefresh=false, source=API_FIRST) =====
+07-30 11:23:58.258 D/LyricsRepository( 7882): ===== RETURNING IN-MEMORY CACHED LYRICS =====
+07-30 11:23:58.265 D/AudioTrack( 7882): getTimestamp_l(6683): device stall time corrected using current time 349990259043009
+07-30 11:23:58.302 D/AidlBufferPool( 7882): bufferpool2 0xb400007d11837508 : 1(7650 size) total buffers - 1(7650 size) used buffers - 18/24 (recycle/alloc) - 6/44 (fetch/transfer)
+07-30 11:23:58.315 W/pixelplay.debug( 7882): AIBinder_linkToDeath is being called with a non-null cookie and no onUnlink callback set. Use AIBinder_DeathRecipient_setOnUnlinked to manage the lifetime of the cookie. This will become an abort.
+07-30 11:23:58.318 I/libbinder.BpBinder( 7882): onLastStrongRef automatically unlinking death recipients for binder (0xb400007d41709370) with descriptor: 'android.hardware.media.bufferpool2.IAccessor'
+07-30 11:23:58.319 W/pixelplay.debug( 7882): AIBinder_linkToDeath is being called with a non-null cookie and no onUnlink callback set. Use AIBinder_DeathRecipient_setOnUnlinked to manage the lifetime of the cookie. This will become an abort.
+07-30 11:23:58.345 D/MediaRouter( 7882): onRestoreRoute() : route=RouteInfo{ name=Phone, description=null, status=null, category=RouteCategory{ name=System types=ROUTE_TYPE_LIVE_AUDIO ROUTE_TYPE_LIVE_VIDEO  groupable=false }, supportedTypes=ROUTE_TYPE_LIVE_AUDIO ROUTE_TYPE_LIVE_VIDEO , presentationDisplay=null }
+07-30 11:23:58.345 V/MediaRouter( 7882): Selecting route: RouteInfo{ name=Phone, description=null, status=null, category=RouteCategory{ name=System types=ROUTE_TYPE_LIVE_AUDIO ROUTE_TYPE_LIVE_VIDEO  groupable=false }, supportedTypes=ROUTE_TYPE_LIVE_AUDIO ROUTE_TYPE_LIVE_VIDEO , presentationDisplay=null }
+07-30 11:23:58.518 D/MediaRouter( 7882): onRestoreRoute() : route=RouteInfo{ name=Phone, description=null, status=null, category=RouteCategory{ name=System types=ROUTE_TYPE_LIVE_AUDIO ROUTE_TYPE_LIVE_VIDEO  groupable=false }, supportedTypes=ROUTE_TYPE_LIVE_AUDIO ROUTE_TYPE_LIVE_VIDEO , presentationDisplay=null }
+07-30 11:23:58.518 V/MediaRouter( 7882): Selecting route: RouteInfo{ name=Phone, description=null, status=null, category=RouteCategory{ name=System types=ROUTE_TYPE_LIVE_AUDIO ROUTE_TYPE_LIVE_VIDEO  groupable=false }, supportedTypes=ROUTE_TYPE_LIVE_AUDIO ROUTE_TYPE_LIVE_VIDEO , presentationDisplay=null }
+07-30 11:23:58.821 W/MusicService_PixelPlay( 7882): No se encontraron widgets para actualizar
+07-30 11:23:58.847 D/WearStatePublisher( 7882): Published state to Wear: A COLD PLAY (playing=true)
+07-30 11:24:02.588 D/AidlBufferPool( 7882): bufferpool2 0xb400007d117ac218 : 5(38250 size) total buffers - 1(7650 size) used buffers - 8574/8580 (recycle/alloc) - 22/17156 (fetch/transfer)
+07-30 11:24:03.674 D/AidlBufferPool( 7882): bufferpool2 0xb400007d11837508 : 4(30600 size) total buffers - 1(7650 size) used buffers - 283/292 (recycle/alloc) - 10/580 (fetch/transfer)
+07-30 11:24:07.872 D/AidlBufferPool( 7882): bufferpool2 0xb400007d117ac218 : 5(38250 size) total buffers - 1(7650 size) used buffers - 8838/8844 (recycle/alloc) - 22/17684 (fetch/transfer)
+07-30 11:24:09.187 D/AidlBufferPool( 7882): bufferpool2 0xb400007d11837508 : 4(30600 size) total buffers - 1(7650 size) used buffers - 559/568 (recycle/alloc) - 10/1132 (fetch/transfer)
+07-30 11:24:09.729 D/CCodecBuffers( 7882): [c2.android.opus.decoder#966:1D-Output] received null buffer
+07-30 11:24:09.799 D/AudioTrack( 7882): stop(6679): called with 8574408 frames delivered
+07-30 11:24:09.815 D/MediaRouter( 7882): onRestoreRoute() : route=RouteInfo{ name=Phone, description=null, status=null, category=RouteCategory{ name=System types=ROUTE_TYPE_LIVE_AUDIO ROUTE_TYPE_LIVE_VIDEO  groupable=false }, supportedTypes=ROUTE_TYPE_LIVE_AUDIO ROUTE_TYPE_LIVE_VIDEO , presentationDisplay=null }
+07-30 11:24:09.815 V/MediaRouter( 7882): Selecting route: RouteInfo{ name=Phone, description=null, status=null, category=RouteCategory{ name=System types=ROUTE_TYPE_LIVE_AUDIO ROUTE_TYPE_LIVE_VIDEO  groupable=false }, supportedTypes=ROUTE_TYPE_LIVE_AUDIO ROUTE_TYPE_LIVE_VIDEO , presentationDisplay=null }
+07-30 11:24:10.226 D/MusicService( 7882): Swapped MediaSession player to new instance.
+07-30 11:24:10.227 D/MusicService_PixelPlay( 7882): ReplayGain: No file path for track, keeping user-selected volume
+07-30 11:24:10.227 D/TransitionDebug( 7882): Controller detected player swap. Moving listener.
+07-30 11:24:10.228 D/MusicService_PixelPlay( 7882): ReplayGain: No file path for track, keeping user-selected volume
+07-30 11:24:10.228 D/MusicService_PixelPlay( 7882): ReplayGain: Transition finished, no pending volume — triggering full recomputation
+07-30 11:24:10.230 D/EqualizerManager( 7882): Skipping attachToAudioSession(1404001): all audio effects are disabled
+07-30 11:24:10.235 D/MediaCodec( 7882): keep callback message for reclaim
+07-30 11:24:10.235 I/CCodecConfig( 7882): query failed after returning 8 values (BAD_INDEX)
+07-30 11:24:10.237 D/CCodecBufferChannel( 7882): [c2.android.opus.decoder#966] MediaCodec discarded an unknown buffer
+07-30 11:24:10.237 D/CCodecBufferChannel( 7882): [c2.android.opus.decoder#966] MediaCodec discarded an unknown buffer
+07-30 11:24:10.237 D/CCodecBufferChannel( 7882): [c2.android.opus.decoder#966] MediaCodec discarded an unknown buffer
+07-30 11:24:10.237 D/CCodec  ( 7882): hold CodecLooper(1) until release
+07-30 11:24:10.237 D/CCodecBufferChannel( 7882): [c2.android.opus.decoder#966] MediaCodec discarded an unknown buffer
+07-30 11:24:10.743 W/MusicService_PixelPlay( 7882): No se encontraron widgets para actualizar
+07-30 11:24:10.894 D/WearStatePublisher( 7882): Published state to Wear: Notion (playing=true)
+07-30 11:24:11.441 I/pixelplay.debug( 7882): NativeAlloc concurrent mark compact GC freed 171MB AllocSpace bytes, 77(3916KB) LOS objects, 87% free, 31MB/256MB, paused 1.751ms,5.658ms total 284.486ms
+07-30 11:24:12.735 D/TransitionDebug( 7882): Resolving settings for playlistId=null, -3639194680666 -> -3963432137940
+07-30 11:24:12.735 D/TransitionDebug( 7882): Missing playlistId. Using global settings.
+07-30 11:24:12.736 D/TransitionDebug( 7882): Settings resolved: Mode=OVERLAP, Duration=12000ms, GlobalEnabled=true, Source=GLOBAL_DEFAULT
+07-30 11:24:12.736 D/TransitionDebug( 7882): Preparing next track for overlap: -3963432137940
+07-30 11:24:12.761 D/TransitionDebug( 7882): Scheduled OVERLAP at 183141 ms (SongDur: 195141). Fade duration: 12000 ms
+07-30 11:24:12.761 D/TransitionDebug( 7882): Enabled pauseAtEndOfMediaItems to prevent auto-skip.
+07-30 11:24:12.775 W/FfmpegLibrary( 7882): No opus decoder available. Check the FFmpeg build configuration.
+07-30 11:24:12.781 I/DMCodecAdapterFactory( 7882): Creating an asynchronous MediaCodec adapter for track type audio
+07-30 11:24:12.782 I/MediaCodec( 7882): Retry enabled for HDCP failure
+07-30 11:24:12.785 D/CCodec  ( 7882): allocate(c2.android.opus.decoder)
+07-30 11:24:12.789 I/CCodec  ( 7882): setting up 'default' as default (vendor) store
+07-30 11:24:12.794 W/pixelplay.debug( 7882): AIBinder_linkToDeath is being called with a non-null cookie and no onUnlink callback set. Use AIBinder_DeathRecipient_setOnUnlinked to manage the lifetime of the cookie. This will become an abort.
+07-30 11:24:12.794 I/CCodec  ( 7882): Created component [c2.android.opus.decoder] for [c2.android.opus.decoder]
+07-30 11:24:12.794 D/CCodecConfig( 7882): read media type: audio/opus
+07-30 11:24:12.796 D/ReflectedParamUpdater( 7882): extent() != 1 for single value type: algo.buffers.max-count.values
+07-30 11:24:12.797 D/ReflectedParamUpdater( 7882): extent() != 1 for single value type: output.subscribed-indices.values
+07-30 11:24:12.797 D/ReflectedParamUpdater( 7882): extent() != 1 for single value type: input.buffers.allocator-ids.values
+07-30 11:24:12.797 D/ReflectedParamUpdater( 7882): extent() != 1 for single value type: output.buffers.allocator-ids.values
+07-30 11:24:12.797 D/ReflectedParamUpdater( 7882): extent() != 1 for single value type: algo.buffers.allocator-ids.values
+07-30 11:24:12.797 D/ReflectedParamUpdater( 7882): extent() != 1 for single value type: output.buffers.pool-ids.values
+07-30 11:24:12.797 D/ReflectedParamUpdater( 7882): extent() != 1 for single value type: algo.buffers.pool-ids.values
+07-30 11:24:12.799 I/CCodecConfig( 7882): query failed after returning 8 values (BAD_INDEX)
+07-30 11:24:12.799 D/CCodecConfig( 7882): c2 config diff is Dict {
+07-30 11:24:12.799 D/CCodecConfig( 7882):   c2::u32 coded.bitrate.value = 6000
+07-30 11:24:12.799 D/CCodecConfig( 7882):   c2::u32 input.buffers.max-size.value = 7650
+07-30 11:24:12.799 D/CCodecConfig( 7882):   c2::u32 input.delay.value = 0
+07-30 11:24:12.799 D/CCodecConfig( 7882):   string input.media-type.value = "audio/opus"
+07-30 11:24:12.799 D/CCodecConfig( 7882):   c2::u32 output.large-frame.max-size = 0
+07-30 11:24:12.799 D/CCodecConfig( 7882):   c2::u32 output.large-frame.threshold-size = 0
+07-30 11:24:12.799 D/CCodecConfig( 7882):   string output.media-type.value = "audio/raw"
+07-30 11:24:12.799 D/CCodecConfig( 7882):   c2::u32 raw.channel-count.value = 1
+07-30 11:24:12.799 D/CCodecConfig( 7882):   c2::u32 raw.sample-rate.value = 48000
+07-30 11:24:12.799 D/CCodecConfig( 7882): }
+07-30 11:24:12.804 I/MediaCodec( 7882): MediaCodec will operate in async mode
+07-30 11:24:12.805 D/CCodec  ( 7882): [c2.android.opus.decoder] buffers are bound to CCodec for this session
+07-30 11:24:12.805 D/CCodecConfig( 7882): no c2 equivalents for log-session-id
+07-30 11:24:12.805 D/CCodecConfig( 7882): no c2 equivalents for importance
+07-30 11:24:12.805 D/CCodecConfig( 7882): no c2 equivalents for csd-1
+07-30 11:24:12.805 D/CCodecConfig( 7882): no c2 equivalents for csd-2
+07-30 11:24:12.805 D/CCodecConfig( 7882): no c2 equivalents for flags
+07-30 11:24:12.805 D/CCodecConfig( 7882): config failed => CORRUPTED
+07-30 11:24:12.806 D/CCodecConfig( 7882): c2 config diff is   c2::u32 raw.channel-count.value = 2
+07-30 11:24:12.806 D/CCodec  ( 7882): client requested max input size 5760, which is smaller than what component recommended (7650); overriding with component recommendation.
+07-30 11:24:12.806 W/CCodec  ( 7882): This behavior is subject to change. It is recommended that app developers double check whether the requested max input size is in reasonable range.
+07-30 11:24:12.806 D/CCodec  ( 7882): encoding statistics level = 0
+07-30 11:24:12.806 D/CCodec  ( 7882): setup formats input: AMessage(what = 0x00000000) = {
+07-30 11:24:12.806 D/CCodec  ( 7882):   int32_t bitrate = 6000
+07-30 11:24:12.806 D/CCodec  ( 7882):   int32_t channel-count = 2
+07-30 11:24:12.806 D/CCodec  ( 7882):   int32_t max-input-size = 7650
+07-30 11:24:12.806 D/CCodec  ( 7882):   string mime = "audio/opus"
+07-30 11:24:12.806 D/CCodec  ( 7882):   int32_t sample-rate = 48000
+07-30 11:24:12.806 D/CCodec  ( 7882): }
+07-30 11:24:12.806 D/CCodec  ( 7882): setup formats output: AMessage(what = 0x00000000) = {
+07-30 11:24:12.806 D/CCodec  ( 7882):   int32_t buffer-batch-max-output-size = 0
+07-30 11:24:12.806 D/CCodec  ( 7882):   int32_t buffer-batch-threshold-output-size = 0
+07-30 11:24:12.806 D/CCodec  ( 7882):   int32_t channel-count = 2
+07-30 11:24:12.806 D/CCodec  ( 7882):   string mime = "audio/raw"
+07-30 11:24:12.806 D/CCodec  ( 7882):   int32_t sample-rate = 48000
+07-30 11:24:12.806 D/CCodec  ( 7882):   int32_t android._config-pcm-encoding = 4
+07-30 11:24:12.806 D/CCodec  ( 7882): }
+07-30 11:24:12.807 I/CCodecConfig( 7882): query failed after returning 8 values (BAD_INDEX)
+07-30 11:24:12.807 W/CCodecResources( 7882): Failed to query component interface for required system resources: 6
+07-30 11:24:12.807 D/MediaCodec( 7882): keep callback message for reclaim
+07-30 11:24:12.810 D/CCodecBufferChannel( 7882): [c2.android.opus.decoder#460] Created input block pool with allocatorID 16 => poolID 26 - OK (0)
+07-30 11:24:12.811 I/CCodecBufferChannel( 7882): [c2.android.opus.decoder#460] Created output block pool with allocatorID 16 => poolID 11190 - OK
+07-30 11:24:12.811 D/CCodecBufferChannel( 7882): [c2.android.opus.decoder#460] Configured output block pool ids 11190 => OK
+07-30 11:24:12.815 W/pixelplay.debug( 7882): AIBinder_linkToDeath is being called with a non-null cookie and no onUnlink callback set. Use AIBinder_DeathRecipient_setOnUnlinked to manage the lifetime of the cookie. This will become an abort.
+07-30 11:24:12.818 W/LoudnessCodecController( 7882): MediaCodec mime type not supported for loudness annotation
+07-30 11:24:12.818 V/LoudnessCodecController( 7882): Could not extract codec loudness information
+07-30 11:24:12.825 W/pixelplay.debug( 7882): AIBinder_linkToDeath is being called with a non-null cookie and no onUnlink callback set. Use AIBinder_DeathRecipient_setOnUnlinked to manage the lifetime of the cookie. This will become an abort.
+07-30 11:24:14.420 D/AidlBufferPool( 7882): bufferpool2 0xb400007d11837508 : 4(30600 size) total buffers - 1(7650 size) used buffers - 817/830 (recycle/alloc) - 14/1656 (fetch/transfer)
+07-30 11:24:16.233 D/AidlBufferPool( 7882): bufferpool2 0xb400007d117ac218 : 0(0 size) total buffers - 0(0 size) used buffers - 8938/8944 (recycle/alloc) - 22/17870 (fetch/transfer)
+07-30 11:24:16.233 D/AidlBufferPoolAcc( 7882): evictor expired: 1, evicted: 1
+07-30 11:24:19.780 D/AidlBufferPool( 7882): bufferpool2 0xb400007d11837508 : 4(30600 size) total buffers - 1(7650 size) used buffers - 1085/1098 (recycle/alloc) - 14/2192 (fetch/transfer)
+07-30 11:24:20.235 D/AidlBufferPool( 7882): bufferpool2 0xb400007d116d5368 : 5(38250 size) total buffers - 0(0 size) used buffers - 18/23 (recycle/alloc) - 5/44 (fetch/transfer)
+07-30 11:24:20.235 D/AidlBufferPoolAcc( 7882): evictor expired: 1, evicted: 1
+07-30 11:24:25.181 D/AidlBufferPool( 7882): bufferpool2 0xb400007d11837508 : 4(30600 size) total buffers - 1(7650 size) used buffers - 1355/1368 (recycle/alloc) - 14/2732 (fetch/transfer)
+07-30 11:24:28.619 I/pixelplay.debug( 7882): NativeAlloc concurrent mark compact GC freed 213MB AllocSpace bytes, 9(208KB) LOS objects, 86% free, 33MB/256MB, paused 2.012ms,5.318ms total 348.125ms
+07-30 11:24:30.385 D/AidlBufferPool( 7882): bufferpool2 0xb400007d11837508 : 4(30600 size) total buffers - 1(7650 size) used buffers - 1615/1628 (recycle/alloc) - 14/3252 (fetch/transfer)
+07-30 11:24:35.740 D/AidlBufferPool( 7882): bufferpool2 0xb400007d11837508 : 4(30600 size) total buffers - 1(7650 size) used buffers - 1883/1896 (recycle/alloc) - 14/3788 (fetch/transfer)
+07-30 11:24:41.120 D/AidlBufferPool( 7882): bufferpool2 0xb400007d11837508 : 4(30600 size) total buffers - 3(22950 size) used buffers - 2154/2167 (recycle/alloc) - 14/4330 (fetch/transfer)
+07-30 11:24:42.694 I/pixelplay.debug( 7882): NativeAlloc concurrent mark compact GC freed 220MB AllocSpace bytes, 5(128KB) LOS objects, 86% free, 34MB/256MB, paused 1.656ms,4.578ms total 373.622ms
+07-30 11:24:46.407 D/AidlBufferPool( 7882): bufferpool2 0xb400007d11837508 : 4(30600 size) total buffers - 2(15300 size) used buffers - 2418/2431 (recycle/alloc) - 14/4859 (fetch/transfer)
+07-30 11:24:51.859 D/AidlBufferPool( 7882): bufferpool2 0xb400007d11837508 : 4(30600 size) total buffers - 1(7650 size) used buffers - 2689/2702 (recycle/alloc) - 14/5400 (fetch/transfer)
+07-30 11:24:57.183 D/AidlBufferPool( 7882): bufferpool2 0xb400007d11837508 : 4(30600 size) total buffers - 1(7650 size) used buffers - 2955/2968 (recycle/alloc) - 14/5932 (fetch/transfer)
+07-30 11:24:58.485 I/pixelplay.debug( 7882): NativeAlloc concurrent mark compact GC freed 221MB AllocSpace bytes, 0(0B) LOS objects, 80% free, 49MB/256MB, paused 1.686ms,8.614ms total 1.039s
+07-30 11:25:02.626 D/AidlBufferPool( 7882): bufferpool2 0xb400007d11837508 : 4(30600 size) total buffers - 1(7650 size) used buffers - 3227/3240 (recycle/alloc) - 14/6476 (fetch/transfer)
+07-30 11:25:07.985 D/AidlBufferPool( 7882): bufferpool2 0xb400007d11837508 : 4(30600 size) total buffers - 1(7650 size) used buffers - 3495/3508 (recycle/alloc) - 14/7012 (fetch/transfer)
+07-30 11:25:13.346 D/AidlBufferPool( 7882): bufferpool2 0xb400007d11837508 : 4(30600 size) total buffers - 1(7650 size) used buffers - 3763/3776 (recycle/alloc) - 14/7548 (fetch/transfer)
+07-30 11:25:13.861 I/pixelplay.debug( 7882): NativeAlloc concurrent mark compact GC freed 210MB AllocSpace bytes, 0(0B) LOS objects, 86% free, 33MB/256MB, paused 1.371ms,5.874ms total 287.481ms
+07-30 11:25:18.648 D/AidlBufferPool( 7882): bufferpool2 0xb400007d11837508 : 4(30600 size) total buffers - 2(15300 size) used buffers - 4030/4043 (recycle/alloc) - 14/8083 (fetch/transfer)
+07-30 11:25:23.943 D/AidlBufferPool( 7882): bufferpool2 0xb400007d11837508 : 4(30600 size) total buffers - 1(7650 size) used buffers - 4293/4306 (recycle/alloc) - 14/8608 (fetch/transfer)
+07-30 11:25:29.341 D/AidlBufferPool( 7882): bufferpool2 0xb400007d11837508 : 4(30600 size) total buffers - 1(7650 size) used buffers - 4563/4576 (recycle/alloc) - 14/9148 (fetch/transfer)
+07-30 11:25:30.917 I/pixelplay.debug( 7882): NativeAlloc concurrent mark compact GC freed 221MB AllocSpace bytes, 0(0B) LOS objects, 86% free, 35MB/256MB, paused 1.593ms,3.854ms total 371.894ms
+07-30 11:25:34.701 D/AidlBufferPool( 7882): bufferpool2 0xb400007d11837508 : 4(30600 size) total buffers - 1(7650 size) used buffers - 4831/4844 (recycle/alloc) - 14/9684 (fetch/transfer)
+07-30 11:25:40.140 D/AidlBufferPool( 7882): bufferpool2 0xb400007d11837508 : 4(30600 size) total buffers - 1(7650 size) used buffers - 5103/5116 (recycle/alloc) - 14/10228 (fetch/transfer)
+07-30 11:25:41.097 W/FfmpegLibrary( 7882): No opus decoder available. Check the FFmpeg build configuration.
+07-30 11:25:41.435 W/MusicService_PixelPlay( 7882): No se encontraron widgets para actualizar
+07-30 11:25:41.450 D/WearStatePublisher( 7882): Published state to Wear: Notion (playing=true)
+07-30 11:25:42.479 I/AudioManager( 7882): broadcastDeviceListChange_sync: device update event from native but no device diff found
+07-30 11:25:42.479 I/AudioManager( 7882): broadcastDeviceListChange_sync: device update event from native but no device diff found
+07-30 11:25:42.666 D/MusicService_PixelPlay( 7882): ReplayGain: No file path for track, keeping user-selected volume
+07-30 11:25:42.666 D/MusicService_PixelPlay( 7882): ReplayGain: No file path for track, keeping user-selected volume
+07-30 11:25:42.783 I/AudioManager( 7882): broadcastDeviceListChange_sync: device update event from native but no device diff found
+07-30 11:25:42.783 I/AudioManager( 7882): broadcastDeviceListChange_sync: device update event from native but no device diff found
+07-30 11:25:44.928 I/pixelplay.debug( 7882): Background young concurrent mark compact GC freed 221MB AllocSpace bytes, 3(104KB) LOS objects, 86% free, 34MB/256MB, paused 2.137ms,8ms total 173.307ms
+07-30 11:25:45.564 D/AidlBufferPool( 7882): bufferpool2 0xb400007d11837508 : 4(30600 size) total buffers - 1(7650 size) used buffers - 5376/5389 (recycle/alloc) - 14/10776 (fetch/transfer)
+07-30 11:25:50.405 I/AudioManager( 7882): broadcastDeviceListChange_sync: device update event from native but no device diff found
+07-30 11:25:50.405 I/AudioManager( 7882): broadcastDeviceListChange_sync: device update event from native but no device diff found
+07-30 11:25:51.068 D/AidlBufferPool( 7882): bufferpool2 0xb400007d11837508 : 4(30600 size) total buffers - 1(7650 size) used buffers - 5649/5662 (recycle/alloc) - 14/11320 (fetch/transfer)
+07-30 11:25:56.527 D/AidlBufferPool( 7882): bufferpool2 0xb400007d11837508 : 4(30600 size) total buffers - 2(15300 size) used buffers - 5924/5937 (recycle/alloc) - 14/11870 (fetch/transfer)
+07-30 11:25:59.616 I/pixelplay.debug( 7882): NativeAlloc concurrent mark compact GC freed 196MB AllocSpace bytes, 0(0B) LOS objects, 86% free, 33MB/256MB, paused 1.327ms,6.315ms total 274.655ms
+07-30 11:26:01.945 D/AidlBufferPool( 7882): bufferpool2 0xb400007d11837508 : 4(30600 size) total buffers - 1(7650 size) used buffers - 6193/6206 (recycle/alloc) - 14/12408 (fetch/transfer)
+07-30 11:26:07.425 D/AidlBufferPool( 7882): bufferpool2 0xb400007d11837508 : 4(30600 size) total buffers - 1(7650 size) used buffers - 6467/6480 (recycle/alloc) - 14/12956 (fetch/transfer)
+07-30 11:26:08.572 I/AudioManager( 7882): broadcastDeviceListChange_sync: device update event from native but no device diff found
+07-30 11:26:08.572 I/AudioManager( 7882): broadcastDeviceListChange_sync: device update event from native but no device diff found
+07-30 11:26:12.861 D/AidlBufferPool( 7882): bufferpool2 0xb400007d11837508 : 4(30600 size) total buffers - 1(7650 size) used buffers - 6739/6752 (recycle/alloc) - 14/13500 (fetch/transfer)
+07-30 11:26:14.863 I/pixelplay.debug( 7882): NativeAlloc concurrent mark compact GC freed 221MB AllocSpace bytes, 0(0B) LOS objects, 86% free, 33MB/256MB, paused 1.322ms,11.916ms total 214.794ms
+07-30 11:26:18.084 D/AidlBufferPool( 7882): bufferpool2 0xb400007d11837508 : 4(30600 size) total buffers - 2(15300 size) used buffers - 7002/7015 (recycle/alloc) - 14/14027 (fetch/transfer)
+07-30 11:26:23.501 D/AidlBufferPool( 7882): bufferpool2 0xb400007d11837508 : 4(30600 size) total buffers - 1(7650 size) used buffers - 7271/7284 (recycle/alloc) - 14/14564 (fetch/transfer)
+07-30 11:26:28.822 D/AidlBufferPool( 7882): bufferpool2 0xb400007d11837508 : 4(30600 size) total buffers - 1(7650 size) used buffers - 7537/7550 (recycle/alloc) - 14/15096 (fetch/transfer)
+07-30 11:26:29.016 I/pixelplay.debug( 7882): NativeAlloc concurrent mark compact GC freed 222MB AllocSpace bytes, 0(0B) LOS objects, 84% free, 39MB/256MB, paused 2.180ms,5.507ms total 560.954ms
+07-30 11:26:30.090 I/AudioManager( 7882): broadcastDeviceListChange_sync: device update event from native but no device diff found
+07-30 11:26:30.090 I/AudioManager( 7882): broadcastDeviceListChange_sync: device update event from native but no device diff found
+07-30 11:26:34.070 D/AidlBufferPool( 7882): bufferpool2 0xb400007d11837508 : 4(30600 size) total buffers - 1(7650 size) used buffers - 7799/7812 (recycle/alloc) - 14/15620 (fetch/transfer)
+07-30 11:26:39.343 D/AidlBufferPool( 7882): bufferpool2 0xb400007d11837508 : 4(30600 size) total buffers - 1(7650 size) used buffers - 8063/8076 (recycle/alloc) - 14/16148 (fetch/transfer)
+07-30 11:26:40.190 I/AudioManager( 7882): broadcastDeviceListChange_sync: device update event from native but no device diff found
+07-30 11:26:40.190 I/AudioManager( 7882): broadcastDeviceListChange_sync: device update event from native but no device diff found
+07-30 11:26:44.579 D/AidlBufferPool( 7882): bufferpool2 0xb400007d11837508 : 4(30600 size) total buffers - 1(7650 size) used buffers - 8325/8338 (recycle/alloc) - 14/16672 (fetch/transfer)
+07-30 11:26:44.813 I/pixelplay.debug( 7882): NativeAlloc concurrent mark compact GC freed 216MB AllocSpace bytes, 6(120KB) LOS objects, 81% free, 48MB/256MB, paused 1.730ms,5.879ms total 946.550ms
+07-30 11:26:49.909 D/AidlBufferPool( 7882): bufferpool2 0xb400007d11837508 : 4(30600 size) total buffers - 1(7650 size) used buffers - 8591/8604 (recycle/alloc) - 14/17204 (fetch/transfer)
+07-30 11:26:50.153 I/AudioManager( 7882): broadcastDeviceListChange_sync: device update event from native but no device diff found
+07-30 11:26:50.153 I/AudioManager( 7882): broadcastDeviceListChange_sync: device update event from native but no device diff found
+07-30 11:26:54.948 D/AidlBufferPool( 7882): bufferpool2 0xb400007d11837508 : 4(30600 size) total buffers - 1(7650 size) used buffers - 8843/8856 (recycle/alloc) - 14/17708 (fetch/transfer)
+07-30 11:26:58.923 I/pixelplay.debug( 7882): NativeAlloc concurrent mark compact GC freed 210MB AllocSpace bytes, 0(0B) LOS objects, 86% free, 34MB/256MB, paused 3.344ms,6.256ms total 291.435ms
+07-30 11:27:00.310 I/AudioManager( 7882): broadcastDeviceListChange_sync: device update event from native but no device diff found
+07-30 11:27:00.310 I/AudioManager( 7882): broadcastDeviceListChange_sync: device update event from native but no device diff found
+07-30 11:27:00.390 D/AidlBufferPool( 7882): bufferpool2 0xb400007d11837508 : 4(30600 size) total buffers - 1(7650 size) used buffers - 9115/9128 (recycle/alloc) - 14/18252 (fetch/transfer)
+07-30 11:27:01.041 V/TransitionDebug( 7882): Countdown: 509 ms to transition
+07-30 11:27:01.541 V/TransitionDebug( 7882): Countdown: 16 ms to transition
+07-30 11:27:01.558 D/TransitionDebug( 7882): FIRING TRANSITION NOW!
+07-30 11:27:01.568 D/MusicService( 7882): Published incoming crossfade player to MediaSession.
+07-30 11:27:01.569 D/MusicService_PixelPlay( 7882): ReplayGain: No file path for track, keeping user-selected volume
+07-30 11:27:01.579 D/AudioTrack( 7882): getTimestamp_l(6687): device stall time corrected using current time 350173573561873
+07-30 11:27:01.594 D/LyricsRepository( 7882): ===== FETCH LYRICS START: DJ Anemia, crier - stacy (forceRefresh=false, source=API_FIRST) =====
+07-30 11:27:01.594 D/LyricsRepository( 7882): ===== NO IN-MEMORY CACHE HIT, proceeding to fetch =====
+07-30 11:27:01.603 I/OkHttp  ( 7882): --> GET https://lrclib.net/api/search?track_name=stacy&artist_name=DJ%20Anemia%2C%20crier
+07-30 11:27:01.603 I/OkHttp  ( 7882): User-Agent: PixelPlayer/1.0 (Android; Music Player)
+07-30 11:27:01.603 I/OkHttp  ( 7882): Accept: application/json
+07-30 11:27:01.603 I/OkHttp  ( 7882): --> END GET
+07-30 11:27:01.621 D/AidlBufferPool( 7882): bufferpool2 0xb400007d116d5368 : 1(7650 size) total buffers - 1(7650 size) used buffers - 18/24 (recycle/alloc) - 5/44 (fetch/transfer)
+07-30 11:27:01.632 D/AidlBufferPool( 7882): bufferpool2 0xb400007d117ac218 : 0(0 size) total buffers - 0(0 size) used buffers - 8938/8944 (recycle/alloc) - 22/17870 (fetch/transfer)
+07-30 11:27:01.632 D/AidlBufferPool( 7882): Destruction - bufferpool2 0xb400007d117ac218 cached: 0/0M, 0/0% in use; allocs: 8944, 100% recycled; transfers: 17870, 100% unfetched
+07-30 11:27:01.632 W/pixelplay.debug( 7882): AIBinder_linkToDeath is being called with a non-null cookie and no onUnlink callback set. Use AIBinder_DeathRecipient_setOnUnlinked to manage the lifetime of the cookie. This will become an abort.
+07-30 11:27:01.633 I/libbinder.BpBinder( 7882): onLastStrongRef automatically unlinking death recipients for binder (0xb400007d41705d20) with descriptor: 'android.hardware.media.bufferpool2.IAccessor'
+07-30 11:27:01.635 W/pixelplay.debug( 7882): AIBinder_linkToDeath is being called with a non-null cookie and no onUnlink callback set. Use AIBinder_DeathRecipient_setOnUnlinked to manage the lifetime of the cookie. This will become an abort.
+07-30 11:27:01.639 I/OkHttp  ( 7882): --> GET https://lrclib.net/api/search?q=DJ%20Anemia%2C%20crier%20stacy
+07-30 11:27:01.639 I/OkHttp  ( 7882): User-Agent: PixelPlayer/1.0 (Android; Music Player)
+07-30 11:27:01.639 I/OkHttp  ( 7882): Accept: application/json
+07-30 11:27:01.639 I/OkHttp  ( 7882): --> END GET
+07-30 11:27:01.664 D/MediaRouter( 7882): onRestoreRoute() : route=RouteInfo{ name=Phone, description=null, status=null, category=RouteCategory{ name=System types=ROUTE_TYPE_LIVE_AUDIO ROUTE_TYPE_LIVE_VIDEO  groupable=false }, supportedTypes=ROUTE_TYPE_LIVE_AUDIO ROUTE_TYPE_LIVE_VIDEO , presentationDisplay=null }
+07-30 11:27:01.664 V/MediaRouter( 7882): Selecting route: RouteInfo{ name=Phone, description=null, status=null, category=RouteCategory{ name=System types=ROUTE_TYPE_LIVE_AUDIO ROUTE_TYPE_LIVE_VIDEO  groupable=false }, supportedTypes=ROUTE_TYPE_LIVE_AUDIO ROUTE_TYPE_LIVE_VIDEO , presentationDisplay=null }
+07-30 11:27:01.664 D/MediaRouter( 7882): onRestoreRoute() : route=RouteInfo{ name=Phone, description=null, status=null, category=RouteCategory{ name=System types=ROUTE_TYPE_LIVE_AUDIO ROUTE_TYPE_LIVE_VIDEO  groupable=false }, supportedTypes=ROUTE_TYPE_LIVE_AUDIO ROUTE_TYPE_LIVE_VIDEO , presentationDisplay=null }
+07-30 11:27:01.664 V/MediaRouter( 7882): Selecting route: RouteInfo{ name=Phone, description=null, status=null, category=RouteCategory{ name=System types=ROUTE_TYPE_LIVE_AUDIO ROUTE_TYPE_LIVE_VIDEO  groupable=false }, supportedTypes=ROUTE_TYPE_LIVE_AUDIO ROUTE_TYPE_LIVE_VIDEO , presentationDisplay=null }
+07-30 11:27:01.673 D/ArtistImageRepository( 7882): Skipping prefetch for DJ Anemia, crier
+07-30 11:27:01.774 D/MediaRouter( 7882): onRestoreRoute() : route=RouteInfo{ name=Phone, description=null, status=null, category=RouteCategory{ name=System types=ROUTE_TYPE_LIVE_AUDIO ROUTE_TYPE_LIVE_VIDEO  groupable=false }, supportedTypes=ROUTE_TYPE_LIVE_AUDIO ROUTE_TYPE_LIVE_VIDEO , presentationDisplay=null }
+07-30 11:27:01.774 V/MediaRouter( 7882): Selecting route: RouteInfo{ name=Phone, description=null, status=null, category=RouteCategory{ name=System types=ROUTE_TYPE_LIVE_AUDIO ROUTE_TYPE_LIVE_VIDEO  groupable=false }, supportedTypes=ROUTE_TYPE_LIVE_AUDIO ROUTE_TYPE_LIVE_VIDEO , presentationDisplay=null }
+07-30 11:27:02.143 W/MusicService_PixelPlay( 7882): No se encontraron widgets para actualizar
+07-30 11:27:02.161 D/WearStatePublisher( 7882): Published state to Wear: Notion (playing=true)
+07-30 11:27:02.510 I/OkHttp  ( 7882): <-- 200 OK https://lrclib.net/api/search?track_name=stacy&artist_name=DJ%20Anemia%2C%20crier (906ms)
+07-30 11:27:02.510 I/OkHttp  ( 7882): Server: nginx/1.26.3
+07-30 11:27:02.511 I/OkHttp  ( 7882): Date: Thu, 30 Jul 2026 04:27:00 GMT
+07-30 11:27:02.511 I/OkHttp  ( 7882): Content-Type: application/json
+07-30 11:27:02.511 I/OkHttp  ( 7882): Content-Length: 2
+07-30 11:27:02.511 I/OkHttp  ( 7882): Connection: keep-alive
+07-30 11:27:02.511 I/OkHttp  ( 7882): vary: origin, access-control-request-method, access-control-request-headers
+07-30 11:27:02.511 I/OkHttp  ( 7882): access-control-allow-origin: *
+07-30 11:27:02.511 I/OkHttp  ( 7882): <-- END HTTP
+07-30 11:27:02.714 I/OkHttp  ( 7882): <-- 200 OK https://lrclib.net/api/search?q=DJ%20Anemia%2C%20crier%20stacy (1074ms)
+07-30 11:27:02.714 I/OkHttp  ( 7882): Server: nginx/1.26.3
+07-30 11:27:02.714 I/OkHttp  ( 7882): Date: Thu, 30 Jul 2026 04:27:00 GMT
+07-30 11:27:02.714 I/OkHttp  ( 7882): Content-Type: application/json
+07-30 11:27:02.714 I/OkHttp  ( 7882): Content-Length: 2
+07-30 11:27:02.714 I/OkHttp  ( 7882): Connection: keep-alive
+07-30 11:27:02.714 I/OkHttp  ( 7882): vary: origin, access-control-request-method, access-control-request-headers
+07-30 11:27:02.714 I/OkHttp  ( 7882): access-control-allow-origin: *
+07-30 11:27:02.714 I/OkHttp  ( 7882): <-- END HTTP
+07-30 11:27:02.716 D/LyricsRepository( 7882): No results from LRCLIB API
+07-30 11:27:02.716 E/LyricsRepositoryImpl( 7882): [DefaultDispatcher-worker-13] - Error creating temp file from URI
+07-30 11:27:02.716 E/LyricsRepositoryImpl( 7882): java.io.FileNotFoundException: No content provider: spotify://0VXdXsddBE66Q36UPqpkt0
+07-30 11:27:02.716 E/LyricsRepositoryImpl( 7882): 	at android.content.ContentResolver.openTypedAssetFileDescriptor(ContentResolver.java:2124)
+07-30 11:27:02.716 E/LyricsRepositoryImpl( 7882): 	at android.content.ContentResolver.openAssetFileDescriptor(ContentResolver.java:1936)
+07-30 11:27:02.716 E/LyricsRepositoryImpl( 7882): 	at android.content.ContentResolver.openInputStream(ContentResolver.java:1598)
+07-30 11:27:02.716 E/LyricsRepositoryImpl( 7882): 	at com.theveloper.pixelplay.data.repository.LyricsRepositoryImpl.createTempFileFromUri(LyricsRepositoryImpl.kt:1670)
+07-30 11:27:02.716 E/LyricsRepositoryImpl( 7882): 	at com.theveloper.pixelplay.data.repository.LyricsRepositoryImpl.access$createTempFileFromUri(LyricsRepositoryImpl.kt:114)
+07-30 11:27:02.716 E/LyricsRepositoryImpl( 7882): 	at com.theveloper.pixelplay.data.repository.LyricsRepositoryImpl$loadEmbeddedLyricsFromMetadata$2.invokeSuspend(LyricsRepositoryImpl.kt:1164)
+07-30 11:27:02.716 E/LyricsRepositoryImpl( 7882): 	at com.theveloper.pixelplay.data.repository.LyricsRepositoryImpl$loadEmbeddedLyricsFromMetadata$2.invoke(LyricsRepositoryImpl.kt:8)
+07-30 11:27:02.716 E/LyricsRepositoryImpl( 7882): 	at com.theveloper.pixelplay.data.repository.LyricsRepositoryImpl$loadEmbeddedLyricsFromMetadata$2.invoke(LyricsRepositoryImpl.kt:4)
+07-30 11:27:02.716 E/LyricsRepositoryImpl( 7882): 	at kotlinx.coroutines.intrinsics.UndispatchedKt.startUndispatched(Undispatched.kt:66)
+07-30 11:27:02.716 E/LyricsRepositoryImpl( 7882): 	at kotlinx.coroutines.intrinsics.UndispatchedKt.startUndispatchedOrReturn(Undispatched.kt:43)
+07-30 11:27:02.716 E/LyricsRepositoryImpl( 7882): 	at kotlinx.coroutines.BuildersKt__Builders_commonKt.withContext(Builders.common.kt:497)
+07-30 11:27:02.716 E/LyricsRepositoryImpl( 7882): 	at kotlinx.coroutines.BuildersKt.withContext(dex-id-e48d2db41fd5efd620219b5c908aca7f5f6afb27:1)
+07-30 11:27:02.716 E/LyricsRepositoryImpl( 7882): 	at com.theveloper.pixelplay.data.repository.LyricsRepositoryImpl.loadEmbeddedLyricsFromMetadata(LyricsRepositoryImpl.kt:1155)
+07-30 11:27:02.716 E/LyricsRepositoryImpl( 7882): 	at com.theveloper.pixelplay.data.repository.LyricsRepositoryImpl.access$loadEmbeddedLyricsFromMetadata(LyricsRepositoryImpl.kt:114)
+07-30 11:27:02.716 E/LyricsRepositoryImpl( 7882): 	at com.theveloper.pixelplay.data.repository.LyricsRepositoryImpl$getLyrics$2$fetchFromEmbedded$1.invokeSuspend(LyricsRepositoryImpl.kt:397)
+07-30 11:27:02.716 E/LyricsRepositoryImpl( 7882): 	at com.theveloper.pixelplay.data.repository.LyricsRepositoryImpl$getLyrics$2$fetchFromEmbedded$1.invoke(LyricsRepositoryImpl.kt:8)
+07-30 11:27:02.716 E/LyricsRepositoryImpl( 7882): 	at com.theveloper.pixelplay.data.repository.LyricsRepositoryImpl$getLyrics$2$fetchFromEmbedded$1.invoke(LyricsRepositoryImpl.kt:2)
+07-30 11:27:02.716 E/LyricsRepositoryImpl( 7882): 	at com.theveloper.pixelplay.data.repository.LyricsRepositoryImpl$getLyrics$2.invokeSuspend(LyricsRepositoryImpl.kt:414)
+07-30 11:27:02.716 E/LyricsRepositoryImpl( 7882): 	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:34)
+07-30 11:27:02.716 E/LyricsRepositoryImpl( 7882): 	at kotlinx.coroutines.UndispatchedCoroutine.afterResume(CoroutineContext.kt:278)
+07-30 11:27:02.716 E/LyricsRepositoryImpl( 7882): 	at kotlinx.coroutines.AbstractCoroutine.resumeWith(AbstractCoroutine.kt:101)
+07-30 11:27:02.716 E/LyricsRepositoryImpl( 7882): 	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:47)
+07-30 11:27:02.716 E/LyricsRepositoryImpl( 7882): 	at kotlinx.coroutines.internal.ScopeCoroutine.afterResume(Scopes.kt:35)
+07-30 11:27:02.716 E/LyricsRepositoryImpl( 7882): 	at kotlinx.coroutines.AbstractCoroutine.resumeWith(AbstractCoroutine.kt:101)
+07-30 11:27:02.716 E/LyricsRepositoryImpl( 7882): 	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:47)
+07-30 11:27:02.716 E/LyricsRepositoryImpl( 7882): 	at kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:100)
+07-30 11:27:02.716 E/LyricsRepositoryImpl( 7882): 	at kotlinx.coroutines.internal.LimitedDispatcher$Worker.run(LimitedDispatcher.kt:124)
+07-30 11:27:02.716 E/LyricsRepositoryImpl( 7882): 	at kotlinx.coroutines.scheduling.TaskImpl.run(Tasks.kt:89)
+07-30 11:27:02.716 E/LyricsRepositoryImpl( 7882): 	at kotlinx.coroutines.scheduling.CoroutineScheduler.runSafely(CoroutineScheduler.kt:586)
+07-30 11:27:02.716 E/LyricsRepositoryImpl( 7882): 	at kotlinx.coroutines.scheduling.CoroutineScheduler$Worker.executeTask(CoroutineScheduler.kt:798)
+07-30 11:27:02.716 E/LyricsRepositoryImpl( 7882): 	at kotlinx.coroutines.scheduling.CoroutineScheduler$Worker.runWorker(CoroutineScheduler.kt:717)
+07-30 11:27:02.716 E/LyricsRepositoryImpl( 7882): 	at kotlinx.coroutines.scheduling.CoroutineScheduler$Worker.run(CoroutineScheduler.kt:704)
+07-30 11:27:02.717 W/LyricsRepositoryImpl( 7882): [DefaultDispatcher-worker-13] - Could not create temp file from URI: spotify://0VXdXsddBE66Q36UPqpkt0
+07-30 11:27:02.717 D/LyricsRepository( 7882): No lyrics found from any source for: DJ Anemia, crier - stacy
+07-30 11:27:02.772 D/WindowOnBackDispatcher( 7882): setTopOnBackInvokedCallback (unwrapped): android.app.Dialog$$ExternalSyntheticLambda2@3a90bd6
+07-30 11:27:02.772 D/WindowOnBackDispatcher( 7882): setTopOnBackInvokedCallback (unwrapped): androidx.navigationevent.OnBackInvokedInput$createOnBackAnimationCallback$1@e196e57
+07-30 11:27:02.772 D/WindowOnBackDispatcher( 7882): setOnBackInvokedCallbackInfo: androidx.navigationevent.OnBackInvokedInput$createOnBackAnimationCallback$1@e196e57
+07-30 11:27:02.772 D/WindowOnBackDispatcher( 7882): setOnBackInvokedCallbackInfo: androidx.navigationevent.OnBackInvokedInput$createOnBackAnimationCallback$1@e196e57
+07-30 11:27:02.792 I/Surface ( 7882): Creating surface for consumer unnamed-7882-16 with slotExpansion=1 for 64 slots
+07-30 11:27:02.793 I/Surface ( 7882): Creating surface for consumer VRI[MainActivity]#16(BLAST Consumer)16 with slotExpansion=1 for 64 slots
+07-30 11:27:02.879 D/InsetsController( 7882): hide(ime())
+07-30 11:27:02.879 I/ImeTracker( 7882): com.theveloper.pixelplay.debug:a80caf53: onCancelled at PHASE_CLIENT_ALREADY_HIDDEN
+07-30 11:27:05.771 D/AidlBufferPool( 7882): bufferpool2 0xb400007d11837508 : 4(30600 size) total buffers - 2(15300 size) used buffers - 9386/9399 (recycle/alloc) - 14/18795 (fetch/transfer)
+07-30 11:27:07.117 D/AidlBufferPool( 7882): bufferpool2 0xb400007d116d5368 : 4(30600 size) total buffers - 1(7650 size) used buffers - 289/298 (recycle/alloc) - 9/592 (fetch/transfer)
+07-30 11:27:07.279 D/AidlBufferPoolAcc( 7882): evictor expired: 1, evicted: 0
+07-30 11:27:11.109 D/AidlBufferPool( 7882): bufferpool2 0xb400007d11837508 : 4(30600 size) total buffers - 1(7650 size) used buffers - 9651/9664 (recycle/alloc) - 14/19324 (fetch/transfer)
+07-30 11:27:12.407 D/AidlBufferPool( 7882): bufferpool2 0xb400007d116d5368 : 4(30600 size) total buffers - 1(7650 size) used buffers - 556/565 (recycle/alloc) - 9/1128 (fetch/transfer)
+07-30 11:27:13.054 D/CCodecBuffers( 7882): [c2.android.opus.decoder#455:1D-Output] received null buffer
+07-30 11:27:13.145 D/AudioTrack( 7882): stop(6683): called with 9366408 frames delivered
+07-30 11:27:13.163 D/MediaRouter( 7882): onRestoreRoute() : route=RouteInfo{ name=Phone, description=null, status=null, category=RouteCategory{ name=System types=ROUTE_TYPE_LIVE_AUDIO ROUTE_TYPE_LIVE_VIDEO  groupable=false }, supportedTypes=ROUTE_TYPE_LIVE_AUDIO ROUTE_TYPE_LIVE_VIDEO , presentationDisplay=null }
+07-30 11:27:13.164 V/MediaRouter( 7882): Selecting route: RouteInfo{ name=Phone, description=null, status=null, category=RouteCategory{ name=System types=ROUTE_TYPE_LIVE_AUDIO ROUTE_TYPE_LIVE_VIDEO  groupable=false }, supportedTypes=ROUTE_TYPE_LIVE_AUDIO ROUTE_TYPE_LIVE_VIDEO , presentationDisplay=null }
+07-30 11:27:13.574 D/MusicService( 7882): Swapped MediaSession player to new instance.
+07-30 11:27:13.575 D/MusicService_PixelPlay( 7882): ReplayGain: No file path for track, keeping user-selected volume
+07-30 11:27:13.575 D/TransitionDebug( 7882): Controller detected player swap. Moving listener.
+07-30 11:27:13.576 D/MusicService_PixelPlay( 7882): ReplayGain: No file path for track, keeping user-selected volume
+07-30 11:27:13.576 D/MusicService_PixelPlay( 7882): ReplayGain: Transition finished, no pending volume — triggering full recomputation
+07-30 11:27:13.580 D/MediaCodec( 7882): keep callback message for reclaim
+07-30 11:27:13.580 I/CCodecConfig( 7882): query failed after returning 8 values (BAD_INDEX)
+07-30 11:27:13.584 D/CCodecBufferChannel( 7882): [c2.android.opus.decoder#455] MediaCodec discarded an unknown buffer
+07-30 11:27:13.584 D/CCodecBufferChannel( 7882): [c2.android.opus.decoder#455] MediaCodec discarded an unknown buffer
+07-30 11:27:13.584 D/CCodecBufferChannel( 7882): [c2.android.opus.decoder#455] MediaCodec discarded an unknown buffer
+07-30 11:27:13.584 D/CCodecBufferChannel( 7882): [c2.android.opus.decoder#455] MediaCodec discarded an unknown buffer
+07-30 11:27:13.584 D/CCodec  ( 7882): hold CodecLooper(1) until release
+07-30 11:27:13.590 D/EqualizerManager( 7882): Skipping attachToAudioSession(1404009): all audio effects are disabled
+07-30 11:27:14.146 W/MusicService_PixelPlay( 7882): No se encontraron widgets para actualizar
+07-30 11:27:14.305 D/WearStatePublisher( 7882): Published state to Wear: stacy (playing=true)
+07-30 11:27:16.092 D/TransitionDebug( 7882): Resolving settings for playlistId=null, -3963432137940 -> -3811586164705
+07-30 11:27:16.093 D/TransitionDebug( 7882): Missing playlistId. Using global settings.
+07-30 11:27:16.104 D/TransitionDebug( 7882): Settings resolved: Mode=OVERLAP, Duration=12000ms, GlobalEnabled=true, Source=GLOBAL_DEFAULT
+07-30 11:27:16.104 D/TransitionDebug( 7882): Preparing next track for overlap: -3811586164705
+07-30 11:27:16.111 D/TransitionDebug( 7882): Scheduled OVERLAP at 167521 ms (SongDur: 179521). Fade duration: 12000 ms
+07-30 11:27:16.111 D/TransitionDebug( 7882): Enabled pauseAtEndOfMediaItems to prevent auto-skip.
+07-30 11:27:16.360 I/pixelplay.debug( 7882): NativeAlloc concurrent mark compact GC freed 165MB AllocSpace bytes, 74(3920KB) LOS objects, 87% free, 31MB/256MB, paused 1.960ms,8.303ms total 231.324ms
+07-30 11:27:16.714 D/ChainedYouTubeStreamResolver( 7882): Stream resuelto por VISIONOS (sin validación previa)
+07-30 11:27:17.381 D/ChainedYouTubeStreamResolver( 7882): Stream resuelto por VISIONOS (sin validación previa)
+07-30 11:27:17.492 W/FfmpegLibrary( 7882): No opus decoder available. Check the FFmpeg build configuration.
+07-30 11:27:17.501 I/DMCodecAdapterFactory( 7882): Creating an asynchronous MediaCodec adapter for track type audio
+07-30 11:27:17.505 I/MediaCodec( 7882): Retry enabled for HDCP failure
+07-30 11:27:17.515 D/CCodec  ( 7882): allocate(c2.android.opus.decoder)
+07-30 11:27:17.523 I/CCodec  ( 7882): setting up 'default' as default (vendor) store
+07-30 11:27:17.526 D/AidlBufferPool( 7882): bufferpool2 0xb400007d116d5368 : 4(30600 size) total buffers - 0(0 size) used buffers - 810/819 (recycle/alloc) - 9/1636 (fetch/transfer)
+07-30 11:27:17.528 W/pixelplay.debug( 7882): AIBinder_linkToDeath is being called with a non-null cookie and no onUnlink callback set. Use AIBinder_DeathRecipient_setOnUnlinked to manage the lifetime of the cookie. This will become an abort.
+07-30 11:27:17.528 I/CCodec  ( 7882): Created component [c2.android.opus.decoder] for [c2.android.opus.decoder]
+07-30 11:27:17.529 D/CCodecConfig( 7882): read media type: audio/opus
+07-30 11:27:17.534 D/ReflectedParamUpdater( 7882): extent() != 1 for single value type: algo.buffers.max-count.values
+07-30 11:27:17.535 D/ReflectedParamUpdater( 7882): extent() != 1 for single value type: output.subscribed-indices.values
+07-30 11:27:17.539 D/ReflectedParamUpdater( 7882): extent() != 1 for single value type: input.buffers.allocator-ids.values
+07-30 11:27:17.539 D/ReflectedParamUpdater( 7882): extent() != 1 for single value type: output.buffers.allocator-ids.values
+07-30 11:27:17.539 D/ReflectedParamUpdater( 7882): extent() != 1 for single value type: algo.buffers.allocator-ids.values
+07-30 11:27:17.540 D/ReflectedParamUpdater( 7882): extent() != 1 for single value type: output.buffers.pool-ids.values
+07-30 11:27:17.540 D/ReflectedParamUpdater( 7882): extent() != 1 for single value type: algo.buffers.pool-ids.values
+07-30 11:27:17.548 I/CCodecConfig( 7882): query failed after returning 8 values (BAD_INDEX)
+07-30 11:27:17.548 D/CCodecConfig( 7882): c2 config diff is Dict {
+07-30 11:27:17.548 D/CCodecConfig( 7882):   c2::u32 coded.bitrate.value = 6000
+07-30 11:27:17.548 D/CCodecConfig( 7882):   c2::u32 input.buffers.max-size.value = 7650
+07-30 11:27:17.548 D/CCodecConfig( 7882):   c2::u32 input.delay.value = 0
+07-30 11:27:17.548 D/CCodecConfig( 7882):   string input.media-type.value = "audio/opus"
+07-30 11:27:17.548 D/CCodecConfig( 7882):   c2::u32 output.large-frame.max-size = 0
+07-30 11:27:17.548 D/CCodecConfig( 7882):   c2::u32 output.large-frame.threshold-size = 0
+07-30 11:27:17.548 D/CCodecConfig( 7882):   string output.media-type.value = "audio/raw"
+07-30 11:27:17.548 D/CCodecConfig( 7882):   c2::u32 raw.channel-count.value = 1
+07-30 11:27:17.548 D/CCodecConfig( 7882):   c2::u32 raw.sample-rate.value = 48000
+07-30 11:27:17.548 D/CCodecConfig( 7882): }
+07-30 11:27:17.554 I/MediaCodec( 7882): MediaCodec will operate in async mode
+07-30 11:27:17.555 D/CCodec  ( 7882): [c2.android.opus.decoder] buffers are bound to CCodec for this session
+07-30 11:27:17.555 D/CCodecConfig( 7882): no c2 equivalents for log-session-id
+07-30 11:27:17.555 D/CCodecConfig( 7882): no c2 equivalents for importance
+07-30 11:27:17.555 D/CCodecConfig( 7882): no c2 equivalents for csd-1
+07-30 11:27:17.555 D/CCodecConfig( 7882): no c2 equivalents for csd-2
+07-30 11:27:17.555 D/CCodecConfig( 7882): no c2 equivalents for flags
+07-30 11:27:17.556 D/CCodecConfig( 7882): config failed => CORRUPTED
+07-30 11:27:17.556 D/CCodecConfig( 7882): c2 config diff is   c2::u32 raw.channel-count.value = 2
+07-30 11:27:17.556 D/CCodec  ( 7882): client requested max input size 5760, which is smaller than what component recommended (7650); overriding with component recommendation.
+07-30 11:27:17.556 W/CCodec  ( 7882): This behavior is subject to change. It is recommended that app developers double check whether the requested max input size is in reasonable range.
+07-30 11:27:17.556 D/CCodec  ( 7882): encoding statistics level = 0
+07-30 11:27:17.556 D/CCodec  ( 7882): setup formats input: AMessage(what = 0x00000000) = {
+07-30 11:27:17.556 D/CCodec  ( 7882):   int32_t bitrate = 6000
+07-30 11:27:17.556 D/CCodec  ( 7882):   int32_t channel-count = 2
+07-30 11:27:17.556 D/CCodec  ( 7882):   int32_t max-input-size = 7650
+07-30 11:27:17.556 D/CCodec  ( 7882):   string mime = "audio/opus"
+07-30 11:27:17.556 D/CCodec  ( 7882):   int32_t sample-rate = 48000
+07-30 11:27:17.556 D/CCodec  ( 7882): }
+07-30 11:27:17.556 D/CCodec  ( 7882): setup formats output: AMessage(what = 0x00000000) = {
+07-30 11:27:17.556 D/CCodec  ( 7882):   int32_t buffer-batch-max-output-size = 0
+07-30 11:27:17.556 D/CCodec  ( 7882):   int32_t buffer-batch-threshold-output-size = 0
+07-30 11:27:17.556 D/CCodec  ( 7882):   int32_t channel-count = 2
+07-30 11:27:17.556 D/CCodec  ( 7882):   string mime = "audio/raw"
+07-30 11:27:17.556 D/CCodec  ( 7882):   int32_t sample-rate = 48000
+07-30 11:27:17.556 D/CCodec  ( 7882):   int32_t android._config-pcm-encoding = 4
+07-30 11:27:17.556 D/CCodec  ( 7882): }
+07-30 11:27:17.556 I/CCodecConfig( 7882): query failed after returning 8 values (BAD_INDEX)
+07-30 11:27:17.557 W/CCodecResources( 7882): Failed to query component interface for required system resources: 6
+07-30 11:27:17.557 D/MediaCodec( 7882): keep callback message for reclaim
+07-30 11:27:17.559 D/CCodecBufferChannel( 7882): [c2.android.opus.decoder#171] Created input block pool with allocatorID 16 => poolID 27 - OK (0)
+07-30 11:27:17.561 I/CCodecBufferChannel( 7882): [c2.android.opus.decoder#171] Created output block pool with allocatorID 16 => poolID 11192 - OK
+07-30 11:27:17.561 D/CCodecBufferChannel( 7882): [c2.android.opus.decoder#171] Configured output block pool ids 11192 => OK
+07-30 11:27:17.568 W/pixelplay.debug( 7882): AIBinder_linkToDeath is being called with a non-null cookie and no onUnlink callback set. Use AIBinder_DeathRecipient_setOnUnlinked to manage the lifetime of the cookie. This will become an abort.
+07-30 11:27:17.572 W/LoudnessCodecController( 7882): MediaCodec mime type not supported for loudness annotation
+07-30 11:27:17.572 V/LoudnessCodecController( 7882): Could not extract codec loudness information
+07-30 11:27:17.588 W/pixelplay.debug( 7882): AIBinder_linkToDeath is being called with a non-null cookie and no onUnlink callback set. Use AIBinder_DeathRecipient_setOnUnlinked to manage the lifetime of the cookie. This will become an abort.
+07-30 11:27:17.677 D/ChainedYouTubeStreamResolver( 7882): Stream resuelto por VISIONOS (sin validación previa)
+07-30 11:27:17.896 D/ChainedYouTubeStreamResolver( 7882): Stream resuelto por VISIONOS (sin validación previa)
+07-30 11:27:18.123 D/ChainedYouTubeStreamResolver( 7882): Stream resuelto por VISIONOS (sin validación previa)
+07-30 11:27:18.282 D/AidlBufferPool( 7882): bufferpool2 0xb400007d11837508 : 0(0 size) total buffers - 0(0 size) used buffers - 9754/9768 (recycle/alloc) - 14/19520 (fetch/transfer)
+07-30 11:27:18.282 D/AidlBufferPoolAcc( 7882): evictor expired: 1, evicted: 1
+07-30 11:27:18.293 D/ChainedYouTubeStreamResolver( 7882): Stream resuelto por VISIONOS (sin validación previa)
+07-30 11:27:18.463 D/ChainedYouTubeStreamResolver( 7882): Stream resuelto por VISIONOS (sin validación previa)
+07-30 11:27:18.623 D/ChainedYouTubeStreamResolver( 7882): Stream resuelto por VISIONOS (sin validación previa)
+07-30 11:27:18.931 D/MediaRouter( 7882): onRestoreRoute() : route=RouteInfo{ name=Phone, description=null, status=null, category=RouteCategory{ name=System types=ROUTE_TYPE_LIVE_AUDIO ROUTE_TYPE_LIVE_VIDEO  groupable=false }, supportedTypes=ROUTE_TYPE_LIVE_AUDIO ROUTE_TYPE_LIVE_VIDEO , presentationDisplay=null }
+07-30 11:27:18.931 V/MediaRouter( 7882): Selecting route: RouteInfo{ name=Phone, description=null, status=null, category=RouteCategory{ name=System types=ROUTE_TYPE_LIVE_AUDIO ROUTE_TYPE_LIVE_VIDEO  groupable=false }, supportedTypes=ROUTE_TYPE_LIVE_AUDIO ROUTE_TYPE_LIVE_VIDEO , presentationDisplay=null }
+07-30 11:27:22.832 D/AidlBufferPool( 7882): bufferpool2 0xb400007d116d5368 : 5(38250 size) total buffers - 1(7650 size) used buffers - 1070/1084 (recycle/alloc) - 18/2164 (fetch/transfer)
+07-30 11:27:25.381 D/AidlBufferPool( 7882): bufferpool2 0xb400007d11837508 : 0(0 size) total buffers - 0(0 size) used buffers - 9754/9768 (recycle/alloc) - 14/19520 (fetch/transfer)
+07-30 11:27:25.381 D/AidlBufferPool( 7882): Destruction - bufferpool2 0xb400007d11837508 cached: 0/0M, 0/0% in use; allocs: 9768, 100% recycled; transfers: 19520, 100% unfetched
+07-30 11:27:26.283 D/MediaRouter( 7882): onRestoreRoute() : route=RouteInfo{ name=Phone, description=null, status=null, category=RouteCategory{ name=System types=ROUTE_TYPE_LIVE_AUDIO ROUTE_TYPE_LIVE_VIDEO  groupable=false }, supportedTypes=ROUTE_TYPE_LIVE_AUDIO ROUTE_TYPE_LIVE_VIDEO , presentationDisplay=null }
+07-30 11:27:26.283 V/MediaRouter( 7882): Selecting route: RouteInfo{ name=Phone, description=null, status=null, category=RouteCategory{ name=System types=ROUTE_TYPE_LIVE_AUDIO ROUTE_TYPE_LIVE_VIDEO  groupable=false }, supportedTypes=ROUTE_TYPE_LIVE_AUDIO ROUTE_TYPE_LIVE_VIDEO , presentationDisplay=null }
+07-30 11:27:26.288 D/AidlBufferPool( 7882): bufferpool2 0xb400007d116dd048 : 5(38250 size) total buffers - 0(0 size) used buffers - 18/23 (recycle/alloc) - 12/44 (fetch/transfer)
+07-30 11:27:26.288 D/AidlBufferPoolAcc( 7882): evictor expired: 1, evicted: 1
+07-30 11:27:28.037 D/AidlBufferPool( 7882): bufferpool2 0xb400007d116d5368 : 5(38250 size) total buffers - 4(30600 size) used buffers - 1333/1347 (recycle/alloc) - 26/2685 (fetch/transfer)
+07-30 11:27:31.292 D/AidlBufferPoolAcc( 7882): evictor expired: 1, evicted: 0
+07-30 11:27:33.325 D/AidlBufferPool( 7882): bufferpool2 0xb400007d116d5368 : 5(38250 size) total buffers - 1(7650 size) used buffers - 1597/1611 (recycle/alloc) - 26/3220 (fetch/transfer)
+07-30 11:27:38.565 D/AidlBufferPool( 7882): bufferpool2 0xb400007d116d5368 : 5(38250 size) total buffers - 4(30600 size) used buffers - 1859/1873 (recycle/alloc) - 27/3740 (fetch/transfer)
+07-30 11:27:39.879 I/pixelplay.debug( 7882): NativeAlloc concurrent mark compact GC freed 136MB AllocSpace bytes, 44(2764KB) LOS objects, 87% free, 32MB/256MB, paused 4.289ms,11.386ms total 376.700ms
+07-30 11:27:43.781 D/AidlBufferPool( 7882): bufferpool2 0xb400007d116d5368 : 5(38250 size) total buffers - 1(7650 size) used buffers - 2118/2132 (recycle/alloc) - 27/4260 (fetch/transfer)
+07-30 11:27:49.066 D/AidlBufferPool( 7882): bufferpool2 0xb400007d116d5368 : 5(38250 size) total buffers - 1(7650 size) used buffers - 2382/2396 (recycle/alloc) - 27/4788 (fetch/transfer)
+07-30 11:27:54.352 D/AidlBufferPool( 7882): bufferpool2 0xb400007d116d5368 : 5(38250 size) total buffers - 1(7650 size) used buffers - 2646/2660 (recycle/alloc) - 27/5316 (fetch/transfer)
+07-30 11:27:59.687 D/AidlBufferPool( 7882): bufferpool2 0xb400007d116d5368 : 5(38250 size) total buffers - 3(22950 size) used buffers - 2915/2929 (recycle/alloc) - 27/5856 (fetch/transfer)
+07-30 11:28:04.847 D/AidlBufferPool( 7882): bufferpool2 0xb400007d116d5368 : 5(38250 size) total buffers - 2(15300 size) used buffers - 3173/3187 (recycle/alloc) - 27/6369 (fetch/transfer)
+07-30 11:28:07.747 I/pixelplay.debug( 7882): NativeAlloc concurrent mark compact GC freed 145MB AllocSpace bytes, 8(160KB) LOS objects, 87% free, 31MB/256MB, paused 1.661ms,8.779ms total 293.957ms
+07-30 11:28:09.554 D/InsetsController( 7882): hide(ime())
+07-30 11:28:09.554 I/ImeTracker( 7882): com.theveloper.pixelplay.debug:5634e1d8: onCancelled at PHASE_CLIENT_ALREADY_HIDDEN
+07-30 11:28:10.124 D/AidlBufferPool( 7882): bufferpool2 0xb400007d116d5368 : 5(38250 size) total buffers - 3(22950 size) used buffers - 3437/3451 (recycle/alloc) - 27/6900 (fetch/transfer)
+07-30 11:28:10.382 D/WindowOnBackDispatcher( 7882): setTopOnBackInvokedCallback (unwrapped): null
+07-30 11:28:10.391 D/HWUI    ( 7882): endAllActiveAnimators on 0xb400007c416f3770 (UnprojectedRipple) with handle 0xb400007dd17beda0
+07-30 11:28:10.473 D/InsetsController( 7882): hide(ime())
+07-30 11:28:10.473 I/ImeTracker( 7882): com.theveloper.pixelplay.debug:f28b805f: onCancelled at PHASE_CLIENT_ALREADY_HIDDEN
+07-30 11:28:11.077 D/MusicService_PixelPlay( 7882): onIsPlayingChanged: false. Duration: 179521, Seekable: true
+07-30 11:28:11.454 W/MusicService_PixelPlay( 7882): No se encontraron widgets para actualizar
+07-30 11:28:11.464 D/WearStatePublisher( 7882): Published state to Wear: stacy (playing=false)
+07-30 11:28:12.677 D/MusicService_PixelPlay( 7882): ReplayGain: No file path for track, keeping user-selected volume
+07-30 11:28:12.677 D/MusicService_PixelPlay( 7882): ReplayGain: No file path for track, keeping user-selected volume
+07-30 11:28:16.315 D/AidlBufferPool( 7882): bufferpool2 0xb400007d116d5368 : 5(38250 size) total buffers - 0(0 size) used buffers - 3485/3499 (recycle/alloc) - 27/6996 (fetch/transfer)
+07-30 11:28:16.315 D/AidlBufferPoolAcc( 7882): evictor expired: 1, evicted: 1
+07-30 11:28:26.146 I/SyncManager( 7882): Storage change detected - scheduling local incremental sync
+07-30 11:28:26.168 W/JobInfo ( 7882): Requested important-while-foreground flag for job1299 is ignored and takes no effect
+07-30 11:28:26.168 D/WM-SystemJobScheduler( 7882): Scheduling work ID eec5c5a6-d556-4c23-8b15-4165d3e6cefdJob ID 1299
+07-30 11:28:26.180 D/WM-GreedyScheduler( 7882): Starting work for eec5c5a6-d556-4c23-8b15-4165d3e6cefd
+07-30 11:28:26.184 D/WM-Processor( 7882): Processor: processing WorkGenerationalId(workSpecId=eec5c5a6-d556-4c23-8b15-4165d3e6cefd, generation=0)
+07-30 11:28:26.210 D/WM-SystemJobService( 7882): onStartJob for WorkGenerationalId(workSpecId=eec5c5a6-d556-4c23-8b15-4165d3e6cefd, generation=0)
+07-30 11:28:26.211 D/WM-WorkerWrapper( 7882): Starting work for com.theveloper.pixelplay.data.worker.SyncWorker
+07-30 11:28:26.211 I/SyncWorker( 7882): Starting MediaStore synchronization (Mode: INCREMENTAL, ForceMetadata: false)...
+07-30 11:28:26.212 D/WM-Processor( 7882): Work WorkGenerationalId(workSpecId=eec5c5a6-d556-4c23-8b15-4165d3e6cefd, generation=0) is already enqueued for processing
+07-30 11:28:26.213 D/SyncWorker( 7882): Artist delimiters=[;], groupByAlbumArtist=false, rescanRequired=false, directoryRulesChanged=false (current=0, applied=0)
+07-30 11:28:26.233 D/SyncWorker( 7882): No deleted songs found.
+07-30 11:28:26.236 I/SyncWorker( 7882): Fetching music from MediaStore (since: 1785384436 seconds)...
+07-30 11:28:26.241 D/WM-WorkProgressUpdater( 7882): Updating progress for eec5c5a6-d556-4c23-8b15-4165d3e6cefd (Data {progress_total : 0, progress_current : 0, progress_phase : 1})
+07-30 11:28:26.250 I/SyncWorker( 7882): MediaStore cursor produced 0 raw songs after directory filtering
+07-30 11:28:26.251 I/SyncWorker( 7882): Fetched 0 new/modified songs from MediaStore.
+07-30 11:28:26.271 I/SyncWorker( 7882): Synchronization finished successfully in 60ms.
+07-30 11:28:26.272 D/MusicService_PixelPlay( 7882): ReplayGain: No file path for track, keeping user-selected volume
+07-30 11:28:26.272 D/MusicService_PixelPlay( 7882): ReplayGain: No file path for track, keeping user-selected volume
+07-30 11:28:26.275 D/SyncWorker( 7882): Skipping library maintenance phases for local-only sync.
+07-30 11:28:26.305 I/WM-WorkerWrapper( 7882): Worker result SUCCESS for Work [ id=eec5c5a6-d556-4c23-8b15-4165d3e6cefd, tags={ com.theveloper.pixelplay.data.worker.SyncWorker } ]
+07-30 11:28:26.315 I/PlayerViewModel( 7882): Sync completed. Calling resetAndLoadInitialData from isSyncingStateFlow observer.
+07-30 11:28:26.316 D/PlayerViewModel( 7882): resetAndLoadInitialData called by isSyncingStateFlow observer
+07-30 11:28:26.329 D/WM-Processor( 7882): Processor eec5c5a6-d556-4c23-8b15-4165d3e6cefd executed; reschedule = false
+07-30 11:28:26.329 D/WM-SystemJobService( 7882): eec5c5a6-d556-4c23-8b15-4165d3e6cefd executed on JobScheduler
+07-30 11:28:26.344 D/WM-GreedyScheduler( 7882): Cancelling work ID eec5c5a6-d556-4c23-8b15-4165d3e6cefd
+07-30 11:28:26.348 D/WM-SystemJobService( 7882): onStopJob for WorkGenerationalId(workSpecId=eec5c5a6-d556-4c23-8b15-4165d3e6cefd, generation=0)
+07-30 11:28:26.432 D/MusicService_PixelPlay( 7882): ReplayGain: No file path for track, keeping user-selected volume
+07-30 11:28:26.432 D/MusicService_PixelPlay( 7882): ReplayGain: No file path for track, keeping user-selected volume
+07-30 11:28:26.460 D/MusicService_PixelPlay( 7882): ReplayGain: No file path for track, keeping user-selected volume
+07-30 11:28:26.460 D/MusicService_PixelPlay( 7882): ReplayGain: No file path for track, keeping user-selected volume
+07-30 11:28:34.213 I/pixelplay.debug( 7882): NativeAlloc concurrent mark compact GC freed 100MB AllocSpace bytes, 5(224KB) LOS objects, 87% free, 32MB/256MB, paused 1.361ms,7.923ms total 218.009ms
+07-30 11:29:07.923 I/pixelplay.debug( 7882): NativeAlloc concurrent mark compact GC freed 90MB AllocSpace bytes, 8(160KB) LOS objects, 87% free, 32MB/256MB, paused 1.404ms,5.469ms total 219.247ms
+07-30 11:29:41.463 I/pixelplay.debug( 7882): NativeAlloc concurrent mark compact GC freed 91MB AllocSpace bytes, 0(0B) LOS objects, 87% free, 32MB/256MB, paused 1.330ms,3.975ms total 218.858ms
+07-30 11:30:15.220 I/pixelplay.debug( 7882): NativeAlloc concurrent mark compact GC freed 92MB AllocSpace bytes, 0(0B) LOS objects, 87% free, 32MB/256MB, paused 1.430ms,5.436ms total 222.399ms
+07-30 11:30:48.098 I/pixelplay.debug( 7882): NativeAlloc concurrent mark compact GC freed 90MB AllocSpace bytes, 0(0B) LOS objects, 87% free, 32MB/256MB, paused 1.095ms,4.212ms total 213.366ms
+07-30 11:30:49.915 D/WindowOnBackDispatcher( 7882): setTopOnBackInvokedCallback (unwrapped): android.app.Activity$$ExternalSyntheticLambda0@bd5d234
+07-30 11:30:49.915 D/WindowOnBackDispatcher( 7882): setOnBackInvokedCallbackInfo: android.app.Activity$$ExternalSyntheticLambda0@bd5d234
+07-30 11:30:49.942 D/WindowOnBackDispatcher( 7882): setTopOnBackInvokedCallback (unwrapped): androidx.navigationevent.OnBackInvokedInput$createOnBackAnimationCallback$1@c454b4e
+07-30 11:30:49.943 D/WindowOnBackDispatcher( 7882): setOnBackInvokedCallbackInfo: androidx.navigationevent.OnBackInvokedInput$createOnBackAnimationCallback$1@c454b4e
+07-30 11:30:50.207 D/VRI[MainActivity]( 7882): visibilityChanged oldVisibility=true newVisibility=false
+07-30 11:30:50.207 D/WindowOnBackDispatcher( 7882): setTopOnBackInvokedCallback (unwrapped): android.app.Activity$$ExternalSyntheticLambda0@bd5d234
+07-30 11:30:50.210 D/WindowOnBackDispatcher( 7882): setOnBackInvokedCallbackInfo: android.app.Activity$$ExternalSyntheticLambda0@bd5d234
+07-30 11:30:50.223 I/AppVisibilityProxy( 7882): onAppEnteredBackground
+07-30 11:30:50.223 D/MainActivity( 7882): [main] - onStop
+07-30 11:30:50.224 I/MediaController( 7882): Release dc91296 [AndroidXMedia3/1.10.1] [blazer, Pixel 10 Pro, Google, 37] [media3.common, media3.session, media3.exoplayer, media3.decoder, media3.datasource, media3.extractor, media3.decoder.ffmpeg]
+07-30 11:36:26.554 D/AidlBufferPool( 7882): bufferpool2 0xb400007d116dd048 : 0(0 size) total buffers - 0(0 size) used buffers - 18/23 (recycle/alloc) - 12/44 (fetch/transfer)
+07-30 11:36:31.561 D/AidlBufferPool( 7882): bufferpool2 0xb400007d116dd048 : 0(0 size) total buffers - 0(0 size) used buffers - 18/23 (recycle/alloc) - 12/44 (fetch/transfer)
+07-30 11:36:31.562 D/AidlBufferPoolAcc( 7882): evictor expired: 1, evicted: 1
+07-30 11:37:25.779 I/AudioManager( 7882): broadcastDeviceListChange_sync: device update event from native but no device diff found
+07-30 11:37:25.779 I/AudioManager( 7882): broadcastDeviceListChange_sync: device update event from native but no device diff found
+07-30 11:37:27.215 I/AudioManager( 7882): broadcastDeviceListChange_sync: device update event from native but no device diff found
+07-30 11:37:27.215 I/AudioManager( 7882): broadcastDeviceListChange_sync: device update event from native but no device diff found
+07-30 11:38:11.228 D/MusicService_PixelPlay( 7882): onTrimMemory(level=20): releasing widget bitmap caches
+07-30 11:38:11.229 D/WearStatePublisher( 7882): Cleared Wear artwork cache
+07-30 11:39:58.012 I/AudioManager( 7882): broadcastDeviceListChange_sync: device update event from native but no device diff found
+07-30 11:39:58.012 I/AudioManager( 7882): broadcastDeviceListChange_sync: device update event from native but no device diff found
+07-30 11:39:58.217 I/AudioManager( 7882): broadcastDeviceListChange_sync: device update event from native but no device diff found
+07-30 11:39:58.217 I/AudioManager( 7882): broadcastDeviceListChange_sync: device update event from native but no device diff found
+07-30 11:40:12.964 D/AidlBufferPool( 7882): bufferpool2 0xb400007d116d5368 : 0(0 size) total buffers - 0(0 size) used buffers - 3485/3499 (recycle/alloc) - 27/6996 (fetch/transfer)
+07-30 11:40:14.333 I/AudioManager( 7882): dispatching onAudioFocusChange(-2) to android.media.AudioManager@6b6f85bcom.theveloper.pixelplay.data.service.player.DualPlayerEngine$$ExternalSyntheticLambda1@cf5a8f8
+07-30 11:40:14.333 D/TransitionDebug( 7882): AudioFocus LOSS_TRANSIENT. Pausing.
+07-30 11:40:14.391 I/AudioManager( 7882): broadcastDeviceListChange_sync: device update event from native but no device diff found
+07-30 11:40:14.391 I/AudioManager( 7882): broadcastDeviceListChange_sync: device update event from native but no device diff found
+07-30 11:40:17.972 D/AidlBufferPool( 7882): bufferpool2 0xb400007d116d5368 : 0(0 size) total buffers - 0(0 size) used buffers - 3485/3499 (recycle/alloc) - 27/6996 (fetch/transfer)
+07-30 11:40:17.972 D/AidlBufferPoolAcc( 7882): evictor expired: 1, evicted: 1
+07-30 11:40:36.581 I/AudioManager( 7882): broadcastDeviceListChange_sync: device update event from native but no device diff found
+07-30 11:40:36.584 I/AudioManager( 7882): broadcastDeviceListChange_sync: device update event from native but no device diff found
+07-30 11:40:55.717 I/AudioManager( 7882): broadcastDeviceListChange_sync: device update event from native but no device diff found
+07-30 11:40:55.717 I/AudioManager( 7882): broadcastDeviceListChange_sync: device update event from native but no device diff found
+07-30 11:41:05.899 I/AudioManager( 7882): broadcastDeviceListChange_sync: device update event from native but no device diff found
+07-30 11:41:05.899 I/AudioManager( 7882): broadcastDeviceListChange_sync: device update event from native but no device diff found
+07-30 11:41:15.791 I/AudioManager( 7882): broadcastDeviceListChange_sync: device update event from native but no device diff found
+07-30 11:41:15.791 I/AudioManager( 7882): broadcastDeviceListChange_sync: device update event from native but no device diff found
+07-30 11:41:29.998 I/AudioManager( 7882): broadcastDeviceListChange_sync: device update event from native but no device diff found
+07-30 11:41:29.998 I/AudioManager( 7882): broadcastDeviceListChange_sync: device update event from native but no device diff found
+07-30 11:41:35.884 I/AudioManager( 7882): broadcastDeviceListChange_sync: device update event from native but no device diff found
+07-30 11:41:35.884 I/AudioManager( 7882): broadcastDeviceListChange_sync: device update event from native but no device diff found
+07-30 11:41:37.093 I/AudioManager( 7882): broadcastDeviceListChange_sync: device update event from native but no device diff found
+07-30 11:41:37.093 I/AudioManager( 7882): broadcastDeviceListChange_sync: device update event from native but no device diff found
+07-30 11:41:37.299 I/AudioManager( 7882): broadcastDeviceListChange_sync: device update event from native but no device diff found
+07-30 11:41:37.299 I/AudioManager( 7882): broadcastDeviceListChange_sync: device update event from native but no device diff found
+07-30 11:41:47.460 I/AudioManager( 7882): broadcastDeviceListChange_sync: device update event from native but no device diff found
+07-30 11:41:47.460 I/AudioManager( 7882): broadcastDeviceListChange_sync: device update event from native but no device diff found
+07-30 11:41:59.038 I/AudioManager( 7882): broadcastDeviceListChange_sync: device update event from native but no device diff found
+07-30 11:41:59.038 I/AudioManager( 7882): broadcastDeviceListChange_sync: device update event from native but no device diff found
+07-30 11:42:02.948 I/AudioManager( 7882): broadcastDeviceListChange_sync: device update event from native but no device diff found
+07-30 11:42:02.948 I/AudioManager( 7882): broadcastDeviceListChange_sync: device update event from native but no device diff found
+07-30 11:42:03.662 I/AudioManager( 7882): dispatching onAudioFocusChange(1) to android.media.AudioManager@6b6f85bcom.theveloper.pixelplay.data.service.player.DualPlayerEngine$$ExternalSyntheticLambda1@cf5a8f8
+07-30 11:42:03.662 D/TransitionDebug( 7882): AudioFocus GAIN. Resuming if paused by loss.
+07-30 11:42:03.774 D/MusicService_PixelPlay( 7882): onTrimMemory(level=40): releasing widget bitmap caches
+07-30 11:42:03.774 D/WearStatePublisher( 7882): Cleared Wear artwork cache

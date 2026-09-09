@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -n \"^\\\\s*\\\\\\(//\\\\|/\\\\*\\\\|\\\\*\\\\\\)\" data/stream/CloudStreamProxy.kt)",
+      "Bash(sort -t= -k2 -n)"
+    ]
+  }
+}
