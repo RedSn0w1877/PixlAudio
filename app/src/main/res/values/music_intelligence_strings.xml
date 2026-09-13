@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="music_intelligence_title">Music intelligence</string>
+    <string name="music_intelligence_description">A mix that learns your taste. Completed listens, skips and favorites help shape your next picks. Learning stays on this device.</string>
+    <string name="music_intelligence_learning">Learn from listening</string>
+    <string name="music_intelligence_discovery">Discover beyond my library</string>
+    <string name="music_intelligence_exploration">Make room for discovery · %1$d%%</string>
+    <string name="music_intelligence_learning_count">%1$d songs learned · %2$d completed listens · %3$d early skips</string>
+    <string name="music_intelligence_tools">Debug and testing tools</string>
+    <string name="music_intelligence_hide_tools">Hide tools</string>
+    <string name="music_intelligence_tools_description">Preview ranked picks and their reasons, measure local ranking time, or queue a catalog refresh. Catalog discovery needs internet; saved music and local ranking work offline.</string>
+    <string name="music_intelligence_preview">Preview recommendations</string>
+    <string name="music_intelligence_refresh">Refresh discovery</string>
+    <string name="music_intelligence_copy_report">Copy recommendation report</string>
+    <string name="music_intelligence_reset">Reset learned taste</string>
+    <string name="music_intelligence_reset_description">Clear the new learning signals. Your songs, downloads, favorites and existing play history will stay.</string>
+    <string name="music_intelligence_reset_confirm">Reset learning</string>
+    <string name="music_intelligence_model_title">Instrumental engine</string>
+    <string name="music_intelligence_model_timing">Last chunk: %1$d ms · %2$d inferences this session</string>
+    <string name="music_intelligence_model_benchmark">Benchmark separation model</string>
+</resources>

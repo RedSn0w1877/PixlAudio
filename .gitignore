@@ -1,0 +1,68 @@
+*.iml
+.DS_Store
+hs_err_pid*.log
+*.salive
+*.apk
+*.aab
+
+# Signing key and its passwords. NEVER commit these: anyone holding them can publish an
+# "update" your users' phones will accept. Back them up somewhere private instead.
+*.jks
+*.keystore
+keystore.properties
+
+.gradle
+.gradle-user/
+.gradle-local/
+.gradle-temp/
+.kotlin/
+local.properties
+
+/.idea/caches
+/.idea/libraries
+/.idea/modules.xml
+/.idea/workspace.xml
+/.idea/navEditor.xml
+/.idea/assetWizardSettings.xml
+/.idea/planningMode.xml
+
+/build
+/captures
+.externalNativeBuild
+.cxx
+benchmark-results/
+
+app/build/
+app/release/
+wear/build/
+wear/release/
+shared/build/
+baselineprofile/build/
+
+# Output of `gradlew :app:prepareGitHubRelease` — upload these to a GitHub release, don't commit.
+release-upload/
+# Past release builds and their R8 mapping files (mapping.txt is ~190 MB, over GitHub's limit).
+releases/
+
+# Phone screenshots taken while testing — personal, not source.
+/pp_*.png
+
+misc.xml
+markdown.xml
+.vscode/
+.agents/
+
+**/node_modules/
+**/dist/
+**/.vite/
+**/.env
+**/.env.*
+!**/.env.example
+
+**/.venv/
+**/__pycache__/
+
+/backups/
+
+# Lyric forced-alignment model (~360MB) exceeds GitHub's 100MB per-file limit.
+app/src/main/assets/tais/*.onnx

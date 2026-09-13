@@ -1,0 +1,1 @@
+Latest verified September 7 source copied from C:\Users\Hoa Vo\Downloads\PixelPlayer-master\PixelPlayer-master into C:\Users\Hoa Vo\Downloads\Code Projects\PixelPlayer-master\beta2-release. Earlier source and the older workspace copy were preserved. September 8 Beta 2 release work takes place here.
