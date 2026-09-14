@@ -391,7 +391,7 @@ dependencies {
     // establish that any particular operation ran on the Pixel TPU.
     implementation(libs.onnxruntime.android)
     // LRCLIB Lyricsfile uses constrained YAML; SafeConstructor rejects custom tags.
-    implementation("org.yaml:snakeyaml:2.4")
+    implementation("org.yaml:snakeyaml:2.7")
 
     // Projects
     implementation(project(":shared"))
