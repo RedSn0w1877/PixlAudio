@@ -126,11 +126,45 @@ def _to_16bit(path: Path, work_dir: Path, name: str) -> Path:
     return converted
 
 
+def _self_test(work_dir: Path) -> dict:
+    """
+    Run the whole chain on a generated one-second tone and report only sizes and timings.
+
+    This exists because the real reply is four base64 WAVs — megabytes — which makes "does the
+    endpoint work?" an expensive question to ask. A probe exercises exactly the same path (ffmpeg
+    trim, Demucs on the GPU, ffmpeg convert) and answers in a few hundred bytes, so it can be run
+    from anywhere, including the app's own diagnostics.
+    """
+    started = time.time()
+    tone = work_dir / "probe.wav"
+    subprocess.run(
+        ["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi",
+         "-i", "sine=frequency=220:duration=1:sample_rate=44100",
+         "-ac", "2", "-acodec", "pcm_s16le", str(tone)],
+        check=True,
+    )
+    device = _device()
+    separated = time.time()
+    produced = _separate(tone, work_dir)
+    sizes = {stem: produced[stem].stat().st_size for stem in STEMS}
+    return {
+        "ok": True,
+        "model": MODEL,
+        "device": device,
+        "stem_bytes": sizes,
+        "separate_seconds": round(time.time() - separated, 2),
+        "total_seconds": round(time.time() - started, 2),
+    }
+
+
 def handler(job):
     started = time.time()
     job_input = job.get("input") or {}
     work_dir = Path(tempfile.mkdtemp(prefix="stems_"))
     try:
+        # A health check that does not haul four WAVs back across the wire.
+        if job_input.get("probe"):
+            return _self_test(work_dir)
         start_ms = max(0, int(job_input.get("start_ms", 0)))
         duration_ms = int(job_input.get("duration_ms", 30000))
         if duration_ms <= 0 or duration_ms > MAX_DURATION_MS:
