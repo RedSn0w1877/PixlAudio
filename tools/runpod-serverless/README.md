@@ -23,9 +23,14 @@ a 300 MB download you pay for on every job.
 
 1. Push this folder to a GitHub repo — either its own, or this project's repo with the Dockerfile
    path set below.
-2. Runpod console → **Serverless** → **New Endpoint** → **Import from GitHub** (connect GitHub the
-   first time). Pick the repo, branch, and set the Dockerfile path to
-   `tools/runpod-serverless/Dockerfile` if you used the project repo.
+2. Runpod console → **Serverless** → **New Endpoint** → **Import Git Repository** (connect GitHub
+   the first time). Pick the repo and branch, then set **Dockerfile path** to
+   `/tools/runpod-serverless/Dockerfile`.
+
+   Runpod builds with the **repository root** as the build context and offers no separate context
+   field, which is why the `COPY` in the Dockerfile spells out the full path. Its "could not find
+   `runpod.serverless.start()` in your repo" notice is a warning, not an error — that call lives in
+   `handler.py`, which the scanner only looks for at the repo root.
 3. Settings that matter:
    - **Active (min) workers: 0** — this is the setting that makes it free when idle.
    - **Max workers: 1** — one job at a time is plenty for a phone, and caps the damage.

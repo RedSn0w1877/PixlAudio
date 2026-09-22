@@ -23,6 +23,8 @@ RUN pip install --no-cache-dir demucs runpod
 # the cost of a short job.
 RUN python -c "from demucs.pretrained import get_model; get_model('htdemucs')"
 
-COPY handler.py /handler.py
+# Path is relative to the repo root, not to this file: Runpod builds with the repository root as
+# the build context, so `COPY handler.py` would not resolve.
+COPY tools/runpod-serverless/handler.py /handler.py
 
 CMD ["python", "-u", "/handler.py"]
