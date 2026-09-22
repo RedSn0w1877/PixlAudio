@@ -76,6 +76,24 @@ def _trim(source: Path, work_dir: Path, start_ms: int, duration_ms: int) -> Path
     return trimmed
 
 
+def _device() -> str:
+    """
+    GPU when there is one, CPU when there is not.
+
+    Hardcoding `cuda` turns a worker that landed without a visible GPU into a hard failure the
+    app reports as "separation failed"; falling back makes it merely slow, which for a 30-second
+    region is a couple of minutes rather than an error.
+    """
+    try:
+        import torch
+        if torch.cuda.is_available():
+            return "cuda"
+    except Exception as exc:  # noqa: BLE001 — torch import problems are worth seeing in the log
+        print(f"torch unavailable for device probe: {exc}", flush=True)
+    print("no CUDA device visible; separating on CPU", flush=True)
+    return "cpu"
+
+
 def _separate(source: Path, work_dir: Path) -> dict:
     out_dir = work_dir / "out"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -85,7 +103,7 @@ def _separate(source: Path, work_dir: Path) -> dict:
             "-n", MODEL,
             "-o", str(out_dir),
             "--filename", "{stem}.{ext}",
-            "-d", "cuda",
+            "-d", _device(),
             str(source),
         ],
         check=True,
@@ -142,4 +160,5 @@ def handler(job):
         shutil.rmtree(work_dir, ignore_errors=True)
 
 
+print(f"PixlAudio stem worker ready — model={MODEL}, max={MAX_DURATION_MS}ms", flush=True)
 runpod.serverless.start({"handler": handler})
