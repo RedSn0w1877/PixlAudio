@@ -95,14 +95,28 @@ class RemixServerlessStemClient @Inject constructor(
 
         onProgress(0.1f)
         var polls = 0
+        var consecutiveFailures = 0
         while (true) {
             delay(POLL_INTERVAL_MS)
             polls++
+            // Two bounds, because an unbounded `while (true)` here means a job that never reaches
+            // a terminal state — or a phone that lost its network — polls until the app dies.
+            // The overall one is generous: the very first job on a fresh endpoint pulls a
+            // multi-gigabyte image before it runs at all.
+            if (polls > MAX_POLLS) {
+                return StemJobOutcome.Failed(
+                    "The server is taking too long. It's still working — open this again in a few minutes."
+                )
+            }
             val status = runCatching { status(base, config.token, jobId) }
-                .getOrElse {
-                    Timber.d(it, "Remix serverless: poll failed, retrying")
+                .getOrElse { error ->
+                    Timber.d(error, "Remix serverless: poll failed, retrying")
+                    if (++consecutiveFailures >= MAX_CONSECUTIVE_POLL_FAILURES) {
+                        return StemJobOutcome.Failed("Lost contact with the server.")
+                    }
                     continue
                 }
+            consecutiveFailures = 0
 
             // Serverless reports no percentage, so show movement based on the usual shape of a
             // job: a cold start, then a separation that takes tens of seconds.
@@ -188,6 +202,10 @@ class RemixServerlessStemClient @Inject constructor(
         fun handles(baseUrl: String): Boolean = baseUrl.contains("api.runpod.ai/v2", ignoreCase = true)
 
         private const val POLL_INTERVAL_MS = 3_000L
+
+        /** 10 minutes: long enough for a cold start that pulls the image, short enough to end. */
+        private const val MAX_POLLS = 200
+        private const val MAX_CONSECUTIVE_POLL_FAILURES = 10
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
     }
 }

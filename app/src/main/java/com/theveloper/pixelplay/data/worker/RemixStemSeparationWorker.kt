@@ -50,7 +50,7 @@ class RemixStemSeparationWorker @AssistedInject constructor(
             ?: return@withContext failure("This track has no local file to upload.")
 
         val consent = userPreferencesRepository.remixUploadConsentFlow.first()
-        if (!consent) return@withContext failure("Uploading to the separation server isn't switched on.")
+        if (!consent) return@withContext failure("Turn on \"Allow sending songs\" first.")
 
         val baseUrl = userPreferencesRepository.remixBackendUrlFlow.first()
         if (baseUrl.isBlank()) return@withContext failure("No separation server is configured.")
@@ -58,7 +58,11 @@ class RemixStemSeparationWorker @AssistedInject constructor(
             // The track is the user's audio; it should not leave the device in the clear.
             return@withContext failure("The separation server must use https.")
         }
+        // Checked here rather than left to the server: the address ships with the app, so a key
+        // is the one thing the user must supply, and "Runpod rejected the API key" is a poor way
+        // to say "you haven't entered one yet".
         val token = userPreferencesRepository.remixBackendTokenFlow.first()
+        if (token.isBlank()) return@withContext failure("Add your Runpod key below first.")
 
         val source = File(sourcePath)
         val directory = TaisInstrumentalIndex.stemsDirectory(applicationContext)

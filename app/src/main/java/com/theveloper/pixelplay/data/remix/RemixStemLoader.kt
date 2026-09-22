@@ -156,6 +156,18 @@ object RemixStemLoader {
     // ------------------------------------------------------- encoded audio
 
     /**
+     * Cloud tracks reach us as `http://127.0.0.1:<port>/…` — the app's own streaming proxy, which
+     * serves range requests — while local tracks are `content://` MediaStore URIs.
+     * `setDataSource(Context, Uri, …)` refuses an http URI, so the scheme picks the overload.
+     */
+    private fun MediaExtractor.setSourceFor(context: Context, uri: Uri) {
+        when (uri.scheme?.lowercase()) {
+            "http", "https" -> setDataSource(uri.toString(), emptyMap<String, String>())
+            else -> setDataSource(context, uri, null)
+        }
+    }
+
+    /**
      * Decodes a region of an encoded track (mp3, m4a, opus…) into **two** mono buffers: the mid
      * `(L+R)/2` and the side `(L−R)/2`.
      *
@@ -176,7 +188,7 @@ object RemixStemLoader {
         val extractor = MediaExtractor()
         var codec: MediaCodec? = null
         return try {
-            extractor.setDataSource(context, uri, null)
+            extractor.setSourceFor(context, uri)
             val trackIndex = (0 until extractor.trackCount).firstOrNull { index ->
                 extractor.getTrackFormat(index).getString(MediaFormat.KEY_MIME)?.startsWith("audio/") == true
             } ?: return null
@@ -288,7 +300,7 @@ object RemixStemLoader {
         val extractor = MediaExtractor()
         var codec: MediaCodec? = null
         return try {
-            extractor.setDataSource(context, uri, null)
+            extractor.setSourceFor(context, uri)
             val trackIndex = (0 until extractor.trackCount).firstOrNull { index ->
                 extractor.getTrackFormat(index).getString(MediaFormat.KEY_MIME)?.startsWith("audio/") == true
             } ?: return null

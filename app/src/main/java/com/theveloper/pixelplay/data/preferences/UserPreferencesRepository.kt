@@ -13,6 +13,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import androidx.media3.common.Player
+import com.theveloper.pixelplay.data.remix.cloud.RemixBackendConfig
 import com.theveloper.pixelplay.data.equalizer.EqualizerPreset
 import com.theveloper.pixelplay.data.diagnostics.AdvancedPerformanceDiagnostics
 import com.theveloper.pixelplay.data.model.FolderSource
@@ -1555,8 +1556,16 @@ suspend fun markDirectoryRulesVersionApplied(version: Int) {
     // combines, so inserting a flow mid-file silently shifts every later index. These are read
     // directly by the worker rather than folded into that state.
 
+    /**
+     * Defaults to the project's own endpoint rather than blank, so separation works out of the
+     * box once a key is entered. Blanking the field falls back to the default instead of leaving
+     * the app pointed at nothing — to use a different server, type that one in.
+     */
     val remixBackendUrlFlow: Flow<String> =
-        pref { it[PreferencesKeys.REMIX_BACKEND_URL] ?: "" }
+        pref {
+            it[PreferencesKeys.REMIX_BACKEND_URL]?.takeIf(String::isNotBlank)
+                ?: RemixBackendConfig.DEFAULT_BASE_URL
+        }
 
     suspend fun setRemixBackendUrl(url: String) {
         dataStore.edit { it[PreferencesKeys.REMIX_BACKEND_URL] = url.trim().trimEnd('/') }

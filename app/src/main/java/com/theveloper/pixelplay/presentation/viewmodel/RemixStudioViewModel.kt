@@ -6,7 +6,9 @@ import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.theveloper.pixelplay.data.model.Song
+import com.theveloper.pixelplay.data.cache.AudioCacheManager
 import com.theveloper.pixelplay.data.preferences.UserPreferencesRepository
+import com.theveloper.pixelplay.data.spotify.SpotifyStreamProxy
 import com.theveloper.pixelplay.data.remix.RemixAudioEngine
 import com.theveloper.pixelplay.data.remix.RemixStemLoader
 import com.theveloper.pixelplay.data.remix.dsp.RemixStemBuffer
@@ -99,6 +101,8 @@ class RemixStudioViewModel @Inject constructor(
     @param:ApplicationContext private val context: Context,
     private val engine: RemixAudioEngine,
     private val userPreferencesRepository: UserPreferencesRepository,
+    private val audioCacheManager: AudioCacheManager,
+    private val spotifyStreamProxy: SpotifyStreamProxy,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(RemixUiState())
@@ -165,23 +169,38 @@ class RemixStudioViewModel @Inject constructor(
      */
     fun separateIntoStems() {
         val song = currentSong ?: return
-        val path = song.path
-        if (path.isBlank() || !File(path).exists()) {
-            _uiState.value = _uiState.value.copy(
-                separationDetail = "Download this track first — there's no local file to send.",
+        viewModelScope.launch {
+            // The server is sent a file, so a streamed cloud track has to land on disk first.
+            val source = withContext(Dispatchers.IO) { localCopyOf(song) }
+            if (source == null) {
+                _uiState.value = _uiState.value.copy(
+                    separationDetail = "Download this song first, then try again.",
+                )
+                return@launch
+            }
+            // Only the loop region is sent: on an on-demand endpoint the bill is proportional to
+            // audio length, and it is the region the studio actually plays.
+            RemixStemSeparationWorker.enqueue(
+                context = context,
+                songId = song.id,
+                sourcePath = source.absolutePath,
+                startMs = _uiState.value.loopStartMs,
+                durationMs = _uiState.value.loopLengthMs,
             )
-            return
+            watchSeparation(song.id)
         }
-        // Only the loop region is sent: on an on-demand endpoint the bill is proportional to
-        // audio length, and it is the region the studio actually plays.
-        RemixStemSeparationWorker.enqueue(
-            context = context,
-            songId = song.id,
-            sourcePath = path,
-            startMs = _uiState.value.loopStartMs,
-            durationMs = _uiState.value.loopLengthMs,
+    }
+
+    /** A split takes about a minute and bills by the second; leaving is not the only way out. */
+    fun cancelSeparation() {
+        val songId = currentSong?.id ?: return
+        workManager.cancelUniqueWork(RemixStemSeparationWorker.uniqueWorkName(songId))
+        separationWatch?.cancel()
+        _uiState.value = _uiState.value.copy(
+            separating = false,
+            separationPercent = 0,
+            separationDetail = "Cancelled.",
         )
-        watchSeparation(song.id)
     }
 
     private fun watchSeparation(songId: String) {
@@ -225,8 +244,20 @@ class RemixStudioViewModel @Inject constructor(
         }
     }
 
-    fun load(song: Song) {
-        if (currentSong?.id == song.id && _uiState.value.stems.isNotEmpty()) return
+    /**
+     * @param preserve when non-null, keep these stems' positions, mutes and gains instead of
+     *   resetting to [defaultPosition]. Moving the loop window re-decodes the region, but that is
+     *   an implementation detail — it is not a reason to throw away an arrangement the user spent
+     *   minutes building.
+     * @param resumePlaying whether to start the engine once loaded. A reload triggered by nudging
+     *   the loop must not turn audio back on after the user deliberately stopped it.
+     */
+    fun load(
+        song: Song,
+        preserve: List<StemUi>? = null,
+        resumePlaying: Boolean = true,
+    ) {
+        if (currentSong?.id == song.id && _uiState.value.stems.isNotEmpty() && preserve == null) return
         currentSong = song
         _uiState.value = _uiState.value.copy(
             songTitle = song.title,
@@ -248,21 +279,37 @@ class RemixStudioViewModel @Inject constructor(
             if (loaded == null || loaded.isEmpty()) {
                 _uiState.value = _uiState.value.copy(
                     loading = false,
-                    error = "Couldn't read this track's audio.",
+                    error = if (song.contentUriString.startsWith("spotify://")) {
+                        "Couldn't get this song's audio. It streams from the internet, so check " +
+                            "your connection — or download it and open Remix again."
+                    } else {
+                        "Couldn't read this song's audio file."
+                    },
                 )
                 return@launch
             }
 
             engine.setStems(loaded.map { it.kind to it.buffer }, xfadeFrames)
             val stems = loaded.mapIndexed { index, item ->
-                val position = defaultPosition(index, loaded.size)
-                engine.params.setStemPosition(index, position.first * STAGE_RADIUS_M, 0f, position.second * STAGE_RADIUS_M)
-                engine.params.setStemGain(index, 1f)
+                // Match by kind, not index: a reload can change how many stems there are (a
+                // separation finishing turns two pucks into four), and carrying "Drums" over to
+                // whatever now sits at index 1 would move the wrong thing.
+                val kept = preserve?.firstOrNull { it.kind == item.kind }
+                val x = kept?.x ?: defaultPosition(index, loaded.size).first
+                val y = kept?.y ?: defaultPosition(index, loaded.size).second
+                val muted = kept?.muted ?: false
+                val gainDb = kept?.gainDb ?: 0f
+                engine.params.setStemPosition(index, x * STAGE_RADIUS_M, 0f, y * STAGE_RADIUS_M)
+                engine.params.setStemGain(index, if (muted) 0f else decibelsToLinear(gainDb))
                 engine.params.setStemSend(index, 0.2f)
-                StemUi(index = index, kind = item.kind, x = position.first, y = position.second)
+                StemUi(index = index, kind = item.kind, x = x, y = y, gainDb = gainDb, muted = muted)
             }
-            engine.params.decayFrames = 0
-            engine.params.rate = 1f
+            if (preserve == null) {
+                // Only a genuinely new song resets the rack. A loop nudge must leave Speed and
+                // the loop fade exactly where the user put them.
+                engine.params.decayFrames = 0
+                engine.params.rate = 1f
+            }
 
             val fourStems = loaded.size == FOUR_STEM_KINDS.size &&
                 loaded.all { FOUR_STEM_KINDS.contains(it.kind) }
@@ -271,21 +318,59 @@ class RemixStudioViewModel @Inject constructor(
                 stems = stems.toImmutableList(),
                 separated = loaded.any { it.kind != StemKind.CENTER && it.kind != StemKind.SIDES },
                 waveform = loaded.first().buffer.toWaveform().toImmutableList(),
-                canSeparate = !fourStems && song.path.isNotBlank(),
+                canSeparate = !fourStems && withContext(Dispatchers.IO) { localCopyOf(song) } != null,
+                rate = if (preserve == null) 1f else _uiState.value.rate,
+                decayMs = if (preserve == null) 0 else _uiState.value.decayMs,
             )
             startPose(_uiState.value.poseSourceId)
-            play()
+            if (resumePlaying) play() else stop()
         }
     }
 
     private class LoadedStem(val kind: String, val buffer: RemixStemBuffer)
 
     /**
+     * A URI the decoder can actually open.
+     *
+     * Library tracks are already `content://`. Cloud tracks are `spotify://<id>`, which is a
+     * *label*, not an address — no decoder can open it, and handing it to `MediaExtractor` was
+     * why every cloud track failed to load. The resolution order matches
+     * `DualPlayerEngine.resolveCloudUri` so the studio hears exactly what the player would:
+     * a downloaded copy first (instant, works offline), otherwise the app's local streaming proxy.
+     */
+    private suspend fun playableUri(song: Song): Uri? {
+        val raw = song.contentUriString
+        if (!raw.startsWith("spotify://")) {
+            return runCatching { Uri.parse(raw) }.getOrNull()
+        }
+        val spotifyId = raw.removePrefix("spotify://").substringBefore('/')
+        localCopyOf(song)?.let { return Uri.fromFile(it) }
+
+        // Not downloaded: stream it, and queue a copy so the next visit is instant.
+        audioCacheManager.maybeAutoCache(spotifyId)
+        if (!spotifyStreamProxy.ensureReady()) {
+            Timber.w("Remix: the streaming proxy did not start in time")
+            return null
+        }
+        return spotifyStreamProxy.resolveUri(raw)?.takeIf { it.isNotBlank() }?.let(Uri::parse)
+    }
+
+    /** A real file on disk for this song, if one exists — what the separator needs to upload. */
+    private suspend fun localCopyOf(song: Song): File? {
+        val raw = song.contentUriString
+        if (raw.startsWith("spotify://")) {
+            val spotifyId = raw.removePrefix("spotify://").substringBefore('/')
+            return audioCacheManager.getPlayableFile(spotifyId)
+        }
+        return song.path.takeIf { it.isNotBlank() }?.let(::File)?.takeIf(File::exists)
+    }
+
+    /**
      * Stem precedence: real four-stem separation, then an existing instrumental (with the vocal
      * recovered by subtraction), then mid/side — which needs no model at all and is why the studio
      * opens instantly on any song.
      */
-    private fun loadStems(song: Song, startMs: Int, lengthMs: Int, guard: Int): List<LoadedStem>? {
+    private suspend fun loadStems(song: Song, startMs: Int, lengthMs: Int, guard: Int): List<LoadedStem>? {
         val directory = TaisInstrumentalIndex.stemsDirectory(context)
         val canonical = TaisInstrumentalIndex.canonicalSongId(song.id)
 
@@ -315,7 +400,7 @@ class RemixStudioViewModel @Inject constructor(
             Timber.w("Remix: stem set for ${covering.name} is incomplete; falling back")
         }
 
-        val uri = runCatching { Uri.parse(song.contentUriString) }.getOrNull() ?: return null
+        val uri = playableUri(song) ?: return null
         val midSide = RemixStemLoader.loadMidSideRegion(context, uri, startMs, lengthMs, guard) ?: return null
 
         val instrumental = TaisInstrumentalIndex.bestAvailableFile(context, song.id)
@@ -364,16 +449,51 @@ class RemixStudioViewModel @Inject constructor(
 
     // ------------------------------------------------------------- gestures
 
-    /** [x] and [y] are stage coordinates, −1..1, y negative meaning "in front of the listener". */
+    /**
+     * [x] and [y] are stage coordinates, −1..1, y negative meaning "in front of the listener".
+     *
+     * Writes **only** the engine parameter. A drag fires this at touch rate, and rebuilding the
+     * immutable stem list on every move would recompose the screen sixty times a second next to
+     * a live audio thread. The visible puck follows [RemixStageMotion], not this state; the UI
+     * state is committed once, in [onStemDragEnd].
+     */
     fun onStemMoved(index: Int, x: Float, y: Float) {
         val clampedX = x.coerceIn(-1f, 1f)
         val clampedY = y.coerceIn(-1f, 1f)
         engine.params.setStemPosition(index, clampedX * STAGE_RADIUS_M, 0f, clampedY * STAGE_RADIUS_M)
+    }
+
+    /** Commit a finished drag to UI state, once, so the position survives recomposition. */
+    fun onStemDragEnd(index: Int, x: Float, y: Float) {
+        val clampedX = x.coerceIn(-1f, 1f)
+        val clampedY = y.coerceIn(-1f, 1f)
         _uiState.value = _uiState.value.copy(
             stems = _uiState.value.stems.map {
                 if (it.index == index) it.copy(x = clampedX, y = clampedY) else it
             }.toImmutableList(),
         )
+    }
+
+    /** Nudge a stem by a fixed step — the screen-reader and D-pad path to spatial placement. */
+    fun nudgeStem(index: Int, dx: Float, dy: Float) {
+        val stem = _uiState.value.stems.firstOrNull { it.index == index } ?: return
+        val nextX = (stem.x + dx).coerceIn(-1f, 1f)
+        val nextY = (stem.y + dy).coerceIn(-1f, 1f)
+        onStemMoved(index, nextX, nextY)
+        onStemDragEnd(index, nextX, nextY)
+    }
+
+    /** Mute everything else, or restore everything if this stem is already alone. */
+    fun onStemSoloToggled(index: Int) {
+        val stems = _uiState.value.stems
+        if (stems.isEmpty()) return
+        val alreadySolo = stems.all { (it.index == index) != it.muted }
+        val next = stems.map { stem ->
+            val muted = if (alreadySolo) false else stem.index != index
+            engine.params.setStemGain(stem.index, if (muted) 0f else decibelsToLinear(stem.gainDb))
+            stem.copy(muted = muted)
+        }
+        _uiState.value = _uiState.value.copy(stems = next.toImmutableList())
     }
 
     fun onStemMuteToggled(index: Int) {
@@ -421,14 +541,25 @@ class RemixStudioViewModel @Inject constructor(
         _uiState.value = _uiState.value.copy(decayMs = decayMs)
     }
 
-    /** Moves the loop window; the region is reloaded because residency is what makes it seamless. */
+    /**
+     * Moves the loop window; the region is reloaded because residency is what makes it seamless.
+     *
+     * The reload keeps the arrangement. This used to be the most destructive control on the
+     * screen — the jump buttons and the length chips silently reset every puck to a default
+     * circle, put Speed back to 1.00×, switched the loop fade off, and started playback even if
+     * the user had just stopped it.
+     */
     fun setLoop(startMs: Int, lengthMs: Int) {
         val song = currentSong ?: return
         val clampedLength = lengthMs.coerceIn(RemixState.MIN_LOOP_MS, RemixState.MAX_LOOP_MS)
         val clampedStart = startMs.coerceAtLeast(0)
-        _uiState.value = _uiState.value.copy(loopStartMs = clampedStart, loopLengthMs = clampedLength)
+        val state = _uiState.value
+        if (state.loopStartMs == clampedStart && state.loopLengthMs == clampedLength) return
+        val keep = state.stems
+        val wasPlaying = state.playing
+        _uiState.value = state.copy(loopStartMs = clampedStart, loopLengthMs = clampedLength)
         currentSong = null // force load() to rebuild
-        load(song)
+        load(song, preserve = keep, resumePlaying = wasPlaying)
     }
 
     // ----------------------------------------------------------------- pose

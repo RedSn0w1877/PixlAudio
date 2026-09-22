@@ -40,7 +40,23 @@ sealed interface StemJobOutcome {
 data class RemixBackendConfig(
     val baseUrl: String,
     val token: String,
-)
+) {
+    companion object {
+        /**
+         * The project's own Runpod serverless endpoint, so the app ships knowing where to send a
+         * separation job and the user only has to supply a key.
+         *
+         * Safe to keep in source: an endpoint id is an address, not a credential. Runpod rejects
+         * every request to it that does not carry an API key belonging to the account that owns
+         * it, so publishing the id grants nobody anything. The key itself is never hardcoded — it
+         * lives only in the user's own settings.
+         *
+         * Overridable: whatever the user types in Remix Studio wins, so pointing the app at a
+         * different endpoint (or a self-hosted pod) stays a matter of typing a URL.
+         */
+        const val DEFAULT_BASE_URL = "https://api.runpod.ai/v2/kjoa5h86wrpf2q"
+    }
+}
 
 /**
  * Talks to the Demucs separation server running on the GPU pod
