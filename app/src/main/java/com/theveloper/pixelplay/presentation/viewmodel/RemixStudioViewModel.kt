@@ -12,6 +12,7 @@ import com.theveloper.pixelplay.data.spotify.SpotifyStreamProxy
 import com.theveloper.pixelplay.data.remix.RemixAudioEngine
 import com.theveloper.pixelplay.data.remix.RemixStemLoader
 import com.theveloper.pixelplay.data.remix.dsp.RemixStemBuffer
+import com.theveloper.pixelplay.data.remix.dsp.Resampler
 import com.theveloper.pixelplay.data.remix.model.RemixState
 import com.theveloper.pixelplay.data.remix.model.StemKind
 import com.theveloper.pixelplay.data.remix.pose.DeviceRotationPoseSource
@@ -272,8 +273,14 @@ class RemixStudioViewModel @Inject constructor(
             val startMs = _uiState.value.loopStartMs
             val lengthMs = _uiState.value.loopLengthMs
 
-            val loaded = withContext(Dispatchers.IO) {
-                loadStems(song, startMs, lengthMs, guard)
+            val loaded = withContext(Dispatchers.Default) {
+                // Every derivation (mid/side, mix − instrumental) happens at the source rate, where
+                // it is sample-exact; conversion to the device rate is the very last step, and it
+                // happens here, off the audio thread, with a real anti-imaging filter. Left to the
+                // real-time path, a 44.1 kHz stem through a 48 kHz track was resampled by the tape
+                // interpolator, and its images landed only ~33 dB down across the whole top end.
+                withContext(Dispatchers.IO) { loadStems(song, startMs, lengthMs, guard) }
+                    ?.map { LoadedStem(it.kind, Resampler.toRate(it.buffer, engine.sampleRate)) }
             }
 
             if (loaded == null || loaded.isEmpty()) {

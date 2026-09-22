@@ -29,7 +29,7 @@ class LoopReaderTest {
         val samples = FloatArray(total) { i ->
             (i - guardFrames).toFloat() / regionFrames
         }
-        return RemixStemBuffer(samples, guardFrames, regionFrames, sampleRate)
+        return RemixStemBuffer(samples, guardFrames, regionFrames, sampleRate, leadInFrames = guardFrames)
     }
 
     private fun sineBuffer(freqHz: Float): RemixStemBuffer {
@@ -37,7 +37,7 @@ class LoopReaderTest {
         val samples = FloatArray(total) { i ->
             sin(2.0 * Math.PI * freqHz * (i - guardFrames) / sampleRate).toFloat()
         }
-        return RemixStemBuffer(samples, guardFrames, regionFrames, sampleRate)
+        return RemixStemBuffer(samples, guardFrames, regionFrames, sampleRate, leadInFrames = guardFrames)
     }
 
     private fun largestStep(reader: LoopReader, rate: Float, frames: Int): Float {

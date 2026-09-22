@@ -8,6 +8,7 @@ import android.media.AudioManager
 import android.media.AudioTrack
 import android.os.Build
 import android.os.Process
+import com.theveloper.pixelplay.data.remix.model.StemKind
 import com.theveloper.pixelplay.data.remix.dsp.BinauralPanner
 import com.theveloper.pixelplay.data.remix.dsp.LoopReader
 import com.theveloper.pixelplay.data.remix.dsp.RemixStemBuffer
@@ -63,7 +64,8 @@ class RemixAudioEngine @Inject constructor(
         ?.getProperty(AudioManager.PROPERTY_OUTPUT_FRAMES_PER_BUFFER)?.toIntOrNull()
         ?.takeIf { it > 0 } ?: 256
 
-    private val blockSize = framesPerBurst.coerceIn(96, 512)
+    // 96 frames (2 ms) is too short a block to survive an ordinary scheduler wakeup.
+    private val blockSize = framesPerBurst.coerceIn(128, 512)
 
     private val graph = RemixGraph(sampleRate)
     private val snapshot = RemixParamsSnapshot()
@@ -72,6 +74,7 @@ class RemixAudioEngine @Inject constructor(
     private var thread: Thread? = null
     @Volatile private var running = false
     @Volatile private var bufferSampleRate = sampleRate
+    private var runningBufferFrames = 0
 
     private var focusRequest: AudioFocusRequest? = null
     @Volatile private var duckGain = 1f
@@ -97,8 +100,10 @@ class RemixAudioEngine @Inject constructor(
      * reload never leaves the graph reading a half-written array.
      */
     fun setStems(stems: List<Pair<String, RemixStemBuffer>>, xfadeFrames: Int) {
-        stems.forEachIndexed { index, (_, buffer) ->
-            graph.setStem(index, buffer, xfadeFrames)
+        stems.forEachIndexed { index, (kind, buffer) ->
+            // The side of a mid/side split is a difference signal. It must reach the right ear
+            // inverted for the pair to rebuild L = M + S, R = M − S — the song's own stereo image.
+            graph.setStem(index, buffer, xfadeFrames, invertRight = kind == StemKind.SIDES)
         }
         for (index in stems.size until MAX_STEMS) graph.setStem(index, null, xfadeFrames)
         bufferSampleRate = stems.firstOrNull()?.second?.sampleRate ?: sampleRate
@@ -119,8 +124,10 @@ class RemixAudioEngine @Inject constructor(
             Timber.w("Remix engine: device rejected a float stereo track at $sampleRate Hz")
             return
         }
-        // Three bursts of headroom: one being played, one queued, one being filled.
-        val bufferBytes = maxOf(minBytes, blockSize * BYTES_PER_FRAME * 3)
+        // Capacity for MAX_BUFFER_BURSTS, so the watchdog can grow the running size without
+        // rebuilding the track. It starts at START_BUFFER_BURSTS (~30 ms at a 4 ms burst) — well
+        // inside what a dragged puck needs to feel immediate.
+        val bufferBytes = maxOf(minBytes * 2, blockSize * BYTES_PER_FRAME * MAX_BUFFER_BURSTS)
 
         val attributes = AudioAttributes.Builder()
             .setUsage(AudioAttributes.USAGE_MEDIA)
@@ -139,7 +146,11 @@ class RemixAudioEngine @Inject constructor(
             .setTransferMode(AudioTrack.MODE_STREAM)
             .apply {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
+                    // Not LOW_LATENCY. A fast track hands its writer a deadline measured in single
+                    // milliseconds, and this writer is an ordinary scheduled Java thread (nice −19,
+                    // never SCHED_FIFO). When it misses, the sink runs dry — which is heard as
+                    // static. A loop instrument does not need 10 ms; it needs to never drop out.
+                    setPerformanceMode(AudioTrack.PERFORMANCE_MODE_NONE)
                 }
             }
             .build()
@@ -150,6 +161,9 @@ class RemixAudioEngine @Inject constructor(
             return
         }
 
+        runningBufferFrames = (blockSize * START_BUFFER_BURSTS).coerceAtMost(newTrack.bufferCapacityInFrames)
+        newTrack.setBufferSizeInFrames(runningBufferFrames)
+
         requestFocus()
         graph.prepare(blockSize)
         track = newTrack
@@ -157,10 +171,7 @@ class RemixAudioEngine @Inject constructor(
         newTrack.play()
         _state.value = State.PLAYING
 
-        thread = Thread({ renderLoop(newTrack) }, "RemixAudioEngine").apply {
-            priority = Thread.MAX_PRIORITY
-            start()
-        }
+        thread = Thread({ renderLoop(newTrack) }, "RemixAudioEngine").apply { start() }
     }
 
     fun stop() {
@@ -186,13 +197,15 @@ class RemixAudioEngine @Inject constructor(
         val right = FloatArray(blockSize)
         val interleaved = FloatArray(blockSize * 2)
         var lastUnderrunCheck = System.nanoTime()
-        var grewBufferOnce = false
+        var lastUnderruns = 0
 
         while (running) {
             params.snapshotInto(snapshot)
-            // A 44.1 kHz stem on a 48 kHz device plays back at the wrong speed unless the read
-            // rate compensates. Doing it here rather than resampling on load keeps the loader
-            // simple and costs nothing: the reader already interpolates.
+            // Stems are resampled to the device rate at load (see Resampler), so this ratio is 1.0
+            // and the reader's Hermite only ever handles tape speed and ITD offsets — the small,
+            // slow ones it is actually good at. It stays as a safety net for a buffer installed at
+            // another rate; converting sample rates here is what used to lay ~33 dB images over
+            // everything above 8 kHz.
             snapshot.rate = snapshot.rate * (bufferSampleRate.toFloat() / sampleRate)
             snapshot.masterGain = snapshot.masterGain * duckGain
 
@@ -215,10 +228,17 @@ class RemixAudioEngine @Inject constructor(
             val now = System.nanoTime()
             if (now - lastUnderrunCheck > 1_000_000_000L) {
                 lastUnderrunCheck = now
+                // Grow on every new underrun, up to capacity. This used to log once and do
+                // nothing, so a device that dropped out kept dropping out for the whole session.
                 val underruns = track.underrunCount
-                if (underruns > 0 && !grewBufferOnce) {
-                    grewBufferOnce = true
-                    Timber.w("Remix engine: $underruns underruns at block $blockSize")
+                if (underruns > lastUnderruns) {
+                    lastUnderruns = underruns
+                    val capacity = track.bufferCapacityInFrames
+                    if (runningBufferFrames < capacity) {
+                        runningBufferFrames = (runningBufferFrames + blockSize * 2).coerceAtMost(capacity)
+                        track.setBufferSizeInFrames(runningBufferFrames)
+                        Timber.w("Remix engine: $underruns underruns — buffer now $runningBufferFrames frames")
+                    }
                 }
             }
         }
@@ -258,5 +278,7 @@ class RemixAudioEngine @Inject constructor(
     companion object {
         const val MAX_STEMS = 4
         private const val BYTES_PER_FRAME = 2 * 4 // stereo, float
+        private const val START_BUFFER_BURSTS = 8
+        private const val MAX_BUFFER_BURSTS = 16
     }
 }

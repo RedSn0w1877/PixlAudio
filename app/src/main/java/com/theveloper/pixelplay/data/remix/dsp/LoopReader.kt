@@ -22,6 +22,16 @@ class RemixStemBuffer(
     val guardFrames: Int,
     val regionFrames: Int,
     val sampleRate: Int,
+    /**
+     * Frames of *real* audio in front of the region. Usually the whole guard — but a loop that
+     * starts at 0:00 has nothing before it, and the guard is silence. The seam crossfade reads that
+     * lead-in, so trusting a silent guard made every loop from the top of a song fade to nothing
+     * and snap back: a 43 ms dip and a click, on the default configuration.
+     *
+     * Deliberately **required**: a default of `guardFrames` would silently reintroduce the bug at
+     * every construction site that forgot to think about it.
+     */
+    val leadInFrames: Int,
 ) {
     init {
         require(regionFrames > 0) { "empty region" }
@@ -60,6 +70,14 @@ class LoopReader(
     private var xfade = 0
     private var position = 0f
 
+    /**
+     * True when there is not enough real audio before the region to crossfade into — a loop
+     * starting at 0:00. The seam then fades briefly out and back in through silence, which is
+     * continuous at the wrap, instead of crossfading into a silent guard and snapping back.
+     */
+    private var fadeThroughSilence = false
+    private var edgeFade = 1
+
     /** Position within the region, in frames. Exposed for the decay-tail envelope and the UI. */
     val positionFrames: Float get() = position
 
@@ -71,8 +89,13 @@ class LoopReader(
 
     fun setCrossfade(frames: Int) {
         // Never longer than the guard (the fade reads that far back) or half the region.
-        xfade = frames.coerceIn(1, minOf(buffer.guardFrames - HERMITE_MARGIN, buffer.regionFrames / 2))
-            .coerceAtLeast(1)
+        val ceiling = minOf(buffer.guardFrames - HERMITE_MARGIN, buffer.regionFrames / 2)
+        xfade = frames.coerceIn(1, ceiling.coerceAtLeast(1))
+        // …nor longer than the audio that is really there. If the lead-in cannot cover the fade,
+        // crossfading would blend the loop's end into silence and then jump back to full level.
+        fadeThroughSilence = buffer.leadInFrames < xfade + HERMITE_MARGIN
+        edgeFade = (buffer.sampleRate * EDGE_FADE_SECONDS).toInt()
+            .coerceIn(1, (buffer.regionFrames / 4).coerceAtLeast(1))
     }
 
     /** Swaps in a newly loaded region, e.g. when the user moves the loop handles. */
@@ -108,6 +131,19 @@ class LoopReader(
         if (q >= n) q -= n * floor(q / n)
 
         val primary = hermite(buffer.guardFrames + q)
+
+        if (fadeThroughSilence) {
+            // Symmetric short fades on both sides of the seam: both reach exactly zero at the
+            // wrap, so the waveform is continuous across it.
+            val toEnd = n - q
+            val gain = when {
+                q < edgeFade -> sin(q / edgeFade * HALF_PI)
+                toEnd < edgeFade -> sin(toEnd / edgeFade * HALF_PI)
+                else -> 1f
+            }
+            return primary * gain
+        }
+
         val seamStart = n - xfade
         if (q < seamStart) return primary
 
@@ -145,5 +181,8 @@ class LoopReader(
         /** Hermite reads one sample either side, so the guard needs a couple of frames spare. */
         const val HERMITE_MARGIN = 4
         private const val HALF_PI = (PI / 2).toFloat()
+
+        /** Length of each side of a fade-through-silence seam. Short enough to read as a join. */
+        private const val EDGE_FADE_SECONDS = 0.004f
     }
 }

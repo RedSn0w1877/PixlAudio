@@ -140,7 +140,12 @@ object RemixStemLoader {
                     for (c in 0 until channels) sum += shorts.get(i * channels + c) / 32768f
                     out[offset + i] = sum / channels
                 }
-                RemixStemBuffer(out, guardFrames, regionFrames, info.sampleRate)
+                // `offset` frames at the front were zero-filled because the file starts there;
+                // only what follows is real lead-in for the seam crossfade to read.
+                RemixStemBuffer(
+                    out, guardFrames, regionFrames, info.sampleRate,
+                    leadInFrames = (guardFrames - offset).coerceIn(0, guardFrames),
+                )
             }
         }.onFailure { Timber.w(it, "Remix loader failed on ${file.name}") }.getOrNull()
     }
@@ -150,7 +155,10 @@ object RemixStemLoader {
         if (mix.samples.size != instrumental.samples.size) return null
         val out = FloatArray(mix.samples.size)
         for (i in out.indices) out[i] = mix.samples[i] - instrumental.samples[i]
-        return RemixStemBuffer(out, mix.guardFrames, mix.regionFrames, mix.sampleRate)
+        return RemixStemBuffer(
+            out, mix.guardFrames, mix.regionFrames, mix.sampleRate,
+            leadInFrames = minOf(mix.leadInFrames, instrumental.leadInFrames),
+        )
     }
 
     // ------------------------------------------------------- encoded audio
@@ -220,6 +228,9 @@ object RemixStemLoader {
             var inputDone = false
             var written = 0
             var sawOutput = false
+            // A loop near the top of a song has nothing before it: the decoder's first frame lands
+            // part-way into the guard and everything in front of it stays zero.
+            var firstWritten = total
 
             while (written < total) {
                 if (!inputDone) {
@@ -254,6 +265,7 @@ object RemixStemLoader {
                             val right = if (channels > 1) shorts.get(f * channels + 1) / 32768f else left
                             mid[destination] = (left + right) * 0.5f
                             side[destination] = (left - right) * 0.5f
+                            if (destination < firstWritten) firstWritten = destination
                             if (destination + 1 > written) written = destination + 1
                         }
                     }
@@ -266,9 +278,10 @@ object RemixStemLoader {
             }
 
             if (!sawOutput) return null
+            val leadIn = (guardFrames - firstWritten).coerceIn(0, guardFrames)
             StemPair(
-                first = RemixStemBuffer(mid, guardFrames, regionFrames, sampleRate),
-                second = RemixStemBuffer(side, guardFrames, regionFrames, sampleRate),
+                first = RemixStemBuffer(mid, guardFrames, regionFrames, sampleRate, leadIn),
+                second = RemixStemBuffer(side, guardFrames, regionFrames, sampleRate, leadIn),
                 firstKind = com.theveloper.pixelplay.data.remix.model.StemKind.CENTER,
                 secondKind = com.theveloper.pixelplay.data.remix.model.StemKind.SIDES,
             )

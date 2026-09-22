@@ -86,9 +86,18 @@ class RemixGraph(
         heldRight = 0f
     }
 
-    /** Installs (or replaces) one stem's resident loop region. Call off the audio thread. */
-    fun setStem(index: Int, buffer: RemixStemBuffer?, xfadeFrames: Int) {
+    /**
+     * Installs (or replaces) one stem's resident loop region. Call off the audio thread.
+     *
+     * @param invertRight true for a mid/side "side" stem, which has to reach the right ear with
+     *   opposite polarity for the pair to rebuild the original stereo image.
+     */
+    fun setStem(index: Int, buffer: RemixStemBuffer?, xfadeFrames: Int, invertRight: Boolean = false) {
         if (index !in 0 until maxStems) return
+        if (buffer != null) {
+            panners[index].tapRateHz = buffer.sampleRate.toFloat()
+        }
+        panners[index].rightPolarity = if (invertRight) -1f else 1f
         readers[index] = buffer?.let { LoopReader(it, xfadeFrames) }
     }
 
@@ -154,7 +163,11 @@ class RemixGraph(
                 val r = panner.outRight * g
                 dryLeft += l
                 dryRight += r
-                send += (l + r) * 0.5f * (stemSends[i].value + stemSends[i].increment * n)
+                // Undo the side stem's polarity for the send. Co-located with the mid, its right
+                // channel is the inverse of its left, so (l + r) is ~0 and the width content would
+                // stop feeding the room entirely — then fade back in with azimuth for no reason.
+                send += (l + r * panner.blockPolarity) * 0.5f *
+                    (stemSends[i].value + stemSends[i].increment * n)
                 val magnitude = if (l < 0f) -l else l
                 if (magnitude > stemPeaks[i]) stemPeaks[i] = magnitude
             }
