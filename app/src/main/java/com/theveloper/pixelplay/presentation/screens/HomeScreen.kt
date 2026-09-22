@@ -290,9 +290,9 @@ fun HomeScreen(
                 onClick = { navController.navigateSafely(Screen.Stats.route) }
             ),
             HomeQuickAction(
-                label = "DJ Mashup",
+                label = "Remix",
                 iconRes = R.drawable.rounded_instant_mix_24,
-                onClick = { navController.navigateSafely(Screen.DJSpace.route) }
+                onClick = { navController.navigateSafely(Screen.RemixStudio.route) }
             )
         )
     }
@@ -624,7 +624,7 @@ fun HomeScreen(
                     }.invokeOnCompletion {
                         if (!sheetState.isVisible) {
                             showOptionsBottomSheet = false
-                            navController.navigateSafely(Screen.DJSpace.route)
+                            navController.navigateSafely(Screen.RemixStudio.route)
                         }
                     }
                 }

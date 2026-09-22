@@ -103,4 +103,5 @@ internal object TaisForegroundNotifications {
     const val TAIS_STUDIO_NOTIFICATION_ID = 4201
     const val STEM_SEPARATOR_NOTIFICATION_ID = 4202
     const val BS_ROFORMER_NOTIFICATION_ID = 4203
+    const val REMIX_STEMS_NOTIFICATION_ID = 4204
 }

@@ -15,6 +15,9 @@ import androidx.work.WorkManager
  */
 const val PIXELPLAY_JOB_TAG = "pixelplay_job"
 
+/** Unique-work-name prefix for [RemixStemSeparationWorker]; see [pixelPlayJobKind]. */
+const val REMIX_STEM_WORK_NAME_PREFIX = "remix_stem_separation_"
+
 /** What kind of work a [WorkInfo] tagged with [PIXELPLAY_JOB_TAG] represents, for display. */
 enum class PixelPlayJobKind(val label: String) {
     LIBRARY_SYNC("Library sync"),
@@ -22,6 +25,7 @@ enum class PixelPlayJobKind(val label: String) {
     SPOTIFY_MATCH("Finding audio"),
     SONG_DOWNLOAD("Downloading song"),
     STEM_SEPARATION("Separating stems"),
+    REMIX_STEMS("Isolating four parts"),
     BS_ROFORMER_RENDER("Rendering instrumental"),
     LYRICS_SYNC("Syncing lyrics"),
     AI_TASK("AI task"),
@@ -42,6 +46,9 @@ fun WorkInfo.pixelPlayJobKind(): PixelPlayJobKind = when {
     tags.contains(SpotifySyncWorker.WORK_NAME) -> PixelPlayJobKind.SPOTIFY_SYNC
     tags.contains(SpotifyMatchWorker.WORK_NAME) -> PixelPlayJobKind.SPOTIFY_MATCH
     tags.any { it.startsWith(SongDownloadWorker.WORK_NAME_PREFIX) } -> PixelPlayJobKind.SONG_DOWNLOAD
+    // Before STEM_SEPARATION: both are per-song "remix_stem…"/"tais_stem…" names, and this is a
+    // prefix test, so the more specific one has to be checked first.
+    tags.any { it.startsWith(REMIX_STEM_WORK_NAME_PREFIX) } -> PixelPlayJobKind.REMIX_STEMS
     tags.any { it.startsWith(StemSeparatorWorker.WORK_NAME_PREFIX) } -> PixelPlayJobKind.STEM_SEPARATION
     tags.any { it.startsWith(BsRoformerRenderWorker.WORK_NAME_PREFIX) } -> PixelPlayJobKind.BS_ROFORMER_RENDER
     tags.any { it.startsWith(TaisStudioWorker.WORK_NAME_PREFIX) } -> PixelPlayJobKind.LYRICS_SYNC
