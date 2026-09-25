@@ -1309,10 +1309,11 @@ suspend fun markDirectoryRulesVersionApplied(version: Int) {
     }
 
     /**
-     * How much Liquid Glass to apply to the floating controls, 0f..1f. 0f is all but invisible
-     * (a 1dp blur, no tint); 1f is fully frosted (the 30dp kernel). See
-     * `LiquidGlassStyle.fromIntensity`. Defaults mid-way so the material is visible without
-     * burying the artwork behind it.
+     * The Liquid Glass transparency dial, 0f..1f: how much of each glass surface's tint shows
+     * (0 = see straight through, 1 = fully frosted). It does not change blur or refraction, which
+     * are fixed per surface in `ui/glass/GlassTokens.kt`. Defaults to 0.55, which must match
+     * `DefaultGlassIntensity` in `ui/glass/GlassTheme.kt`, so the material is visible without
+     * burying the artwork.
      */
     val liquidGlassIntensityFlow: Flow<Float> =
         pref { (it[PreferencesKeys.LIQUID_GLASS_INTENSITY] ?: 0.55f).coerceIn(0f, 1f) }

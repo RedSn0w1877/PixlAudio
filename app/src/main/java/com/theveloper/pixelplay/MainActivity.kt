@@ -83,6 +83,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalView
@@ -143,6 +144,23 @@ import com.theveloper.pixelplay.ui.glass.LocalAppBackdrop
 import com.theveloper.pixelplay.ui.glass.LocalAppUiStyle
 import com.theveloper.pixelplay.ui.glass.LocalPageBackdrop
 import com.theveloper.pixelplay.ui.glass.LocalGlassIntensity
+import com.theveloper.pixelplay.ui.glass.DefaultGlassIntensity
+import com.theveloper.pixelplay.ui.glass.GlassCapability
+import com.theveloper.pixelplay.ui.glass.GlassLayer
+import com.theveloper.pixelplay.ui.glass.LocalGlassCapability
+import com.theveloper.pixelplay.ui.glass.LocalGlassHighContrast
+import com.theveloper.pixelplay.ui.glass.LocalGlassIsDark
+import com.theveloper.pixelplay.ui.glass.LocalGlassLayer
+import com.theveloper.pixelplay.ui.glass.LocalGlassReduceMotion
+import com.theveloper.pixelplay.ui.glass.LocalRecordingBackdrops
+import com.theveloper.pixelplay.ui.glass.captureWindowSnapshot
+import com.theveloper.pixelplay.ui.glass.clearWindowSnapshot
+import com.theveloper.pixelplay.ui.glass.glassSnapshotSource
+import com.theveloper.pixelplay.ui.glass.readGlassHighContrast
+import com.theveloper.pixelplay.ui.glass.readGlassReduceMotion
+import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.graphics.rememberGraphicsLayer
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.kyant.backdrop.backdrops.emptyBackdrop
 import com.theveloper.pixelplay.ui.glass.pageBackdrop
 import com.theveloper.pixelplay.ui.glass.rememberPageBackdrop
@@ -160,7 +178,6 @@ import com.theveloper.pixelplay.utils.LogUtils
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 import kotlin.math.roundToInt
@@ -308,7 +325,11 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            CompositionLocalProvider(LocalShowScrollbar provides showScrollbar) {
+            CompositionLocalProvider(
+                LocalShowScrollbar provides showScrollbar,
+                // Glass follows the app's own light/dark choice, not the system one.
+                LocalGlassIsDark provides useDarkTheme
+            ) {
                 PixelPlayTheme(
                     darkTheme = useDarkTheme
                 ) {
@@ -707,47 +728,73 @@ class MainActivity : ComponentActivity() {
         // ─── Liquid Glass ─────────────────────────────────────────────────────
         // Uses Kyant0/AndroidLiquidGlass (io.github.kyant0:backdrop) rather than a hand-rolled
         // shader stack. Its refraction is a real SDF of the rounded rect with per-channel
-        // dispersion, which is what actually makes the edges read as glass; the previous
-        // in-repo attempt kept landing on "a blur with a line around it".
+        // dispersion, which is what actually makes the edges read as glass.
         //
-        // One shared recording of the page content, which every glass panel samples.
+        // One shared recording of the page content, which the chrome (nav bar, mini player) samples.
         val liquidGlassIntensity by userPreferencesRepository.liquidGlassIntensityFlow
-            .collectAsStateWithLifecycle(initialValue = 0.55f)
+            .collectAsStateWithLifecycle(initialValue = DefaultGlassIntensity)
         // Record-once backdrop (see PageBackdrop.kt) instead of the library's stock
-        // rememberLayerBackdrop, which draws the whole page subtree twice per frame.
+        // rememberLayerBackdrop, which records the whole page subtree twice per frame.
         val glassBackdrop = rememberPageBackdrop()
-        // "Disable blur all over" already exists and means exactly this, so glass honours it
-        // instead of adding a second, competing switch. The library no-ops its own effects on
-        // devices too old for RenderEffect/AGSL, so there is no tier plumbing to do here.
         val appUiStyleName by userPreferencesRepository.appUiStyleFlow
             .collectAsStateWithLifecycle(initialValue = AppUiStyle.Default.name)
+        // What this device can draw: API 33+ everything, 31-32 blur only, 30 nothing (glass then
+        // resolves to Material 3, but the saved preference is kept).
+        val glassCapability = remember { GlassCapability.forDevice() }
         // "Disable blur all over" wins over the style choice: it is an existing accessibility /
         // performance escape hatch, and glass is the single most expensive thing to draw here.
-        val appUiStyle = if (disableBlurAllOver) {
-            AppUiStyle.Material3
-        } else {
-            AppUiStyle.fromPreference(appUiStyleName)
-        }
+        val appUiStyle = AppUiStyle.resolve(appUiStyleName, disableBlurAllOver, glassCapability)
         val glassEnabled = appUiStyle.isGlass
 
-        // Bottom sheets render into their own Android Window (ModalBottomSheet's internal
-        // Dialog), so they can't draw the live `glassBackdrop.graphicsLayer` — a GraphicsLayer
-        // can't be drawn from a window other than the one that recorded it. A plain ImageBitmap
-        // has no such restriction, so this periodically rasterizes the same layer into one and
-        // hands it to PageBackdrop as a fallback (see PageBackdrop.snapshotBitmap) — every sheet
-        // using GlassSheetContainer picks it up automatically via LocalPageBackdrop, no per-sheet
-        // wiring needed. Captured here (MainActivity's own composition), not from inside a sheet
-        // — the earlier attempt at this triggered the capture from the sheet's own window/
-        // coroutine and silently failed every time. Throttled to 3/sec rather than every frame:
-        // a sheet's backdrop is static almost the entire time it's open, so slightly-stale reads
-        // as live, and this app already had one real jank regression from over-eager per-frame
-        // backdrop rasterization (see rememberPageBackdrop's own doc).
-        LaunchedEffect(glassBackdrop, glassEnabled) {
-            if (!glassEnabled) return@LaunchedEffect
-            while (isActive) {
-                runCatching { glassBackdrop.snapshotBitmap = glassBackdrop.graphicsLayer.toImageBitmap() }
-                delay(330)
+        // System accessibility settings glass adapts to, re-read whenever the app comes back.
+        val glassContext = LocalContext.current
+        var glassReduceMotion by remember { mutableStateOf(readGlassReduceMotion(glassContext)) }
+        var glassHighContrast by remember { mutableStateOf(readGlassHighContrast(glassContext)) }
+        LifecycleResumeEffect(glassContext) {
+            glassReduceMotion = readGlassReduceMotion(glassContext)
+            glassHighContrast = readGlassHighContrast(glassContext)
+            onPauseOrDispose { }
+        }
+
+        // Bottom sheets render into their own Android window (ModalBottomSheet's internal
+        // Dialog), so they cannot draw the live page layer. Instead, while at least one glass sheet
+        // is registered (PageBackdrop.snapshotRequests), the whole Scaffold — page, nav bar and
+        // mini player — is recorded into `glassWindowLayer` (see glassSnapshotSource on the
+        // Scaffold) and rasterised at half size: once as soon as that recording exists, once more
+        // after the sheet's enter animation has settled. Nothing runs on a timer, and the bitmap is
+        // dropped as soon as the last sheet closes. Captured here, in the main window's own
+        // composition, because it is the window that owns the layer.
+        val glassWindowLayer = rememberGraphicsLayer()
+        val glassSnapshotScratch = rememberGraphicsLayer()
+        val glassSnapshotWanted by remember(glassBackdrop) {
+            derivedStateOf { glassBackdrop.snapshotRequests > 0 }
+        }
+        val captureWindowSnapshot = glassEnabled && glassSnapshotWanted
+        val snapshotDensity = LocalDensity.current
+        val snapshotLayoutDirection = LocalLayoutDirection.current
+        LaunchedEffect(glassBackdrop, captureWindowSnapshot) {
+            if (!captureWindowSnapshot) {
+                glassBackdrop.clearWindowSnapshot()
+                return@LaunchedEffect
             }
+            suspend fun captureOnce() {
+                // The window layer is attached this frame; give it up to a few frames to record.
+                repeat(4) {
+                    withFrameNanos { }
+                    val captured = runCatching {
+                        glassBackdrop.captureWindowSnapshot(
+                            windowLayer = glassWindowLayer,
+                            scratchLayer = glassSnapshotScratch,
+                            density = snapshotDensity,
+                            layoutDirection = snapshotLayoutDirection
+                        )
+                    }.getOrDefault(false)
+                    if (captured) return
+                }
+            }
+            captureOnce()
+            delay(400)
+            captureOnce()
         }
 
         val rootView = LocalView.current
@@ -868,7 +915,10 @@ class MainActivity : ComponentActivity() {
             // Same recording, on a channel that is never re-scoped to empty further down, so
             // sheets/dialogs/popups can still refract the page. See LocalPageBackdrop's doc.
             LocalPageBackdrop provides glassBackdrop,
-            LocalGlassIntensity provides liquidGlassIntensity
+            LocalGlassIntensity provides liquidGlassIntensity,
+            LocalGlassCapability provides glassCapability,
+            LocalGlassReduceMotion provides glassReduceMotion,
+            LocalGlassHighContrast provides glassHighContrast
         ) {
             AppSidebarDrawer(
                 drawerState = drawerState,
@@ -886,7 +936,13 @@ class MainActivity : ComponentActivity() {
         ) {
 
                 Scaffold(
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .glassSnapshotSource(
+                        backdrop = glassBackdrop,
+                        windowLayer = glassWindowLayer,
+                        enabled = captureWindowSnapshot
+                    ),
                 bottomBar = {
                     if (shouldRenderNavigationBar) {
                         val currentSongId by remember {
@@ -1144,9 +1200,11 @@ class MainActivity : ComponentActivity() {
                                         }
                                     }
                                 }
-                                // Records the page content so the glass panels have something to
-                                // refract. Chained after the expansion-blur layer so the glass
-                                // samples what is actually on screen, that blur included.
+                                // Records the page content so the glass chrome has something to
+                                // refract. This sits *inside* the expansion-blur layer above (the
+                                // RenderEffect applies to the whole layer, after this records), so
+                                // the recording — and every glass surface sampling it — sees the
+                                // page unblurred.
                                 .then(
                                     if (glassEnabled) {
                                         Modifier.pageBackdrop(glassBackdrop)
@@ -1165,9 +1223,16 @@ class MainActivity : ComponentActivity() {
                             // the nav bar or full player, it was every inline glass button/card/
                             // sheet inside a screen (e.g. HomeScreen's shuffle FAB) sampling the
                             // very backdrop their own ancestor was busy recording. Re-scoping to
-                            // `emptyBackdrop()` here breaks the cycle: inline glass still looks
-                            // glassy (tint/blur/highlight/shadow) but has nothing to refract.
-                            CompositionLocalProvider(LocalAppBackdrop provides emptyBackdrop()) {
+                            // `emptyBackdrop()` here breaks the cycle; inline glass components
+                            // then render their tonal content-layer look instead.
+                            CompositionLocalProvider(
+                                LocalAppBackdrop provides emptyBackdrop(),
+                                // Everything in a screen is the content layer: glass components
+                                // render tonal there (see glassPlacement), and anything that tries
+                                // to sample the page recording from inside it trips the guard.
+                                LocalGlassLayer provides GlassLayer.Content,
+                                LocalRecordingBackdrops provides setOf(glassBackdrop)
+                            ) {
                                 AppNavigation(
                                     playerViewModel = playerViewModel,
                                     navController = navController,

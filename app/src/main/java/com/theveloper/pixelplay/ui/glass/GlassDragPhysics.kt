@@ -21,7 +21,23 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.util.fastCoerceAtMost
+import androidx.compose.ui.util.fastCoerceIn
 import androidx.compose.ui.util.fastFirstOrNull
+import androidx.compose.ui.util.lerp
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.GraphicsLayerScope
+import androidx.compose.ui.graphics.ShaderBrush
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.unit.dp
+import android.os.Build
+import kotlin.math.atan2
+import kotlin.math.cos
+import kotlin.math.sin
+import kotlin.math.tanh
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
@@ -206,20 +222,71 @@ private suspend inline fun AwaitPointerEventScope.awaitDragOrUp(
     }
 }
 
+/**
+ * The press light on a glass control: a faint additive wash plus a soft radial spot that follows
+ * the finger. Ported from the Backdrop catalog's `InteractiveHighlight` (Kyant0/AndroidLiquidGlass,
+ * Apache-2.0).
+ *
+ * - [modifier] draws the light. Put it *after* `drawBackdrop` so it lands inside the glass's
+ *   clipped layer. It reads the animation in the draw phase only.
+ * - [gestureModifier] tracks the finger (no slop, doesn't consume, so a `clickable` alongside it
+ *   still gets the tap).
+ *
+ * On API 33+ the spot is an AGSL radial falloff (`smoothstep(r, r/2, d)`, `r = 1.5·minDimension`)
+ * at `0.15·p`, over a `0.08·p` wash, both with [BlendMode.Plus]. Below 33 there are no runtime
+ * shaders, so it falls back to a flat `0.25·p` wash. The shader is created lazily on the first
+ * press, so a screen full of buttons that are never touched compiles nothing.
+ */
 class InteractiveHighlight(
-    val animationScope: CoroutineScope
+    val animationScope: CoroutineScope,
+    val position: (size: Size, offset: Offset) -> Offset = { _, offset -> offset }
 ) {
     private val pressProgressAnimationSpec = spring(0.5f, 300f, 0.001f)
     private val positionAnimationSpec = spring(0.5f, 300f, Offset.VisibilityThreshold)
 
     private val pressProgressAnimation = Animatable(0f, 0.001f)
-    private val positionAnimation = Animatable(Offset.Zero, Offset.VectorConverter, Offset.VisibilityThreshold)
+    private val positionAnimation =
+        Animatable(Offset.Zero, Offset.VectorConverter, Offset.VisibilityThreshold)
 
     private var startPosition = Offset.Zero
     val pressProgress: Float get() = pressProgressAnimation.value
     val offset: Offset get() = positionAnimation.value - startPosition
 
-    val modifier: Modifier = Modifier.pointerInput(animationScope) {
+    private var spotShader: android.graphics.RuntimeShader? = null
+    private var spotBrush: ShaderBrush? = null
+
+    val modifier: Modifier = Modifier.drawWithContent {
+        val progress = pressProgressAnimation.value
+        if (progress > 0f) drawLight(progress)
+        drawContent()
+    }
+
+    private fun DrawScope.drawLight(progress: Float) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            drawRect(Color.White.copy(alpha = 0.08f * progress), blendMode = BlendMode.Plus)
+            val brush = obtainSpotBrush()
+            val shader = spotShader
+            if (brush != null && shader != null) {
+                val p = position(size, positionAnimation.value)
+                shader.setFloatUniform("size", size.width, size.height)
+                shader.setColorUniform(
+                    "color",
+                    android.graphics.Color.argb(0.15f * progress, 1f, 1f, 1f)
+                )
+                shader.setFloatUniform("radius", size.minDimension * 1.5f)
+                shader.setFloatUniform(
+                    "position",
+                    p.x.fastCoerceIn(0f, size.width),
+                    p.y.fastCoerceIn(0f, size.height)
+                )
+                drawRect(brush, blendMode = BlendMode.Plus)
+            }
+        } else {
+            drawRect(Color.White.copy(alpha = 0.25f * progress), blendMode = BlendMode.Plus)
+        }
+    }
+
+    val gestureModifier: Modifier = Modifier.pointerInput(animationScope) {
         inspectDragGestures(
             onDragStart = { down ->
                 startPosition = down.position
@@ -228,20 +295,91 @@ class InteractiveHighlight(
                     launch { positionAnimation.snapTo(startPosition) }
                 }
             },
-            onDragEnd = {
-                animationScope.launch {
-                    launch { pressProgressAnimation.animateTo(0f, pressProgressAnimationSpec) }
-                    launch { positionAnimation.animateTo(startPosition, positionAnimationSpec) }
-                }
-            },
-            onDragCancel = {
-                animationScope.launch {
-                    launch { pressProgressAnimation.animateTo(0f, pressProgressAnimationSpec) }
-                    launch { positionAnimation.animateTo(startPosition, positionAnimationSpec) }
-                }
-            }
+            onDragEnd = { settle() },
+            onDragCancel = { settle() }
         ) { change, _ ->
             animationScope.launch { positionAnimation.snapTo(change.position) }
         }
     }
+
+    private fun settle() {
+        animationScope.launch {
+            launch { pressProgressAnimation.animateTo(0f, pressProgressAnimationSpec) }
+            launch { positionAnimation.animateTo(startPosition, positionAnimationSpec) }
+        }
+    }
+
+    private fun obtainSpotBrush(): ShaderBrush? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return null
+        spotBrush?.let { return it }
+        return runCatching {
+            val shader = android.graphics.RuntimeShader(SpotShaderSource)
+            spotShader = shader
+            ShaderBrush(shader).also { spotBrush = it }
+        }.getOrNull()
+    }
+
+    private companion object {
+        const val SpotShaderSource = """
+uniform float2 size;
+layout(color) uniform half4 color;
+uniform float radius;
+uniform float2 position;
+
+half4 main(float2 coord) {
+    float dist = distance(coord, position);
+    float intensity = smoothstep(radius, radius * 0.5, dist);
+    return color * intensity;
+}"""
+    }
+}
+
+/**
+ * The catalog's press/drag transform for a glass control, as a `layerBlock`: grow by 4dp on the
+ * short side while pressed, lean toward the finger along a `tanh` curve, and stretch a little
+ * along the drag. Under Reduce Motion it only grows by 2dp — no lean, no stretch.
+ */
+fun GraphicsLayerScope.applyGlassPress(
+    highlight: InteractiveHighlight,
+    reduceMotion: Boolean
+) {
+    val w = size.width.coerceAtLeast(1f)
+    val h = size.height.coerceAtLeast(1f)
+    val progress = highlight.pressProgress
+    if (reduceMotion) {
+        val scale = lerp(1f, 1f + 2.dp.toPx() / h, progress)
+        scaleX = scale
+        scaleY = scale
+        return
+    }
+    val scale = lerp(1f, 1f + 4.dp.toPx() / h, progress)
+    val maxOffset = size.minDimension.coerceAtLeast(1f)
+    val offset = highlight.offset
+    translationX = maxOffset * tanh(0.05f * offset.x / maxOffset)
+    translationY = maxOffset * tanh(0.05f * offset.y / maxOffset)
+    val maxDragScale = 4.dp.toPx() / h
+    val offsetAngle = atan2(offset.y, offset.x)
+    val maxDimension = size.maxDimension.coerceAtLeast(1f)
+    scaleX = scale + maxDragScale * abs(cos(offsetAngle) * offset.x / maxDimension) *
+        (w / h).fastCoerceAtMost(1f)
+    scaleY = scale + maxDragScale * abs(sin(offsetAngle) * offset.y / maxDimension) *
+        (h / w).fastCoerceAtMost(1f)
+}
+
+/**
+ * The squash-and-stretch the catalog applies to a dragged thumb/pill: [DampedDragAnimation.scaleX]
+ * and [scaleY][DampedDragAnimation.scaleY], narrowed along the direction of travel by velocity.
+ * Under Reduce Motion the scale springs stay but the velocity squash is dropped.
+ */
+fun GraphicsLayerScope.applyGlassSquash(
+    animation: DampedDragAnimation,
+    velocityDivisor: Float,
+    reduceMotion: Boolean
+) {
+    scaleX = animation.scaleX
+    scaleY = animation.scaleY
+    if (reduceMotion) return
+    val velocity = animation.velocity / velocityDivisor
+    scaleX /= 1f - (velocity * 0.75f).fastCoerceIn(-0.2f, 0.2f)
+    scaleY *= 1f - (velocity * 0.25f).fastCoerceIn(-0.2f, 0.2f)
 }

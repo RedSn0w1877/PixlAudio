@@ -1,15 +1,14 @@
 package com.theveloper.pixelplay.ui.glass
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -17,17 +16,23 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.GraphicsLayerScope
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
+import androidx.compose.ui.semantics.disabled
+import androidx.compose.ui.semantics.progressBarRangeInfo
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.setProgress
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.util.fastCoerceIn
@@ -35,19 +40,12 @@ import androidx.compose.ui.util.fastRoundToInt
 import androidx.compose.ui.util.lerp
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.backdrops.rememberBackdrop
-import com.kyant.backdrop.backdrops.rememberCombinedBackdrop
-import com.kyant.backdrop.drawBackdrop
-import com.kyant.backdrop.effects.blur
-import com.kyant.backdrop.effects.lens
-import com.kyant.backdrop.effects.vibrancy
-import com.kyant.backdrop.highlight.Highlight
-import com.kyant.backdrop.shadow.InnerShadow
-import com.kyant.backdrop.shadow.Shadow
-import kotlinx.coroutines.flow.collectLatest
+import kotlin.math.roundToInt
 
 /**
- * Universal Slider that renders a Liquid Glass slider when [isGlassEnabled] is true,
- * and a standard Material 3 Slider when in Material 3 theme mode.
+ * Universal Slider: a Liquid Glass slider when [isGlassEnabled], a standard Material 3 [Slider]
+ * otherwise. Both honour every parameter — in particular [steps] and [onValueChangeFinished],
+ * which settings rely on to actually save.
  */
 @Composable
 fun GlassSlider(
@@ -72,19 +70,41 @@ fun GlassSlider(
         return
     }
 
-    val backdrop = LocalAppBackdrop.current
     LiquidSlider(
         value = { value },
         onValueChange = onValueChange,
         valueRange = valueRange,
         visibilityThreshold = 0.001f,
-        backdrop = backdrop,
-        modifier = modifier
+        backdrop = LocalAppBackdrop.current,
+        modifier = modifier,
+        steps = steps,
+        onValueChangeFinished = onValueChangeFinished,
+        enabled = enabled
     )
 }
 
+/** Snaps [value] to the nearest of `steps + 2` evenly spaced stops across [range]. */
+internal fun snapToSteps(value: Float, range: ClosedFloatingPointRange<Float>, steps: Int): Float {
+    val clamped = value.coerceIn(range)
+    if (steps <= 0) return clamped
+    val span = range.endInclusive - range.start
+    if (span <= 0f) return range.start
+    val stepSize = span / (steps + 1)
+    val index = ((clamped - range.start) / stepSize).roundToInt()
+    return (range.start + index * stepSize).coerceIn(range)
+}
+
 /**
- * Port of LiquidSlider with perfectly centered track & thumb, damped drag physics, popping thumb, and refraction.
+ * Port of the Backdrop catalog's `LiquidSlider` (Kyant0/AndroidLiquidGlass, Apache-2.0): a
+ * centred track and a white capsule thumb that turns into clear glass while dragged, with the
+ * damped squash-and-stretch physics.
+ *
+ * Drag anywhere on the track (no touch slop) or tap to jump. With [steps] the reported value is
+ * always on a stop, and on release the thumb settles onto it before [onValueChangeFinished] fires.
+ * Disabled: 38% alpha and no gestures.
+ *
+ * The thumb refracts only the track beneath it — never the page — so it needs no combined backdrop
+ * (the page under a settings row is an empty backdrop anyway). [backdrop] is kept for callers.
  */
 @Composable
 fun LiquidSlider(
@@ -92,26 +112,45 @@ fun LiquidSlider(
     onValueChange: (Float) -> Unit,
     valueRange: ClosedFloatingPointRange<Float>,
     visibilityThreshold: Float,
-    backdrop: Backdrop,
-    modifier: Modifier = Modifier
+    @Suppress("UNUSED_PARAMETER") backdrop: Backdrop,
+    modifier: Modifier = Modifier,
+    steps: Int = 0,
+    onValueChangeFinished: (() -> Unit)? = null,
+    enabled: Boolean = true
 ) {
-    val isLightTheme = !isSystemInDarkTheme()
-    val accentColor = if (isLightTheme) Color(0xFF0088FF) else Color(0xFF0091FF)
-    val trackColor = if (isLightTheme) Color(0xFF787878).copy(0.2f) else Color(0xFF787880).copy(0.36f)
+    val scheme = MaterialTheme.colorScheme
+    val isDark = glassIsDark()
+    val accentColor = scheme.primary
+    val trackColor = scheme.onSurface.copy(alpha = if (isDark) 0.20f else 0.12f)
+    val thumbRecipe = resolveRecipe(GlassRole.Thumb)
+    val reduceMotion = LocalGlassReduceMotion.current
+
+    val currentOnValueChange by rememberUpdatedState(onValueChange)
+    val currentOnValueChangeFinished by rememberUpdatedState(onValueChangeFinished)
 
     val trackBackdrop = rememberPageBackdrop()
 
     BoxWithConstraints(
         modifier
             .fillMaxWidth()
-            .height(36.dp),
+            .height(36.dp)
+            .alpha(if (enabled) 1f else 0.38f)
+            .semantics {
+                progressBarRangeInfo = ProgressBarRangeInfo(value(), valueRange, steps)
+                if (!enabled) disabled() else setProgress { target ->
+                    val snapped = snapToSteps(target, valueRange, steps)
+                    currentOnValueChange(snapped)
+                    currentOnValueChangeFinished?.invoke()
+                    true
+                }
+            },
         contentAlignment = Alignment.CenterStart
     ) {
         val trackWidth = constraints.maxWidth.toFloat().coerceAtLeast(1f)
-
         val isLtr = LocalLayoutDirection.current == LayoutDirection.Ltr
         val animationScope = rememberCoroutineScope()
-        var currentVal by remember { mutableFloatStateOf(value()) }
+        // The raw finger position during a drag; the reported value is this snapped to a stop.
+        var rawValue by remember { mutableFloatStateOf(value()) }
 
         val dampedDragAnimation = remember(animationScope) {
             DampedDragAnimation(
@@ -120,169 +159,139 @@ fun LiquidSlider(
                 valueRange = valueRange,
                 visibilityThreshold = visibilityThreshold,
                 initialScale = 1f,
-                pressedScale = 1.65f,
+                pressedScale = 1.5f,
                 onDragStarted = {},
-                onDragStopped = {
-                    onValueChange(currentVal)
-                },
-                onDrag = { _, dragAmount ->
-                    val rangeLength = valueRange.endInclusive - valueRange.start
-                    val delta = rangeLength * (dragAmount.x / trackWidth)
-                    currentVal = (currentVal + if (isLtr) delta else -delta).coerceIn(valueRange)
-                    updateValue(currentVal)
-                    onValueChange(currentVal)
-                }
+                onDragStopped = {},
+                onDrag = { _, _ -> }
             )
         }
 
         LaunchedEffect(value()) {
-            val externalVal = value()
-            if (externalVal != currentVal) {
-                currentVal = externalVal
-                dampedDragAnimation.updateValue(externalVal)
+            val external = value()
+            if (external != snapToSteps(rawValue, valueRange, steps)) {
+                rawValue = external
+                dampedDragAnimation.updateValue(external)
             }
         }
 
-        val sliderProgress = ((dampedDragAnimation.value - valueRange.start) / (valueRange.endInclusive - valueRange.start))
-            .fastCoerceIn(0f, 1f)
+        fun valueAt(x: Float): Float {
+            val fraction = (x / trackWidth).fastCoerceIn(0f, 1f)
+            val span = valueRange.endInclusive - valueRange.start
+            return if (isLtr) valueRange.start + fraction * span
+            else valueRange.endInclusive - fraction * span
+        }
+
+        fun report(raw: Float) {
+            rawValue = raw.coerceIn(valueRange)
+            currentOnValueChange(snapToSteps(rawValue, valueRange, steps))
+        }
+
+        fun finish() {
+            val snapped = snapToSteps(rawValue, valueRange, steps)
+            rawValue = snapped
+            dampedDragAnimation.updateValue(snapped)
+            dampedDragAnimation.release()
+            currentOnValueChange(snapped)
+            currentOnValueChangeFinished?.invoke()
+        }
+
+        val gestures = if (!enabled) {
+            Modifier
+        } else {
+            Modifier
+                .pointerInput(animationScope, trackWidth, valueRange, steps, isLtr) {
+                    detectTapGestures { position ->
+                        val target = snapToSteps(valueAt(position.x), valueRange, steps)
+                        rawValue = target
+                        dampedDragAnimation.animateToValue(target)
+                        currentOnValueChange(target)
+                        currentOnValueChangeFinished?.invoke()
+                    }
+                }
+                .pointerInput(animationScope, trackWidth, valueRange, steps, isLtr) {
+                    detectHorizontalDragGestures(
+                        onDragStart = { position ->
+                            dampedDragAnimation.press()
+                            report(valueAt(position.x))
+                            dampedDragAnimation.updateValue(rawValue)
+                        },
+                        onDragEnd = { finish() },
+                        onDragCancel = { finish() },
+                        onHorizontalDrag = { change, dragAmount ->
+                            change.consume()
+                            val span = valueRange.endInclusive - valueRange.start
+                            val delta = span * (dragAmount / trackWidth)
+                            report(rawValue + if (isLtr) delta else -delta)
+                            dampedDragAnimation.updateValue(rawValue)
+                        }
+                    )
+                }
+        }
+
+        val progress: () -> Float = {
+            ((dampedDragAnimation.value - valueRange.start) /
+                (valueRange.endInclusive - valueRange.start)).fastCoerceIn(0f, 1f)
+        }
 
         Box(
             Modifier
                 .fillMaxWidth()
                 .height(36.dp)
-                .pointerInput(animationScope, trackWidth, valueRange) {
-                    detectTapGestures { position ->
-                        val rangeLength = valueRange.endInclusive - valueRange.start
-                        val fraction = (position.x / trackWidth).fastCoerceIn(0f, 1f)
-                        val targetVal = (if (isLtr) valueRange.start + fraction * rangeLength
-                        else valueRange.endInclusive - fraction * rangeLength).coerceIn(valueRange)
-                        currentVal = targetVal
-                        dampedDragAnimation.animateToValue(targetVal)
-                        onValueChange(targetVal)
-                    }
-                }
-                .pointerInput(animationScope, trackWidth, valueRange) {
-                    detectDragGestures(
-                        onDragStart = { position ->
-                            dampedDragAnimation.press()
-                            val rangeLength = valueRange.endInclusive - valueRange.start
-                            val fraction = (position.x / trackWidth).fastCoerceIn(0f, 1f)
-                            val targetVal = (if (isLtr) valueRange.start + fraction * rangeLength
-                            else valueRange.endInclusive - fraction * rangeLength).coerceIn(valueRange)
-                            currentVal = targetVal
-                            dampedDragAnimation.updateValue(targetVal)
-                            onValueChange(targetVal)
-                        },
-                        onDragEnd = {
-                            dampedDragAnimation.release()
-                            onValueChange(currentVal)
-                        },
-                        onDragCancel = {
-                            dampedDragAnimation.release()
-                        },
-                        onDrag = { change, dragAmount ->
-                            change.consume()
-                            val rangeLength = valueRange.endInclusive - valueRange.start
-                            val delta = rangeLength * (dragAmount.x / trackWidth)
-                            currentVal = (currentVal + if (isLtr) delta else -delta).coerceIn(valueRange)
-                            dampedDragAnimation.updateValue(currentVal)
-                            onValueChange(currentVal)
-                        }
-                    )
-                },
+                .then(gestures),
             contentAlignment = Alignment.CenterStart
         ) {
-            // Track (8dp height) centered vertically
+            // Track, recorded so the thumb can refract it.
             Box(
                 Modifier
                     .fillMaxWidth()
-                    .height(8.dp)
+                    .height(6.dp)
                     .align(Alignment.CenterStart)
                     .pageBackdrop(trackBackdrop)
             ) {
                 Box(
                     Modifier
-                        .clip(RoundedCornerShape(percent = 50))
+                        .clip(GlassShapes.Capsule)
                         .background(trackColor)
-                        .height(8.dp)
+                        .height(6.dp)
                         .fillMaxWidth()
                 )
-
                 Box(
                     Modifier
-                        .clip(RoundedCornerShape(percent = 50))
+                        .clip(GlassShapes.Capsule)
                         .background(accentColor)
-                        .height(8.dp)
+                        .height(6.dp)
                         .layout { measurable, constraints ->
                             val placeable = measurable.measure(constraints)
-                            val width = (constraints.maxWidth * sliderProgress).fastRoundToInt()
-                            layout(width, placeable.height) {
-                                placeable.place(0, 0)
-                            }
+                            val width = (constraints.maxWidth * progress()).fastRoundToInt()
+                            layout(width, placeable.height) { placeable.place(0, 0) }
                         }
                 )
             }
 
-            // Liquid glass thumb (44dp x 28dp) centered vertically
+            // Thumb: white capsule at rest, clear refracting glass while pressed.
+            val thumbBackdrop = rememberBackdrop(trackBackdrop) { drawBackdrop ->
+                val p = dampedDragAnimation.pressProgress
+                scale(lerp(2f / 3f, 1f, p), lerp(0f, 1f, p)) { drawBackdrop() }
+            }
+            val thumbLayer: GraphicsLayerScope.() -> Unit = remember(dampedDragAnimation, reduceMotion) {
+                { applyGlassSquash(dampedDragAnimation, velocityDivisor = 10f, reduceMotion = reduceMotion) }
+            }
             Box(
                 Modifier
                     .align(Alignment.CenterStart)
                     .graphicsLayer {
-                        translationX = (-size.width / 2f + trackWidth * sliderProgress)
-                            .fastCoerceIn(-size.width / 4f, trackWidth - size.width * 3f / 4f) * if (isLtr) 1f else -1f
+                        translationX = (-size.width / 2f + trackWidth * progress())
+                            .fastCoerceIn(-size.width / 4f, trackWidth - size.width * 3f / 4f) *
+                            if (isLtr) 1f else -1f
                     }
-                    .drawBackdrop(
-                        backdrop = rememberCombinedBackdrop(
-                            backdrop,
-                            rememberBackdrop(trackBackdrop) { drawBackdrop ->
-                                val progress = dampedDragAnimation.pressProgress
-                                val scaleX = lerp(2f / 3f, 1f, progress)
-                                val scaleY = lerp(0f, 1f, progress)
-                                scale(scaleX, scaleY) {
-                                    drawBackdrop()
-                                }
-                            }
-                        ),
-                        shape = { RoundedCornerShape(percent = 50) },
-                        effects = {
-                            val progress = dampedDragAnimation.pressProgress
-                            vibrancy()
-                            blur(12f.dp.toPx() * (1f - progress))
-                            lens(
-                                20f.dp.toPx() * (1f + progress * 0.6f),
-                                28f.dp.toPx() * (1f + progress * 0.6f),
-                                depthEffect = true,
-                                chromaticAberration = true
-                            )
-                        },
-                        highlight = {
-                            val progress = dampedDragAnimation.pressProgress
-                            Highlight.Ambient.copy(
-                                width = Highlight.Ambient.width / 1.2f,
-                                blurRadius = Highlight.Ambient.blurRadius / 1.2f,
-                                alpha = progress
-                            )
-                        },
-                        shadow = {
-                            Shadow(radius = 8.dp, color = Color.Black.copy(alpha = 0.25f))
-                        },
-                        innerShadow = {
-                            val progress = dampedDragAnimation.pressProgress
-                            InnerShadow(radius = 6.dp * progress, alpha = progress)
-                        },
-                        layerBlock = {
-                            scaleX = dampedDragAnimation.scaleX
-                            scaleY = dampedDragAnimation.scaleY
-                            val velocity = dampedDragAnimation.velocity / 10f
-                            scaleX /= 1f - (velocity * 0.75f).fastCoerceIn(-0.2f, 0.2f)
-                            scaleY *= 1f - (velocity * 0.25f).fastCoerceIn(-0.2f, 0.2f)
-                        },
-                        onDrawSurface = {
-                            val progress = dampedDragAnimation.pressProgress
-                            drawRect(Color.White.copy(alpha = 1f - progress))
-                        }
+                    .liquidGlass(
+                        recipe = thumbRecipe,
+                        shape = GlassShapes.Capsule,
+                        materialize = { dampedDragAnimation.pressProgress },
+                        backdrop = thumbBackdrop,
+                        layerBlock = thumbLayer
                     )
-                    .size(44.dp, 28.dp)
+                    .size(40.dp, 24.dp)
             )
         }
     }

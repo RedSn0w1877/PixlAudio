@@ -1,8 +1,13 @@
 package com.theveloper.pixelplay.ui.glass
 
+import android.content.Context
+import android.os.Build
+import android.provider.Settings
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.kyant.backdrop.Backdrop
@@ -33,10 +38,114 @@ enum class AppUiStyle {
             Material3.name -> Material3
             else -> Default
         }
+
+        /**
+         * The style actually drawn: the user's choice, unless "Disable blur all over" is on or
+         * the device cannot draw glass at all ([GlassCapability.None]). The preference itself is
+         * left untouched either way, so it comes back if either condition goes away.
+         */
+        fun resolve(
+            preference: String?,
+            disableBlurAllOver: Boolean,
+            capability: GlassCapability
+        ): AppUiStyle = when {
+            disableBlurAllOver -> Material3
+            capability == GlassCapability.None -> Material3
+            else -> fromPreference(preference)
+        }
     }
 }
 
 val LocalAppUiStyle = staticCompositionLocalOf { AppUiStyle.Default }
+
+/**
+ * How much of the glass pipeline this device can run.
+ *
+ * - [Full] (API 33+): blur, colour filters, the SDF lens and the highlight/touch-glow shaders.
+ * - [BlurOnly] (API 31–32): `RenderEffect` exists but `RuntimeShader` does not, so no lens and
+ *   no shaders. Tints get heavier (+0.20 alpha) and blur wider (×1.5) to make up for the missing
+ *   refraction, and highlights drop to [com.kyant.backdrop.highlight.Highlight.Plain].
+ * - [None] (API 30): neither. Glass resolves to Material 3 (see [AppUiStyle.resolve]); the saved
+ *   preference is kept.
+ */
+enum class GlassCapability {
+    Full,
+    BlurOnly,
+    None;
+
+    val hasLens: Boolean get() = this == Full
+    val hasBlur: Boolean get() = this != None
+
+    companion object {
+        fun forDevice(sdkInt: Int = Build.VERSION.SDK_INT): GlassCapability = when {
+            sdkInt >= Build.VERSION_CODES.TIRAMISU -> Full
+            sdkInt >= Build.VERSION_CODES.S -> BlurOnly
+            else -> None
+        }
+    }
+}
+
+val LocalGlassCapability = staticCompositionLocalOf { GlassCapability.forDevice() }
+
+/**
+ * Where a glass component sits in the "glass layer" model.
+ *
+ * Glass belongs to the navigation/control layer that floats above content, never to the content
+ * itself, and never on top of other glass.
+ */
+enum class GlassLayer {
+    /**
+     * Inside a recorded page (everything under `AppNavigation`, or a [RecordedContent]). There is
+     * nothing to refract here without sampling the recording from inside itself, so glass
+     * components render their tonal fallback and skip `drawBackdrop` entirely.
+     */
+    Content,
+
+    /** Floating chrome drawn above a recording and sampling it: nav bar, mini player, top bars. */
+    Chrome,
+
+    /**
+     * Sitting on a glass surface (a sheet, a [GlassGroup]). Controls here use fills
+     * ([glassFill]) instead of stacking a second piece of glass on the first.
+     */
+    OnGlass
+}
+
+val LocalGlassLayer = staticCompositionLocalOf { GlassLayer.Chrome }
+
+/**
+ * Whether glass should use its dark-theme values. Provided from the app's own dark setting
+ * (MainActivity's `useDarkTheme`), not `isSystemInDarkTheme()` — the user can force a theme that
+ * differs from the system one. Inside the full player it is re-provided from the album scheme's
+ * background luminance. Null means "not provided": [glassIsDark] then derives it from the scheme.
+ */
+val LocalGlassIsDark = staticCompositionLocalOf<Boolean?> { null }
+
+/** Reduce Motion (system animator duration scale is 0): no squash, no tanh drag, static lens. */
+val LocalGlassReduceMotion = staticCompositionLocalOf { false }
+
+/** High-contrast text is on: heavier tints plus a 1dp `onSurface` border on glass. */
+val LocalGlassHighContrast = staticCompositionLocalOf { false }
+
+/** Resolves [LocalGlassIsDark], falling back to the current scheme's surface luminance. */
+@Composable
+@ReadOnlyComposable
+fun glassIsDark(): Boolean =
+    LocalGlassIsDark.current ?: (MaterialTheme.colorScheme.surface.luminance() < 0.5f)
+
+/** Reads the system "Remove animations" state (animator duration scale 0). */
+fun readGlassReduceMotion(context: Context): Boolean = runCatching {
+    Settings.Global.getFloat(
+        context.contentResolver,
+        Settings.Global.ANIMATOR_DURATION_SCALE,
+        1f
+    ) == 0f
+}.getOrDefault(false)
+
+/** Reads the system high-contrast-text setting. Not a public constant, hence the literal key. */
+fun readGlassHighContrast(context: Context): Boolean = runCatching {
+    Settings.Secure.getInt(context.contentResolver, "high_text_contrast_enabled", 0) == 1
+}.getOrDefault(false)
 
 /**
  * The recorded page content that glass surfaces refract.
@@ -54,27 +163,30 @@ val LocalAppBackdrop = staticCompositionLocalOf<Backdrop> { emptyBackdrop() }
  * the recording depend on itself — that's the native stack overflow this app hit before. Bottom
  * sheets, dialogs and popups are the exception: Compose renders them into their own window, so
  * they are composition-tree descendants but *not* part of the recorded draw pass. Sampling the
- * page recording from one of them is a plain layer blit with no cycle, which is what lets a sheet
- * actually refract the screen behind it instead of just tinting it.
+ * page from one of them goes through [PageBackdrop.snapshotBitmap], a half-size bitmap captured on
+ * demand while a sheet is registered (see [RegisterGlassSnapshot]).
  *
  * Read this only from something that genuinely renders in its own window. Anything drawn inline in
  * a screen must keep using [LocalAppBackdrop].
  */
 val LocalPageBackdrop = staticCompositionLocalOf<Backdrop> { emptyBackdrop() }
 
+/** Default transparency dial. Matches `UserPreferencesRepository.liquidGlassIntensityFlow`. */
+const val DefaultGlassIntensity = 0.55f
+
 /**
  * The user's 0..1 glass **transparency** dial (Settings → Experimental → Liquid Glass): 0 reads
  * straight through to whatever is behind the glass, 1 is fully frosted. This does NOT control how
- * strongly surfaces refract/bend — see [glassEffects] — because a refraction dial and a
+ * strongly surfaces refract/bend — see [GlassTokens] — because a refraction dial and a
  * transparency dial answer different questions ("how thick is the glass" vs "how much of the tint
  * shows"), and conflating them meant turning the slider down for a subtler look also flattened the
  * edge-bend down to nothing.
  */
-val LocalGlassIntensity = staticCompositionLocalOf { 0.80f }
+val LocalGlassIntensity = staticCompositionLocalOf { DefaultGlassIntensity }
 
 /**
  * 0 = fully see-through, 1 = fully frosted. Read this wherever a glass surface computes its tint
- * alpha; [glassEffects] (blur/refraction) intentionally does not use it.
+ * alpha; blur/refraction intentionally do not use it.
  */
 @Composable
 @ReadOnlyComposable
@@ -92,16 +204,10 @@ val isGlassEnabled: Boolean
 /**
  * The library's refraction knobs for a standard control, at [scale] = 1.
  *
- * These are NOT hand-tuned — they're taken directly from the reference implementation
- * (kyant/AndroidLiquidGlass-kmp, `LiquidButton.kt`: `blur(2.dp)`, `lens(12.dp, 24.dp)`, no
- * depthEffect, no chromaticAberration). Earlier passes in this app repeatedly guessed much bigger
- * numbers (up to 136/156dp) chasing a stronger "is this even glass" look on-device, and each time
- * that read as the control's own content smearing into illegible mush rather than a clean glass
- * edge — the reference's restraint is a deliberate design choice, not an oversight to correct.
- *
- * [scale] lets larger surfaces (a bottom sheet vs. a 48dp button) ask for proportionally bigger
- * values; see individual call sites for which reference component they're modeled on (e.g. the
- * dialog/sheet numbers come from `DialogContent.kt`'s `blur(8..16.dp)` / `lens(24.dp, 48.dp)`).
+ * Legacy entry point, kept for call sites that have not moved to [GlassTokens] yet. The values
+ * come from the reference implementation (kyant/AndroidLiquidGlass-kmp, `LiquidButton.kt`:
+ * `blur(2.dp)`, `lens(12.dp, 24.dp)`). [scale] lets larger surfaces ask for proportionally bigger
+ * values.
  */
 @Composable
 @ReadOnlyComposable

@@ -1,12 +1,19 @@
 package com.theveloper.pixelplay.ui.glass
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
@@ -15,7 +22,9 @@ import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.DefaultCameraDistance
 import androidx.compose.ui.graphics.DefaultShadowColor
+import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.GraphicsLayerScope
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Matrix
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.RenderEffect
@@ -24,11 +33,13 @@ import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.ContentDrawScope
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.DrawTransform
+import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.layer.GraphicsLayer
 import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.node.DrawModifierNode
 import androidx.compose.ui.node.GlobalPositionAwareModifierNode
@@ -38,50 +49,53 @@ import androidx.compose.ui.node.requireDensity
 import androidx.compose.ui.node.requireLayoutDirection
 import androidx.compose.ui.platform.InspectorInfo
 import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.toIntSize
 import com.kyant.backdrop.Backdrop
+import com.kyant.backdrop.backdrops.emptyBackdrop
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
 
 /**
  * A drop-in replacement for the library's `rememberLayerBackdrop` + `Modifier.layerBackdrop` that
- * draws the recorded content **once per frame instead of twice**.
+ * records the content's display list **once per frame instead of twice**.
  *
  * ## Why this exists
  *
  * The library's `LayerBackdropNode.draw()` is:
  *
  * ```
- * drawContent()                              // (1) rasterize subtree straight to the screen
- * recordLayer(layer) { drawContent() }        // (2) rasterize the SAME subtree into the layer
+ * drawContent()                              // (1) record the subtree into the parent's list
+ * recordLayer(layer) { drawContent() }        // (2) record the SAME subtree again, into the layer
  * ```
  *
- * Step (2) is what glass panels sample. But it means the whole recorded subtree is walked and
- * rasterized twice every frame it redraws — and in this app that subtree is `AppNavigation`, i.e.
- * the entire screen, including whatever `LazyColumn` the user is currently flinging. So turning
- * glass on roughly doubled the app's per-frame render cost, which is exactly the wrong tradeoff
- * on a 120Hz panel where the budget is 8.3ms.
+ * Step (2) is what glass panels sample. The cost it adds is CPU-side: every frame the recorded
+ * subtree redraws, its draw ops are walked and recorded into a display list a second time — and
+ * in this app that subtree is `AppNavigation`, i.e. the entire screen, including whatever
+ * `LazyColumn` the user is flinging.
  *
  * This version instead does:
  *
  * ```
- * layer.record { drawContent() }   // rasterize the subtree ONCE, into the layer
- * drawLayer(layer)                 // blit that layer to the screen (one textured quad)
+ * layer.record { drawContent() }   // record the subtree ONCE, into the layer
+ * drawLayer(layer)                 // reference that layer from the parent's list
  * ```
  *
- * Same pixels on screen, same layer available for sampling, one traversal instead of two. The
- * added cost is a single full-screen texture blit, which is trivially cheap next to re-recording
- * and re-rasterizing an entire scrolling list.
+ * Same pixels, same layer available for sampling, one display-list *record* instead of two. It
+ * does not save any GPU rasterisation: the RenderThread still draws the layer once for the screen
+ * and once per glass surface that samples it.
  *
  * ## Why it is vendored rather than configured
  *
  * `LayerBackdrop.layerCoordinates` is `internal` to the library, and `drawBackdrop` bails out
  * early when it is null, so the position bookkeeping cannot be driven from outside the library's
  * own modifier — a custom node has to own the whole type. [Backdrop] itself is public, so this
- * class plugs into the library's `Modifier.drawBackdrop` unchanged; every existing glass call site
- * works against it without modification. Ported from Kyant0/AndroidLiquidGlass (Apache-2.0), whose
- * positioning and inverse-transform logic is reproduced faithfully — only the double draw is gone.
+ * class plugs into the library's `Modifier.drawBackdrop` unchanged. Ported from
+ * Kyant0/AndroidLiquidGlass (Apache-2.0), whose positioning and inverse-transform logic is
+ * reproduced faithfully — only the double record is gone.
  */
 @Composable
 fun rememberPageBackdrop(): PageBackdrop {
@@ -99,21 +113,47 @@ class PageBackdrop internal constructor(
     internal var layerCoordinates: LayoutCoordinates? by mutableStateOf(null)
 
     /**
-     * A rasterized copy of [graphicsLayer], for the ONE case the live layer can't cover: a
-     * `ModalBottomSheet` (or any Dialog/Popup-backed surface) renders into its OWN Android
-     * Window, and a [GraphicsLayer] recorded in one window's hardware renderer cannot be drawn
-     * from another window's — that's why [layerCoordinates] stays null there and this backdrop
-     * would otherwise silently no-op, drawing only the glass tint with zero refraction. A plain
-     * [ImageBitmap] has no window affinity, so it can.
-     *
-     * Populated by a throttled loop in MainActivity (≈3/sec, not every frame — a sheet's backdrop
-     * is static almost the entire time it's open, so slightly-stale reads as live), called from
-     * MainActivity's OWN composition/coroutine since it's the window that actually owns
-     * [graphicsLayer]. An earlier attempt triggered the capture from inside the sheet's own
-     * composition instead — cross-window, touching a layer it doesn't own — and silently failed
-     * every single time.
+     * How many window-backed glass surfaces (sheets, dialogs) currently want a snapshot of the
+     * window. Sheets register through [RegisterGlassSnapshot]; MainActivity captures only while
+     * this is above zero and drops the bitmap when it falls back to zero. Nothing runs on a timer.
      */
-    internal var snapshotBitmap: androidx.compose.ui.graphics.ImageBitmap? by mutableStateOf(null)
+    var snapshotRequests: Int by mutableIntStateOf(0)
+        internal set
+
+    /**
+     * A half-size rasterised copy of the whole window (page, nav bar and mini player), for the one
+     * case the live layer cannot cover: a `ModalBottomSheet` (or any Dialog/Popup-backed surface)
+     * renders into its OWN Android window, and a [GraphicsLayer] recorded by one window's renderer
+     * is not something another window can reliably draw. A plain [ImageBitmap] has no window
+     * affinity, so it can.
+     *
+     * Captured on demand by MainActivity (see [captureWindowSnapshot]): once, a frame after the
+     * first sheet registers, once more after the sheet's enter animation has settled, and cleared
+     * when the last sheet goes away. About 4 MB instead of the 16 MB a full-size copy costs.
+     */
+    internal var snapshotBitmap: ImageBitmap? by mutableStateOf(null)
+
+    /** The full (pre-downscale) size of [snapshotBitmap], i.e. the size it is drawn back at. */
+    internal var snapshotSize: IntSize = IntSize.Zero
+
+    /** Window position of the snapshot's top-left corner. */
+    internal var snapshotOrigin: Offset = Offset.Zero
+
+    /**
+     * A backdrop that only ever draws [snapshotBitmap]. Window-backed surfaces sample this rather
+     * than the page itself, so they never try to draw a layer owned by another window.
+     */
+    val snapshotBackdrop: Backdrop = object : Backdrop {
+        override val isCoordinatesDependent: Boolean = true
+
+        override fun DrawScope.drawBackdrop(
+            density: Density,
+            coordinates: LayoutCoordinates?,
+            layerBlock: (GraphicsLayerScope.() -> Unit)?
+        ) {
+            drawSnapshot(this, density, coordinates ?: return, layerBlock)
+        }
+    }
 
     private var inverseLayerScope: InverseGlassLayerScope? = null
 
@@ -141,25 +181,144 @@ class PageBackdrop internal constructor(
             }
             return
         }
+        drawSnapshot(this, density, coordinates, layerBlock)
+    }
 
-        // Different window: fall back to the rasterized snapshot. Both windows are fullscreen
-        // (the sheet's Dialog uses usePlatformDefaultWidth = false), so positionInWindow() lines
-        // up between them without needing a second window's origin to subtract.
+    private fun drawSnapshot(
+        scope: DrawScope,
+        density: Density,
+        coordinates: LayoutCoordinates,
+        layerBlock: (GraphicsLayerScope.() -> Unit)?
+    ) {
         val bitmap = snapshotBitmap ?: return
-        val offset = coordinates.positionInWindow()
-        withTransform({
+        val fullSize = snapshotSize
+        if (fullSize.width <= 0 || fullSize.height <= 0) return
+        // Both windows are fullscreen (the sheet's Dialog uses usePlatformDefaultWidth = false), so
+        // window positions line up between them without a second window's origin to subtract.
+        val offset = coordinates.positionInWindow() - snapshotOrigin
+        scope.withTransform({
             if (layerBlock != null) {
                 with(obtainInverseLayerScope()) { inverseTransform(density, layerBlock) }
             }
             translate(-offset.x, -offset.y)
         }) {
-            drawImage(bitmap)
+            drawImage(
+                image = bitmap,
+                srcOffset = IntOffset.Zero,
+                srcSize = IntSize(bitmap.width, bitmap.height),
+                dstOffset = IntOffset.Zero,
+                dstSize = fullSize,
+                filterQuality = FilterQuality.Low
+            )
         }
     }
 
     private fun obtainInverseLayerScope(): InverseGlassLayerScope {
         return inverseLayerScope?.apply { reset() }
             ?: InverseGlassLayerScope().also { inverseLayerScope = it }
+    }
+}
+
+/**
+ * Registers the calling window-backed glass surface (a sheet or dialog) as wanting a window
+ * snapshot for as long as it is in the composition. See [PageBackdrop.snapshotRequests].
+ */
+@Composable
+fun RegisterGlassSnapshot(backdrop: Backdrop = LocalPageBackdrop.current) {
+    val page = backdrop as? PageBackdrop ?: return
+    DisposableEffect(page) {
+        page.snapshotRequests++
+        onDispose { page.snapshotRequests = (page.snapshotRequests - 1).coerceAtLeast(0) }
+    }
+}
+
+/**
+ * Marks the element this is applied to as the source of [PageBackdrop.snapshotBitmap]: while
+ * [enabled], its content (the page plus the app chrome) is recorded into [windowLayer] and drawn
+ * from it, so [captureWindowSnapshot] has something to rasterise. Nothing samples [windowLayer]
+ * live, so this cannot form a cycle; it is only attached while a sheet has asked for a snapshot.
+ */
+fun Modifier.glassSnapshotSource(
+    backdrop: PageBackdrop,
+    windowLayer: GraphicsLayer,
+    enabled: Boolean
+): Modifier {
+    if (!enabled) return this
+    return this
+        .onGloballyPositioned { backdrop.snapshotOrigin = it.positionInWindow() }
+        .drawWithContent {
+            if (size.width < 1f || size.height < 1f) {
+                drawContent()
+                return@drawWithContent
+            }
+            windowLayer.record { this@drawWithContent.drawContent() }
+            drawLayer(windowLayer)
+        }
+}
+
+/**
+ * Rasterises [windowLayer] at half size into [PageBackdrop.snapshotBitmap], using [scratchLayer] to
+ * hold the downscaled recording. Must be called from the composition/coroutine of the window that
+ * owns [windowLayer] — an earlier attempt captured from inside the sheet's own window and silently
+ * failed every time.
+ *
+ * @return false if the window layer has not been recorded yet (try again next frame).
+ */
+suspend fun PageBackdrop.captureWindowSnapshot(
+    windowLayer: GraphicsLayer,
+    scratchLayer: GraphicsLayer,
+    density: Density,
+    layoutDirection: LayoutDirection
+): Boolean {
+    val full = windowLayer.size
+    if (full.width < 2 || full.height < 2) return false
+    val half = IntSize(full.width / 2, full.height / 2)
+    scratchLayer.record(density, layoutDirection, half) {
+        scale(0.5f, 0.5f, pivot = Offset.Zero) { drawLayer(windowLayer) }
+    }
+    val bitmap = scratchLayer.toImageBitmap()
+    snapshotSize = full
+    snapshotBitmap = bitmap
+    return true
+}
+
+/** Drops the window snapshot (called when the last sheet unregisters). */
+fun PageBackdrop.clearWindowSnapshot() {
+    snapshotBitmap = null
+    snapshotSize = IntSize.Zero
+}
+
+/**
+ * The backdrops whose recording the current composition position is *inside of*. A glass surface
+ * that samples one of these would make the recording depend on itself — the RenderThread
+ * `prepareTreeImpl` stack overflow this app hit before. [liquidGlass] checks it.
+ */
+val LocalRecordingBackdrops = staticCompositionLocalOf<Set<Backdrop>> { emptySet() }
+
+/**
+ * Records [content] into [backdrop] so chrome drawn as a *sibling* above it (a top bar, a floating
+ * toolbar) can refract it. Everything inside is the content layer: [LocalGlassLayer] becomes
+ * [GlassLayer.Content], [LocalAppBackdrop] becomes empty, and [backdrop] joins
+ * [LocalRecordingBackdrops] so nothing inside can sample its own recording.
+ *
+ * @param enabled false skips the recording (Material 3 mode) but keeps the same layout.
+ */
+@Composable
+fun RecordedContent(
+    backdrop: PageBackdrop,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    content: @Composable BoxScope.() -> Unit
+) {
+    val recording = LocalRecordingBackdrops.current
+    Box(modifier = if (enabled) modifier.pageBackdrop(backdrop) else modifier) {
+        CompositionLocalProvider(
+            LocalRecordingBackdrops provides recording + backdrop,
+            LocalGlassLayer provides GlassLayer.Content,
+            LocalAppBackdrop provides emptyBackdrop()
+        ) {
+            content()
+        }
     }
 }
 
