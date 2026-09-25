@@ -22,7 +22,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.ui.layout.layout
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.MotionScheme
@@ -38,14 +37,15 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import com.kyant.backdrop.drawBackdrop
-import com.kyant.backdrop.effects.blur
-import com.kyant.backdrop.effects.lens
-import com.kyant.backdrop.effects.vibrancy
-import com.kyant.backdrop.highlight.Highlight
 import com.theveloper.pixelplay.ui.glass.LocalAppBackdrop
-import com.theveloper.pixelplay.ui.glass.glassEffects
 import com.theveloper.pixelplay.ui.glass.isGlassEnabled
+import com.theveloper.pixelplay.ui.glass.GlassRole
+import com.theveloper.pixelplay.ui.glass.QuantizedCornerShapeCache
+import com.theveloper.pixelplay.ui.glass.liquidGlass
+import com.theveloper.pixelplay.ui.glass.resolveRecipe
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.util.lerp
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.shadow
@@ -566,20 +566,57 @@ fun UnifiedPlayerSheetV2(
     val miniAppearScale = sheetThemeState.miniAppearScale
     val playerAreaBackground = sheetThemeState.playerAreaBackground
 
-    // Glass for the player card. Pixel values are resolved up here, once, so the draw-phase
-    // lambdas below stay allocation-free.
+    // Glass for the player card (spec §2 "Mini player", §4). Only the collapsed card is glass: by
+    // half expansion the tint has reached fully opaque, and above that the drawBackdrop node is
+    // detached outright rather than left running with zeroed effects — the full player is a solid
+    // surface, and a full-screen refraction would be the most expensive thing the app draws.
     val playerGlassEnabled = isGlassEnabled
     val playerBackdrop = LocalAppBackdrop.current
-    // Scale 2 puts this in the same range as the nav bar's own base-layer bar (a comparable
-    // floating pill), not the small-button baseline glassEffects() defaults to.
-    val playerGlassEffects = glassEffects(scale = 2f)
-    val playerGlassBlurPx: Float
-    val playerGlassRefractionHeightPx: Float
-    val playerGlassRefractionAmountPx: Float
-    with(LocalDensity.current) {
-        playerGlassBlurPx = playerGlassEffects.blurRadius.toPx()
-        playerGlassRefractionHeightPx = playerGlassEffects.refractionHeight.toPx()
-        playerGlassRefractionAmountPx = playerGlassEffects.refractionAmount.toPx()
+    // 1 while collapsed, 0 from half open. Quantised to 1/16 so the effect chain rebuilds at most
+    // 16 times over a drag instead of every frame.
+    val miniGlassCollapsed = remember(playerContentExpansionFraction) {
+        derivedStateOf {
+            val collapsed = (1f - playerContentExpansionFraction.value * 2f).coerceIn(0f, 1f)
+            (collapsed * 16f).roundToInt() / 16f
+        }
+    }
+    // Composition only sees the crossing, never the per-frame value.
+    val miniGlassAttached by remember(miniGlassCollapsed) {
+        derivedStateOf { miniGlassCollapsed.value > 0f }
+    }
+    val miniGlassProgress = remember(miniGlassCollapsed) { { miniGlassCollapsed.value } }
+    // lens() needs a CornerBasedShape (PlayerSheetDynamicShape is a bare Shape), and the library
+    // re-derives its outline only when the shape it is handed stops being equal — so the radii are
+    // quantised to 0.5dp and each step's RoundedCornerShape is created once and reused.
+    val miniGlassShapes = remember { QuantizedCornerShapeCache() }
+    val miniGlassShape: () -> Shape = remember(
+        miniGlassShapes,
+        overallSheetTopCornerRadiusProvider,
+        playerContentActualBottomRadiusProvider
+    ) {
+        {
+            miniGlassShapes.get(
+                top = overallSheetTopCornerRadiusProvider(),
+                bottom = playerContentActualBottomRadiusProvider()
+            )
+        }
+    }
+    val miniGlassRecipe = resolveRecipe(GlassRole.MiniPlayer)
+    // The mini player's recipe materialises with the collapse: lens and highlight fade out with it.
+    val miniGlassMaterialRecipe = remember(miniGlassRecipe) { miniGlassRecipe.copy(materializes = true) }
+    val miniGlassWash = miniPlayerScheme.primary
+    val miniGlassTintAlpha = miniGlassRecipe.tintAlpha
+    val miniGlassSurface: DrawScope.(Float) -> Unit = remember(
+        playerAreaBackground,
+        miniGlassWash,
+        miniGlassTintAlpha
+    ) {
+        { collapsed ->
+            // The card's own colour at the recipe's tint while collapsed, climbing to opaque by
+            // half expansion so the hand-off to the solid full player is invisible.
+            drawRect(playerAreaBackground.copy(alpha = lerp(1f, miniGlassTintAlpha, collapsed)))
+            if (collapsed > 0f) drawRect(miniGlassWash.copy(alpha = 0.08f * collapsed))
+        }
     }
     // Elevation is only visible in the mini/collapsed state (expansion < 0.18).
     // miniReadyAlpha fades the shadow in during the initial song-appear animation.
@@ -719,81 +756,30 @@ fun UnifiedPlayerSheetV2(
                                 shape = sheetInteractionState.playerShadowShape,
                                 clip = false
                             )
-                            // Glass on the player card, faded by expansion fraction so the
-                            // mini player refracts the page while the FULL player stays a
-                            // solid surface. Both the effect strength and the tint opacity are
-                            // resolved inside draw-phase lambdas, so the morph costs no
-                            // recomposition — the same reason the shape and shadow above are
-                            // done this way. Full-screen refraction would also be the single
-                            // most expensive thing the app draws, and the material's own
-                            // guidance is against glass as a primary background.
+                            // Glass on the player card while it is (mostly) collapsed; see
+                            // miniGlassAttached above. The shadow comes from Modifier.shadow.
                             .then(
-                                if (playerGlassEnabled) {
-                                    Modifier.drawBackdrop(
+                                if (playerGlassEnabled && miniGlassAttached) {
+                                    Modifier.liquidGlass(
+                                        recipe = miniGlassMaterialRecipe,
+                                        shape = sheetInteractionState.playerShadowShape,
+                                        dynamicShape = miniGlassShape,
+                                        materialize = miniGlassProgress,
                                         backdrop = playerBackdrop,
-                                        shape = {
-                                            // lens() needs a CornerBasedShape to build its SDF
-                                            // and throws on a bare Shape, which
-                                            // PlayerSheetDynamicShape is — so mirror its radii
-                                            // with a RoundedCornerShape instead of passing it.
-                                            val topR = overallSheetTopCornerRadiusProvider()
-                                            val bottomR = playerContentActualBottomRadiusProvider()
-                                            RoundedCornerShape(
-                                                topStart = topR,
-                                                topEnd = topR,
-                                                bottomStart = bottomR,
-                                                bottomEnd = bottomR
-                                            )
-                                        },
-                                        // No depthEffect/chromaticAberration — those two flags are
-                                        // what made the nav bar's own content melt into illegible
-                                        // mush at this scale; the reference never combines them
-                                        // with a big lens size on a large, mostly-flat surface.
-                                        effects = {
-                                            // 1 while collapsed, 0 by the time the sheet is
-                                            // half open.
-                                            val collapsed = (1f - playerContentExpansionFraction.value * 2f)
-                                                .coerceIn(0f, 1f)
-                                            if (collapsed > 0.01f) {
-                                                vibrancy()
-                                                blur(playerGlassBlurPx * collapsed)
-                                                lens(
-                                                    playerGlassRefractionHeightPx * collapsed,
-                                                    playerGlassRefractionAmountPx * collapsed
-                                                )
-                                            }
-                                        },
-                                        highlight = {
-                                            val collapsed = (1f - playerContentExpansionFraction.value * 2f)
-                                                .coerceIn(0f, 1f)
-                                            Highlight.Default.copy(alpha = collapsed)
-                                        },
-                                        // Provided by the Modifier.shadow above.
-                                        shadow = null,
-                                        onDrawSurface = {
-                                            val collapsed = (1f - playerContentExpansionFraction.value * 2f)
-                                                .coerceIn(0f, 1f)
-                                            // Translucent while collapsed so the refraction
-                                            // shows; back to fully opaque once expanded, which
-                                            // is what makes the full player look untouched.
-                                            // 0.5 still left a half-opaque wash sitting on top of
-                                            // the refraction, which is most of why the mini player
-                                            // read as "not refracting at all" — the lens was
-                                            // running, its output was just being painted over.
-                                            drawRect(
-                                                playerAreaBackground.copy(
-                                                    alpha = 1f - 0.72f * collapsed
-                                                )
-                                            )
-                                        }
+                                        shadowEnabled = false,
+                                        surface = miniGlassSurface
                                     )
                                 } else {
                                     Modifier
                                 }
                             )
                             .background(
-                                // The glass path draws its own surface in onDrawSurface above.
-                                color = if (playerGlassEnabled) Color.Transparent else playerAreaBackground,
+                                // The glass path draws its own surface (miniGlassSurface).
+                                color = if (playerGlassEnabled && miniGlassAttached) {
+                                    Color.Transparent
+                                } else {
+                                    playerAreaBackground
+                                },
                                 shape = sheetInteractionState.playerShadowShape
                             )
                             .clip(sheetInteractionState.playerShadowShape)

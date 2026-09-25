@@ -141,6 +141,13 @@ object GlassBudget {
  * @param materialize 0..1 progress for roles that materialise (lens, highlight and inner shadow
  *   scale with it). Null for glass that is always fully there.
  * @param backdrop what to refract. Defaults to [LocalAppBackdrop].
+ * @param dynamicShape an outline that changes over time (the mini player's morphing corners).
+ *   Read in the draw phase; takes the place of [shape] when set. Return equal shapes for equal
+ *   radii ([QuantizedCornerShapeCache]) — the library re-derives the outline on inequality.
+ * @param backdropDim a black wash drawn over the refracted backdrop, under the tint. Apple's
+ *   "Clear" dimming, for glass sitting over a bright background.
+ * @param surface replaces the tint drawing entirely; receives the quantised materialise progress
+ *   (1 for glass that doesn't materialise). For surfaces whose tint follows their own state.
  */
 @Composable
 fun Modifier.liquidGlass(
@@ -154,7 +161,10 @@ fun Modifier.liquidGlass(
     layerBlock: (GraphicsLayerScope.() -> Unit)? = null,
     exportedBackdrop: LayerBackdrop? = null,
     effectScale: Float = 1f,
-    shadowEnabled: Boolean = true
+    shadowEnabled: Boolean = true,
+    dynamicShape: (() -> Shape)? = null,
+    backdropDim: Float = 0f,
+    surface: (DrawScope.(progress: Float) -> Unit)? = null
 ): Modifier {
     val safeBackdrop = guardRecordingBackdrop(backdrop)
 
@@ -219,9 +229,11 @@ fun Modifier.liquidGlass(
     }
 
     val onDrawSurface: DrawScope.() -> Unit =
-        remember(recipe, prominent, accent, tint, progress, px, shape) {
+        remember(recipe, prominent, accent, tint, progress, px, shape, dynamicShape, backdropDim, surface) {
             {
+                if (backdropDim > 0f) drawRect(Color.Black.copy(alpha = backdropDim.coerceIn(0f, 1f)))
                 when {
+                    surface != null -> surface(if (materializes) progress() else 1f)
                     prominent -> {
                         drawRect(accent, blendMode = BlendMode.Hue)
                         drawRect(accent.copy(alpha = 0.75f))
@@ -231,8 +243,9 @@ fun Modifier.liquidGlass(
                     else -> drawRect(recipe.tint)
                 }
                 if (px.border > 0f) {
+                    val outlineShape = dynamicShape?.invoke() ?: shape
                     drawOutline(
-                        outline = shape.createOutline(size, layoutDirection, this),
+                        outline = outlineShape.createOutline(size, layoutDirection, this),
                         color = recipe.borderColor,
                         style = Stroke(px.border)
                     )
@@ -242,7 +255,7 @@ fun Modifier.liquidGlass(
 
     return this.drawBackdrop(
         backdrop = safeBackdrop,
-        shape = { shape },
+        shape = dynamicShape ?: { shape },
         effects = effects,
         highlight = lights.highlight,
         shadow = lights.shadow,

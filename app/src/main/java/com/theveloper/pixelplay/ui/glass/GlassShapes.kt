@@ -66,8 +66,32 @@ class ProviderCornerSize(private val provider: () -> Dp) : CornerSize {
 class QuantizedCornerShapeCache(private val stepDp: Float = 0.5f) {
     private val cache = HashMap<Int, RoundedCornerShape>()
 
+    private val unevenCache = HashMap<Long, RoundedCornerShape>()
+
     fun get(radius: Dp): RoundedCornerShape {
-        val key = (radius.value.coerceAtLeast(0f) / stepDp).roundToInt()
+        val key = step(radius)
         return cache.getOrPut(key) { RoundedCornerShape((key * stepDp).dp) }
+    }
+
+    /** Top corners at [top], bottom corners at [bottom] (the player card's shape). */
+    fun get(top: Dp, bottom: Dp): RoundedCornerShape {
+        val topKey = step(top)
+        val bottomKey = step(bottom)
+        if (topKey == bottomKey) return get(top)
+        val key = (topKey.toLong() shl 32) or (bottomKey.toLong() and 0xFFFFFFFFL)
+        return unevenCache.getOrPut(key) {
+            RoundedCornerShape(
+                topStart = (topKey * stepDp).dp,
+                topEnd = (topKey * stepDp).dp,
+                bottomEnd = (bottomKey * stepDp).dp,
+                bottomStart = (bottomKey * stepDp).dp
+            )
+        }
+    }
+
+    private fun step(radius: Dp): Int {
+        val value = radius.value
+        if (!value.isFinite()) return 0
+        return (value.coerceAtLeast(0f) / stepDp).roundToInt()
     }
 }

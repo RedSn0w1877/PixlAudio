@@ -48,7 +48,16 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.CompositionLocalProvider
-import com.theveloper.pixelplay.ui.glass.pageBackdrop
+import com.theveloper.pixelplay.ui.glass.RecordedContent
+import com.theveloper.pixelplay.ui.glass.GlassGroup
+import com.theveloper.pixelplay.ui.glass.GlassPlacement
+import com.theveloper.pixelplay.ui.glass.GlassRole
+import com.theveloper.pixelplay.ui.glass.InteractiveHighlight
+import com.theveloper.pixelplay.ui.glass.LocalGlassReduceMotion
+import com.theveloper.pixelplay.ui.glass.applyGlassPress
+import com.theveloper.pixelplay.ui.glass.glassPlacement
+import com.theveloper.pixelplay.ui.glass.liquidGlass
+import com.theveloper.pixelplay.ui.glass.resolveRecipe
 import com.theveloper.pixelplay.ui.glass.rememberPageBackdrop
 import com.theveloper.pixelplay.ui.glass.GlassIconButton
 import com.theveloper.pixelplay.ui.glass.LocalAppBackdrop
@@ -104,6 +113,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.graphics.GraphicsLayerScope
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableLongStateOf
@@ -817,17 +827,14 @@ fun QueueBottomSheet(
                         )
                     }
                 } else {
-                    Box(
+                    // RecordedContent: the list is the content layer (rows render tonal, never
+                    // glass) and nothing inside can sample its own recording.
+                    RecordedContent(
+                        backdrop = queueListBackdrop,
                         modifier = Modifier
                             .weight(1f)
-                            .fillMaxWidth()
-                            .then(
-                                if (isGlassEnabled) {
-                                    Modifier.pageBackdrop(queueListBackdrop)
-                                } else {
-                                    Modifier
-                                }
-                            )
+                            .fillMaxWidth(),
+                        enabled = isGlassEnabled
                     ) {
                         LazyColumn(
                             state = listState,
@@ -1005,32 +1012,38 @@ fun QueueBottomSheet(
 
                         Spacer(modifier = Modifier.width(4.dp))
 
-                        // AbsoluteSmoothCornerShape isn't a CornerBasedShape, so it can't go
-                        // through lens() directly — mirrored with a plain RoundedCornerShape at
-                        // the same corner values, same fix as the play button and the toolbar.
                         val fabGlassShape = CircleShape
-                        Box(
-                            modifier = Modifier
-                                .fillMaxHeight()
-                                .aspectRatio(1f)
-                                .glassPanel(
-                                    shape = fabGlassShape,
-                                    color = MaterialTheme.colorScheme.tertiaryContainer,
-                                    effectScale = 0.5f,
-                                    tintAlpha = 0.55f
-                                )
-                                .glassClickable(
-                                    onClick = { isFabExpanded = !isFabExpanded },
-                                    enabled = true,
-                                    shape = fabGlassShape
-                                ),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.MoreHoriz,
-                                contentDescription = stringResource(R.string.queue_cd_more_action),
-                                tint = MaterialTheme.colorScheme.onTertiaryContainer
+                        if (glassPlacement() == GlassPlacement.Glass) {
+                            QueueFloatingGlassAction(
+                                onClick = { isFabExpanded = !isFabExpanded },
+                                modifier = Modifier
+                                    .fillMaxHeight()
+                                    .aspectRatio(1f)
                             )
+                        } else {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxHeight()
+                                    .aspectRatio(1f)
+                                    .glassPanel(
+                                        shape = fabGlassShape,
+                                        color = MaterialTheme.colorScheme.tertiaryContainer,
+                                        effectScale = 0.5f,
+                                        tintAlpha = 0.55f
+                                    )
+                                    .glassClickable(
+                                        onClick = { isFabExpanded = !isFabExpanded },
+                                        enabled = true,
+                                        shape = fabGlassShape
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.MoreHoriz,
+                                    contentDescription = stringResource(R.string.queue_cd_more_action),
+                                    tint = MaterialTheme.colorScheme.onTertiaryContainer
+                                )
+                            }
                         }
                     }
                 }
@@ -1450,15 +1463,88 @@ private fun QueueControlsToolbar(
         contentColor = MaterialTheme.colorScheme.onSurfaceVariant
     )
 
-    // AbsoluteSmoothCornerShape isn't a CornerBasedShape, so it can't go through
-    // GlassSurface/lens() directly — the glass panel gets a plain RoundedCornerShape at the
-    // same corner values instead, matching the AnimatedPlaybackControls play button fix.
-    val toolbarGlassShape = RoundedCornerShape(percent = 50)
+    val buttons: @Composable () -> Unit = {
+        GlassIconButton(
+            onClick = onToggleShuffle,
+            containerColor = if (isShuffleOn) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.surfaceContainer
+            },
+            contentColor = if (isShuffleOn) {
+                MaterialTheme.colorScheme.onPrimary
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            }
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.Shuffle,
+                contentDescription = stringResource(R.string.queue_cd_toggle_shuffle_action),
+            )
+        }
+        Spacer(modifier = Modifier.width(12.dp))
+        GlassIconButton(
+            onClick = onToggleRepeat,
+            containerColor = if (repeatMode != Player.REPEAT_MODE_OFF) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.surfaceContainer
+            },
+            contentColor = if (repeatMode != Player.REPEAT_MODE_OFF) {
+                MaterialTheme.colorScheme.onPrimary
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            }
+        ) {
+            val repeatIcon = when (repeatMode) {
+                Player.REPEAT_MODE_ONE -> Icons.Rounded.RepeatOne
+                else -> Icons.Rounded.Repeat
+            }
+            Icon(
+                imageVector = repeatIcon,
+                contentDescription = stringResource(R.string.queue_cd_toggle_repeat_action),
+            )
+        }
+        Spacer(modifier = Modifier.width(12.dp))
+        GlassIconButton(
+            onClick = onTimerClick,
+            containerColor = if (isTimerActive.value) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.surfaceContainer
+            },
+            contentColor = if (isTimerActive.value) {
+                MaterialTheme.colorScheme.onPrimary
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            }
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.Timer,
+                contentDescription = stringResource(R.string.queue_cd_sleep_timer_action),
+            )
+        }
+    }
+
+    if (glassPlacement() == GlassPlacement.Glass) {
+        // One piece of glass for the whole toolbar (spec §2 "Top-bar group"): the buttons inside
+        // see OnGlass and render as fills, and "on" states keep the prominent primary fill.
+        GlassGroup(
+            modifier = modifier.fillMaxHeight(),
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.Center
+        ) {
+            buttons()
+        }
+        return
+    }
+
+    val toolbarShape = RoundedCornerShape(percent = 50)
     Box(
         modifier = modifier
             .fillMaxHeight()
             .glassPanel(
-                shape = toolbarGlassShape,
+                shape = toolbarShape,
                 color = MaterialTheme.colorScheme.surfaceContainerHighest,
                 effectScale = 0.5f
             )
@@ -1468,67 +1554,51 @@ private fun QueueControlsToolbar(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.Center
         ) {
-            GlassIconButton(
-                onClick = onToggleShuffle,
-                containerColor = if (isShuffleOn) {
-                    MaterialTheme.colorScheme.primary
-                } else {
-                    MaterialTheme.colorScheme.surfaceContainer
-                },
-                contentColor = if (isShuffleOn) {
-                    MaterialTheme.colorScheme.onPrimary
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                }
-            ) {
-                Icon(
-                    imageVector = Icons.Rounded.Shuffle,
-                    contentDescription = stringResource(R.string.queue_cd_toggle_shuffle_action),
-                )
-            }
-            Spacer(modifier = Modifier.width(12.dp))
-            GlassIconButton(
-                onClick = onToggleRepeat,
-                containerColor = if (repeatMode != Player.REPEAT_MODE_OFF) {
-                    MaterialTheme.colorScheme.primary
-                } else {
-                    MaterialTheme.colorScheme.surfaceContainer
-                },
-                contentColor = if (repeatMode != Player.REPEAT_MODE_OFF) {
-                    MaterialTheme.colorScheme.onPrimary
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                }
-            ) {
-                val repeatIcon = when (repeatMode) {
-                    Player.REPEAT_MODE_ONE -> Icons.Rounded.RepeatOne
-                    else -> Icons.Rounded.Repeat
-                }
-                Icon(
-                    imageVector = repeatIcon,
-                    contentDescription = stringResource(R.string.queue_cd_toggle_repeat_action),
-                )
-            }
-            Spacer(modifier = Modifier.width(12.dp))
-            GlassIconButton(
-                onClick = onTimerClick,
-                containerColor = if (isTimerActive.value) {
-                    MaterialTheme.colorScheme.primary
-                } else {
-                    MaterialTheme.colorScheme.surfaceContainer
-                },
-                contentColor = if (isTimerActive.value) {
-                    MaterialTheme.colorScheme.onPrimary
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                }
-            ) {
-                Icon(
-                    imageVector = Icons.Rounded.Timer,
-                    contentDescription = stringResource(R.string.queue_cd_sleep_timer_action),
-                )
-            }
+            buttons()
         }
+    }
+}
+
+/**
+ * The queue's floating more-options action in glass mode (spec §2 "Floating action"): refracts
+ * the list recording it floats over, prominent in the tertiary container colour it has always
+ * had, with the press light and squash instead of a ripple.
+ */
+@Composable
+private fun QueueFloatingGlassAction(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val scope = rememberCoroutineScope()
+    val highlight = remember(scope) { InteractiveHighlight(scope) }
+    val reduceMotion = LocalGlassReduceMotion.current
+    val layerBlock: GraphicsLayerScope.() -> Unit = remember(highlight, reduceMotion) {
+        { applyGlassPress(highlight, reduceMotion) }
+    }
+    Box(
+        modifier = modifier
+            .liquidGlass(
+                recipe = resolveRecipe(GlassRole.FloatingAction),
+                shape = CircleShape,
+                prominent = true,
+                accent = MaterialTheme.colorScheme.tertiaryContainer,
+                layerBlock = layerBlock
+            )
+            .then(highlight.modifier)
+            .then(highlight.gestureModifier)
+            .glassClickable(
+                onClick = onClick,
+                enabled = true,
+                shape = CircleShape,
+                indication = null
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            imageVector = Icons.Rounded.MoreHoriz,
+            contentDescription = stringResource(R.string.queue_cd_more_action),
+            tint = MaterialTheme.colorScheme.onTertiaryContainer
+        )
     }
 }
 

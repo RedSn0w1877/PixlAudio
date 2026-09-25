@@ -65,9 +65,11 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import com.theveloper.pixelplay.ui.glass.pageBackdrop
-import com.theveloper.pixelplay.ui.glass.rememberPageBackdrop
 import com.theveloper.pixelplay.ui.glass.LocalAppBackdrop
+import com.theveloper.pixelplay.ui.glass.LocalGlassIsDark
+import com.theveloper.pixelplay.ui.glass.isGlassEnabled
+import com.kyant.backdrop.Backdrop
+import com.kyant.backdrop.backdrops.rememberCanvasBackdrop
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -84,7 +86,9 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -1426,6 +1430,49 @@ private fun FullPlayerSongMetadataSection(
     }
 }
 
+/**
+ * What the full player's glass controls refract: the player's own background, drawn from a canvas
+ * rather than recorded from live content. It only changes with the album colours, so a progress
+ * tick, a lyric line or the ambient visualiser never re-records anything under the glass.
+ *
+ * A soft vertical grade (a touch of the album primary at the top, a touch darker at the bottom)
+ * rather than a flat fill, so the lens has an edge to bend — refraction over a single flat colour
+ * is invisible. [CanvasBackdrop][rememberCanvasBackdrop] draws in each glass surface's own bounds.
+ */
+@Composable
+private fun rememberPlayerBackgroundBackdrop(): Backdrop {
+    val scheme = LocalMaterialTheme.current
+    val base = scheme.primaryContainer
+    val top = androidx.compose.ui.graphics.lerp(base, scheme.primary, 0.18f)
+    val bottom = androidx.compose.ui.graphics.lerp(base, Color.Black, 0.12f)
+    val brush = remember(top, base, bottom) {
+        Brush.verticalGradient(0f to top, 0.55f to base, 1f to bottom)
+    }
+    val onDraw: androidx.compose.ui.graphics.drawscope.DrawScope.() -> Unit = remember(brush) {
+        { drawRect(brush) }
+    }
+    return rememberCanvasBackdrop(onDraw)
+}
+
+/**
+ * Glass inside the full player: refracts [rememberPlayerBackgroundBackdrop] and takes its light/dark
+ * values from the album background rather than the app theme (a light album on a dark app still
+ * wants the light-glass recipe). Material 3 mode provides nothing, so nothing changes there.
+ */
+@Composable
+private fun PlayerGlassScope(content: @Composable () -> Unit) {
+    if (!isGlassEnabled) {
+        content()
+        return
+    }
+    val background = LocalMaterialTheme.current.primaryContainer
+    CompositionLocalProvider(
+        LocalAppBackdrop provides rememberPlayerBackgroundBackdrop(),
+        LocalGlassIsDark provides (background.luminance() < 0.5f),
+        content = content
+    )
+}
+
 @Composable
 private fun FullPlayerPortraitContent(
     paddingValues: PaddingValues,
@@ -1434,25 +1481,12 @@ private fun FullPlayerPortraitContent(
     playerProgressSection: @Composable () -> Unit,
     controlsSection: @Composable () -> Unit
 ) {
-    // Album art and metadata/progress are grouped and recorded into ONE local backdrop, and
-    // controls sample it as a sibling — NOT by wrapping the whole Column, which would make the
-    // transport buttons part of their own recording (undefined — a layer sampling itself).
-    //
-    // An earlier version used `rememberCombinedBackdrop` to keep the original 3-child
-    // `SpaceAround` layout (album / metadata+progress / controls) exactly as it was, sampling
-    // two separate recordings plus the page backdrop together. That combination triggered a
-    // native stack overflow (`RenderNode::prepareTreeImpl` recursing until the render thread's
-    // stack gave out) after a few seconds of real use — see the same note in LiquidGlassNavBar.kt.
-    // This grouped, single-backdrop version has NO combined backdrop anywhere, at the cost of a
-    // 3-child SpaceAround layout becoming 2 children — a minor spacing shift, not worth risking
-    // another crash to avoid until the combine issue is understood.
-    //
-    // This is also what fixes the originally reported bug: without a locally-recorded backdrop,
-    // the buttons fell back to LocalAppBackdrop's PAGE-level recording — whatever screen was
-    // behind the player before it expanded (Daily Mix, the queue, …) — a stale frame bleeding
-    // through the buttons instead of this player's own art and gradient.
-    val fullPlayerBackdrop = rememberPageBackdrop()
-    CompositionLocalProvider(LocalAppBackdrop provides fullPlayerBackdrop) {
+    // The transport controls refract [rememberPlayerBackgroundBackdrop] — a static canvas of the
+    // player's own background — instead of a recording of the art/metadata/progress column. That
+    // recording was re-recorded on every progress tick for glass that sat outside it anyway. The
+    // grouped album+metadata/progress column is kept exactly as it was so the layout (and the
+    // Material 3 look) doesn't move.
+    PlayerGlassScope {
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -1465,9 +1499,7 @@ private fun FullPlayerPortraitContent(
             verticalArrangement = Arrangement.SpaceAround
         ) {
             Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .pageBackdrop(fullPlayerBackdrop),
+                modifier = Modifier.fillMaxWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.SpaceAround
             ) {
@@ -1497,13 +1529,9 @@ private fun FullPlayerLandscapeContent(
     playerProgressSection: @Composable () -> Unit,
     controlsSection: @Composable () -> Unit
 ) {
-    // Album art keeps its own, unchanged weighted column exactly as before — it isn't what the
-    // controls sit next to, so it doesn't need to feed their backdrop. Only metadata+progress
-    // (the column controls actually sit below) is recorded, matching the portrait layout's
-    // reasoning above. No `rememberCombinedBackdrop` anywhere — see the note in the portrait
-    // function for why.
-    val metadataBackdrop = rememberPageBackdrop()
-    CompositionLocalProvider(LocalAppBackdrop provides metadataBackdrop) {
+    // See the portrait layout: the controls refract the static player background, not a
+    // recording of the metadata/progress column.
+    PlayerGlassScope {
         Row(
             modifier = Modifier
                 .fillMaxSize()
@@ -1531,15 +1559,10 @@ private fun FullPlayerLandscapeContent(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.SpaceEvenly
             ) {
-                // Grouped and recorded together — controlsSection stays OUT of this node's
-                // subtree, or its own buttons would end up sampling a backdrop that includes
-                // themselves. This changes the original 3-child SpaceEvenly Column (metadata /
-                // progress / controls) to 2 children, a minor spacing shift on the less-used of
-                // the two layouts.
+                // Grouped metadata + progress, then the controls: the 2-child layout this
+                // screen has had since the glass recording, kept so nothing shifts.
                 Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .pageBackdrop(metadataBackdrop),
+                    modifier = Modifier.fillMaxWidth(),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     songMetadataSection()
