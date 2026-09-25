@@ -2,6 +2,10 @@
 
 package com.theveloper.pixelplay.presentation.screens
 
+import com.theveloper.pixelplay.ui.glass.GlassAlertDialog
+import com.theveloper.pixelplay.ui.glass.GlassIconButton
+import com.theveloper.pixelplay.ui.glass.GlassScaffold
+import com.theveloper.pixelplay.ui.glass.isGlassEnabled
 import com.theveloper.pixelplay.presentation.navigation.navigateSafely
 import com.theveloper.pixelplay.presentation.navigation.navigateSafelyReplacing
 
@@ -71,7 +75,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.PrimaryScrollableTabRow
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.TabRowDefaults
 import androidx.compose.material3.Text
@@ -202,7 +205,6 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.TextButton
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
@@ -840,9 +842,12 @@ fun LibraryScreen(
 
     val headerContainerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
 
-    Scaffold(
+    // Glass mode: the tab pages are recorded and the header is chrome over them (its settings
+    // button is prominent glass). The pages start below the header, so there is no scroll edge.
+    GlassScaffold(
         modifier = Modifier.background(brush = gradientBrush),
-        topBar = {
+        scrollEdge = false,
+        topChrome = {
             Column(
                 modifier = Modifier.background(headerContainerColor)
             ) {
@@ -910,20 +915,35 @@ fun LibraryScreen(
                                 }
                             }
                         }
-                        FilledIconButton(
-                            modifier = Modifier.padding(end = 14.dp),
-                            colors = IconButtonDefaults.filledIconButtonColors(
+                        if (isGlassEnabled) {
+                            GlassIconButton(
+                                onClick = { navController.navigateSafely(Screen.Settings.route) },
+                                modifier = Modifier.padding(end = 14.dp),
+                                size = 40.dp,
                                 containerColor = MaterialTheme.colorScheme.primaryContainer,
                                 contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                            ),
-                            onClick = {
-                                navController.navigateSafely(Screen.Settings.route)
+                            ) {
+                                Icon(
+                                    painter = painterResource(R.drawable.rounded_settings_24),
+                                    contentDescription = stringResource(R.string.library_cd_open_settings)
+                                )
                             }
-                        ) {
-                            Icon(
-                                painter = painterResource(R.drawable.rounded_settings_24),
-                                contentDescription = stringResource(R.string.library_cd_open_settings)
-                            )
+                        } else {
+                            FilledIconButton(
+                                modifier = Modifier.padding(end = 14.dp),
+                                colors = IconButtonDefaults.filledIconButtonColors(
+                                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                                ),
+                                onClick = {
+                                    navController.navigateSafely(Screen.Settings.route)
+                                }
+                            ) {
+                                Icon(
+                                    painter = painterResource(R.drawable.rounded_settings_24),
+                                    contentDescription = stringResource(R.string.library_cd_open_settings)
+                                )
+                            }
                         }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(
@@ -1987,7 +2007,7 @@ fun LibraryScreen(
     if (showMergePlaylistDialog && pendingMergePlaylistIds.isNotEmpty()) {
         var mergePlaylistName by remember { mutableStateOf("") }
 
-        AlertDialog(
+        GlassAlertDialog(
             onDismissRequest = {
                 showMergePlaylistDialog = false
                 pendingMergePlaylistIds = emptyList()

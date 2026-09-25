@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
@@ -46,6 +47,8 @@ import androidx.compose.ui.unit.dp
 import com.theveloper.pixelplay.R
 import com.theveloper.pixelplay.ui.theme.GoogleSansRounded
 import com.theveloper.pixelplay.ui.theme.PixelPlayStatusBarStyle
+import com.theveloper.pixelplay.ui.glass.GlassButton
+import com.theveloper.pixelplay.ui.glass.GlassGroup
 import androidx.compose.ui.res.stringResource
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -140,6 +143,7 @@ fun HomeGradientTopBar(
     TopAppBar(
         modifier = Modifier
             .drawBehind {
+                // Glass mode: the screen's ScrollEdgeEffect (GlassScaffold) does this job.
                 if (!glassEnabled && animatedAlpha > 0.01f) {
                     drawRect(brush = scrimBrush, alpha = animatedAlpha)
                 }
@@ -152,31 +156,8 @@ fun HomeGradientTopBar(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.padding(start = 12.dp)
             ) {
-                if (com.theveloper.pixelplay.ui.glass.isGlassEnabled) {
-                    com.theveloper.pixelplay.ui.glass.GlassButton(
-                        onClick = onBetaClick,
-                        shape = CircleShape,
-                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.5f),
-                        contentColor = MaterialTheme.colorScheme.onSurface,
-                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp)
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Text(
-                                text = stringResource(R.string.topbar_beta_letter),
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Black
-                            )
-                            Text(
-                                text = stringResource(R.string.topbar_beta_label),
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                        }
-                    }
-                } else {
+                // Glass mode puts Beta in the single trailing action group instead.
+                if (!glassEnabled) {
                     FilledTonalButton(
                         modifier = Modifier.padding(start = 4.dp),
                         shape = CircleShape,
@@ -202,7 +183,7 @@ fun HomeGradientTopBar(
                                 fontWeight = FontWeight.SemiBold
                             )
                         }
-                    }
+                }
                 }
             }
         },
@@ -212,41 +193,14 @@ fun HomeGradientTopBar(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 modifier = Modifier.padding(end = 14.dp)
             ) {
-                if (com.theveloper.pixelplay.ui.glass.isGlassEnabled) {
-                    if (activeJobCount > 0) {
-                        com.theveloper.pixelplay.ui.glass.GlassIconButton(
-                            onClick = onJobsClick,
-                            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.5f),
-                            contentColor = MaterialTheme.colorScheme.onSurface
-                        ) {
-                            BadgedBox(badge = { Badge { Text(activeJobCount.toString()) } }) {
-                                Icon(
-                                    painter = painterResource(R.drawable.rounded_hourglass_24),
-                                    contentDescription = stringResource(R.string.topbar_cd_active_jobs)
-                                )
-                            }
-                        }
-                    }
-                    com.theveloper.pixelplay.ui.glass.GlassIconButton(
-                        onClick = onMoreOptionsClick,
-                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.5f),
-                        contentColor = MaterialTheme.colorScheme.onSurface
-                    ) {
-                        Icon(
-                            painter = painterResource(R.drawable.round_newspaper_24),
-                            contentDescription = stringResource(R.string.topbar_cd_changelog)
-                        )
-                    }
-                    com.theveloper.pixelplay.ui.glass.GlassIconButton(
-                        onClick = onNavigationIconClick,
-                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.5f),
-                        contentColor = MaterialTheme.colorScheme.onSurface
-                    ) {
-                        Icon(
-                            painter = painterResource(R.drawable.rounded_settings_24),
-                            contentDescription = stringResource(R.string.common_settings)
-                        )
-                    }
+                if (glassEnabled) {
+                    HomeGlassActionGroup(
+                        activeJobCount = activeJobCount,
+                        onBetaClick = onBetaClick,
+                        onJobsClick = onJobsClick,
+                        onMoreOptionsClick = onMoreOptionsClick,
+                        onSettingsClick = onNavigationIconClick
+                    )
                 } else {
                     if (activeJobCount > 0) {
                         FilledIconButton(
@@ -295,4 +249,63 @@ fun HomeGradientTopBar(
             containerColor = Color.Transparent
         )
     )
+}
+
+/**
+ * Home's top-bar actions in Liquid Glass mode: Beta, active jobs, changelog and settings on ONE
+ * piece of glass ([GlassGroup]) refracting the feed, instead of four separate glass buttons.
+ * Beta is a fill pill; the icons are plain glyphs on the group.
+ */
+@Composable
+private fun HomeGlassActionGroup(
+    activeJobCount: Int,
+    onBetaClick: () -> Unit,
+    onJobsClick: () -> Unit,
+    onMoreOptionsClick: () -> Unit,
+    onSettingsClick: () -> Unit
+) {
+    val glyphColors = IconButtonDefaults.iconButtonColors(
+        contentColor = MaterialTheme.colorScheme.onSurface
+    )
+    GlassGroup(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+        GlassButton(
+            onClick = onBetaClick,
+            contentColor = MaterialTheme.colorScheme.onSurface,
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+        ) {
+            Text(
+                text = stringResource(R.string.topbar_beta_letter),
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Black
+            )
+            Spacer(Modifier.width(6.dp))
+            Text(
+                text = stringResource(R.string.topbar_beta_label),
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold
+            )
+        }
+        if (activeJobCount > 0) {
+            IconButton(onClick = onJobsClick, colors = glyphColors) {
+                BadgedBox(badge = { Badge { Text(activeJobCount.toString()) } }) {
+                    Icon(
+                        painter = painterResource(R.drawable.rounded_hourglass_24),
+                        contentDescription = stringResource(R.string.topbar_cd_active_jobs)
+                    )
+                }
+            }
+        }
+        IconButton(onClick = onMoreOptionsClick, colors = glyphColors) {
+            Icon(
+                painter = painterResource(R.drawable.round_newspaper_24),
+                contentDescription = stringResource(R.string.topbar_cd_changelog)
+            )
+        }
+        IconButton(onClick = onSettingsClick, colors = glyphColors) {
+            Icon(
+                painter = painterResource(R.drawable.rounded_settings_24),
+                contentDescription = stringResource(R.string.common_settings)
+            )
+        }
+    }
 }

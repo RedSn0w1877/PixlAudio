@@ -1,5 +1,6 @@
 package com.theveloper.pixelplay.presentation.components.subcomps
 
+import com.theveloper.pixelplay.ui.glass.GlassSwitch
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
@@ -39,7 +40,6 @@ import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.SheetState
-import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -488,7 +488,7 @@ fun LyricsMoreBottomSheet(
                                 )
                             },
                             trailingContent = {
-                                Switch(
+                                GlassSwitch(
                                     checked = showRomanization,
                                     onCheckedChange = onShowRomanizationChange,
                                     colors = SwitchDefaults.colors(
@@ -529,7 +529,7 @@ fun LyricsMoreBottomSheet(
                                 )
                             },
                             trailingContent = {
-                                Switch(
+                                GlassSwitch(
                                     checked = showTranslation,
                                     onCheckedChange = onShowTranslationChange,
                                     colors = SwitchDefaults.colors(
@@ -571,7 +571,7 @@ fun LyricsMoreBottomSheet(
                                 )
                             },
                             trailingContent = {
-                                Switch(
+                                GlassSwitch(
                                     modifier = Modifier,
                                     checked = isImmersiveTemporarilyDisabled,
                                     onCheckedChange = {
@@ -615,7 +615,7 @@ fun LyricsMoreBottomSheet(
                                 )
                             },
                             trailingContent = {
-                                Switch(
+                                GlassSwitch(
                                     checked = keepScreenOn,
                                     onCheckedChange = onKeepScreenOnChange,
                                     colors = SwitchDefaults.colors(

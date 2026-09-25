@@ -2,6 +2,10 @@
 
 package com.theveloper.pixelplay.presentation.screens
 
+import com.theveloper.pixelplay.ui.glass.GlassChrome
+import com.theveloper.pixelplay.ui.glass.GlassScreenLayer
+import com.theveloper.pixelplay.ui.glass.rememberGlassScreenBackdrop
+import com.theveloper.pixelplay.presentation.components.GlassDetailBackButton
 import com.theveloper.pixelplay.presentation.navigation.navigateSafely
 import com.theveloper.pixelplay.presentation.navigation.navigateSafelyReplacing
 
@@ -280,6 +284,7 @@ fun AlbumDetailScreen(
                     }
                 }
 
+                val screenGlass = rememberGlassScreenBackdrop()
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -288,114 +293,127 @@ fun AlbumDetailScreen(
                         )
                         .nestedScroll(nestedScrollConnection)
                 ) {
-                    val currentTopBarHeightDp = with(density) { topBarHeight.value.toDp() }
-                    val showScrollBar =
-                        LocalShowScrollbar.current &&
-                        collapseFraction > 0.95f &&
-                            (lazyListState.canScrollForward || lazyListState.canScrollBackward)
+                    // Glass mode: the list AND the artwork header are recorded, and the back
+                    // button floats above both as glass chrome. Material 3: unchanged.
+                    GlassScreenLayer(screenGlass) {
+                        val currentTopBarHeightDp = with(density) { topBarHeight.value.toDp() }
+                        val showScrollBar =
+                            LocalShowScrollbar.current &&
+                            collapseFraction > 0.95f &&
+                                (lazyListState.canScrollForward || lazyListState.canScrollBackward)
 
-                    LazyColumn(
-                        state = lazyListState,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .offset {
-                                val extraHeight =
-                                    (topBarHeight.value - minTopBarHeightPx).roundToInt()
-                                IntOffset(0, extraHeight)
-                            },
-                        contentPadding = PaddingValues(
-                            top = minTopBarHeight + 8.dp,
-                            start = 16.dp,
-                            end = if (showScrollBar) 24.dp else 16.dp,
-                            bottom = fabBottomPadding + 80.dp // To account for FAB
-                        ),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        songsByDisc.forEach { (discNumber, discSongs) ->
-                            if (songsByDisc.size > 1) {
-                                item(key = "disc_header_$discNumber") {
-                                    Text(
-                                        text = stringResource(R.string.album_disc_number_header, discNumber),
-                                        style = MaterialTheme.typography.labelLarge,
-                                        color = MaterialTheme.colorScheme.primary,
-                                        fontWeight = FontWeight.Bold,
-                                        modifier = Modifier
-                                            .padding(top = 16.dp, bottom = 8.dp, start = 8.dp)
+                        LazyColumn(
+                            state = lazyListState,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .offset {
+                                    val extraHeight =
+                                        (topBarHeight.value - minTopBarHeightPx).roundToInt()
+                                    IntOffset(0, extraHeight)
+                                },
+                            contentPadding = PaddingValues(
+                                top = minTopBarHeight + 8.dp,
+                                start = 16.dp,
+                                end = if (showScrollBar) 24.dp else 16.dp,
+                                bottom = fabBottomPadding + 80.dp // To account for FAB
+                            ),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            songsByDisc.forEach { (discNumber, discSongs) ->
+                                if (songsByDisc.size > 1) {
+                                    item(key = "disc_header_$discNumber") {
+                                        Text(
+                                            text = stringResource(R.string.album_disc_number_header, discNumber),
+                                            style = MaterialTheme.typography.labelLarge,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier
+                                                .padding(top = 16.dp, bottom = 8.dp, start = 8.dp)
+                                        )
+                                    }
+                                }
+                                items(
+                                    items = discSongs,
+                                    key = { song -> "album_song_${song.id}" },
+                                    contentType = { "album_song" }
+                                ) { song ->
+                                    EnhancedSongListItem(
+                                        song = song,
+                                        isCurrentSong = stablePlayerState.currentSong?.id == song.id,
+                                        isPlaying = stablePlayerState.isPlaying,
+                                        showAlbumArt = false,
+                                        onMoreOptionsClick = {
+                                            playerViewModel.selectSongForInfo(song)
+                                            showSongInfoBottomSheet = true
+                                        },
+                                        onClick = { playerViewModel.showAndPlaySong(song, songs) }
                                     )
                                 }
                             }
-                            items(
-                                items = discSongs,
-                                key = { song -> "album_song_${song.id}" },
-                                contentType = { "album_song" }
-                            ) { song ->
-                                EnhancedSongListItem(
-                                    song = song,
-                                    isCurrentSong = stablePlayerState.currentSong?.id == song.id,
-                                    isPlaying = stablePlayerState.isPlaying,
-                                    showAlbumArt = false,
-                                    onMoreOptionsClick = {
-                                        playerViewModel.selectSongForInfo(song)
-                                        showSongInfoBottomSheet = true
-                                    },
-                                    onClick = { playerViewModel.showAndPlaySong(song, songs) }
-                                )
-                            }
+                        }
+
+                        if (showScrollBar) {
+                            ExpressiveScrollBar(
+                                listState = lazyListState,
+                                modifier = Modifier
+                                    .align(Alignment.CenterEnd)
+                                    .padding(
+                                        top = minTopBarHeight + 12.dp,
+                                        bottom = fabBottomPadding + 80.dp
+                                    )
+                            )
+                        }
+
+                        if (UseSharedCollapsibleTopBarProbe) {
+                            SharedAlbumTopBarProbe(
+                                album = album,
+                                songsCount = songs.size,
+                                collapseFraction = collapseFraction,
+                                headerHeight = currentTopBarHeightDp,
+                                headerImageRequestSize = headerImageRequestSize,
+                                onHeaderArtworkState = { state ->
+                                    if (state is AsyncImagePainter.State.Success) {
+                                        headerArtworkLoaded = true
+                                    }
+                                },
+                                onBackPressed = { navController.popBackStack() },
+                                showNavigationControls = screenGlass == null,
+                                onPlayClick = {
+                                    if (songs.isNotEmpty()) {
+                                        val randomSong = songs.random()
+                                        playerViewModel.showAndPlaySong(randomSong, songs)
+                                    }
+                                }
+                            )
+                        } else {
+                            CollapsingAlbumTopBar(
+                                album = album,
+                                songsCount = songs.size,
+                                collapseFraction = collapseFraction,
+                                headerHeight = currentTopBarHeightDp,
+                                headerImageRequestSize = headerImageRequestSize,
+                                onHeaderArtworkState = { state ->
+                                    if (state is AsyncImagePainter.State.Success) {
+                                        headerArtworkLoaded = true
+                                    }
+                                },
+                                onBackPressed = { navController.popBackStack() },
+                                onPlayClick = {
+                                    if (songs.isNotEmpty()) {
+                                        val randomSong = songs.random()
+                                        playerViewModel.showAndPlaySong(randomSong, songs)
+                                    }
+                                }
+                            )
                         }
                     }
-
-                    if (showScrollBar) {
-                        ExpressiveScrollBar(
-                            listState = lazyListState,
-                            modifier = Modifier
-                                .align(Alignment.CenterEnd)
-                                .padding(
-                                    top = minTopBarHeight + 12.dp,
-                                    bottom = fabBottomPadding + 80.dp
-                                )
-                        )
-                    }
-
-                    if (UseSharedCollapsibleTopBarProbe) {
-                        SharedAlbumTopBarProbe(
-                            album = album,
-                            songsCount = songs.size,
-                            collapseFraction = collapseFraction,
-                            headerHeight = currentTopBarHeightDp,
-                            headerImageRequestSize = headerImageRequestSize,
-                            onHeaderArtworkState = { state ->
-                                if (state is AsyncImagePainter.State.Success) {
-                                    headerArtworkLoaded = true
-                                }
-                            },
-                            onBackPressed = { navController.popBackStack() },
-                            onPlayClick = {
-                                if (songs.isNotEmpty()) {
-                                    val randomSong = songs.random()
-                                    playerViewModel.showAndPlaySong(randomSong, songs)
-                                }
-                            }
-                        )
-                    } else {
-                        CollapsingAlbumTopBar(
-                            album = album,
-                            songsCount = songs.size,
-                            collapseFraction = collapseFraction,
-                            headerHeight = currentTopBarHeightDp,
-                            headerImageRequestSize = headerImageRequestSize,
-                            onHeaderArtworkState = { state ->
-                                if (state is AsyncImagePainter.State.Success) {
-                                    headerArtworkLoaded = true
-                                }
-                            },
-                            onBackPressed = { navController.popBackStack() },
-                            onPlayClick = {
-                                if (songs.isNotEmpty()) {
-                                    val randomSong = songs.random()
-                                    playerViewModel.showAndPlaySong(randomSong, songs)
-                                }
-                            }
-                        )
+                    if (screenGlass != null) {
+                        GlassChrome(screenGlass, scrollEdge = false) {
+                            GlassDetailBackButton(
+                                onClick = { navController.popBackStack() },
+                                modifier = Modifier.align(Alignment.TopStart)
+                            )
+                        }
                     }
                 }
             }
@@ -506,6 +524,7 @@ private fun SharedAlbumTopBarProbe(
     headerImageRequestSize: Size,
     onHeaderArtworkState: ((AsyncImagePainter.State) -> Unit)? = null,
     onBackPressed: () -> Unit,
+    showNavigationControls: Boolean = true,
     onPlayClick: () -> Unit
 ) {
     val surfaceColor = MaterialTheme.colorScheme.surface
@@ -596,7 +615,8 @@ private fun SharedAlbumTopBarProbe(
             contentColor = MaterialTheme.colorScheme.onSurface,
             subtitleColor = MaterialTheme.colorScheme.onSurfaceVariant,
             fadeSubtitleOnCollapse = false,
-            syncStatusBarWithContainer = false
+            syncStatusBarWithContainer = false,
+            showNavigationControls = showNavigationControls
         )
 
         LargeExtendedFloatingActionButton(

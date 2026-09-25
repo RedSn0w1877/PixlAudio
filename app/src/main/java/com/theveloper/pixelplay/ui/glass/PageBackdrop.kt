@@ -41,6 +41,7 @@ import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.layout.positionOnScreen
 import androidx.compose.ui.node.DrawModifierNode
 import androidx.compose.ui.node.GlobalPositionAwareModifierNode
 import androidx.compose.ui.node.ModifierNodeElement
@@ -136,7 +137,11 @@ class PageBackdrop internal constructor(
     /** The full (pre-downscale) size of [snapshotBitmap], i.e. the size it is drawn back at. */
     internal var snapshotSize: IntSize = IntSize.Zero
 
-    /** Window position of the snapshot's top-left corner. */
+    /**
+     * Screen position of the snapshot's top-left corner. Screen, not window, coordinates: an
+     * AlertDialog's window is centred and wrap-sized, so window positions from inside it do not
+     * line up with the main window's.
+     */
     internal var snapshotOrigin: Offset = Offset.Zero
 
     /**
@@ -193,9 +198,9 @@ class PageBackdrop internal constructor(
         val bitmap = snapshotBitmap ?: return
         val fullSize = snapshotSize
         if (fullSize.width <= 0 || fullSize.height <= 0) return
-        // Both windows are fullscreen (the sheet's Dialog uses usePlatformDefaultWidth = false), so
-        // window positions line up between them without a second window's origin to subtract.
-        val offset = coordinates.positionInWindow() - snapshotOrigin
+        // Screen coordinates on both sides: a sheet's window is fullscreen, but a dialog's is centred
+        // and wrap-sized, so only screen positions line up across windows.
+        val offset = coordinates.positionOnScreen() - snapshotOrigin
         scope.withTransform({
             if (layerBlock != null) {
                 with(obtainInverseLayerScope()) { inverseTransform(density, layerBlock) }
@@ -245,7 +250,7 @@ fun Modifier.glassSnapshotSource(
 ): Modifier {
     if (!enabled) return this
     return this
-        .onGloballyPositioned { backdrop.snapshotOrigin = it.positionInWindow() }
+        .onGloballyPositioned { backdrop.snapshotOrigin = it.positionOnScreen() }
         .drawWithContent {
             if (size.width < 1f || size.height < 1f) {
                 drawContent()

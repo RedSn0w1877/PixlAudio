@@ -2,6 +2,7 @@
 
 package com.theveloper.pixelplay.presentation.components
 
+import com.theveloper.pixelplay.ui.glass.GlassAlertDialog
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -21,7 +22,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.DragIndicator
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ContainedLoadingIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -83,7 +83,7 @@ fun ReorderTabsSheet(
     }
 
     if (showResetDialog) {
-        AlertDialog(
+        GlassAlertDialog(
             onDismissRequest = { showResetDialog = false },
             title = { Text(stringResource(R.string.reorder_tabs_reset_dialog_title)) },
             text = { Text(stringResource(R.string.reorder_tabs_reset_dialog_body)) },

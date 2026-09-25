@@ -6,6 +6,7 @@
 
 package com.theveloper.pixelplay.presentation.screens
 
+import com.theveloper.pixelplay.ui.glass.GlassSlider
 import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -129,7 +130,6 @@ import com.theveloper.pixelplay.data.model.SmartPlaylistRule
 // import com.theveloper.pixelplay.presentation.screens.ShapeType // Removed local enum
 import com.theveloper.pixelplay.presentation.components.SongPickerSelectionPane
 import com.theveloper.pixelplay.ui.theme.GoogleSansRounded
-import androidx.compose.material3.Slider
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import com.theveloper.pixelplay.utils.shapes.RoundedStarShape
@@ -1670,7 +1670,7 @@ fun ThickSlider(
     valueRange: ClosedFloatingPointRange<Float>,
     steps: Int = 0
 ) {
-    Slider(
+    GlassSlider(
         value = value,
         onValueChange = onValueChange,
         valueRange = valueRange,

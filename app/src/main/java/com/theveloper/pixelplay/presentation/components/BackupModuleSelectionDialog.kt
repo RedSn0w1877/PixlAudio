@@ -1,5 +1,6 @@
 package com.theveloper.pixelplay.presentation.components
 
+import com.theveloper.pixelplay.ui.glass.GlassSwitch
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.ExperimentalAnimationApi
@@ -47,7 +48,6 @@ import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
@@ -536,7 +536,7 @@ private fun BackupSectionSelectableCardShared(
                     }
                 }
 
-                Switch(
+                GlassSwitch(
                     checked = selected,
                     onCheckedChange = { onToggle() },
                     enabled = enabled,

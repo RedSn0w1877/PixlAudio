@@ -1,5 +1,10 @@
 package com.theveloper.pixelplay.presentation.spotify.dashboard
 
+import com.theveloper.pixelplay.ui.glass.GlassAlertDialog
+import com.theveloper.pixelplay.ui.glass.GlassIconButton
+import com.theveloper.pixelplay.ui.glass.GlassScaffold
+import com.theveloper.pixelplay.ui.glass.isGlassEnabled
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -31,7 +36,6 @@ import androidx.compose.material.icons.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.PlayCircle
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Sync
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -43,7 +47,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -95,23 +98,57 @@ fun SpotifyDashboardScreen(
         viewModel.refreshMatchCounts()
     }
 
-    Scaffold(
-        topBar = {
+    // Glass mode: the list scrolls under a transparent bar (glass back button, scroll edge).
+    // Material 3: the same Scaffold, bar and padding as always.
+    val glassBar = isGlassEnabled
+    GlassScaffold(
+        topChrome = {
             TopAppBar(
                 title = { Text("Spotify") },
                 navigationIcon = {
-                    IconButton(onClick = onBackClick) {
-                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
+                    if (glassBar) {
+                        GlassIconButton(
+                            onClick = onBackClick,
+                            modifier = Modifier.padding(start = 4.dp),
+                            size = 40.dp
+                        ) {
+                            Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
+                        }
+                    } else {
+                        IconButton(onClick = onBackClick) {
+                            Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
+                        }
                     }
+                },
+                colors = if (glassBar) {
+                    TopAppBarDefaults.topAppBarColors(
+                        containerColor = Color.Transparent,
+                        scrolledContainerColor = Color.Transparent
+                    )
+                } else {
+                    TopAppBarDefaults.topAppBarColors()
                 }
             )
         }
     ) { innerPadding ->
         LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+            modifier = if (glassBar) {
+                Modifier.fillMaxSize()
+            } else {
+                Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+            },
+            contentPadding = if (glassBar) {
+                PaddingValues(
+                    start = 16.dp,
+                    end = 16.dp,
+                    top = innerPadding.calculateTopPadding() + 12.dp,
+                    bottom = innerPadding.calculateBottomPadding() + 12.dp
+                )
+            } else {
+                PaddingValues(horizontal = 16.dp, vertical = 12.dp)
+            },
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             item {
@@ -203,7 +240,7 @@ fun SpotifyDashboardScreen(
     }
 
     uiState.youTubeSignInError?.let { error ->
-        AlertDialog(
+        GlassAlertDialog(
             onDismissRequest = viewModel::dismissYouTubeError,
             confirmButton = {
                 Button(onClick = viewModel::dismissYouTubeError) { Text("OK") }
@@ -289,7 +326,7 @@ private fun YouTubeSignInDialog(
 ) {
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
-    AlertDialog(
+    GlassAlertDialog(
         onDismissRequest = onDismiss,
         confirmButton = {
             Button(onClick = {

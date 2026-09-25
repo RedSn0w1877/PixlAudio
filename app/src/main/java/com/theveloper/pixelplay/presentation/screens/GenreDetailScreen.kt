@@ -1,5 +1,11 @@
 package com.theveloper.pixelplay.presentation.screens
 
+import com.theveloper.pixelplay.ui.glass.GlassChrome
+import com.theveloper.pixelplay.ui.glass.GlassIconButton
+import com.theveloper.pixelplay.ui.glass.GlassPlacement
+import com.theveloper.pixelplay.ui.glass.glassPlacement
+import com.theveloper.pixelplay.ui.glass.glassScreenContent
+import com.theveloper.pixelplay.ui.glass.rememberGlassScreenBackdrop
 import com.theveloper.pixelplay.presentation.navigation.navigateSafely
 import com.theveloper.pixelplay.presentation.navigation.navigateSafelyReplacing
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -297,6 +303,7 @@ fun GenreDetailScreen(
     }
 
     MaterialTheme(colorScheme = genreColorScheme) {
+        val screenGlass = rememberGlassScreenBackdrop()
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -324,6 +331,7 @@ fun GenreDetailScreen(
                         val extraHeight = (topBarHeight.value - minTopBarHeightPx).roundToInt()
                         IntOffset(0, extraHeight)
                     }
+                    .glassScreenContent(screenGlass)
             ) {
                 // Optimization: Limit rendered items during the navigation transition 
                 // to ensure the slide-in animation remains smooth.
@@ -408,16 +416,18 @@ fun GenreDetailScreen(
 
             // Collapsible Top Bar with Gradient (On Top of List, High Z-Index)
             // This ensures the gradient is ON TOP of the scrolling content, so content scrolls BEHIND it.
-            GenreCollapsibleTopBar(
-                title = genreDisplayName,
-                collapseFraction = collapseFraction,
-                headerHeight = currentTopBarHeightDp,
-                onBackPressed = { navController.popBackStack() },
-                startColor = startColor,
-                contentColor = contentColor,
-                containerColor = MaterialTheme.colorScheme.surfaceContainer,
-                collapsedContentColor = MaterialTheme.colorScheme.onSurface
-            )
+            GlassChrome(screenGlass) {
+                GenreCollapsibleTopBar(
+                    title = genreDisplayName,
+                    collapseFraction = collapseFraction,
+                    headerHeight = currentTopBarHeightDp,
+                    onBackPressed = { navController.popBackStack() },
+                    startColor = startColor,
+                    contentColor = contentColor,
+                    containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                    collapsedContentColor = MaterialTheme.colorScheme.onSurface
+                )
+            }
         
             // Selection Count Pill (Top-Center below collapsed top bar)
             SelectionCountPill(
@@ -769,6 +779,9 @@ fun GenreCollapsibleTopBar(
     collapsedContentColor: Color
 ) {
     val solidAlpha = (collapseFraction * 2f).coerceIn(0f, 1f)
+    // Liquid Glass chrome: no solid fill fading in (the scroll edge frosts the list instead) and a
+    // glass back button. Everywhere else, including Material 3 mode, exactly as before.
+    val glassChrome = glassPlacement() == GlassPlacement.Glass
     val animatedContentColor = androidx.compose.ui.graphics.lerp(
         start = contentColor,
         stop = collapsedContentColor,
@@ -794,11 +807,13 @@ fun GenreCollapsibleTopBar(
             .height(headerHeight)
             .zIndex(5f)
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(containerColor.copy(alpha = solidAlpha)) 
-        )
+        if (!glassChrome) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(containerColor.copy(alpha = solidAlpha))
+            )
+        }
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -806,18 +821,32 @@ fun GenreCollapsibleTopBar(
         )
 
         Box(modifier = Modifier.fillMaxSize().statusBarsPadding()) {
-             FilledIconButton(
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .padding(start = 12.dp, top = 4.dp)
-                    .zIndex(10f),
-                onClick = onBackPressed,
-                colors = IconButtonDefaults.filledIconButtonColors(
-                    containerColor = animatedContentColor.copy(alpha = 0.1f),
+            if (glassChrome) {
+                GlassIconButton(
+                    onClick = onBackPressed,
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(start = 12.dp, top = 4.dp)
+                        .zIndex(10f),
+                    size = 40.dp,
                     contentColor = animatedContentColor
-                )
-            ) {
-                Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = stringResource(R.string.common_back), tint = animatedContentColor)
+                ) {
+                    Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = stringResource(R.string.common_back))
+                }
+            } else {
+                FilledIconButton(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(start = 12.dp, top = 4.dp)
+                        .zIndex(10f),
+                    onClick = onBackPressed,
+                    colors = IconButtonDefaults.filledIconButtonColors(
+                        containerColor = animatedContentColor.copy(alpha = 0.1f),
+                        contentColor = animatedContentColor
+                    )
+                ) {
+                    Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = stringResource(R.string.common_back), tint = animatedContentColor)
+                }
             }
 
             ExpressiveTopBarContent(

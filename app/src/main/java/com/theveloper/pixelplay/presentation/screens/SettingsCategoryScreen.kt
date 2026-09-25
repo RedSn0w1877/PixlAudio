@@ -1,5 +1,10 @@
 package com.theveloper.pixelplay.presentation.screens
 
+import com.theveloper.pixelplay.ui.glass.GlassAlertDialog
+import com.theveloper.pixelplay.ui.glass.GlassSwitch
+import com.theveloper.pixelplay.ui.glass.GlassChrome
+import com.theveloper.pixelplay.ui.glass.glassScreenContent
+import com.theveloper.pixelplay.ui.glass.rememberGlassScreenBackdrop
 import com.theveloper.pixelplay.presentation.navigation.navigateSafely
 import com.theveloper.pixelplay.presentation.components.BackupModuleSelectionDialog
 import com.theveloper.pixelplay.data.preferences.AiPreferencesRepository
@@ -88,7 +93,6 @@ import androidx.compose.material.icons.rounded.Science
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Timer
 import androidx.compose.material.icons.rounded.UnfoldMore
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.BottomAppBar
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CenterAlignedTopAppBar
@@ -109,7 +113,6 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextFieldDefaults
@@ -411,6 +414,7 @@ fun SettingsCategoryScreen(
         }
     }
 
+    val screenGlass = rememberGlassScreenBackdrop()
     Box(
         modifier =
             Modifier.nestedScroll(nestedScrollConnection).fillMaxSize()
@@ -419,7 +423,7 @@ fun SettingsCategoryScreen(
         
         LazyColumn(
             state = lazyListState,
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxSize().glassScreenContent(screenGlass),
             contentPadding = PaddingValues(
                 top = currentTopBarHeightDp + 8.dp,
                 start = 16.dp,
@@ -1683,13 +1687,15 @@ fun SettingsCategoryScreen(
             }
         }
 
-        CollapsibleCommonTopBar(
-            collapseFraction = collapseFraction,
-            headerHeight = currentTopBarHeightDp,
-            onBackClick = onBackClick,
-            title = categoryTitle,
-            maxLines = titleMaxLines
-        )
+        GlassChrome(screenGlass) {
+            CollapsibleCommonTopBar(
+                collapseFraction = collapseFraction,
+                headerHeight = currentTopBarHeightDp,
+                onBackClick = onBackClick,
+                title = categoryTitle,
+                maxLines = titleMaxLines
+            )
+        }
 
         // Block interaction during transition
         var isTransitioning by remember { mutableStateOf(true) }
@@ -1790,7 +1796,7 @@ fun SettingsCategoryScreen(
     }
 
     if (showRegenerateAllPalettesDialog) {
-        AlertDialog(
+        GlassAlertDialog(
             icon = {
                 Icon(
                     Icons.Outlined.Style,
@@ -1911,7 +1917,7 @@ fun SettingsCategoryScreen(
     
      // Dialogs logic (copied)
     if (showClearLyricsDialog) {
-        AlertDialog(
+        GlassAlertDialog(
             icon = { Icon(Icons.Outlined.Warning, null) },
             title = { Text(stringResource(R.string.settings_dialog_reset_imported_lyrics_title)) },
             text = { Text(stringResource(R.string.settings_dialog_reset_imported_lyrics_body)) },
@@ -1925,7 +1931,7 @@ fun SettingsCategoryScreen(
     if (showRebuildDatabaseWarning) {
         val syncIndicatorRebuilding = stringResource(R.string.settings_label_sync_rebuilding)
         val toastRebuildingDatabase = stringResource(R.string.settings_toast_rebuilding_database)
-        AlertDialog(
+        GlassAlertDialog(
             icon = { Icon(Icons.Outlined.Warning, null, tint = MaterialTheme.colorScheme.error) },
             title = { Text(stringResource(R.string.settings_dialog_rebuild_database_title)) },
             text = { Text(stringResource(R.string.settings_dialog_rebuild_database_body)) },
@@ -1951,7 +1957,7 @@ fun SettingsCategoryScreen(
 
     if (showRegenerateDailyMixDialog) {
         val toastDailyMixRegenerationStarted = stringResource(R.string.settings_toast_daily_mix_regeneration_started)
-        AlertDialog(
+        GlassAlertDialog(
             icon = { Icon(painterResource(R.drawable.rounded_instant_mix_24), null, tint = MaterialTheme.colorScheme.primary) },
             title = { Text(stringResource(R.string.settings_dialog_regenerate_daily_mix_title)) },
             text = { Text(stringResource(R.string.settings_dialog_regenerate_daily_mix_body)) },
@@ -1973,7 +1979,7 @@ fun SettingsCategoryScreen(
 
     if (showRegenerateStatsDialog) {
         val toastStatsRegenerationStarted = stringResource(R.string.settings_toast_stats_regeneration_started)
-        AlertDialog(
+        GlassAlertDialog(
             icon = { Icon(painterResource(R.drawable.rounded_monitoring_24), null, tint = MaterialTheme.colorScheme.primary) },
             title = { Text(stringResource(R.string.settings_dialog_regenerate_stats_title)) },
             text = { Text(stringResource(R.string.settings_dialog_regenerate_stats_body)) },
@@ -2490,7 +2496,7 @@ private fun BackupSectionSelectableCard(
                     }
                 }
 
-                Switch(
+                GlassSwitch(
                     checked = selected,
                     onCheckedChange = { onToggle() },
                     enabled = enabled,

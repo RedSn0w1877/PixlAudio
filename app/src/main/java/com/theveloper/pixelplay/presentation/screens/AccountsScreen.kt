@@ -2,6 +2,9 @@
 
 package com.theveloper.pixelplay.presentation.screens
 
+import com.theveloper.pixelplay.ui.glass.GlassChrome
+import com.theveloper.pixelplay.ui.glass.glassScreenContent
+import com.theveloper.pixelplay.ui.glass.rememberGlassScreenBackdrop
 import android.content.Context
 import android.content.Intent
 import android.widget.Toast
@@ -159,12 +162,13 @@ fun AccountsScreen(
         }
     }
 
+    val screenGlass = rememberGlassScreenBackdrop()
     Box(modifier = Modifier.nestedScroll(nestedScrollConnection).fillMaxSize()) {
         val currentTopBarHeightDp = with(density) { topBarHeight.value.toDp() }
 
         LazyColumn(
             state = lazyListState,
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxSize().glassScreenContent(screenGlass),
             contentPadding = PaddingValues(
                 top = currentTopBarHeightDp + 8.dp,
                 start = 16.dp,
@@ -217,14 +221,16 @@ fun AccountsScreen(
             }
         }
 
-        CollapsibleCommonTopBar(
-            title = stringResource(R.string.settings_category_accounts_title),
-            collapseFraction = collapseFraction,
-            headerHeight = currentTopBarHeightDp,
-            onBackClick = onBackClick,
-            expandedTitleStartPadding = 20.dp,
-            collapsedTitleStartPadding = 68.dp
-        )
+        GlassChrome(screenGlass) {
+            CollapsibleCommonTopBar(
+                title = stringResource(R.string.settings_category_accounts_title),
+                collapseFraction = collapseFraction,
+                headerHeight = currentTopBarHeightDp,
+                onBackClick = onBackClick,
+                expandedTitleStartPadding = 20.dp,
+                collapsedTitleStartPadding = 68.dp
+            )
+        }
     }
 }
 

@@ -1,5 +1,6 @@
 package com.theveloper.pixelplay.presentation.components
 
+import com.theveloper.pixelplay.ui.glass.GlassAlertDialog
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.MutableTransitionState
@@ -36,7 +37,6 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.DragIndicator
 import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material.icons.rounded.VisibilityOff
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -92,7 +92,7 @@ fun ReorderPresetsSheet(
     var showResetDialog by remember { mutableStateOf(false) }
 
     if (showResetDialog) {
-        AlertDialog(
+        GlassAlertDialog(
             onDismissRequest = { showResetDialog = false },
             title = { Text(stringResource(R.string.equalizer_reset_presets_title)) },
             text = { Text(stringResource(R.string.equalizer_reset_presets_message)) },

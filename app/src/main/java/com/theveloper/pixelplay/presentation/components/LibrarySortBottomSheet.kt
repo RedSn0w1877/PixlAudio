@@ -1,5 +1,6 @@
 package com.theveloper.pixelplay.presentation.components
 
+import com.theveloper.pixelplay.ui.glass.GlassSwitch
 import androidx.compose.animation.animateColor
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
@@ -32,7 +33,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -440,7 +440,7 @@ internal fun LibrarySheetToggleCard(
                 style = MaterialTheme.typography.bodyLarge,
                 color = if (checked) MaterialTheme.colorScheme.onTertiary else MaterialTheme.colorScheme.onSurface
             )
-            Switch(
+            GlassSwitch(
                 checked = checked,
                 onCheckedChange = onCheckedChange,
                 colors = SwitchDefaults.colors(

@@ -71,12 +71,7 @@ import androidx.compose.ui.Modifier
 import com.theveloper.pixelplay.ui.glass.glassSheetContainerColor
 import com.theveloper.pixelplay.ui.glass.glassSheetSurface
 import com.theveloper.pixelplay.ui.glass.glassClickable
-import com.kyant.backdrop.drawBackdrop
-import com.kyant.backdrop.effects.blur
-import com.kyant.backdrop.effects.lens
-import com.kyant.backdrop.effects.vibrancy
-import com.kyant.backdrop.highlight.Highlight
-import com.kyant.backdrop.shadow.Shadow
+import com.theveloper.pixelplay.ui.glass.glassFill
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
@@ -1159,41 +1154,27 @@ private fun SongInfoSegmentedListItem(
 }
 
 /**
- * A glass surface for the sheet's action buttons, sized/shaped exactly like the button it
- * replaces (arbitrary [Shape], not just [androidx.compose.foundation.shape.CornerBasedShape]) so
- * the existing weight-squish press animation on these rows keeps working unchanged. Falls back to
- * a plain fill when the user isn't in Liquid Glass mode. See [glassPanel][com.theveloper.pixelplay.ui.glass.glassPanel]
- * for the CornerBasedShape-only version most of the app uses.
+ * The surface for the sheet's action buttons, sized/shaped exactly like the button it replaces
+ * (arbitrary [Shape]) so the existing weight-squish press animation keeps working unchanged.
+ *
+ * The buttons sit *on* the glass sheet, so in Liquid Glass mode they are fills, never a second
+ * layer of glass: the button's own colour as a translucent fill ([glassFill], prominent — these
+ * are coloured actions, not neutral chrome), no `drawBackdrop`. Material 3: the plain fill.
  */
 @Composable
 private fun Modifier.actionButtonGlassSurface(
     shape: Shape,
-    color: Color,
-    effectScale: Float = 1f,
-    tintAlpha: Float = 0.72f
+    color: Color
 ): Modifier {
     if (!com.theveloper.pixelplay.ui.glass.isGlassEnabled) {
         return this.clip(shape).background(color)
     }
-    val backdrop = com.theveloper.pixelplay.ui.glass.LocalAppBackdrop.current
-    val effects = com.theveloper.pixelplay.ui.glass.glassEffects(effectScale)
-    // Fixed high floor, plain lerp (no compounding multipliers): a sheet button's backdrop is
-    // empty right now (LocalAppBackdrop is re-scoped inside a sheet), so there is nothing to
-    // refract behind it — the tint IS the button's only readability, so it stays solidly opaque.
-    val tint = color.copy(alpha = androidx.compose.ui.util.lerp(0.72f, 0.96f, com.theveloper.pixelplay.ui.glass.glassTransparency()))
-    // No depthEffect/chromaticAberration — matches the reference's LiquidButton exactly.
-    return this.drawBackdrop(
-        backdrop = backdrop,
-        shape = { shape },
-        effects = {
-            vibrancy()
-            blur(effects.blurRadius.toPx())
-            lens(effects.refractionHeight.toPx(), effects.refractionAmount.toPx())
-        },
-        highlight = { Highlight.Default },
-        shadow = { Shadow() },
-        onDrawSurface = { drawRect(tint) }
+    // A fill has nothing behind it to refract, so the colour carries all the readability: keep
+    // it mostly opaque, easing further toward solid as the user asks for more frost.
+    val alpha = androidx.compose.ui.util.lerp(
+        0.72f, 0.96f, com.theveloper.pixelplay.ui.glass.glassTransparency()
     )
+    return this.glassFill(shape = shape, color = color.copy(alpha = alpha), prominent = true)
 }
 
 @Composable

@@ -1,5 +1,6 @@
 package com.theveloper.pixelplay.presentation.screens
 
+import com.theveloper.pixelplay.ui.glass.GlassSlider
 import android.annotation.SuppressLint
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -53,7 +54,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton // Added
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TabRow
@@ -107,7 +107,6 @@ import com.theveloper.pixelplay.presentation.viewmodel.PlayerViewModel
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 import com.theveloper.pixelplay.ui.glass.GlassSwitch
-import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material.icons.rounded.VolumeUp
 import androidx.compose.material.icons.rounded.GraphicEq
@@ -1458,7 +1457,7 @@ private fun IndividualEffectRow(
                     color = MaterialTheme.colorScheme.onSurface
                 )
             }
-            Switch(
+            GlassSwitch(
                 checked = isEnabled,
                 onCheckedChange = onEnabledChange,
                 thumbContent = if (isEnabled) {
@@ -1475,7 +1474,7 @@ private fun IndividualEffectRow(
         
         Spacer(modifier = Modifier.height(8.dp))
         
-        Slider(
+        GlassSlider(
             value = strength.toFloat(),
             onValueChange = { onStrengthChange(it.roundToInt()) },
             valueRange = 0f..maxStrength.toFloat(),
@@ -1531,7 +1530,7 @@ private fun VolumeControlCard(
                 )
                 
                 Column(modifier = Modifier.weight(1f)) {
-                    Slider(
+                    GlassSlider(
                         value = volume,
                         onValueChange = { newValue ->
                             // Subtle haptic feedback on each 5% change

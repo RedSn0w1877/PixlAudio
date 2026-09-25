@@ -1,5 +1,7 @@
 package com.theveloper.pixelplay.presentation.components.tais
 
+import com.theveloper.pixelplay.ui.glass.GlassSheetContainer
+import com.theveloper.pixelplay.ui.glass.glassSheetContainerColor
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -99,101 +101,106 @@ fun TaisChatSheet(
         listOf(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.tertiary)
     )
 
+    // Liquid Glass: the sheet itself is glass (GlassSheetContainer on a transparent container) and
+    // everything on it sits on glass. Material 3: the default container, exactly as before.
     ModalBottomSheet(
         onDismissRequest = onDismissRequest,
-        sheetState = sheetState
+        sheetState = sheetState,
+        containerColor = glassSheetContainerColor()
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(min = 360.dp, max = 620.dp)
-                .padding(horizontal = 16.dp)
-                .navigationBarsPadding()
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier
-                        .size(40.dp)
-                        .background(sparkleBrush, CircleShape),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.AutoAwesome,
-                        contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-                Spacer(modifier = Modifier.width(12.dp))
-                Column {
-                    Text(text = "Taizo", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                    Text(
-                        text = "Your on-device AI DJ",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-            Spacer(modifier = Modifier.height(12.dp))
-
-            if (uiState.messages.isEmpty()) {
-                TaizoEmptyState(
-                    sparkleBrush = sparkleBrush,
-                    modifier = Modifier.weight(1f),
-                    onSuggestionClick = { suggestion ->
-                        viewModel.onInputChange(suggestion)
-                        viewModel.sendPrompt()
+        GlassSheetContainer(modifier = Modifier.fillMaxWidth()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 360.dp, max = 620.dp)
+                    .padding(horizontal = 16.dp)
+                    .navigationBarsPadding()
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .background(sparkleBrush, CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.AutoAwesome,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(20.dp)
+                        )
                     }
-                )
-            } else {
-                LazyColumn(
-                    state = listState,
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    items(uiState.messages, key = { it.id }) { message ->
-                        TaisChatMessageRow(
-                            message = message,
-                            sparkleBrush = sparkleBrush,
-                            onPlaySongs = onPlaySongs,
-                            onQueueSongs = onQueueSongs,
-                            isResolvingOnlineTracks = isResolvingOnlineTracks,
-                            onPlayOnlineTracks = { tracks -> viewModel.resolveOnlineTracks(tracks, onPlaySongs) },
-                            onQueueOnlineTracks = { tracks -> viewModel.resolveOnlineTracks(tracks, onQueueSongs) }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column {
+                        Text(text = "Taizo", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                        Text(
+                            text = "Your on-device AI DJ",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
-            }
+                Spacer(modifier = Modifier.height(12.dp))
 
-            Spacer(modifier = Modifier.height(10.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                OutlinedTextField(
-                    value = uiState.inputText,
-                    onValueChange = viewModel::onInputChange,
-                    modifier = Modifier.weight(1f),
-                    placeholder = { Text("Ask Taizo anything, or a mood/genre to play…") },
-                    singleLine = true,
-                    shape = RoundedCornerShape(28.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = MaterialTheme.colorScheme.primary,
-                        unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
+                if (uiState.messages.isEmpty()) {
+                    TaizoEmptyState(
+                        sparkleBrush = sparkleBrush,
+                        modifier = Modifier.weight(1f),
+                        onSuggestionClick = { suggestion ->
+                            viewModel.onInputChange(suggestion)
+                            viewModel.sendPrompt()
+                        }
                     )
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                FilledIconButton(
-                    onClick = viewModel::sendPrompt,
-                    colors = IconButtonDefaults.filledIconButtonColors(
-                        containerColor = MaterialTheme.colorScheme.primary,
-                        contentColor = MaterialTheme.colorScheme.onPrimary
-                    )
-                ) {
-                    Icon(Icons.AutoMirrored.Rounded.Send, contentDescription = "Send")
+                } else {
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        items(uiState.messages, key = { it.id }) { message ->
+                            TaisChatMessageRow(
+                                message = message,
+                                sparkleBrush = sparkleBrush,
+                                onPlaySongs = onPlaySongs,
+                                onQueueSongs = onQueueSongs,
+                                isResolvingOnlineTracks = isResolvingOnlineTracks,
+                                onPlayOnlineTracks = { tracks -> viewModel.resolveOnlineTracks(tracks, onPlaySongs) },
+                                onQueueOnlineTracks = { tracks -> viewModel.resolveOnlineTracks(tracks, onQueueSongs) }
+                            )
+                        }
+                    }
                 }
+
+                Spacer(modifier = Modifier.height(10.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedTextField(
+                        value = uiState.inputText,
+                        onValueChange = viewModel::onInputChange,
+                        modifier = Modifier.weight(1f),
+                        placeholder = { Text("Ask Taizo anything, or a mood/genre to play…") },
+                        singleLine = true,
+                        shape = RoundedCornerShape(28.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = MaterialTheme.colorScheme.primary,
+                            unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
+                        )
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    FilledIconButton(
+                        onClick = viewModel::sendPrompt,
+                        colors = IconButtonDefaults.filledIconButtonColors(
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            contentColor = MaterialTheme.colorScheme.onPrimary
+                        )
+                    ) {
+                        Icon(Icons.AutoMirrored.Rounded.Send, contentDescription = "Send")
+                    }
+                }
+                Spacer(modifier = Modifier.height(12.dp))
             }
-            Spacer(modifier = Modifier.height(12.dp))
         }
     }
 }

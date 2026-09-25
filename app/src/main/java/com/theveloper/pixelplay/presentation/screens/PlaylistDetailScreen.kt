@@ -1,5 +1,10 @@
 package com.theveloper.pixelplay.presentation.screens
 
+import com.theveloper.pixelplay.ui.glass.GlassAlertDialog
+import com.theveloper.pixelplay.ui.glass.GlassGroup
+import com.theveloper.pixelplay.ui.glass.GlassIconButton
+import com.theveloper.pixelplay.ui.glass.GlassScaffold
+import com.theveloper.pixelplay.ui.glass.isGlassEnabled
 import com.theveloper.pixelplay.presentation.navigation.navigateSafely
 import com.theveloper.pixelplay.presentation.navigation.navigateSafelyReplacing
 
@@ -54,7 +59,6 @@ import androidx.compose.material.icons.rounded.FileDownload
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
@@ -71,7 +75,6 @@ import androidx.compose.material3.LargeFlexibleTopAppBar
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextFieldDefaults
@@ -266,10 +269,14 @@ fun PlaylistDetailScreen(
 
     val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior(rememberTopAppBarState())
 
-    Scaffold(
+    // Glass mode: the playlist body is recorded and the bar is chrome over it — a glass back
+    // button and one glass group for the actions. The body starts below the bar: no scroll edge.
+    val glassBar = isGlassEnabled
+    GlassScaffold(
         modifier = Modifier
             .nestedScroll(scrollBehavior.nestedScrollConnection),
-        topBar = {
+        scrollEdge = false,
+        topChrome = {
             LargeFlexibleTopAppBar(
                 title = {
                     Text(
@@ -297,37 +304,66 @@ fun PlaylistDetailScreen(
                     )
                 },
                 navigationIcon = {
-                    FilledTonalIconButton(
-                        modifier = Modifier.padding(start = 10.dp),
-                        colors = IconButtonDefaults.filledIconButtonColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                            contentColor = MaterialTheme.colorScheme.onSurface
-                        ),
-                        onClick = onBackClick
-                    ) {
-                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.common_back))
-                    }
-                },
-                actions = {
-                    IconButton(
-                        onClick = {
-                            playerViewModel.showSortingSheet() 
+                    if (glassBar) {
+                        GlassIconButton(
+                            onClick = onBackClick,
+                            modifier = Modifier.padding(start = 10.dp),
+                            size = 40.dp
+                        ) {
+                            Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.common_back))
                         }
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Rounded.Sort,
-                            contentDescription = sortSongsLabel
-                        )
-                    }
-                    if (!isFolderPlaylist) {
+                    } else {
                         FilledTonalIconButton(
-                            modifier = Modifier.padding(end = 10.dp),
+                            modifier = Modifier.padding(start = 10.dp),
                             colors = IconButtonDefaults.filledIconButtonColors(
                                 containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
                                 contentColor = MaterialTheme.colorScheme.onSurface
                             ),
-                            onClick = { showPlaylistOptionsSheet = true }
-                        ) { Icon(Icons.Filled.MoreVert, moreOptionsLabel) }
+                            onClick = onBackClick
+                        ) {
+                            Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.common_back))
+                        }
+                    }
+                },
+                actions = {
+                    if (glassBar) {
+                        GlassGroup(
+                            modifier = Modifier.padding(end = 10.dp),
+                            horizontalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            IconButton(onClick = { playerViewModel.showSortingSheet() }) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Rounded.Sort,
+                                    contentDescription = sortSongsLabel
+                                )
+                            }
+                            if (!isFolderPlaylist) {
+                                IconButton(onClick = { showPlaylistOptionsSheet = true }) {
+                                    Icon(Icons.Filled.MoreVert, moreOptionsLabel)
+                                }
+                            }
+                        }
+                    } else {
+                        IconButton(
+                            onClick = {
+                                playerViewModel.showSortingSheet() 
+                            }
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Rounded.Sort,
+                                contentDescription = sortSongsLabel
+                            )
+                        }
+                        if (!isFolderPlaylist) {
+                            FilledTonalIconButton(
+                                modifier = Modifier.padding(end = 10.dp),
+                                colors = IconButtonDefaults.filledIconButtonColors(
+                                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                    contentColor = MaterialTheme.colorScheme.onSurface
+                                ),
+                                onClick = { showPlaylistOptionsSheet = true }
+                            ) { Icon(Icons.Filled.MoreVert, moreOptionsLabel) }
+                        }
                     }
                 },
                 scrollBehavior = scrollBehavior
@@ -968,7 +1004,7 @@ fun PlaylistDetailScreen(
         )
     }
     if (showDeleteConfirmation && currentPlaylist != null) {
-        AlertDialog(
+        GlassAlertDialog(
             onDismissRequest = { showDeleteConfirmation = false },
             title = { Text(deletePlaylistConfirmTitle) },
             text = {

@@ -1,5 +1,6 @@
 package com.theveloper.pixelplay.presentation.components
 
+import com.theveloper.pixelplay.ui.glass.GlassSlider
 import android.Manifest
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
@@ -78,7 +79,6 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.PrimaryTabRow
-import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
@@ -1438,7 +1438,7 @@ private fun ActiveDeviceHero(
                     )
                 }
                 val interactionSource = remember { MutableInteractionSource() }
-                Slider(
+                GlassSlider(
                     value = sliderValue.coerceIn(device.volumeRange.start, device.volumeRange.endInclusive),
                     onValueChange = { newValue ->
                         sliderValue = newValue

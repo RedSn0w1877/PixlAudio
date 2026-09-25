@@ -1,5 +1,6 @@
 package com.theveloper.pixelplay.presentation.components
 
+import com.theveloper.pixelplay.ui.glass.GlassAlertDialog
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -275,7 +276,7 @@ private fun EditSongContent(
 
     // --- Diálogo de Información ---
     if (showInfoDialog) {
-        AlertDialog(
+        GlassAlertDialog(
             onDismissRequest = { showInfoDialog = false },
             icon = { Icon(Icons.Rounded.Info, contentDescription = stringResource(R.string.edit_song_cd_info_icon)) },
             title = { Text(stringResource(R.string.edit_song_dialog_title)) },

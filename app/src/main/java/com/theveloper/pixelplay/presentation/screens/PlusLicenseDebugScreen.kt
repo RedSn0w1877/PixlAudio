@@ -1,5 +1,6 @@
 package com.theveloper.pixelplay.presentation.screens
 
+import com.theveloper.pixelplay.ui.glass.GlassAlertDialog
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -13,7 +14,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Key
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -65,7 +65,7 @@ fun PlusLicenseDebugScreen(onBackClick: () -> Unit) {
         }
     ) { padding ->
         if (!unlocked) {
-            AlertDialog(
+            GlassAlertDialog(
                 onDismissRequest = onBackClick,
                 title = { Text("Developer access") },
                 text = {

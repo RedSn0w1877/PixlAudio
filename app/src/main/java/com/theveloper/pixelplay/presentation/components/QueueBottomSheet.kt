@@ -1,5 +1,6 @@
 package com.theveloper.pixelplay.presentation.components
 
+import com.theveloper.pixelplay.ui.glass.GlassAlertDialog
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
@@ -77,7 +78,6 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.DoneAll
 import androidx.compose.material.icons.rounded.RemoveDone
 import androidx.compose.material.icons.rounded.Search
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.AssistChip
@@ -1230,7 +1230,7 @@ fun QueueBottomSheet(
         }
 
         if (showClearQueueDialog) {
-            AlertDialog(
+            GlassAlertDialog(
                 onDismissRequest = { showClearQueueDialog = false },
                 title = { Text(stringResource(R.string.queue_dialog_clear_queue_title)) },
                 text = { Text(stringResource(R.string.queue_dialog_clear_queue_message)) },

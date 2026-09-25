@@ -1,5 +1,9 @@
 package com.theveloper.pixelplay.presentation.screens
 
+import com.theveloper.pixelplay.ui.glass.GlassCapability
+import com.theveloper.pixelplay.ui.glass.LocalGlassCapability
+import androidx.compose.runtime.mutableFloatStateOf
+import com.theveloper.pixelplay.ui.glass.GlassSlider
 import androidx.annotation.OptIn
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
@@ -54,7 +58,6 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -100,6 +103,10 @@ fun ExperimentalSettingsScreen(
     settingsViewModel: SettingsViewModel = hiltViewModel()
 ) {
     val uiState by settingsViewModel.uiState.collectAsStateWithLifecycle()
+    val glassCapability = LocalGlassCapability.current
+    var glassIntensityDraft by remember(uiState.liquidGlassIntensity) {
+        mutableFloatStateOf(uiState.liquidGlassIntensity)
+    }
     val taisVocalAttenuation by playerViewModel.vocalAttenuation.collectAsStateWithLifecycle()
     var showTaisChatSheet by remember { mutableStateOf(false) }
     val taisChatSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -303,7 +310,7 @@ fun ExperimentalSettingsScreen(
                                                     }
                                                 }
 
-                                                Slider(
+                                                GlassSlider(
                                                     value = uiState.animatedLyricsBlurStrength,
                                                     onValueChange = { settingsViewModel.setAnimatedLyricsBlurStrength(it) },
                                                     valueRange = 0.1f..2.0f,
@@ -336,6 +343,20 @@ fun ExperimentalSettingsScreen(
                                         style = MaterialTheme.typography.bodyMedium,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
+                                    // The saved choice is kept either way; this only explains
+                                    // what the device can actually draw.
+                                    val capabilityNote = when (glassCapability) {
+                                        GlassCapability.None -> R.string.settings_exp_liquid_glass_needs_android12
+                                        GlassCapability.BlurOnly -> R.string.settings_exp_liquid_glass_blur_only
+                                        GlassCapability.Full -> null
+                                    }
+                                    if (capabilityNote != null) {
+                                        Text(
+                                            text = stringResource(capabilityNote),
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.tertiary
+                                        )
+                                    }
                                     SingleChoiceSegmentedButtonRow(
                                         modifier = Modifier.fillMaxWidth()
                                     ) {
@@ -400,7 +421,7 @@ fun ExperimentalSettingsScreen(
                                                     Text(
                                                         text = stringResource(
                                                             R.string.settings_exp_liquid_glass_value,
-                                                            (uiState.liquidGlassIntensity * 100f).roundToInt()
+                                                            (glassIntensityDraft * 100f).roundToInt()
                                                         ),
                                                         style = MaterialTheme.typography.labelSmall,
                                                         color = MaterialTheme.colorScheme.onSecondaryContainer,
@@ -419,14 +440,24 @@ fun ExperimentalSettingsScreen(
                                         }
                                     }
 
-                                    Slider(
-                                        value = uiState.liquidGlassIntensity,
-                                        onValueChange = { settingsViewModel.setLiquidGlassIntensity(it) },
+                                    // Drag moves only the local draft (and the % label); the
+                                    // value is saved — and the glass re-themed — once, on
+                                    // release. The dial feeds a static composition local, so
+                                    // committing every drag frame would recompose the whole app
+                                    // and write DataStore 60+ times a second.
+                                    GlassSlider(
+                                        value = glassIntensityDraft,
+                                        onValueChange = { glassIntensityDraft = it },
+                                        onValueChangeFinished = {
+                                            settingsViewModel.setLiquidGlassIntensity(glassIntensityDraft)
+                                        },
                                         valueRange = 0f..1f,
                                         steps = 19,
-                                        // "Disable blur all over" overrides this outright, so
-                                        // grey it out rather than let it look live but do nothing.
-                                        enabled = !uiState.disableBlurAllOver
+                                        // "Disable blur all over" overrides this outright, and a
+                                        // device without glass can't show it: grey it out rather
+                                        // than let it look live but do nothing.
+                                        enabled = !uiState.disableBlurAllOver &&
+                                            glassCapability != GlassCapability.None
                                     )
                                 }
                             }
@@ -488,7 +519,7 @@ fun ExperimentalSettingsScreen(
                                         }
                                     }
 
-                                    Slider(
+                                    GlassSlider(
                                         value = taisVocalAttenuation,
                                         onValueChange = { playerViewModel.setVocalAttenuation(it) },
                                         valueRange = 0f..1f,
@@ -901,7 +932,7 @@ fun ExperimentalSettingsScreen(
                                                         }
                                                     }
 
-                                                    Slider(
+                                                    GlassSlider(
                                                         value = appearThresholdPercent.toFloat(),
                                                         onValueChange = { settingsViewModel.setFullPlayerAppearThreshold(it.roundToInt()) },
                                                         valueRange = 0f..100f,
@@ -976,7 +1007,7 @@ fun ExperimentalSettingsScreen(
                                                             }
                                                         }
 
-                                                        Slider(
+                                                        GlassSlider(
                                                             value = closeThresholdPercent.toFloat(),
                                                             onValueChange = { settingsViewModel.setFullPlayerCloseThreshold(it.roundToInt()) },
                                                             valueRange = 0f..100f,

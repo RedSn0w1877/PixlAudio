@@ -1,9 +1,12 @@
 package com.theveloper.pixelplay.ui.glass
 
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchColors
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -42,34 +45,52 @@ import kotlinx.coroutines.launch
  * Universal Switch: a Liquid Glass toggle when [isGlassEnabled], a standard Material 3 [Switch]
  * otherwise.
  *
- * @param accentColor the "on" track colour in glass mode. [Color.Unspecified] (the default) uses
- *   the scheme's primary, so the toggle follows the album-art theme like everything else.
+ * Every Material parameter ([colors], [thumbContent], [interactionSource]) is passed straight to
+ * the M3 [Switch], so a call site migrated from `Switch(` renders exactly as before when glass is
+ * off. In glass mode the toggle draws its own look; its "on" colour is [accentColor] if given,
+ * else the [colors]' checked track colour when the caller customised them, else the scheme's
+ * primary.
+ *
+ * @param onCheckedChange null makes the switch display-only (a parent row handles the click), as
+ *   with M3's [Switch]: no gestures, but it keeps its enabled look.
  */
 @Composable
 fun GlassSwitch(
     checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit,
+    onCheckedChange: ((Boolean) -> Unit)?,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
-    accentColor: Color = Color.Unspecified
+    accentColor: Color = Color.Unspecified,
+    colors: SwitchColors? = null,
+    thumbContent: (@Composable () -> Unit)? = null,
+    interactionSource: MutableInteractionSource? = null
 ) {
     if (!isGlassEnabled) {
         Switch(
             checked = checked,
             onCheckedChange = onCheckedChange,
             modifier = modifier,
-            enabled = enabled
+            thumbContent = thumbContent,
+            enabled = enabled,
+            colors = colors ?: SwitchDefaults.colors(),
+            interactionSource = interactionSource
         )
         return
     }
 
+    val accent = when {
+        accentColor.isSpecified -> accentColor
+        colors != null -> colors.checkedTrackColor
+        else -> Color.Unspecified
+    }
     LiquidToggle(
         selected = { checked },
-        onSelect = onCheckedChange,
+        onSelect = onCheckedChange ?: {},
         backdrop = LocalAppBackdrop.current,
         modifier = modifier,
-        accentColor = accentColor,
-        enabled = enabled
+        accentColor = accent,
+        enabled = enabled,
+        interactive = onCheckedChange != null
     )
 }
 
@@ -80,7 +101,8 @@ fun GlassSwitch(
  * change, the thumb simply springs back. Drag progress is the only local state.
  *
  * Tap anywhere on the toggle to flip it, or drag the thumb across. Disabled: 38% alpha and no
- * gestures. The thumb refracts only the track beneath it, never the page.
+ * gestures. Not [interactive]: no gestures at full alpha, for a toggle whose parent row owns the
+ * click. The thumb refracts only the track beneath it, never the page.
  */
 @Composable
 fun LiquidToggle(
@@ -89,7 +111,8 @@ fun LiquidToggle(
     @Suppress("UNUSED_PARAMETER") backdrop: Backdrop,
     modifier: Modifier = Modifier,
     accentColor: Color = Color.Unspecified,
-    enabled: Boolean = true
+    enabled: Boolean = true,
+    interactive: Boolean = true
 ) {
     val scheme = MaterialTheme.colorScheme
     val isDark = glassIsDark()
@@ -158,14 +181,14 @@ fun LiquidToggle(
                 toggleableState = ToggleableState(isSelected)
                 if (!enabled) {
                     disabled()
-                } else {
+                } else if (interactive) {
                     onClick {
                         currentOnSelect(!currentSelected)
                         true
                     }
                 }
             }
-            .then(if (enabled) dampedDragAnimation.modifier else Modifier),
+            .then(if (enabled && interactive) dampedDragAnimation.modifier else Modifier),
         contentAlignment = Alignment.CenterStart
     ) {
         Box(

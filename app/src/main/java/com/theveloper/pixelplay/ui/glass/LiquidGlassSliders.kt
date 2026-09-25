@@ -3,13 +3,18 @@ package com.theveloper.pixelplay.ui.glass
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderColors
+import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.SliderState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -22,7 +27,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.GraphicsLayerScope
+import androidx.compose.ui.graphics.isSpecified
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
@@ -44,8 +51,13 @@ import kotlin.math.roundToInt
 
 /**
  * Universal Slider: a Liquid Glass slider when [isGlassEnabled], a standard Material 3 [Slider]
- * otherwise. Both honour every parameter — in particular [steps] and [onValueChangeFinished],
- * which settings rely on to actually save.
+ * otherwise. Both honour [steps], [onValueChangeFinished] and [enabled], which settings rely on to
+ * actually save.
+ *
+ * The Material-only parameters ([colors], [interactionSource], [thumb], [track]) go straight to
+ * the M3 [Slider], so a call site migrated from `Slider(` renders exactly as before when glass is
+ * off. In glass mode the slider draws its own look; its fill is [accentColor] if given, else the
+ * [colors]' active track colour when the caller customised them, else the scheme's primary.
  */
 @Composable
 fun GlassSlider(
@@ -55,21 +67,35 @@ fun GlassSlider(
     valueRange: ClosedFloatingPointRange<Float> = 0f..1f,
     steps: Int = 0,
     onValueChangeFinished: (() -> Unit)? = null,
-    enabled: Boolean = true
+    enabled: Boolean = true,
+    accentColor: Color = Color.Unspecified,
+    colors: SliderColors? = null,
+    interactionSource: MutableInteractionSource? = null,
+    thumb: (@Composable (SliderState) -> Unit)? = null,
+    track: (@Composable (SliderState) -> Unit)? = null
 ) {
     if (!isGlassEnabled) {
-        Slider(
+        MaterialSlider(
             value = value,
             onValueChange = onValueChange,
             modifier = modifier,
             valueRange = valueRange,
             steps = steps,
             onValueChangeFinished = onValueChangeFinished,
-            enabled = enabled
+            enabled = enabled,
+            colors = colors ?: SliderDefaults.colors(),
+            interactionSource = interactionSource,
+            thumb = thumb,
+            track = track
         )
         return
     }
 
+    val accent = when {
+        accentColor.isSpecified -> accentColor
+        colors != null -> colors.activeTrackColor
+        else -> Color.Unspecified
+    }
     LiquidSlider(
         value = { value },
         onValueChange = onValueChange,
@@ -79,7 +105,69 @@ fun GlassSlider(
         modifier = modifier,
         steps = steps,
         onValueChangeFinished = onValueChangeFinished,
-        enabled = enabled
+        enabled = enabled,
+        accentColor = accent
+    )
+}
+
+/**
+ * The M3 [Slider] with the caller's optional thumb/track. Picks the overload that matches what
+ * was customised, so an unmodified call site keeps using the plain overload.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun MaterialSlider(
+    value: Float,
+    onValueChange: (Float) -> Unit,
+    modifier: Modifier,
+    valueRange: ClosedFloatingPointRange<Float>,
+    steps: Int,
+    onValueChangeFinished: (() -> Unit)?,
+    enabled: Boolean,
+    colors: SliderColors,
+    interactionSource: MutableInteractionSource?,
+    thumb: (@Composable (SliderState) -> Unit)?,
+    track: (@Composable (SliderState) -> Unit)?
+) {
+    val source = interactionSource ?: remember { MutableInteractionSource() }
+    if (thumb == null && track == null) {
+        Slider(
+            value = value,
+            onValueChange = onValueChange,
+            modifier = modifier,
+            enabled = enabled,
+            valueRange = valueRange,
+            steps = steps,
+            onValueChangeFinished = onValueChangeFinished,
+            colors = colors,
+            interactionSource = source
+        )
+        return
+    }
+    Slider(
+        value = value,
+        onValueChange = onValueChange,
+        modifier = modifier,
+        enabled = enabled,
+        onValueChangeFinished = onValueChangeFinished,
+        colors = colors,
+        interactionSource = source,
+        steps = steps,
+        thumb = thumb ?: { _ ->
+            SliderDefaults.Thumb(
+                interactionSource = source,
+                colors = colors,
+                enabled = enabled
+            )
+        },
+        track = track ?: { state ->
+            SliderDefaults.Track(
+                colors = colors,
+                enabled = enabled,
+                sliderState = state
+            )
+        },
+        valueRange = valueRange
     )
 }
 
@@ -116,11 +204,12 @@ fun LiquidSlider(
     modifier: Modifier = Modifier,
     steps: Int = 0,
     onValueChangeFinished: (() -> Unit)? = null,
-    enabled: Boolean = true
+    enabled: Boolean = true,
+    accentColor: Color = Color.Unspecified
 ) {
     val scheme = MaterialTheme.colorScheme
     val isDark = glassIsDark()
-    val accentColor = scheme.primary
+    val fillColor = if (accentColor.isSpecified) accentColor else scheme.primary
     val trackColor = scheme.onSurface.copy(alpha = if (isDark) 0.20f else 0.12f)
     val thumbRecipe = resolveRecipe(GlassRole.Thumb)
     val reduceMotion = LocalGlassReduceMotion.current
@@ -258,7 +347,7 @@ fun LiquidSlider(
                 Box(
                     Modifier
                         .clip(GlassShapes.Capsule)
-                        .background(accentColor)
+                        .background(fillColor)
                         .height(6.dp)
                         .layout { measurable, constraints ->
                             val placeable = measurable.measure(constraints)

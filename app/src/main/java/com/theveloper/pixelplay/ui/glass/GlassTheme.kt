@@ -56,7 +56,13 @@ enum class AppUiStyle {
     }
 }
 
-val LocalAppUiStyle = staticCompositionLocalOf { AppUiStyle.Default }
+/**
+ * The style in effect. MainActivity provides the resolved user choice around the main UI; anything
+ * composed outside that scope (setup, the crash-report dialog, other activities, previews) gets
+ * [AppUiStyle.Material3] — plain, opaque components that need no backdrop, capability tier or
+ * snapshot — rather than glass with nothing set up to draw it.
+ */
+val LocalAppUiStyle = staticCompositionLocalOf { AppUiStyle.Material3 }
 
 /**
  * How much of the glass pipeline this device can run.

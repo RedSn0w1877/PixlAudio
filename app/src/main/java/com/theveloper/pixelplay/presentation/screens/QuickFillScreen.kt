@@ -2,6 +2,7 @@
 
 package com.theveloper.pixelplay.presentation.screens
 
+import com.theveloper.pixelplay.ui.glass.GlassAlertDialog
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
@@ -402,7 +403,7 @@ fun GenreValidatorContent(
         var newGenreName by remember { mutableStateOf("") }
         var selectedIcon by remember { mutableIntStateOf(GenreIconProvider.SELECTABLE_ICONS.first()) }
         
-        AlertDialog(
+        GlassAlertDialog(
             onDismissRequest = { showCustomDialog = false },
             title = { Text(addCustomGenreTitle) },
             text = {

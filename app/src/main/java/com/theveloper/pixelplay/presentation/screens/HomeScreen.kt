@@ -38,8 +38,8 @@ import androidx.compose.material3.LargeExtendedFloatingActionButton
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
+import com.theveloper.pixelplay.ui.glass.GlassScaffold
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -60,11 +60,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.runtime.CompositionLocalProvider
-import com.theveloper.pixelplay.ui.glass.pageBackdrop
-import com.theveloper.pixelplay.ui.glass.rememberPageBackdrop
-import com.theveloper.pixelplay.ui.glass.LocalAppBackdrop
-import com.theveloper.pixelplay.ui.glass.isGlassEnabled
 import com.theveloper.pixelplay.ui.glass.glassSheetContainerColor
 import com.theveloper.pixelplay.ui.glass.glassSheetSurface
 import androidx.compose.ui.graphics.Brush
@@ -346,23 +341,17 @@ fun HomeScreen(
         settingsUiState.beta05CleanInstallDisclaimerDismissed == false &&
             !cleanInstallDisclaimerDismissedThisSession
 
-    // Everything inside AppNavigation is scoped to `emptyBackdrop()` by MainActivity, because
-    // sampling the page backdrop from inside the subtree that backdrop is recording is a
-    // self-reference that crashes natively (see MainActivity's comment at the AppNavigation call).
-    // So screen-level glass gets nothing to refract by default and only looks translucent. The fix
-    // is the same one the queue sheet already uses: record the screen's own scrolling content into
-    // a separate layer and hand *that* to the overlays. The top bar is a sibling of the LazyColumn
-    // here (Scaffold slots), never its ancestor, so there is no cycle.
-    val homeContentBackdrop = rememberPageBackdrop()
+    // Glass mode: GlassScaffold records the feed into the screen's own backdrop and makes the top
+    // bar chrome over it, so the one action group and the scroll edge refract the feed. In
+    // Material 3 mode it is exactly the Scaffold this screen always used.
 
     Box(
         modifier = Modifier.fillMaxSize()
     ) {
-        Scaffold(
+        GlassScaffold(
             snackbarHost = { SnackbarHost(discoverySnackbar) },
             modifier = Modifier.fillMaxSize(),
-            topBar = {
-                CompositionLocalProvider(LocalAppBackdrop provides homeContentBackdrop) {
+            topChrome = {
                 HomeGradientTopBar(
                     onNavigationIconClick = {
                         navController.navigateSafely(Screen.Settings.route)
@@ -380,18 +369,13 @@ fun HomeScreen(
                     activeJobCount = activeJobs.size,
                     onJobsClick = { showJobsBottomSheet = true }
                 )
-                }
             }
         ) { innerPadding ->
             LazyColumn(
                 state = listState,
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.background)
-                    .then(
-                        if (isGlassEnabled) Modifier.pageBackdrop(homeContentBackdrop)
-                        else Modifier
-                    ),
+                    .background(MaterialTheme.colorScheme.background),
                 contentPadding = PaddingValues(
                     top = innerPadding.calculateTopPadding(),
                     bottom = paddingValuesParent.calculateBottomPadding()

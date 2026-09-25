@@ -58,7 +58,8 @@ import com.theveloper.pixelplay.presentation.components.subcomps.EnhancedSongLis
 import com.theveloper.pixelplay.presentation.viewmodel.PlayerViewModel
 import com.theveloper.pixelplay.presentation.viewmodel.PlaylistViewModel
 import com.theveloper.pixelplay.ui.glass.glassClickable
-import com.theveloper.pixelplay.ui.glass.glassPanel
+import com.theveloper.pixelplay.ui.glass.glassTonal
+import com.theveloper.pixelplay.ui.glass.isGlassEnabled
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.launch
@@ -69,7 +70,7 @@ import racra.compose.smooth_corner_rect_library.AbsoluteSmoothCornerShape
  * that matches [DailyMixSection]'s structure — overlapping thumbnail stack in a gradient header,
  * a short song list, one shuffle action — but pushed further on physicality: everything pops in
  * on a staggered spring overshoot instead of a flat fade, the header has its own slow color sweep
- * (same technique as [HomeGreetingCard]'s), and the shuffle button is a full circular glass FAB
+ * (same technique as [HomeGreetingCard]'s), and the shuffle button is a full circular FAB
  * that overlaps the header/list seam and bounces on press.
  */
 @androidx.annotation.OptIn(UnstableApi::class)
@@ -459,12 +460,17 @@ private fun YourMixShuffleFab(
                 scaleX = entranceScale.value * pressScale
                 scaleY = entranceScale.value * pressScale
             }
-            .glassPanel(
-                shape = CircleShape,
-                color = if (isShuffleEnabled) colors.primary else colors.tertiaryContainer,
-                effectScale = 0.6f,
-                tintAlpha = 0.55f,
-                shadow = true
+            // The shelf is content, not chrome: in Liquid Glass mode this is a tonal surface (its
+            // own colour plus the glass rim), never `drawBackdrop` — there is nothing under a feed
+            // item to refract. "On" stays prominent in primary. Material 3: the plain fill.
+            .then(
+                if (isGlassEnabled) {
+                    Modifier.glassTonal(CircleShape, if (isShuffleEnabled) colors.primary else colors.tertiaryContainer)
+                } else {
+                    Modifier
+                        .clip(CircleShape)
+                        .background(if (isShuffleEnabled) colors.primary else colors.tertiaryContainer)
+                }
             )
             .glassClickable(
                 onClick = onClick,
