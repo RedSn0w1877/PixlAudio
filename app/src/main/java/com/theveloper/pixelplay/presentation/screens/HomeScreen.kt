@@ -93,7 +93,6 @@ import com.theveloper.pixelplay.presentation.components.HomeGradientTopBar
 import com.theveloper.pixelplay.presentation.components.HomeGreetingCard
 import com.theveloper.pixelplay.presentation.components.HomeDiscoveryMixes
 import com.theveloper.pixelplay.presentation.components.HomeDiscoveryShelf
-import com.theveloper.pixelplay.presentation.components.HomeOptionsBottomSheet
 import com.theveloper.pixelplay.presentation.components.HomeQuickAction
 import com.theveloper.pixelplay.presentation.components.HomeQuickActionsRow
 import com.theveloper.pixelplay.presentation.components.MiniPlayerHeight
@@ -261,7 +260,6 @@ fun HomeScreen(
     val navBarCompactMode by playerViewModel.navBarCompactMode.collectAsStateWithLifecycle()
     val bottomGradientHeight = resolveMainScreenBottomGradientHeight(navBarCompactMode)
 
-    var showOptionsBottomSheet by remember { mutableStateOf(false) }
     var showChangelogBottomSheet by remember { mutableStateOf(false) }
     var showJobsBottomSheet by remember { mutableStateOf(false) }
     val activeJobs by playerViewModel.activeJobs.collectAsStateWithLifecycle()
@@ -288,11 +286,6 @@ fun HomeScreen(
                 label = "Stats",
                 iconRes = R.drawable.rounded_monitoring_24,
                 onClick = { navController.navigateSafely(Screen.Stats.route) }
-            ),
-            HomeQuickAction(
-                label = "DJ Mashup",
-                iconRes = R.drawable.rounded_instant_mix_24,
-                onClick = { navController.navigateSafely(Screen.DJSpace.route) }
             )
         )
     }
@@ -605,31 +598,6 @@ fun HomeScreen(
                 )
         ) {
 
-        }
-    }
-    if (showOptionsBottomSheet) {
-        ModalBottomSheet(
-            // Not glassSheetSurface(): applied to the sheet's own `modifier` it breaks
-            // content-driven height (see SongInfoBottomSheet fix). GlassSheetContainer draws
-            // the same glass from inside the sheet's own already-correctly-sized Surface.
-            containerColor = com.theveloper.pixelplay.ui.glass.glassSheetContainerColor(),
-            onDismissRequest = { showOptionsBottomSheet = false },
-            sheetState = sheetState
-        ) {
-            com.theveloper.pixelplay.ui.glass.GlassSheetContainer(modifier = Modifier.fillMaxWidth()) {
-            HomeOptionsBottomSheet(
-                onNavigateToMashup = {
-                    scope.launch {
-                        sheetState.hide()
-                    }.invokeOnCompletion {
-                        if (!sheetState.isVisible) {
-                            showOptionsBottomSheet = false
-                            navController.navigateSafely(Screen.DJSpace.route)
-                        }
-                    }
-                }
-            )
-            }
         }
     }
     if (showChangelogBottomSheet) {

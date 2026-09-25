@@ -225,20 +225,4 @@
     <string name="quick_fill_action_title">Isi Cepat</string>
 
     <!-- MashupScreen -->
-    <string name="mashup_title">DJ Space</string>
-    <string name="mashup_loading">Memuat…</string>
-    <string name="mashup_deck_n">Deck %1$d</string>
-    <string name="mashup_load_song_cd">Muat lagu</string>
-    <string name="mashup_no_song_loaded">Tidak ada lagu yang dimuat</string>
-    <string name="mashup_artist_placeholder">…</string>
-    <string name="mashup_stem_separation_unavailable">Pemisahan stem belum tersedia.</string>
-    <string name="mashup_volume">Volume</string>
-    <string name="mashup_speed">Kecepatan</string>
-    <string name="mashup_crossfader">Crossfader</string>
-    <string name="mashup_deck_1">Deck 1</string>
-    <string name="mashup_deck_2">Deck 2</string>
-    <string name="mashup_select_song_title">Pilih lagu</string>
-    <string name="mashup_cd_play_pause">Putar/Jeda</string>
-    <string name="mashup_cd_song_cover">Sampul lagu</string>
-    <string name="mashup_speed_multiplier">x%1$.2f</string>
 </resources>

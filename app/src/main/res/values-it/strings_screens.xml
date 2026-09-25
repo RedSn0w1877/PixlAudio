@@ -225,20 +225,4 @@
     <string name="quick_fill_action_title">Riempimento rapido</string>
 
     <!-- MashupScreen -->
-    <string name="mashup_title">DJ Space</string>
-    <string name="mashup_loading">Caricamento…</string>
-    <string name="mashup_deck_n">Deck %1$d</string>
-    <string name="mashup_load_song_cd">Carica brano</string>
-    <string name="mashup_no_song_loaded">Nessun brano caricato</string>
-    <string name="mashup_artist_placeholder">…</string>
-    <string name="mashup_stem_separation_unavailable">La separazione degli stem non è ancora disponibile.</string>
-    <string name="mashup_volume">Volume</string>
-    <string name="mashup_speed">Velocità</string>
-    <string name="mashup_crossfader">Crossfader</string>
-    <string name="mashup_deck_1">Deck 1</string>
-    <string name="mashup_deck_2">Deck 2</string>
-    <string name="mashup_select_song_title">Seleziona un brano</string>
-    <string name="mashup_cd_play_pause">Riproduci/Pausa</string>
-    <string name="mashup_cd_song_cover">Copertina brano</string>
-    <string name="mashup_speed_multiplier">x%1$.2f</string>
 </resources>

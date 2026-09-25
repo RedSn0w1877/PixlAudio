@@ -143,7 +143,6 @@
     <string name="cd_shuffle_play_album">تشغيل الألبوم عشوائياً</string>
     <string name="album_cover_for">غلاف %1$s</string>
     <string name="album_detail_meta_line">%1$s · %2$s</string>
-    <string name="mashup_cd_play_pause">تشغيل/إيقاف مؤقت</string>
     <string name="cd_song_cover">غلاف الأغنية</string>
 
     <!-- Crash report dialog -->

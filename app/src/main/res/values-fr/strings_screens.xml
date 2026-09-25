@@ -225,20 +225,4 @@
     <string name="quick_fill_action_title">Remplissage rapide</string>
 
     <!-- MashupScreen -->
-    <string name="mashup_title">Espace DJ</string>
-    <string name="mashup_loading">Chargement…</string>
-    <string name="mashup_deck_n">Platine %1$d</string>
-    <string name="mashup_load_song_cd">Charger une chanson</string>
-    <string name="mashup_no_song_loaded">Aucune chanson chargée</string>
-    <string name="mashup_artist_placeholder">…</string>
-    <string name="mashup_stem_separation_unavailable">La séparation des pistes n\'est pas encore disponible.</string>
-    <string name="mashup_volume">Volume</string>
-    <string name="mashup_speed">Vitesse</string>
-    <string name="mashup_crossfader">Crossfader</string>
-    <string name="mashup_deck_1">Platine 1</string>
-    <string name="mashup_deck_2">Platine 2</string>
-    <string name="mashup_select_song_title">Sélectionner une chanson</string>
-    <string name="mashup_cd_play_pause">Lecture/Pause</string>
-    <string name="mashup_cd_song_cover">Pochette de la chanson</string>
-    <string name="mashup_speed_multiplier">x%1$.2f</string>
 </resources>

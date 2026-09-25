@@ -225,20 +225,4 @@
     <string name="quick_fill_action_title">Быстрое заполнение</string>
 
     <!-- MashupScreen -->
-    <string name="mashup_title">DJ Space</string>
-    <string name="mashup_loading">Загрузка…</string>
-    <string name="mashup_deck_n">Дека %1$d</string>
-    <string name="mashup_load_song_cd">Загрузить песню</string>
-    <string name="mashup_no_song_loaded">Песня не загружена</string>
-    <string name="mashup_artist_placeholder">…</string>
-    <string name="mashup_stem_separation_unavailable">Разделение дорожек пока недоступно.</string>
-    <string name="mashup_volume">Громкость</string>
-    <string name="mashup_speed">Скорость</string>
-    <string name="mashup_crossfader">Кроссфейдер</string>
-    <string name="mashup_deck_1">Дека 1</string>
-    <string name="mashup_deck_2">Дека 2</string>
-    <string name="mashup_select_song_title">Выберите песню</string>
-    <string name="mashup_cd_play_pause">Воспроизведение/Пауза</string>
-    <string name="mashup_cd_song_cover">Обложка песни</string>
-    <string name="mashup_speed_multiplier">x%1$.2f</string>
 </resources>

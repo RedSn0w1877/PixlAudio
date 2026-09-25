@@ -225,20 +225,4 @@
     <string name="quick_fill_action_title">快速填充</string>
 
     <!-- MashupScreen -->
-    <string name="mashup_title">DJ 空间</string>
-    <string name="mashup_loading">正在加载…</string>
-    <string name="mashup_deck_n">打碟机 %1$d</string>
-    <string name="mashup_load_song_cd">加载歌曲</string>
-    <string name="mashup_no_song_loaded">未加载歌曲</string>
-    <string name="mashup_artist_placeholder">…</string>
-    <string name="mashup_stem_separation_unavailable">音轨分离 (Stem separation) 功能暂不可用。</string>
-    <string name="mashup_volume">音量</string>
-    <string name="mashup_speed">速度</string>
-    <string name="mashup_crossfader">交叉推子</string>
-    <string name="mashup_deck_1">打碟机 1</string>
-    <string name="mashup_deck_2">打碟机 2</string>
-    <string name="mashup_select_song_title">选择一首歌曲</string>
-    <string name="mashup_cd_play_pause">播放/暂停</string>
-    <string name="mashup_cd_song_cover">歌曲封面</string>
-    <string name="mashup_speed_multiplier">x%1$.2f</string>
 </resources>

@@ -45,19 +45,7 @@
     <string name="presentation_batch_d_merge_playlists_placeholder">قائمة تشغيل مدمجة</string>
     <string name="presentation_batch_d_merge_playlists_body">سيؤدي هذا إلى دمج %1$d من قوائم التشغيل المحددة في قائمة واحدة.</string>
 
-    <string name="presentation_batch_d_mashup_title">مساحة الـ DJ</string>
     <string name="presentation_batch_d_loading">جاري التحميل…</string>
-    <string name="presentation_batch_d_mashup_deck_n">منصة (Deck) %1$d</string>
-    <string name="presentation_batch_d_mashup_load_song_cd">تحميل أغنية</string>
-    <string name="presentation_batch_d_mashup_no_song_loaded">لم يتم تحميل أي أغنية</string>
-    <string name="presentation_batch_d_mashup_artist_placeholder">…</string>
-    <string name="presentation_batch_d_mashup_stem_separation_unavailable">ميزة فصل المسارات الصوتيّة (Stems) غير متاحة بعد.</string>
-    <string name="presentation_batch_d_mashup_volume">مستوى الصوت</string>
-    <string name="presentation_batch_d_mashup_speed">السرعة</string>
-    <string name="presentation_batch_d_mashup_crossfader">ممازج الصوت (Crossfader)</string>
-    <string name="presentation_batch_d_mashup_deck_1">منصة 1</string>
-    <string name="presentation_batch_d_mashup_deck_2">منصة 2</string>
-    <string name="presentation_batch_d_mashup_select_song_title">اختر أغنية</string>
 
     <string name="presentation_batch_d_eq_change_view_mode_cd">تغيير وضع العرض</string>
     <string name="presentation_batch_d_eq_disable_cd">تعطيل موازن الصوت</string>

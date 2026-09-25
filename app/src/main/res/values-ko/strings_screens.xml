@@ -225,20 +225,4 @@
     <string name="quick_fill_action_title">Quick Fill</string>
 
     <!-- MashupScreen -->
-    <string name="mashup_title">DJ 스페이스</string>
-    <string name="mashup_loading">로딩 중…</string>
-    <string name="mashup_deck_n">데크 %1$d</string>
-    <string name="mashup_load_song_cd">곡 로드</string>
-    <string name="mashup_no_song_loaded">로드된 곡 없음</string>
-    <string name="mashup_artist_placeholder">…</string>
-    <string name="mashup_stem_separation_unavailable">음원 분리 기능은 아직 사용할 수 없습니다.</string>
-    <string name="mashup_volume">볼륨</string>
-    <string name="mashup_speed">속도</string>
-    <string name="mashup_crossfader">크로스페이더</string>
-    <string name="mashup_deck_1">데크 1</string>
-    <string name="mashup_deck_2">데크 2</string>
-    <string name="mashup_select_song_title">곡 선택</string>
-    <string name="mashup_cd_play_pause">재생/일시정지</string>
-    <string name="mashup_cd_song_cover">곡 커버</string>
-    <string name="mashup_speed_multiplier">x%1$.2f</string>
 </resources>

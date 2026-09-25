@@ -164,7 +164,6 @@
 
     <string name="playlist_dismissed_message">تم تجاهل قائمة التشغيل</string>
     <string name="action_undo">تراجع</string>
-    <string name="home_option_dj_mashup">مزج DJ (Mashup)</string>
     <string name="create_playlist_dialog_title">قائمة تشغيل جديدة</string>
     <string name="create_playlist_name_label">اسم قائمة التشغيل</string>
     <string name="create_playlist_name_placeholder">قائمة التشغيل الخاصة بي</string>

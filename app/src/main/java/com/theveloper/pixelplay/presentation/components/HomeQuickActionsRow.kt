@@ -34,7 +34,7 @@ data class HomeQuickAction(
 
 /**
  * A horizontally-scrolling row of shortcut chips shown under the home greeting, so common
- * actions (shuffle everything, jump to Recently Played/Stats/DJ Mashup) don't need a trip
+ * actions (shuffle everything, jump to Recently Played/Stats) don't need a trip
  * through the bottom nav + a second screen first.
  */
 @Composable
