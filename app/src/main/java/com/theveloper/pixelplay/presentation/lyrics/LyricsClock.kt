@@ -44,6 +44,22 @@ class LyricsClock(
     private var initialized = false
     private var lastFrameNanos = 0L
     private var seekPending = false
+    private var rebasePending = false
+
+    /**
+     * Reads the lyrics time right now (player position + offset) without publishing it or
+     * touching the guard. The frame loop uses it while idle to notice a seek or an offset change
+     * that happened while paused.
+     */
+    fun peekMs(): Long = positionProvider() + offsetMsProvider()
+
+    /**
+     * The frame loop went idle: the next [tick] must not predict across the idle gap (that gap is
+     * wall-clock time with no frames, and would read as a seek on resume).
+     */
+    fun rebase() {
+        rebasePending = true
+    }
 
     /**
      * Samples the player once. Call exactly once per frame, before `LyricsEngine.step`.
@@ -57,7 +73,8 @@ class LyricsClock(
             publish(raw)
             return false
         }
-        val elapsedMs = ((frameNanos - lastFrameNanos) / 1_000_000L).coerceAtLeast(0L)
+        val elapsedMs = if (rebasePending) 0L else ((frameNanos - lastFrameNanos) / 1_000_000L).coerceAtLeast(0L)
+        rebasePending = false
         lastFrameNanos = frameNanos
 
         val predicted = if (isPlaying) currentMs + (elapsedMs * playbackSpeed).toLong() else currentMs

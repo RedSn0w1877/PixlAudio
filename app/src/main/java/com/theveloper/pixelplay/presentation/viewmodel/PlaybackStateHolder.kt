@@ -257,6 +257,34 @@ class PlaybackStateHolder @Inject constructor(
         _currentPosition.value = resolveUiPosition(mediaId, reportedPositionMs)
     }
 
+    /**
+     * The playback position right now, for per-frame consumers (the karaoke lyrics clock).
+     * Unlike [currentPosition] (polled every 250 ms), this asks the player directly: Media3
+     * extrapolates the controller position by elapsed time × speed, so it is speed-aware, and
+     * ExoPlayer already subtracts the AudioTrack latency. It goes through the same paused-seek /
+     * cold-start override logic as the polled value, so both agree.
+     *
+     * Main thread only (the MediaController lives there). Cheap enough to call every frame.
+     */
+    fun framePositionMs(): Long {
+        val remoteClient = castStateHolder.castSession.value?.remoteMediaClient
+        if (remoteClient != null) {
+            return if (castStateHolder.isRemotelySeeking.value) {
+                _currentPosition.value
+            } else {
+                remoteClient.approximateStreamPosition.coerceAtLeast(0L)
+            }
+        }
+        val controller = activeLocalPlayer()
+        if (controller.mediaItemCount <= 0) return _currentPosition.value
+        val currentMediaId = controller.currentMediaItem?.mediaId
+        val visibleSongId = _stablePlayerState.value.currentSong?.id
+        if (visibleSongId != null && currentMediaId != null && visibleSongId != currentMediaId) {
+            return _currentPosition.value
+        }
+        return resolveUiPosition(currentMediaId, controller.currentPosition)
+    }
+
     fun ensureCurrentPlaybackOccurrence(mediaId: String?) {
         activatePlaybackOccurrence(mediaId, forceNewOccurrence = false)
     }

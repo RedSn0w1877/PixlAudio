@@ -1,8 +1,11 @@
 package com.theveloper.pixelplay.presentation.components
 
-import androidx.compose.ui.unit.dp
 import com.theveloper.pixelplay.data.model.SyncedLine
 import com.theveloper.pixelplay.data.model.SyncedWord
+import com.theveloper.pixelplay.presentation.lyrics.model.clusterSyncedWords
+import com.theveloper.pixelplay.presentation.lyrics.model.resolveLineEndTimeMs
+import com.theveloper.pixelplay.presentation.lyrics.model.sanitizeLyricLineText
+import com.theveloper.pixelplay.presentation.lyrics.model.sanitizeSyncedWords
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -25,82 +28,12 @@ class LyricsSheetLogicTest {
     }
 
     @Test
-    fun highlightSnapOffsetPx_alignsLineWithHighlightZone() {
-        val viewportHeight = 960
-        val itemSize = 120
-        val highlightOffsetPx = 80f
-
-        val offset = highlightSnapOffsetPx(viewportHeight, itemSize, highlightOffsetPx)
-
-        val expectedCenter = viewportHeight / 2f - highlightOffsetPx
-        assertEquals(expectedCenter - itemSize / 2f, offset.toFloat(), 0.5f)
-    }
-
-    @Test
-    fun highlightSnapOffsetPx_clampsWithinViewportForEndOfList() {
-        val viewportHeight = 420
-        val itemSize = 320
-        val highlightOffsetPx = -160f
-
-        val offset = highlightSnapOffsetPx(viewportHeight, itemSize, highlightOffsetPx)
-        val center = offset + itemSize / 2f
-
-        assertTrue(center <= viewportHeight.toFloat())
-        assertTrue(center >= itemSize / 2f)
-    }
-
-    @Test
-    fun highlightSnapOffsetPx_handlesOversizedItems() {
-        val viewportHeight = 200
-        val itemSize = 260
-
-        val offset = highlightSnapOffsetPx(viewportHeight, itemSize, highlightOffsetPx = 60f)
-
-        assertEquals(0, offset)
-    }
-
-    @Test
-    fun calculateHighlightMetrics_reservesBottomSpace() {
-        val metrics = calculateHighlightMetrics(
-            containerHeight = 480.dp,
-            highlightZoneFraction = 0.22f,
-            highlightOffset = 48.dp
-        )
-
-        assertTrue(metrics.bottomPadding > 0.dp)
-        assertTrue(metrics.topPadding >= 0.dp)
-        assertTrue(metrics.zoneHeight > 0.dp)
-    }
-
-    @Test
     fun sanitizeLyricLineText_stripsLrcTimestampTags() {
         val raw = "[00:26.42][01:12.34] Three in the morning, I ain't slept all weekend"
 
         val sanitized = sanitizeLyricLineText(raw)
 
         assertEquals("Three in the morning, I ain't slept all weekend", sanitized)
-    }
-
-    @Test
-    fun normalizeWordEndTime_guaranteesForwardRangeWhenTimestampsMatch() {
-        val endTime = normalizeWordEndTime(
-            currentWordTimeMs = 2_000L,
-            nextWordTimeMs = 2_000L,
-            lineEndTimeMs = 2_800L
-        )
-
-        assertEquals(2_001L, endTime)
-    }
-
-    @Test
-    fun normalizeWordEndTime_clampsToLineEnd() {
-        val endTime = normalizeWordEndTime(
-            currentWordTimeMs = 5_000L,
-            nextWordTimeMs = 8_000L,
-            lineEndTimeMs = 5_400L
-        )
-
-        assertEquals(5_400L, endTime)
     }
 
     @Test
@@ -153,24 +86,6 @@ class LyricsSheetLogicTest {
     }
 
     @Test
-    fun resolveHighlightedWordIndex_picksLastVisibleWordAtLineEnd() {
-        val words = listOf(
-            SyncedWord(time = 10_000, word = "fall"),
-            SyncedWord(time = 10_250, word = "in"),
-            SyncedWord(time = 10_500, word = "love")
-        )
-
-        val idx = resolveHighlightedWordIndex(
-            words = words,
-            positionMs = 10_900,
-            lineStartTimeMs = 10_000,
-            lineEndTimeMs = 11_000
-        )
-
-        assertEquals(2, idx)
-    }
-
-    @Test
     fun resolveSeekPositionMs_subtractsPositiveLyricsOffset() {
         val seekPosition = resolveSeekPositionMs(
             lineTimeMs = 12_000L,
@@ -199,14 +114,10 @@ class LyricsSheetLogicTest {
 
         assertEquals(0L, seekPosition)
     }
-    @Test fun explicitEndsLeaveInstrumentalGapsInactiveAndKeepLeadCentered() {
+    @Test fun explicitLineEndWinsOverNextLineStart() {
         val lines=listOf(SyncedLine(1000,"Lead",endTime=3000),
             SyncedLine(1500,"Echo",endTime=2200,voiceRole="background"),
             SyncedLine(4000,"Next",endTime=5000))
-        assertEquals(-1,resolveCurrentLineIndex(lines,999))
-        assertEquals(0,resolveCurrentLineIndex(lines,2000))
-        assertEquals(-1,resolveCurrentLineIndex(lines,3500))
-        assertEquals(-1,resolveCurrentLineIndex(lines,5000))
         assertEquals(3000L,resolveLineEndTimeMs(lines[0],1500))
     }
 

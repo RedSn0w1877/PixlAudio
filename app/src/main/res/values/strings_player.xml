@@ -197,4 +197,5 @@
     <string name="lyrics_artist_album_line">%1$s • %2$s</string>
     <string name="lyrics_provided_by">Lyrics provided by</string>
     <string name="lyrics_lrclib_uri">https://lrclib.net/</string>
+    <string name="lyrics_play_from_here">Play from here</string>
 </resources>

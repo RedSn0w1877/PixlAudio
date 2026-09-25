@@ -37,6 +37,7 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.theveloper.pixelplay.R
+import com.theveloper.pixelplay.presentation.lyrics.model.PreparedLyrics
 import com.theveloper.pixelplay.data.media.CoverArtUpdate
 import com.theveloper.pixelplay.data.model.Album
 import com.theveloper.pixelplay.data.model.Artist
@@ -265,6 +266,12 @@ class PlayerViewModel @Inject constructor(
      * Keep a dedicated position flow for real-time UI elements (seek bars, lyrics timing).
      */
     val currentPlaybackPosition: StateFlow<Long> = playbackStateHolder.currentPosition
+
+    /**
+     * Frame-accurate playback position for the karaoke lyrics clock (read once per frame on the
+     * main thread). Facade over [PlaybackStateHolder.framePositionMs].
+     */
+    fun currentPositionForLyrics(): Long = playbackStateHolder.framePositionMs()
     val playbackHistory = listeningStatsTracker.playbackHistory
 
     // Removed: _masterAllSongs was a duplicate of libraryStateHolder.allSongs
@@ -584,6 +591,9 @@ class PlayerViewModel @Inject constructor(
 
     // Lyrics sync offset - now managed by LyricsStateHolder
     val currentSongLyricsSyncOffset: StateFlow<Int> = lyricsStateHolder.currentSongSyncOffset
+
+    // Render-ready synced lyrics for the karaoke view - built off-thread by LyricsStateHolder
+    val preparedLyrics: StateFlow<PreparedLyrics?> = lyricsStateHolder.preparedLyrics
 
     // Lyrics source preference (API_FIRST, EMBEDDED_FIRST, LOCAL_FIRST)
     val lyricsSourcePreference: StateFlow<LyricsSourcePreference> = userPreferencesRepository.lyricsSourcePreferenceFlow

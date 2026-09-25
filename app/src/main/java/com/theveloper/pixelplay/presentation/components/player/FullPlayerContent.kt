@@ -979,6 +979,8 @@ fun FullPlayerContent(
         LyricsSheet(
             stablePlayerStateFlow = playerViewModel.stablePlayerState,
             playbackPositionFlow = playerViewModel.currentPlaybackPosition,
+            positionProvider = playerViewModel::currentPositionForLyrics,
+            preparedLyricsFlow = playerViewModel.preparedLyrics,
             studioInstrumentalAvailableFlow = playerViewModel.studioInstrumentalAvailable,
             studioInstrumentalActiveFlow = playerViewModel.studioInstrumentalActive,
             onPlayInstrumental = playerViewModel::switchToStudioInstrumental,

@@ -12,6 +12,8 @@ import com.theveloper.pixelplay.data.repository.LyricsSearchResult
 import com.theveloper.pixelplay.data.repository.MusicRepository
 import com.theveloper.pixelplay.data.repository.NoLyricsFoundException
 import com.theveloper.pixelplay.data.tais.TaisInstrumentalIndex
+import com.theveloper.pixelplay.presentation.lyrics.model.PreparedLyrics
+import com.theveloper.pixelplay.presentation.lyrics.model.PreparedLyricsBuilder
 import com.theveloper.pixelplay.utils.LyricsImportSecurity
 import com.theveloper.pixelplay.utils.LyricsImportValidationResult
 import com.theveloper.pixelplay.utils.LyricsUtils
@@ -27,11 +29,13 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import timber.log.Timber
 
 /**
  * Callback interface for lyrics loading results.
@@ -72,10 +76,19 @@ class LyricsStateHolder @Inject constructor(
     private var loadingJob: Job? = null
     private var automaticUpdatesJob: Job? = null
     private var loadCallback: LyricsLoadCallback? = null
+    private var preparedJob: Job? = null
 
     // Sync offset per song in milliseconds
     private val _currentSongSyncOffset = MutableStateFlow(0)
     val currentSongSyncOffset: StateFlow<Int> = _currentSongSyncOffset.asStateFlow()
+
+    /**
+     * The current song's synced lyrics in render-ready form for `KaraokeLyricsView`, rebuilt on
+     * [Dispatchers.Default] whenever the lyrics change. `null` while there is nothing
+     * time-synced (plain lyrics, none, or still building after a song change).
+     */
+    private val _preparedLyrics = MutableStateFlow<PreparedLyrics?>(null)
+    val preparedLyrics: StateFlow<PreparedLyrics?> = _preparedLyrics.asStateFlow()
 
     // Lyrics search UI state
     private val _searchUiState = MutableStateFlow<LyricsSearchUiState>(LyricsSearchUiState.Idle)
@@ -116,6 +129,31 @@ class LyricsStateHolder @Inject constructor(
                     loadLyricsForSong(current, userPreferencesRepository.lyricsSourcePreferenceFlow.first())
                 }
             }
+        }
+
+        preparedJob?.cancel()
+        preparedJob = coroutineScope.launch {
+            var lastSongId: String? = null
+            var lastLyrics: Lyrics? = null
+            stablePlayerState
+                .map { it.currentSong?.id to it.lyrics }
+                .distinctUntilChanged { a, b -> a.first == b.first && a.second === b.second }
+                .collectLatest { (songId, lyrics) ->
+                    // A new song never shows the previous song's lines while its own build runs.
+                    if (songId != lastSongId) _preparedLyrics.value = null
+                    lastSongId = songId
+                    if (lyrics === lastLyrics && _preparedLyrics.value != null) return@collectLatest
+                    lastLyrics = lyrics
+                    _preparedLyrics.value = if (lyrics == null) {
+                        null
+                    } else {
+                        withContext(Dispatchers.Default) {
+                            runCatching { PreparedLyricsBuilder.build(lyrics) }
+                                .onFailure { Timber.w(it, "Could not prepare synced lyrics") }
+                                .getOrNull()
+                        }
+                    }
+                }
         }
 
         coroutineScope.launch {

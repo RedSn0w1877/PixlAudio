@@ -40,8 +40,8 @@ class TaisLyricsAligner @Inject constructor(
     sealed interface AlignmentState {
         /** Every synced line already has word-level timestamps — nothing to align. */
         data object WordSynced : AlignmentState
-        /** Line-level timestamps only. [com.theveloper.pixelplay.presentation.components.LyricLineRow]'s
-         * line-duration sweep already covers this case in the UI; [forceAlign] can upgrade it. */
+        /** Line-level timestamps only. [com.theveloper.pixelplay.presentation.lyrics.KaraokeLyricsView]
+         * shows these line by line (no faked word fill); [forceAlign] can upgrade it to word sync. */
         data class LineSyncedOnly(val lines: List<SyncedLine>) : AlignmentState
         /** No timing at all — forced alignment is the only way to get word sync. */
         data class PlainTextOnly(val lines: List<String>) : AlignmentState

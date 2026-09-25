@@ -109,6 +109,39 @@ val GoogleSansRounded = FontFamily(
     ),
 )
 
+/**
+ * ROND axis of the karaoke lyrics face. 0 = plain Google Sans Flex (lyrics read best un-rounded,
+ * unlike the app's [GoogleSansRounded] at 100). This is the one switch to flip for rounded lyrics.
+ */
+const val LyricsDisplayRond = 0f
+
+/** Optical size the lyrics face is cut for: the 34 sp main line. */
+private val LyricsDisplayOpticalSize = 34.sp
+
+@OptIn(ExperimentalTextApi::class)
+private fun lyricsDisplayFont(weight: FontWeight) = androidx.compose.ui.text.font.Font(
+    resId = R.font.gflex_variable,
+    weight = weight,
+    variationSettings = FontVariation.Settings(
+        FontVariation.weight(weight.weight),
+        FontVariation.Setting("ROND", LyricsDisplayRond),
+        FontVariation.width(100f),
+        FontVariation.opticalSizing(LyricsDisplayOpticalSize)
+    )
+)
+
+/**
+ * The karaoke lyrics face: the bundled Google Sans Flex (OFL-1.1) at weight 500 (plain lyrics),
+ * 600 (translation / pronunciation) and 700 (the sung line), width 100, opsz 34, ROND
+ * [LyricsDisplayRond]. Scripts it does not cover fall back to the system font (family only,
+ * never the size) — see `LyricsSheet`.
+ */
+val LyricsDisplayFamily = FontFamily(
+    lyricsDisplayFont(FontWeight.Medium),
+    lyricsDisplayFont(FontWeight.SemiBold),
+    lyricsDisplayFont(FontWeight.Bold),
+)
+
 // Tipografía - Usar fuentes amigables y modernas.
 // Considerar añadir fuentes personalizadas en res/font para un look más único.
 val Typography = Typography(
