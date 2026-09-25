@@ -274,13 +274,6 @@ fun HomeScreen(
 
     val homeQuickActions = remember(navController, playerViewModel) {
         persistentListOf(
-            // First, not last: this row scrolls horizontally, and a fourth chip sits off the
-            // right edge where nobody finds it.
-            HomeQuickAction(
-                label = "Remix",
-                iconRes = R.drawable.rounded_instant_mix_24,
-                onClick = { navController.navigateSafely(Screen.RemixStudio.route) }
-            ),
             HomeQuickAction(
                 label = "Shuffle All",
                 iconRes = R.drawable.rounded_shuffle_24,
@@ -295,6 +288,11 @@ fun HomeScreen(
                 label = "Stats",
                 iconRes = R.drawable.rounded_monitoring_24,
                 onClick = { navController.navigateSafely(Screen.Stats.route) }
+            ),
+            HomeQuickAction(
+                label = "DJ Mashup",
+                iconRes = R.drawable.rounded_instant_mix_24,
+                onClick = { navController.navigateSafely(Screen.DJSpace.route) }
             )
         )
     }
@@ -626,7 +624,7 @@ fun HomeScreen(
                     }.invokeOnCompletion {
                         if (!sheetState.isVisible) {
                             showOptionsBottomSheet = false
-                            navController.navigateSafely(Screen.RemixStudio.route)
+                            navController.navigateSafely(Screen.DJSpace.route)
                         }
                     }
                 }

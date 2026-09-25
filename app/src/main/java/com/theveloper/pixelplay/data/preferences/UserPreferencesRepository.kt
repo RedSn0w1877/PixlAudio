@@ -13,7 +13,6 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import androidx.media3.common.Player
-import com.theveloper.pixelplay.data.remix.cloud.RemixBackendConfig
 import com.theveloper.pixelplay.data.equalizer.EqualizerPreset
 import com.theveloper.pixelplay.data.diagnostics.AdvancedPerformanceDiagnostics
 import com.theveloper.pixelplay.data.model.FolderSource
@@ -187,11 +186,6 @@ class UserPreferencesRepository @Inject constructor(
         val TAIS_ROFORMER_API_KEY = stringPreferencesKey("tais_roformer_api_key")
         val TAIS_ROFORMER_EXTRA_ARG = stringPreferencesKey("tais_roformer_extra_arg")
         val TAIS_ROFORMER_BACKEND_TYPE = stringPreferencesKey("tais_roformer_backend_type")
-        // Remix Studio's 4-stem separation server (tools/runpod/stem_server.py). Separate from the
-        // RoFormer keys above: that one returns an instrumental, this one returns four parts.
-        val REMIX_BACKEND_URL = stringPreferencesKey("remix_backend_url")
-        val REMIX_BACKEND_TOKEN = stringPreferencesKey("remix_backend_token")
-        val REMIX_UPLOAD_CONSENT = booleanPreferencesKey("remix_upload_consent")
         val CROSSFADE_DURATION = intPreferencesKey("crossfade_duration")
         val CUSTOM_GENRES = stringSetPreferencesKey("custom_genres")
         val CUSTOM_GENRE_ICONS = stringPreferencesKey("custom_genre_icons")
@@ -1549,41 +1543,6 @@ suspend fun markDirectoryRulesVersionApplied(version: Int) {
         )
 
         const val DEFAULT_ALBUM_ART_CACHE_LIMIT_MB = 200
-    }
-
-    // ─── Remix Studio separation backend ──────────────────────────────────────
-    // Appended at the tail deliberately: SettingsUiState is assembled from positional indexed
-    // combines, so inserting a flow mid-file silently shifts every later index. These are read
-    // directly by the worker rather than folded into that state.
-
-    /**
-     * Defaults to the project's own endpoint rather than blank, so separation works out of the
-     * box once a key is entered. Blanking the field falls back to the default instead of leaving
-     * the app pointed at nothing — to use a different server, type that one in.
-     */
-    val remixBackendUrlFlow: Flow<String> =
-        pref {
-            it[PreferencesKeys.REMIX_BACKEND_URL]?.takeIf(String::isNotBlank)
-                ?: RemixBackendConfig.DEFAULT_BASE_URL
-        }
-
-    suspend fun setRemixBackendUrl(url: String) {
-        dataStore.edit { it[PreferencesKeys.REMIX_BACKEND_URL] = url.trim().trimEnd('/') }
-    }
-
-    val remixBackendTokenFlow: Flow<String> =
-        pref { it[PreferencesKeys.REMIX_BACKEND_TOKEN] ?: "" }
-
-    suspend fun setRemixBackendToken(token: String) {
-        dataStore.edit { it[PreferencesKeys.REMIX_BACKEND_TOKEN] = token.trim() }
-    }
-
-    /** Uploading a track to a GPU server is a deliberate act, so it needs an explicit opt-in. */
-    val remixUploadConsentFlow: Flow<Boolean> =
-        pref { it[PreferencesKeys.REMIX_UPLOAD_CONSENT] ?: false }
-
-    suspend fun setRemixUploadConsent(granted: Boolean) {
-        dataStore.edit { it[PreferencesKeys.REMIX_UPLOAD_CONSENT] = granted }
     }
 
     // ─── Private utilities ────────────────────────────────────────────────────
