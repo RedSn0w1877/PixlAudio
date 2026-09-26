@@ -40,9 +40,14 @@ import com.theveloper.pixelplay.data.model.Song
 import com.theveloper.pixelplay.presentation.viewmodel.PlayerViewModel
 import com.theveloper.pixelplay.presentation.viewmodel.PlaylistViewModel
 import com.theveloper.pixelplay.presentation.components.scoped.PlayerSheetFieldStates
+import com.theveloper.pixelplay.ui.glass.GlassSheetScrim
+import com.theveloper.pixelplay.ui.glass.LocalGlassModeEnabled
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.coroutines.flow.map
 import kotlin.math.roundToInt
+
+/** SheetOverlayState's queue scrim alpha at full open. */
+private const val QUEUE_SCRIM_MAX_ALPHA = 0.45f
 
 internal data class SaveQueueOverlayData(
     val songs: List<Song>,
@@ -107,7 +112,17 @@ internal fun UnifiedPlayerQueueLayer(
         val showQueueScrim by remember(queueScrimAlphaState) {
             derivedStateOf { queueScrimAlphaState.value > 0f }
         }
-        if (showQueueScrim) {
+        val glassMode = LocalGlassModeEnabled.current
+        if (showQueueScrim && glassMode) {
+            // Glass mode: NexHome's sheet scrim (the dimmed, saturated ambient), opaque once the
+            // queue is fully open (the M3 scrim tops out at 0.45; this maps that to 1).
+            GlassSheetScrim(
+                alpha = { queueScrimAlphaState.value / QUEUE_SCRIM_MAX_ALPHA },
+                modifier = Modifier
+                    .matchParentSize()
+                    .zIndex(0f)
+            )
+        } else if (showQueueScrim) {
             Box(
                 modifier = Modifier
                     .matchParentSize()

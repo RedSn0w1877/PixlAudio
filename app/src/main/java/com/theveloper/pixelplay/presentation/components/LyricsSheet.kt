@@ -3,6 +3,11 @@ package com.theveloper.pixelplay.presentation.components
 import androidx.compose.material3.AlertDialog
 import android.widget.Toast
 import com.theveloper.pixelplay.data.model.Song
+import com.kyant.backdrop.Backdrop
+import com.kyant.backdrop.backdrops.layerBackdrop
+import com.kyant.backdrop.backdrops.rememberLayerBackdrop
+import com.theveloper.pixelplay.ui.glass.LocalGlassModeEnabled
+import com.theveloper.pixelplay.ui.glass.components.GlassPanel
 import com.theveloper.pixelplay.data.model.Lyrics
 import com.theveloper.pixelplay.R
 import androidx.activity.compose.BackHandler
@@ -658,6 +663,11 @@ fun LyricsSheet(
     }
     val reduceMotion = remember(context) { readReduceMotion(context) }
     val density = LocalDensity.current
+    // Liquid Glass (G4): at most two glass nodes — the header capsule and the control panel —
+    // sampling the artwork background (captured below as a sibling layer), never the lyric lines.
+    // The renderer and the background are untouched; the capture adds no pixels.
+    val glassChrome = LocalGlassModeEnabled.current
+    val lyricsGlassBackdrop = if (glassChrome) rememberLayerBackdrop() else null
     // Plain lyrics start at the top for every song.
     val staticListState = remember(currentSong?.id) { LazyListState() }
 
@@ -793,7 +803,9 @@ fun LyricsSheet(
         ) {
             LyricsArtworkBackground(
                 artUri = currentSong?.albumArtUriString,
-                modifier = Modifier.matchParentSize(),
+                modifier = Modifier
+                    .matchParentSize()
+                    .then(if (lyricsGlassBackdrop != null) Modifier.layerBackdrop(lyricsGlassBackdrop) else Modifier),
                 state = backgroundState,
                 colorScheme = colorScheme
             )
@@ -932,6 +944,8 @@ fun LyricsSheet(
                     song = currentSong,
                     isPlaying = isPlaying,
                     chrome = chrome,
+                    glassBackdrop = lyricsGlassBackdrop,
+                    brightArt = backgroundState.isBrightArt,
                 )
                 // "Make the words light up - Sync it yourself": line-only or plain lyrics only.
                 androidx.compose.animation.AnimatedVisibility(
@@ -977,6 +991,8 @@ fun LyricsSheet(
                     onNavigateBack = onBackClick,
                     onMoreClick = { showMoreSheet = true },
                     backProgressProvider = backProgressProvider,
+                    glassBackdrop = lyricsGlassBackdrop,
+                    brightArt = backgroundState.isBrightArt,
                 )
             }
 
@@ -1143,14 +1159,16 @@ private fun LyricsHeader(
     song: Song?,
     isPlaying: Boolean,
     chrome: LyricsChromeColors,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    glassBackdrop: Backdrop? = null,
+    brightArt: Boolean = false,
 ) {
     if (song == null) return
-    Box(
-        modifier = modifier
-            .clip(CircleShape)
-            .background(chrome.container)
-            .animateContentSize()
+    LyricsHeaderContainer(
+        modifier = modifier,
+        chrome = chrome,
+        glassBackdrop = glassBackdrop,
+        brightArt = brightArt
     ) {
         AnimatedContent(
             targetState = song,
@@ -1171,6 +1189,81 @@ private fun LyricsHeader(
         }
     }
 }
+
+/**
+ * The header's container: the Material 3 tonal capsule, or in Liquid Glass NexHome's floating
+ * top-bar capsule (Black@0.22, no glint) over the artwork, darkened to Black@0.35 over bright art
+ * for readability (research-nexhome-design §10.2). One glass node.
+ */
+@Composable
+private fun LyricsHeaderContainer(
+    modifier: Modifier,
+    chrome: LyricsChromeColors,
+    glassBackdrop: Backdrop?,
+    brightArt: Boolean,
+    content: @Composable () -> Unit,
+) {
+    if (glassBackdrop == null) {
+        Box(
+            modifier = modifier
+                .clip(CircleShape)
+                .background(chrome.container)
+                .animateContentSize()
+        ) {
+            content()
+        }
+    } else {
+        GlassPanel(
+            modifier = modifier.animateContentSize(),
+            backdrop = glassBackdrop,
+            shape = com.kyant.shapes.Capsule(),
+            tint = if (brightArt) LyricsGlassTintBright else LyricsGlassTint,
+            showHighlight = false,
+        ) {
+            content()
+        }
+    }
+}
+
+/**
+ * The control cluster's container: a plain column in Material 3; in Liquid Glass one heavy
+ * NexHome section panel (radius 32, depth lens 20/40) over the artwork, with the same bright-art
+ * darkening as the header. One glass node.
+ */
+@Composable
+private fun LyricsClusterContainer(
+    glassBackdrop: Backdrop?,
+    brightArt: Boolean,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    if (glassBackdrop == null) {
+        Column(modifier = Modifier.fillMaxWidth(), content = content)
+    } else {
+        GlassPanel(
+            modifier = Modifier.fillMaxWidth(),
+            backdrop = glassBackdrop,
+            shape = com.kyant.shapes.RoundedRectangle(32.dp),
+            tint = if (brightArt) LyricsGlassTintBright else LyricsGlassTint,
+            heavy = true,
+            refractionHeight = 20.dp,
+            refractionAmount = 40.dp,
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(12.dp),
+                content = content
+            )
+        }
+    }
+}
+
+/** NexHome's floating-bar tint over the lyrics artwork, and its raise over bright art. */
+private val LyricsGlassTint = Color.Black.copy(alpha = 0.22f)
+private val LyricsGlassTintBright = Color.Black.copy(alpha = 0.35f)
+
+/** The pills inside the glass panel: NexHome's subtle row tint (White@0.08). */
+private val LyricsGlassPillTint = Color.White.copy(alpha = 0.08f)
 
 /**
  * The bottom control cluster: the familiar tonal pills over a soft scrim, sliding and fading with
@@ -1200,8 +1293,13 @@ private fun LyricsControlCluster(
     onNavigateBack: () -> Unit,
     onMoreClick: () -> Unit,
     backProgressProvider: () -> Float,
+    glassBackdrop: Backdrop? = null,
+    brightArt: Boolean = false,
 ) {
     val slidePx = with(LocalDensity.current) { ControlsSlide.toPx() }
+    // Glass: the pills sit on the one glass panel with NexHome's subtle row tint instead of their
+    // own opaque fill.
+    val pillColor = if (glassBackdrop != null) LyricsGlassPillTint else chrome.container
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -1229,7 +1327,7 @@ private fun LyricsControlCluster(
             }
         }
 
-        Column(modifier = Modifier.fillMaxWidth()) {
+        LyricsClusterContainer(glassBackdrop = glassBackdrop, brightArt = brightArt) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1268,7 +1366,7 @@ private fun LyricsControlCluster(
                             .weight(1f)
                             .height(50.dp),
                         playbackPositionFlow = playbackPositionFlow,
-                        backgroundColor = chrome.container,
+                        backgroundColor = pillColor,
                         onBackgroundColor = chrome.content,
                         accentColor = chrome.accent,
                         totalDuration = totalDuration,
@@ -1286,7 +1384,7 @@ private fun LyricsControlCluster(
                     onShowSyncedLyricsChange = onShowSyncedLyricsChange,
                     onNavigateBack = onNavigateBack,
                     onMoreClick = onMoreClick,
-                    backgroundColor = chrome.container,
+                    backgroundColor = pillColor,
                     onBackgroundColor = chrome.content,
                     accentColor = chrome.selected,
                     onAccentColor = chrome.onSelected,

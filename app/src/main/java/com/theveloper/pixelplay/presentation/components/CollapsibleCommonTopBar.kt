@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material3.FilledIconButton
@@ -24,6 +25,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
+import com.theveloper.pixelplay.ui.glass.LocalGlassModeEnabled
 import com.theveloper.pixelplay.ui.theme.PixelPlayStatusBarStyle
 import androidx.compose.ui.res.stringResource
 import com.theveloper.pixelplay.R
@@ -70,6 +72,28 @@ fun CollapsibleCommonTopBar(
     if (syncStatusBarWithContainer) {
         PixelPlayStatusBarStyle(color = statusBarFallbackColor)
     }
+    if (LocalGlassModeEnabled.current) {
+        // Liquid Glass: NexHome's floating capsule (no glint, no collapse), through the
+        // ScreenChrome seam. The header keeps its height so the screen's layout is unchanged;
+        // content scrolls under the capsule.
+        Box(
+            modifier = modifier
+                .fillMaxWidth()
+                .height(headerHeight)
+                .zIndex(5f)
+        ) {
+            GlassScreenTopBar(
+                title = title,
+                subtitle = subtitle,
+                onBackClick = onBackClick,
+                modifier = Modifier.wrapContentHeight(align = Alignment.Top, unbounded = true),
+                supportingContent = supportingContent,
+                actions = actions
+            )
+        }
+        return
+    }
+
     // We can also fade the content color if we want, but usually onSurface is fine.
     // GenreDetail interpolates content color, but for standard screens onSurface is usually correct for both states 
     // (transparent surface vs surfaceContainer).

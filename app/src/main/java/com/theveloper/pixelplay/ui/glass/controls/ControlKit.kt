@@ -190,15 +190,30 @@ class AccentWash(
     }
 }
 
-/** Slim 3 dp fill bar along the bottom edge (NexHome `drawGlassFillBar`); draw it in a child layer. */
-fun DrawScope.drawGlassFillBar(fraction: Float, accent: Color, inset: Dp = 16.dp, bottom: Dp = 9.dp) {
+/** NexHome's fill-bar track (White@0.12, over dark glass). */
+val FillBarTrackDark = Color.White.copy(alpha = 0.12f)
+
+/** The same track over light glass (derived: the dark value mirrored to black). */
+val FillBarTrackLight = Color.Black.copy(alpha = 0.12f)
+
+/**
+ * Slim 3 dp fill bar along the bottom edge (NexHome `drawGlassFillBar`); draw it in a child layer.
+ * PixlAudio change: the [track] colour is a parameter so light glass can use a dark track.
+ */
+fun DrawScope.drawGlassFillBar(
+    fraction: Float,
+    accent: Color,
+    inset: Dp = 16.dp,
+    bottom: Dp = 9.dp,
+    track: Color = FillBarTrackDark,
+) {
     val h = 3.dp.toPx()
     val left = inset.toPx()
     val width = size.width - left * 2f
     if (width <= 0f) return
     val top = size.height - bottom.toPx() - h
     val radius = androidx.compose.ui.geometry.CornerRadius(h / 2f)
-    drawRoundRect(Color.White.copy(alpha = 0.12f), topLeft = Offset(left, top), size = Size(width, h), cornerRadius = radius)
+    drawRoundRect(track, topLeft = Offset(left, top), size = Size(width, h), cornerRadius = radius)
     val f = fraction.coerceIn(0f, 1f)
     if (f > 0.001f) {
         drawRoundRect(accent, topLeft = Offset(left, top), size = Size(width * f, h), cornerRadius = radius)

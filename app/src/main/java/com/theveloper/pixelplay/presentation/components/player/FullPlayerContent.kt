@@ -1,5 +1,11 @@
 package com.theveloper.pixelplay.presentation.components.player
 
+import com.kyant.shapes.RoundedRectangle
+import com.theveloper.pixelplay.ui.glass.LocalGlassModeEnabled
+import com.theveloper.pixelplay.ui.glass.components.GlassPanel
+import com.theveloper.pixelplay.ui.glass.controls.MediaScrubber
+import com.theveloper.pixelplay.ui.glass.theme.LocalGlassPalette
+
 import kotlinx.coroutines.flow.distinctUntilChanged
 import android.annotation.SuppressLint
 import android.content.Context
@@ -353,6 +359,9 @@ fun FullPlayerContent(
         com.theveloper.pixelplay.presentation.lyrics.LongSource { playerViewModel.currentPositionForLyrics() }
     }
 
+    // Liquid Glass mode (static): the player's chrome, transport, seek bar and toggles become
+    // NexHome glass; the card behind the player already draws the baked ambient.
+    val glassMode = LocalGlassModeEnabled.current
     val playerOnBaseColor = LocalMaterialTheme.current.onPrimaryContainer
     val playerAccentColor = LocalMaterialTheme.current.primary
     val playerOnAccentColor = LocalMaterialTheme.current.onPrimary
@@ -568,6 +577,7 @@ fun FullPlayerContent(
             placeholderOnColor = placeholderOnColor,
             albumArtQuality = albumArtQuality,
             requestedScrollIndex = pendingCarouselIndex,
+            glassFrame = glassMode,
             onSongSelected = onAlbumSongSelected,
             onAlbumClick = { albumSong ->
                 playerViewModel.triggerAlbumNavigationFromPlayer(albumSong.albumId)
@@ -794,6 +804,9 @@ fun FullPlayerContent(
                             // 2. Alinea el contenido (el botón) al final (derecha) y centrado verticalmente
                             contentAlignment = Alignment.CenterEnd
                         ) {
+                            if (glassMode) {
+                                GlassPlayerCollapseButton(onCollapse = onCollapse)
+                            } else
                             // 3. Tu botón circular original, sin cambios
                             Box(
                                 modifier = Modifier
@@ -812,6 +825,20 @@ fun FullPlayerContent(
                         }
                     },
                     actions = {
+                        if (glassMode) {
+                            GlassPlayerTopActions(
+                                isCastConnecting = isCastConnecting,
+                                isRemotePlaybackActive = isRemotePlaybackActive,
+                                selectedRouteName = selectedRouteName,
+                                isBluetoothEnabled = isBluetoothEnabled,
+                                bluetoothName = bluetoothName,
+                                onCastClick = onShowCastClicked,
+                                onQueueClick = {
+                                    showSongInfoBottomSheet = true
+                                    onShowQueueClicked()
+                                }
+                            )
+                        } else
                         Row(
                             modifier = Modifier
                                 .padding(end = 14.dp),
@@ -975,7 +1002,9 @@ fun FullPlayerContent(
                 .graphicsLayer { alpha = contentAlpha }
         ) {
             val ambientStyle by playerViewModel.playerAmbientStyle.collectAsStateWithLifecycle()
-            if (ambientStyle != com.theveloper.pixelplay.data.preferences.PlayerAmbientStyle.OFF) {
+            // Glass mode: the background is the baked ambient (drawn by the player card); the
+            // animated ambient styles are not glass sources (orchestrator decision G3).
+            if (!glassMode && ambientStyle != com.theveloper.pixelplay.data.preferences.PlayerAmbientStyle.OFF) {
                 val ambientAudioSessionId by playerViewModel.audioSessionId.collectAsStateWithLifecycle()
                 PlayerAmbientBackground(
                     style = ambientStyle,
@@ -1125,6 +1154,7 @@ private fun FullPlayerAlbumCoverSection(
     placeholderOnColor: Color,
     albumArtQuality: AlbumArtQuality,
     requestedScrollIndex: Int?,
+    glassFrame: Boolean = false,
     onSongSelected: (Song, Int) -> Unit,
     onAlbumClick: (Song) -> Unit,
     modifier: Modifier = Modifier
@@ -1190,28 +1220,51 @@ private fun FullPlayerAlbumCoverSection(
                 }
             }
         ) {
-            AlbumCarouselSection(
-                currentSong = song,
-                queue = currentPlaybackQueue,
-                expansionFraction = 1f,
-                currentMediaItemIndex = currentMediaItemIndex,
-                requestedScrollIndex = requestedScrollIndex,
-                onSongSelected = { newSong, index ->
-                    if (newSong.id != song.id || index != currentMediaItemIndex) {
-                        onSongSelected(newSong, index)
-                    }
-                },
-                onAlbumClick = onAlbumClick,
-                carouselStyle = carouselStyle,
-                animateProgrammaticScroll = { expansionFractionProvider() > 0.01f },
-                modifier = Modifier
-                    .height(carouselHeight)
-                    .graphicsLayer {
-                        scaleX = albumArtScale
-                        scaleY = albumArtScale
+            val carousel: @Composable (Modifier, Dp) -> Unit = { carouselModifier, itemCorner ->
+                AlbumCarouselSection(
+                    currentSong = song,
+                    queue = currentPlaybackQueue,
+                    expansionFraction = 1f,
+                    currentMediaItemIndex = currentMediaItemIndex,
+                    requestedScrollIndex = requestedScrollIndex,
+                    onSongSelected = { newSong, index ->
+                        if (newSong.id != song.id || index != currentMediaItemIndex) {
+                            onSongSelected(newSong, index)
+                        }
                     },
-                albumArtQuality = albumArtQuality
-            )
+                    onAlbumClick = onAlbumClick,
+                    carouselStyle = carouselStyle,
+                    animateProgrammaticScroll = { expansionFractionProvider() > 0.01f },
+                    modifier = carouselModifier
+                        .graphicsLayer {
+                            scaleX = albumArtScale
+                            scaleY = albumArtScale
+                        },
+                    albumArtQuality = albumArtQuality,
+                    itemCornerRadius = itemCorner
+                )
+            }
+            if (glassFrame) {
+                // NexHome's photo frame (CamerasScreen): a light glass panel at radius 30 with
+                // 8 dp padding, the art inside at radius 22. One static glass node: the art
+                // scrolls inside it without re-rendering the lens.
+                GlassPanel(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(carouselHeight),
+                    shape = RoundedRectangle(30.dp),
+                    tint = LocalGlassPalette.current.tint,
+                ) {
+                    carousel(
+                        Modifier
+                            .fillMaxSize()
+                            .padding(8.dp),
+                        22.dp
+                    )
+                }
+            } else {
+                carousel(Modifier.height(carouselHeight), 18.dp)
+            }
         }
     }
 }
@@ -1262,6 +1315,30 @@ private fun FullPlayerControlsSection(
             }
         }
     ) {
+        if (LocalGlassModeEnabled.current) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                GlassTransportRow(
+                    isPlayingProvider = isPlayingProvider,
+                    onPrevious = onPrevious,
+                    onPlayPause = onPlayPause,
+                    onNext = onNext,
+                    modifier = Modifier.padding(horizontal = 12.dp)
+                )
+                Spacer(modifier = Modifier.height(14.dp))
+                GlassPlayerToggleRow(
+                    isShuffleEnabled = isShuffleEnabledProvider(),
+                    isShuffleTransitionInProgress = shuffleTransitionInProgress,
+                    repeatMode = repeatModeProvider(),
+                    isFavoriteProvider = isFavoriteProvider,
+                    onShuffleToggle = onShuffleToggle,
+                    onRepeatToggle = onRepeatToggle,
+                    onFavoriteToggle = onFavoriteToggle,
+                    modifier = Modifier.padding(bottom = 6.dp)
+                )
+            }
+        } else
         Column(
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
@@ -2028,6 +2105,7 @@ private fun PlayerProgressBarSection(
                 EfficientSlider(
                     valueState = animatedProgressState,
                     onValueChange = { sliderDragValue = it },
+                    onScrubEnd = { sliderDragValue = null },
                     onValueCommit = { finalValue ->
                         val targetMs = (finalValue * durationForCalc).roundToLong()
                         targetSeekFraction = finalValue
@@ -2071,6 +2149,7 @@ private fun PlayerProgressBarSection(
 private fun EfficientSlider(
     valueState: androidx.compose.runtime.State<Float>,
     onValueChange: (Float) -> Unit,
+    onScrubEnd: () -> Unit = {},
     onValueCommit: (Float) -> Unit,
     thumbColor: Color,
     activeTrackColor: Color,
@@ -2093,6 +2172,24 @@ private fun EfficientSlider(
             }
             currentOnValueChange.value(newValue)
         }
+    }
+
+    if (LocalGlassModeEnabled.current) {
+        // NexHome's MediaScrubber shape, no waveform: the frame-accurate value is read in its draw
+        // only, the played part is a plain accent fill, drag commits on release, tap seeks, and it
+        // ticks its own haptic every 5 %.
+        val latestOnScrubEnd = rememberUpdatedState(onScrubEnd)
+        MediaScrubber(
+            progress = { valueState.value },
+            onSeek = onValueCommit,
+            onScrubChange = { scrub ->
+                if (scrub != null) currentOnValueChange.value(scrub) else latestOnScrubEnd.value()
+            },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 8.dp, horizontal = 0.dp)
+        )
+        return
     }
 
     WavySliderExpressive(

@@ -38,6 +38,7 @@ import com.theveloper.pixelplay.presentation.components.scoped.PlayerSheetFieldS
 import com.theveloper.pixelplay.presentation.components.scoped.rememberFullPlayerRuntimePolicy
 import com.theveloper.pixelplay.presentation.viewmodel.PlayerSheetState
 import com.theveloper.pixelplay.presentation.viewmodel.PlayerViewModel
+import com.theveloper.pixelplay.ui.glass.LocalGlassModeEnabled
 
 @OptIn(UnstableApi::class)
 @Composable
@@ -66,9 +67,15 @@ internal fun BoxScope.UnifiedPlayerMiniAndFullLayers(
     onQueueDragStart: () -> Unit,
     onQueueDrag: (Float) -> Unit,
     onQueueRelease: (Float, Float) -> Unit,
-    onShowCastClicked: () -> Unit
+    onShowCastClicked: () -> Unit,
+    /**
+     * Glass mode: true while an opaque sheet scrim covers the whole player (the queue fully open).
+     * Read in the full player's layer only; the player then stops drawing its glass underneath.
+     */
+    isFullPlayerCoveredProvider: () -> Boolean = { false }
 ) {
     val currentSongNonNull = fieldStates.currentSong.value ?: return
+    val glassMode = LocalGlassModeEnabled.current
 
     // A hidden player gets the target scheme instead of the animated one: it isn't on
     // screen, so nothing visible changes, and it doesn't recompose for every frame of the
@@ -124,17 +131,32 @@ internal fun BoxScope.UnifiedPlayerMiniAndFullLayers(
                 derivedStateOf { playerContentExpansionFraction.value < 0.01f }
             }
             val isPlaying = fieldStates.isPlaying.value
-            MiniPlayerContentInternal(
-                song = currentSongNonNull,
-                isPlaying = isPlaying,
-                isCastConnecting = isCastConnecting,
-                isPreparingPlayback = isPreparingPlayback,
-                onPlayPause = { playerViewModel.playPause() },
-                onPrevious = { playerViewModel.previousSong() },
-                onNext = { playerViewModel.nextSong() },
-                canScroll = isMiniPlayerVisible && isPlaying,
-                modifier = Modifier.fillMaxSize()
-            )
+            if (glassMode) {
+                GlassMiniPlayerContent(
+                    song = currentSongNonNull,
+                    isPlaying = isPlaying,
+                    isCastConnecting = isCastConnecting,
+                    isPreparingPlayback = isPreparingPlayback,
+                    onPlayPause = { playerViewModel.playPause() },
+                    onNext = { playerViewModel.nextSong() },
+                    positionProvider = currentPositionProvider,
+                    durationProvider = fieldStates.totalDurationProvider,
+                    progressActive = isMiniPlayerVisible,
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else {
+                MiniPlayerContentInternal(
+                    song = currentSongNonNull,
+                    isPlaying = isPlaying,
+                    isCastConnecting = isCastConnecting,
+                    isPreparingPlayback = isPreparingPlayback,
+                    onPlayPause = { playerViewModel.playPause() },
+                    onPrevious = { playerViewModel.previousSong() },
+                    onNext = { playerViewModel.nextSong() },
+                    canScroll = isMiniPlayerVisible && isPlaying,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
         }
     }
 
@@ -176,7 +198,7 @@ internal fun BoxScope.UnifiedPlayerMiniAndFullLayers(
                     .graphicsLayer {
                         // Read from FullPlayerVisualState lazy getters in the draw phase;
                         // these read Animatable.value internally → re-draw only, no recomposition.
-                        alpha = fullPlayerVisualState.contentAlpha
+                        alpha = if (isFullPlayerCoveredProvider()) 0f else fullPlayerVisualState.contentAlpha
                         translationY = fullPlayerVisualState.translationY
                         // Depth effect while the queue/cast sheet is open, read at draw time.
                         val fullPlayerScale = lerp(1f, 0.972f, bottomSheetOpenFractionState.value)

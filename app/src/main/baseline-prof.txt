@@ -35,6 +35,8 @@ HSPLcom/theveloper/pixelplay/presentation/components/UnifiedPlayer**->**(**)**
 HSPLcom/theveloper/pixelplay/presentation/components/scoped/**->**(**)**
 HSPLcom/theveloper/pixelplay/presentation/components/player/**->**(**)**
 HSPLcom/theveloper/pixelplay/presentation/components/PlayerInternalNavigationBar**->**(**)**
+HSPLcom/theveloper/pixelplay/presentation/components/GlassNavigationBar**->**(**)**
+HSPLcom/theveloper/pixelplay/presentation/components/ScreenChrome**->**(**)**
 HSPLcom/theveloper/pixelplay/presentation/components/PlayerSchemeScopes**->**(**)**
 HSPLcom/theveloper/pixelplay/presentation/components/AlbumCarousel**->**(**)**
 HSPLcom/theveloper/pixelplay/presentation/components/RoundedParallaxCarousell**->**(**)**

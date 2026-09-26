@@ -156,6 +156,12 @@ import com.theveloper.pixelplay.presentation.viewmodel.PlayerViewModel
 import com.theveloper.pixelplay.presentation.viewmodel.PlaylistViewModel
 import com.theveloper.pixelplay.presentation.utils.LocalAppHapticsConfig
 import com.theveloper.pixelplay.presentation.utils.performAppCompatHapticFeedback
+import com.theveloper.pixelplay.ui.glass.GlassCircleAction
+import com.theveloper.pixelplay.ui.glass.LocalGlassModeEnabled
+import com.theveloper.pixelplay.ui.glass.components.GlassPanel
+import com.theveloper.pixelplay.ui.glass.glassLightSurface
+import com.theveloper.pixelplay.ui.glass.glassPressSwell
+import com.theveloper.pixelplay.ui.glass.theme.LocalGlassPalette
 import com.theveloper.pixelplay.ui.theme.GoogleSansRounded
 import com.theveloper.pixelplay.ui.theme.LocalShowScrollbar
 import racra.compose.smooth_corner_rect_library.AbsoluteSmoothCornerShape
@@ -165,6 +171,7 @@ import kotlin.math.roundToInt
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -729,6 +736,10 @@ fun QueueBottomSheet(
             }
         }
 
+    // Liquid Glass mode: the queue follows NexHome's sheet model. It has no container of its own:
+    // the content sits on the glass scrim (UnifiedPlayerQueueLayer), the header is one heavy
+    // panel, the now-playing row one light panel, the toolbar a capsule, rows stay flat.
+    val glassMode = LocalGlassModeEnabled.current
     Surface(
         modifier = modifier
             .graphicsLayer {
@@ -768,8 +779,8 @@ fun QueueBottomSheet(
                 }
             },
         shape = shape,
-        tonalElevation = tonalElevation,
-        color = colors.surfaceContainer,
+        tonalElevation = if (glassMode) 0.dp else tonalElevation,
+        color = if (glassMode) Color.Transparent else colors.surfaceContainer,
     ) {
         Box(
             modifier = Modifier.fillMaxSize()
@@ -780,6 +791,7 @@ fun QueueBottomSheet(
                     .calculateTopPadding() + 10.dp
 
                 QueueHeaderSection(
+                    glass = glassMode,
                     isPlaying = isPlaying,
                     queueSourceName = currentQueueSourceName,
                     queueCount = displaySongCount,
@@ -828,7 +840,7 @@ fun QueueBottomSheet(
                                 .fillMaxSize()
                                 .clip(shape = queueListShape)
                                 .background(
-                                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                    color = if (glassMode) Color.Transparent else MaterialTheme.colorScheme.surfaceContainerHigh,
                                     shape = queueListShape
                                 )
                                 .then(
@@ -909,6 +921,7 @@ fun QueueBottomSheet(
                                         onDismissSong = { onRemoveSong(song.id) },
                                         isFromPlaylist = true,
                                         onMoreOptionsClick = { onSongInfoClick(song) },
+                                        glass = glassMode,
                                         dragHandle = {
                                             IconButton(
                                                 onClick = {},
@@ -985,6 +998,7 @@ fun QueueBottomSheet(
                         derivedStateOf { activeTimerValueDisplay.value != null }
                     }
                     QueueControlsToolbar(
+                        glass = glassMode,
                         isShuffleOn = isShuffleOn,
                         repeatMode = repeatMode,
                         isTimerActive = isTimerActiveDerived,
@@ -995,6 +1009,15 @@ fun QueueBottomSheet(
 
                     Spacer(modifier = Modifier.width(4.dp))
 
+                    if (glassMode) {
+                        GlassCircleAction(
+                            onClick = { isFabExpanded = !isFabExpanded },
+                            size = 64.dp,
+                            contentDescription = stringResource(R.string.queue_cd_more_action),
+                        ) {
+                            Icon(imageVector = Icons.Rounded.MoreHoriz, contentDescription = null)
+                        }
+                    } else
                     Box(
                         modifier = Modifier
                             .fillMaxHeight()
@@ -1276,6 +1299,7 @@ private fun QueueToolbarMenuButton(
 
 @Composable
 private fun QueueHeaderSection(
+    glass: Boolean = false,
     isPlaying: Boolean,
     queueSourceName: String,
     queueCount: Int,
@@ -1304,6 +1328,28 @@ private fun QueueHeaderSection(
                 .background(colors.onSurface.copy(alpha = 0.14f))
         )
 
+        if (glass) {
+            // NexHome's sheet header: one heavy panel at radius 32 with the strong tint.
+            GlassPanel(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp),
+                shape = com.kyant.shapes.RoundedRectangle(32.dp),
+                tint = LocalGlassPalette.current.tintStrong,
+                heavy = true,
+                refractionHeight = 20.dp,
+                refractionAmount = 40.dp,
+            ) {
+                QueueHeader(
+                    queueSourceName = queueSourceName,
+                    queueCount = queueCount,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    onLocateCurrentSong = onLocateCurrentSong
+                )
+            }
+        } else
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -1415,6 +1461,7 @@ private fun QueueSourceBadge(
 
 @Composable
 private fun QueueControlsToolbar(
+    glass: Boolean = false,
     isShuffleOn: Boolean,
     repeatMode: Int,
     isTimerActive: androidx.compose.runtime.State<Boolean>,
@@ -1432,7 +1479,48 @@ private fun QueueControlsToolbar(
         contentColor = MaterialTheme.colorScheme.onSurfaceVariant
     )
 
-    val buttons: @Composable () -> Unit = {
+    val palette = LocalGlassPalette.current
+    // Glass: flat circles on the glass capsule, flooded with the album accent when on.
+    val glassOn = palette.accent
+    val glassOff = palette.tintSubtle
+    val glassContent = palette.primary
+    val buttons: @Composable () -> Unit = if (glass) {
+        {
+            QueueToolbarButton(
+                onClick = onToggleShuffle,
+                containerColor = if (isShuffleOn) glassOn else glassOff,
+                contentColor = glassContent
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Shuffle,
+                    contentDescription = stringResource(R.string.queue_cd_toggle_shuffle_action),
+                )
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            QueueToolbarButton(
+                onClick = onToggleRepeat,
+                containerColor = if (repeatMode != Player.REPEAT_MODE_OFF) glassOn else glassOff,
+                contentColor = glassContent
+            ) {
+                Icon(
+                    imageVector = if (repeatMode == Player.REPEAT_MODE_ONE) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat,
+                    contentDescription = stringResource(R.string.queue_cd_toggle_repeat_action),
+                )
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            QueueToolbarButton(
+                onClick = onTimerClick,
+                containerColor = if (isTimerActive.value) glassOn else glassOff,
+                contentColor = glassContent
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Timer,
+                    contentDescription = stringResource(R.string.queue_cd_sleep_timer_action),
+                )
+            }
+        }
+    } else {
+      {
         QueueToolbarButton(
             onClick = onToggleShuffle,
             containerColor = if (isShuffleOn) {
@@ -1493,6 +1581,26 @@ private fun QueueControlsToolbar(
                 contentDescription = stringResource(R.string.queue_cd_sleep_timer_action),
             )
         }
+      }
+    }
+
+    if (glass) {
+        GlassPanel(
+            modifier = modifier.fillMaxHeight(),
+            shape = com.kyant.shapes.Capsule(),
+            tint = palette.tintStrong,
+        ) {
+            Row(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center
+            ) {
+                buttons()
+            }
+        }
+        return
     }
 
     val toolbarShape = RoundedCornerShape(percent = 50)
@@ -1934,6 +2042,9 @@ fun SaveQueueAsPlaylistSheet(
         }
     }
 
+/** Glass mode's now-playing queue row panel (NexHome's `GlassSettingRow` radius). */
+private val GlassQueueCurrentRowShape = RoundedCornerShape(20.dp)
+
 @Composable
 fun QueuePlaylistSongItem(
     modifier: Modifier = Modifier,
@@ -1951,7 +2062,9 @@ fun QueuePlaylistSongItem(
     enableSwipeToDismiss: Boolean = false,
     swipeStateIdentity: Long = 0L,
     onDismissSong: () -> Unit = {},
-    isFromPlaylist: Boolean
+    isFromPlaylist: Boolean,
+    /** Liquid Glass: a flat row with a press swell; the now-playing row is one light panel. */
+    glass: Boolean = false
 ) {
     val colors = MaterialTheme.colorScheme
 
@@ -2061,6 +2174,7 @@ fun QueuePlaylistSongItem(
             }
         }
 
+        val rowInteraction = remember { MutableInteractionSource() }
         Surface(
             modifier = Modifier
                 .graphicsLayer { translationX = currentOffsetPx }
@@ -2069,16 +2183,27 @@ fun QueuePlaylistSongItem(
                     if (h != surfaceHeightPx) surfaceHeightPx = h
                 }
                 .padding(horizontal = 12.dp)
+                .then(
+                    if (glass) {
+                        Modifier
+                            .glassPressSwell(rowInteraction)
+                            .then(if (isCurrentSong) Modifier.glassLightSurface(GlassQueueCurrentRowShape) else Modifier)
+                    } else {
+                        Modifier
+                    }
+                )
                 .clip(itemShape)
                 .clickable(
+                    interactionSource = rowInteraction,
+                    indication = if (glass) null else LocalIndication.current,
                     enabled = currentOffsetPx == 0f
                 ) {
                     onClick()
                 },
             shape = itemShape,
-            color = backgroundColor,
-            tonalElevation = elevation,
-            shadowElevation = elevation
+            color = if (glass) Color.Transparent else backgroundColor,
+            tonalElevation = if (glass) 0.dp else elevation,
+            shadowElevation = if (glass) 0.dp else elevation
         ) {
             Row(
                 modifier = Modifier.padding(horizontal = 4.dp, vertical = 16.dp),

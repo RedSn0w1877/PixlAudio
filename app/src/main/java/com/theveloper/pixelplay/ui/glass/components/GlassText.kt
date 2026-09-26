@@ -10,6 +10,7 @@ import androidx.compose.ui.draw.paint
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.ColorProducer
+import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.text.TextStyle
@@ -62,5 +63,21 @@ fun GlassIcon(
         modifier
             .size(size)
             .paint(rememberVectorPainter(icon), colorFilter = filter)
+    )
+}
+
+/** [GlassIcon] for a drawable resource painter (the app's own vector icons). */
+@Composable
+fun GlassIcon(
+    painter: Painter,
+    modifier: Modifier = Modifier,
+    tint: Color = LocalGlassPalette.current.primary,
+    size: Dp = 24.dp,
+) {
+    val filter = remember(tint) { ColorFilter.tint(tint) }
+    Box(
+        modifier
+            .size(size)
+            .paint(painter, colorFilter = filter)
     )
 }

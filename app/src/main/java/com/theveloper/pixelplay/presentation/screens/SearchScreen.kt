@@ -1,5 +1,9 @@
 package com.theveloper.pixelplay.presentation.screens
 
+import com.theveloper.pixelplay.ui.glass.GlassCircleAction
+import com.theveloper.pixelplay.ui.glass.GlassSearchField
+import com.theveloper.pixelplay.ui.glass.LocalGlassModeEnabled
+
 import com.theveloper.pixelplay.presentation.components.rememberAppListState
 import com.theveloper.pixelplay.presentation.components.PlaybackRowState
 import androidx.compose.runtime.State
@@ -353,6 +357,39 @@ fun SearchScreen(
                     cursorColor = MaterialTheme.colorScheme.primary
                 )
 
+                val glassMode = LocalGlassModeEnabled.current
+                if (glassMode) {
+                    // Liquid Glass: the search field is a floating glass capsule (built from
+                    // NexHome's top bar; no glint).
+                    GlassSearchField(
+                        query = searchQuery,
+                        onQueryChange = {
+                            searchQuery = it
+                            playerViewModel.updateSearchQuery(it)
+                        },
+                        onSearch = { query ->
+                            if (query.isNotBlank()) {
+                                playerViewModel.onSearchQuerySubmitted(query)
+                            }
+                            keyboardController?.hide()
+                        },
+                        placeholder = stringResource(R.string.search_placeholder),
+                        focusRequester = searchInputFocusRequester,
+                        searchIconDescription = stringResource(R.string.search_cd_search_icon),
+                        clearDescription = stringResource(R.string.search_cd_clear_search_query),
+                        modifier = Modifier.weight(1f)
+                    )
+                    GlassCircleAction(
+                        onClick = { navController.navigateSafely(Screen.Settings.route) },
+                        size = 48.dp,
+                        contentDescription = stringResource(R.string.library_cd_open_settings)
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.rounded_settings_24),
+                            contentDescription = null
+                        )
+                    }
+                } else {
                 Box(
                     Modifier
                         .weight(1f)
@@ -440,6 +477,7 @@ fun SearchScreen(
                         painter = painterResource(R.drawable.rounded_settings_24),
                         contentDescription = stringResource(R.string.library_cd_open_settings)
                     )
+                }
                 }
             }
 

@@ -67,6 +67,8 @@ import kotlin.math.roundToInt
  *
  * @param progress playback position 0..1; read in draw only. Back it with snapshot state.
  * @param onSeek called with the committed fraction (drag release or tap).
+ * @param onScrubChange the fraction under the finger while scrubbing, then null when the drag ends
+ *   (for readouts such as time labels; PixlAudio addition).
  */
 @Composable
 fun MediaScrubber(
@@ -75,6 +77,7 @@ fun MediaScrubber(
     modifier: Modifier = Modifier,
     accent: Color = LocalGlassPalette.current.accent,
     backdrop: Backdrop = LocalGlassBackdrop.current,
+    onScrubChange: (Float?) -> Unit = {},
 ) {
     val haptic = LocalHapticFeedback.current
     val palette = LocalGlassPalette.current
@@ -87,6 +90,7 @@ fun MediaScrubber(
     val currentAccent by rememberUpdatedState(accent)
     val currentProgress by rememberUpdatedState(progress)
     val currentOnSeek by rememberUpdatedState(onSeek)
+    val currentOnScrubChange by rememberUpdatedState(onScrubChange)
 
     var scrubbing by remember { mutableStateOf(false) }
     var scrubValue by remember { mutableFloatStateOf(0f) }
@@ -109,15 +113,21 @@ fun MediaScrubber(
                         scrubValue = (offset.x / size.width.coerceAtLeast(1)).fastCoerceIn(0f, 1f)
                         lastTick = (scrubValue * 20f).toInt()
                         scrubbing = true
+                        currentOnScrubChange(scrubValue)
                     },
                     onDragEnd = {
                         currentOnSeek(scrubValue)
                         scrubbing = false
+                        currentOnScrubChange(null)
                     },
-                    onDragCancel = { scrubbing = false },
+                    onDragCancel = {
+                        scrubbing = false
+                        currentOnScrubChange(null)
+                    },
                 ) { change, dragAmount ->
                     change.consume()
                     scrubValue = (scrubValue + dragAmount / size.width.coerceAtLeast(1)).fastCoerceIn(0f, 1f)
+                    currentOnScrubChange(scrubValue)
                     val tick = (scrubValue * 20f).toInt()
                     if (tick != lastTick) {
                         lastTick = tick

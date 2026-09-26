@@ -76,6 +76,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -120,6 +121,8 @@ import com.theveloper.pixelplay.presentation.components.AppSidebarDrawer
 import com.theveloper.pixelplay.presentation.components.CrashReportDialog
 import com.theveloper.pixelplay.presentation.components.DismissUndoBar
 import com.theveloper.pixelplay.presentation.components.DrawerDestination
+import com.theveloper.pixelplay.presentation.components.GlassNavBarSideInset
+import com.theveloper.pixelplay.presentation.components.GlassNavigationBar
 import com.theveloper.pixelplay.presentation.components.MiniPlayerBottomSpacer
 import com.theveloper.pixelplay.presentation.components.MiniPlayerHeight
 import com.theveloper.pixelplay.presentation.components.PlayerInternalNavigationBar
@@ -128,6 +131,7 @@ import com.theveloper.pixelplay.presentation.components.PlayStoreAnnouncementDia
 import com.theveloper.pixelplay.presentation.components.PlayStoreAnnouncementUiModel
 import com.theveloper.pixelplay.presentation.components.UnifiedPlayerSheetV2
 import com.theveloper.pixelplay.presentation.components.calculatePlayerSheetCollapsedTargetY
+import com.theveloper.pixelplay.presentation.components.resolveGlassNavBarOccupiedHeight
 import com.theveloper.pixelplay.presentation.components.resolveNavBarOccupiedHeight
 import com.theveloper.pixelplay.presentation.components.resolveNavBarSurfaceHeight
 import com.theveloper.pixelplay.presentation.components.sanitizeNavigationBarBottomInset
@@ -754,7 +758,10 @@ class MainActivity : ComponentActivity() {
             rootView.rootView?.isHapticFeedbackEnabled = hapticsEnabled
         }
 
-        val horizontalPadding = if (navBarStyle == NavBarStyle.DEFAULT) {
+        val horizontalPadding = if (glassModeEnabled) {
+            // Glass mode: the mini player floats with NexHome's 20 dp sides, like the tab bar.
+            GlassNavBarSideInset
+        } else if (navBarStyle == NavBarStyle.DEFAULT) {
             if (systemNavBarInset > 30.dp) 16.dp else 14.dp
         } else {
             0.dp
@@ -766,8 +773,14 @@ class MainActivity : ComponentActivity() {
         )
         val bottomBarPadding = animatedBottomBarPadding
         val navBarHeight = resolveNavBarSurfaceHeight(navBarStyle, systemNavBarInset, navBarCompactMode)
-        val navBarOccupiedHeight by remember(systemNavBarInset, navBarCompactMode) {
-            derivedStateOf { resolveNavBarOccupiedHeight(systemNavBarInset, navBarCompactMode) }
+        val navBarOccupiedHeight by remember(systemNavBarInset, navBarCompactMode, glassModeEnabled) {
+            derivedStateOf {
+                if (glassModeEnabled) {
+                    resolveGlassNavBarOccupiedHeight(systemNavBarInset)
+                } else {
+                    resolveNavBarOccupiedHeight(systemNavBarInset, navBarCompactMode)
+                }
+            }
         }
         val navBarVisibilityProgressState = animateFloatAsState(
             targetValue = if (shouldHideNavigationBar) 0f else 1f,
@@ -867,7 +880,39 @@ class MainActivity : ComponentActivity() {
                 // full-screen fill here was pure overdraw.
                 containerColor = Color.Transparent,
                 bottomBar = {
-                    if (shouldRenderNavigationBar) {
+                    if (shouldRenderNavigationBar && glassModeEnabled) {
+                        val showPlayerContentArea by remember {
+                            playerViewModel.stablePlayerState
+                                .map { it.currentSong?.id != null }
+                                .distinctUntilChanged()
+                        }.collectAsStateWithLifecycle(initialValue = false)
+                        val latestShowPlayerContentArea by rememberUpdatedState(showPlayerContentArea)
+                        val onSearchIconDoubleTap = remember(playerViewModel) {
+                            { playerViewModel.onSearchNavIconDoubleTapped() }
+                        }
+                        // Read in the bar's layer only, like the Material 3 bar's slide-down.
+                        val glassNavHideFraction = remember(playerViewModel) {
+                            {
+                                val expansionHide = if (latestShowPlayerContentArea) {
+                                    playerViewModel.playerContentExpansionFraction.value.coerceIn(0f, 1f)
+                                } else {
+                                    0f
+                                }
+                                val routeHide = (1f - navBarVisibilityProgressState.value).coerceIn(0f, 1f)
+                                maxOf(expansionHide, routeHide)
+                            }
+                        }
+                        GlassNavigationBar(
+                            navController = navController,
+                            navItems = commonNavItems,
+                            currentRouteProvider = currentRouteProvider,
+                            hideFraction = glassNavHideFraction,
+                            onSearchIconDoubleTap = onSearchIconDoubleTap,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(navBarOccupiedHeight)
+                        )
+                    } else if (shouldRenderNavigationBar) {
                         val currentSongId by remember {
                             playerViewModel.stablePlayerState
                                 .map { it.currentSong?.id }

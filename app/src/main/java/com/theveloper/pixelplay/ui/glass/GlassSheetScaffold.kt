@@ -82,7 +82,6 @@ fun GlassSheetScaffold(
     handleBack: Boolean = true,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    val appBackdrop = LocalAppBackdrop.current
     val palette = LocalGlassPalette.current
     val scope = rememberCoroutineScope()
     val density = LocalDensity.current
@@ -186,20 +185,7 @@ fun GlassSheetScaffold(
         }
 
         // Dimmed, saturated ambient scrim with constant values; only its layer alpha animates.
-        Box(
-            Modifier
-                .fillMaxSize()
-                .graphicsLayer { alpha = sheetFade() }
-                .drawPlainBackdrop(
-                    backdrop = appBackdrop,
-                    shape = { RectangleShape },
-                    effects = {
-                        vibrancy()
-                        colorControls(brightness = palette.scrimBrightness, saturation = palette.scrimSaturation)
-                    },
-                    onDrawSurface = { drawRect(palette.scrim) },
-                )
-        )
+        GlassSheetScrim(alpha = sheetFade, modifier = Modifier.fillMaxSize())
 
         Box(
             Modifier
@@ -239,4 +225,29 @@ fun GlassSheetScaffold(
             }
         }
     }
+}
+
+/**
+ * NexHome's sheet scrim (DeviceSheetScaffold, research-nexhome-design §10.3): the BASE ambient
+ * layer ([LocalAppBackdrop]) with `vibrancy()` and the palette's constant colour controls, under the
+ * palette's scrim fill. It never animates a blur; only its layer [alpha] (read in the layer) fades.
+ * At full alpha it is opaque and hides everything behind it. One plain backdrop node.
+ */
+@Composable
+fun GlassSheetScrim(alpha: () -> Float, modifier: Modifier = Modifier) {
+    val appBackdrop = LocalAppBackdrop.current
+    val palette = LocalGlassPalette.current
+    Box(
+        modifier
+            .graphicsLayer { this.alpha = alpha().fastCoerceIn(0f, 1f) }
+            .drawPlainBackdrop(
+                backdrop = appBackdrop,
+                shape = { RectangleShape },
+                effects = {
+                    vibrancy()
+                    colorControls(brightness = palette.scrimBrightness, saturation = palette.scrimSaturation)
+                },
+                onDrawSurface = { drawRect(palette.scrim) },
+            )
+    )
 }

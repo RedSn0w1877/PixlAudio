@@ -90,13 +90,22 @@ import com.theveloper.pixelplay.presentation.components.scoped.rememberSheetVisu
 import com.theveloper.pixelplay.presentation.viewmodel.PlayerSheetState
 import com.theveloper.pixelplay.presentation.viewmodel.PlayerViewModel
 import com.theveloper.pixelplay.presentation.viewmodel.StablePlayerState
+import com.theveloper.pixelplay.ui.glass.LocalGlassBackdrop
+import com.theveloper.pixelplay.ui.glass.LocalGlassCapability
+import com.theveloper.pixelplay.ui.glass.LocalGlassModeEnabled
+import com.theveloper.pixelplay.ui.glass.glassMorphCard
+import com.theveloper.pixelplay.ui.glass.theme.LocalGlassPalette
 import com.theveloper.pixelplay.ui.theme.LocalPixelPlayDarkTheme
+import com.theveloper.pixelplay.ui.theme.QuantizedCornerShapeCache
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.roundToInt
+
+/** The queue scrim's alpha when the queue is fully open (SheetOverlayState: 0.45 × open fraction). */
+private const val QUEUE_SCRIM_FULL_ALPHA = 0.449f
 
 /** Subscribes to [positionFlow] (keeping its producer running) without reading the value. */
 @Composable
@@ -544,6 +553,8 @@ fun UnifiedPlayerSheetV2(
         queuePredictiveBackProgress = queuePredictiveBackProgress
     )
     val internalIsKeyboardVisible = sheetOverlayState.internalIsKeyboardVisible
+    // Liquid Glass mode (static; flips only when the user switches style).
+    val glassModeForQueue = LocalGlassModeEnabled.current
     val actuallyShowSheetContent = sheetOverlayState.actuallyShowSheetContent
     val isQueueVisible = sheetOverlayState.isQueueVisible
     val bottomSheetOpenFractionState = sheetOverlayState.bottomSheetOpenFractionState
@@ -554,6 +565,11 @@ fun UnifiedPlayerSheetV2(
         }
     }
     val isQueueTelemetryActive = showQueueSheet
+    // Glass mode: the queue's scrim is an opaque dimmed ambient once fully open, so the player
+    // underneath stops drawing (NexHome's "skip what an opaque sheet covers").
+    val glassQueueCoversPlayerProvider: () -> Boolean = remember(queueScrimAlphaState, glassModeForQueue) {
+        { glassModeForQueue && queueScrimAlphaState.value >= QUEUE_SCRIM_FULL_ALPHA }
+    }
 
     LaunchedEffect(showQueueSheet) {
         playerViewModel.updateQueueSheetVisibility(showQueueSheet)
@@ -610,6 +626,49 @@ fun UnifiedPlayerSheetV2(
         }
     }
 
+    // Glass mode: the card is NexHome's floating capsule when collapsed (half the mini player's
+    // height) and square when expanded, one uniform radius so the lens accepts the shape. The
+    // glass amount fades the capsule's glass out over the first quarter of the expansion, leaving
+    // the card as a plain copy of the baked ambient: the full player's background.
+    val glassMode = glassModeForQueue
+    val glassCardCornerProvider: () -> Dp = remember(
+        playerContentExpansionFraction,
+        predictiveBackCollapseProgressState
+    ) {
+        {
+            val fraction = (playerContentExpansionFraction.value *
+                (1f - predictiveBackCollapseProgressState.value)).coerceIn(0f, 1f)
+            androidx.compose.ui.unit.lerp(GlassMiniPlayerCorner, 0.dp, fraction)
+        }
+    }
+    val glassBackdrop = LocalGlassBackdrop.current
+    val glassCapability = LocalGlassCapability.current
+    val glassCardTint = LocalGlassPalette.current.topBar
+    val glassCardModifier = remember(glassMode, glassBackdrop, glassCapability, glassCardTint, glassCardCornerProvider) {
+        if (!glassMode) {
+            Modifier
+        } else {
+            val shapes = QuantizedCornerShapeCache()
+            Modifier.glassMorphCard(
+                backdrop = glassBackdrop,
+                shape = { shapes.get(glassCardCornerProvider()) },
+                capability = glassCapability,
+                tint = glassCardTint,
+                glassAmount = {
+                    val fraction = playerContentExpansionFraction.value *
+                        (1f - predictiveBackCollapseProgressState.value)
+                    (1f - fraction * 4f).coerceIn(0f, 1f)
+                },
+                // Same fold as MainActivity's page/scrim skip: at full expansion the ambient
+                // root shows through unobstructed, so the copy would add nothing.
+                coveredByBase = {
+                    playerContentExpansionFraction.value *
+                        (1f - predictiveBackCollapseProgressState.value) >= 1f
+                }
+            )
+        }
+    }
+
     val sheetInteractionState = rememberSheetInteractionState(
         scope = scope,
         velocityTracker = velocityTracker,
@@ -622,9 +681,9 @@ fun UnifiedPlayerSheetV2(
         miniPlayerContentHeightPx = miniPlayerContentHeightPx,
         currentSheetContentState = currentSheetContentState,
         showPlayerContentArea = showPlayerContentArea,
-        overallSheetTopCornerRadiusProvider = overallSheetTopCornerRadiusProvider,
-        playerContentActualBottomRadiusProvider = playerContentActualBottomRadiusProvider,
-        useSmoothCorners = useSmoothCorners,
+        overallSheetTopCornerRadiusProvider = if (glassMode) glassCardCornerProvider else overallSheetTopCornerRadiusProvider,
+        playerContentActualBottomRadiusProvider = if (glassMode) glassCardCornerProvider else playerContentActualBottomRadiusProvider,
+        useSmoothCorners = useSmoothCorners && !glassMode,
         isDragging = sheetBackAndDragState.isDragging,
         onAnimateSheet = { targetExpanded, animationSpec, initialVelocity ->
             if (animationSpec == null) {
@@ -727,15 +786,24 @@ fun UnifiedPlayerSheetV2(
                             // never restructures when the elevation crosses 0 during
                             // expand/collapse or right after play/pause.
                             .graphicsLayer {
-                                shadowElevation = visualCardShadowElevationState.value.toPx()
+                                // Glass mode: NexHome's floating capsule has no drop shadow.
+                                shadowElevation = if (glassMode) 0f else visualCardShadowElevationState.value.toPx()
                                 shape = sheetInteractionState.playerShadowShape
                                 clip = false
                             }
-                            // Same pixels as .background(color, shape); the colour is read at
-                            // draw time so the album colour fade only redraws the card.
-                            .drawBackgroundOutline(
-                                shape = sheetInteractionState.playerShadowShape,
-                                color = playerAreaBackgroundProvider
+                            .then(
+                                if (glassMode) {
+                                    // One glass node: the mini player's capsule, then the full
+                                    // player's baked-ambient background.
+                                    glassCardModifier
+                                } else {
+                                    // Same pixels as .background(color, shape); the colour is read at
+                                    // draw time so the album colour fade only redraws the card.
+                                    Modifier.drawBackgroundOutline(
+                                        shape = sheetInteractionState.playerShadowShape,
+                                        color = playerAreaBackgroundProvider
+                                    )
+                                }
                             )
                             .clip(sheetInteractionState.playerShadowShape)
                             // innerLayout:
@@ -809,7 +877,8 @@ fun UnifiedPlayerSheetV2(
                             onQueueDragStart = sheetActionHandlers.beginQueueDrag,
                             onQueueDrag = sheetActionHandlers.dragQueueBy,
                             onQueueRelease = sheetActionHandlers.endQueueDrag,
-                            onShowCastClicked = castSheetState.openCastSheet
+                            onShowCastClicked = castSheetState.openCastSheet,
+                            isFullPlayerCoveredProvider = glassQueueCoversPlayerProvider
                         )
                     }
                 }

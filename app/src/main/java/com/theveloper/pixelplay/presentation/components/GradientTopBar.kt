@@ -5,6 +5,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.PaddingValues
@@ -44,6 +45,12 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.theveloper.pixelplay.R
+import com.theveloper.pixelplay.ui.glass.GlassCircleAction
+import com.theveloper.pixelplay.ui.glass.GlassTopBar
+import com.theveloper.pixelplay.ui.glass.LocalGlassModeEnabled
+import com.theveloper.pixelplay.ui.glass.components.GlassPanel
+import com.theveloper.pixelplay.ui.glass.motion.LiquidMotion
+import com.theveloper.pixelplay.ui.glass.theme.LocalGlassPalette
 import com.theveloper.pixelplay.ui.theme.GoogleSansRounded
 import com.theveloper.pixelplay.ui.theme.PixelPlayStatusBarStyle
 import androidx.compose.ui.res.stringResource
@@ -115,6 +122,17 @@ fun HomeGradientTopBar(
     val surfaceContainerHigh = MaterialTheme.colorScheme.surfaceContainerHighest
 
     PixelPlayStatusBarStyle(color = surfaceContainerHigh)
+
+    if (LocalGlassModeEnabled.current) {
+        HomeGlassTopBar(
+            onNavigationIconClick = onNavigationIconClick,
+            onMoreOptionsClick = onMoreOptionsClick,
+            onBetaClick = onBetaClick,
+            activeJobCount = activeJobCount,
+            onJobsClick = onJobsClick
+        )
+        return
+    }
 
     val animatedAlpha by animateFloatAsState(
         targetValue = if (isScrolled) 1f else 0f,
@@ -233,3 +251,77 @@ fun HomeGradientTopBar(
     )
 }
 
+/**
+ * Home's top bar in Liquid Glass mode: NexHome's floating capsule ([GlassTopBar], no glint) with
+ * the Beta pill as a light glass capsule at the start and the actions as 40 dp glass orbs.
+ */
+@Composable
+private fun HomeGlassTopBar(
+    onNavigationIconClick: () -> Unit,
+    onMoreOptionsClick: () -> Unit,
+    onBetaClick: () -> Unit,
+    activeJobCount: Int,
+    onJobsClick: () -> Unit,
+) {
+    val palette = LocalGlassPalette.current
+    GlassTopBar(
+        leading = {
+            GlassPanel(
+                modifier = Modifier.height(40.dp),
+                shape = com.kyant.shapes.Capsule(),
+                tint = palette.tintSubtle,
+                accent = palette.accent,
+                onClick = onBetaClick,
+                showHighlight = false,
+                refractionHeight = 16.dp,
+                refractionAmount = 32.dp,
+                pressScale = LiquidMotion.ButtonPressScale,
+            ) {
+                Row(
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .padding(horizontal = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = stringResource(R.string.topbar_beta_letter),
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Black
+                    )
+                    Text(
+                        text = stringResource(R.string.topbar_beta_label),
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
+        },
+        trailing = {
+            if (activeJobCount > 0) {
+                GlassCircleAction(
+                    onClick = onJobsClick,
+                    contentDescription = stringResource(R.string.topbar_cd_active_jobs)
+                ) {
+                    BadgedBox(badge = { Badge { Text(activeJobCount.toString()) } }) {
+                        Icon(painter = painterResource(R.drawable.rounded_hourglass_24), contentDescription = null)
+                    }
+                }
+            }
+            GlassCircleAction(
+                onClick = onMoreOptionsClick,
+                contentDescription = stringResource(R.string.topbar_cd_changelog)
+            ) {
+                Icon(painter = painterResource(R.drawable.round_newspaper_24), contentDescription = null)
+            }
+            GlassCircleAction(
+                onClick = onNavigationIconClick,
+                contentDescription = stringResource(R.string.common_settings)
+            ) {
+                Icon(painter = painterResource(R.drawable.rounded_settings_24), contentDescription = null)
+            }
+        },
+    ) {
+        Spacer(Modifier.weight(1f))
+    }
+}

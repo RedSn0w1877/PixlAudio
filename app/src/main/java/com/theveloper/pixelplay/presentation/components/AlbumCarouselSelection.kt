@@ -50,6 +50,8 @@ fun AlbumCarouselSection(
     carouselStyle: String = CarouselStyle.NO_PEEK,
     itemSpacing: Dp = 8.dp,
     albumArtQuality: AlbumArtQuality = AlbumArtQuality.MEDIUM,
+    /** Corner radius of each art item (glass mode's framed art uses NexHome's inner 22 dp). */
+    itemCornerRadius: Dp = 18.dp,
     /**
      * Read when a programmatic scroll starts. False while the carousel isn't on screen (the
      * warm, hidden full player): the carousel then jumps to the new item instead of running a
@@ -183,7 +185,7 @@ fun AlbumCarouselSection(
             }
     }
 
-    val corner = 18.dp//lerp(36.dp, 15.dp, expansionFraction.coerceIn(0f, 1f))
+    val corner = itemCornerRadius//lerp(36.dp, 15.dp, expansionFraction.coerceIn(0f, 1f))
 
     BoxWithConstraints(modifier = modifier) {
         val availableWidth = this.maxWidth
