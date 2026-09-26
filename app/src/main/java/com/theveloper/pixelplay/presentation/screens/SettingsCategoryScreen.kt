@@ -1,5 +1,6 @@
 package com.theveloper.pixelplay.presentation.screens
 
+import com.theveloper.pixelplay.presentation.components.CollapsingHeaderHeight
 import com.theveloper.pixelplay.presentation.components.AdaptivePressSurface
 import com.theveloper.pixelplay.ui.glass.LocalGlassModeEnabled
 import com.theveloper.pixelplay.presentation.components.RestoreMaterialColors
@@ -248,9 +249,19 @@ fun SettingsCategoryScreen(
         emptyList()
     }
     val explorerRoot = settingsViewModel.explorerRoot()
+    if (category == SettingsCategory.LIBRARY) {
+        // Refreshed once when the category opens (it used to run inside the storage subsection,
+        // which is now a lazy item that can leave and re-enter composition while scrolling).
+        LaunchedEffect(Unit) { settingsViewModel.refreshStorageUsage() }
+    }
 
     // Local State
     var showExplorerSheet by remember { mutableStateOf(false) }
+    // Model tuning knobs (temperature/top-p/top-k/penalties), the token-usage
+    // ledger, and the song-sampling controls are engineer-facing settings that
+    // most people never need to touch — collapsed by default so the screen a
+    // regular user sees is just "pick a provider, paste a key, done."
+    var showAdvancedAiSettings by remember { mutableStateOf(false) }
     var refreshRequested by remember { mutableStateOf(false) }
     var syncRequestObservedRunning by remember { mutableStateOf(false) }
     var syncIndicatorLabel by remember { mutableStateOf<String?>(null) }
@@ -368,7 +379,7 @@ fun SettingsCategoryScreen(
     
     val titleMaxLines = if (isLongTitle) 2 else 1
 
-    val topBarHeight = remember(maxTopBarHeightPx) { Animatable(maxTopBarHeightPx) }
+    val topBarHeight = remember(maxTopBarHeightPx) { CollapsingHeaderHeight(maxTopBarHeightPx) }
     // Derived, and read only by the top bar below: the per-frame header height never recomposes
     // this (very large) screen body.
     val collapseFraction by rememberCollapseFraction(topBarHeight, minTopBarHeightPx, maxTopBarHeightPx)
@@ -392,7 +403,7 @@ fun SettingsCategoryScreen(
                 val consumed = newHeight - previousHeight
 
                 if (consumed.roundToInt() != 0) {
-                    coroutineScope.launch { topBarHeight.snapTo(newHeight) }
+                    topBarHeight.snapTo(newHeight)
                 }
 
                 val canConsumeScroll = !(isScrollingDown && newHeight == minTopBarHeightPx)
@@ -437,13 +448,12 @@ fun SettingsCategoryScreen(
             modifier = Modifier.fillMaxSize(),
             contentPadding = listContentPadding
         ) {
-            item {
-               // Use a simple Column for now, or ExpressiveSettingsGroup if preferred strictly for items
-               Column(
-                    modifier = Modifier.background(Color.Transparent)
-               ) {
-                    when (category) {
-                        SettingsCategory.LIBRARY -> {
+            // Each subsection is its own lazy item, so opening a category composes only what is
+            // on screen and a state change recomposes only the subsection that reads it.
+            when (category) {
+                SettingsCategory.LIBRARY -> {
+                    item(key = "library_structure", contentType = "settings_subsection") {
+                        Column {
                             SettingsSubsection(title = stringResource(R.string.settings_library_structure_section)) {
                                 SettingsItem(
                                     title = stringResource(R.string.settings_excluded_directories_title),
@@ -463,7 +473,10 @@ fun SettingsCategoryScreen(
                                     onClick = { navController.navigateSafely(Screen.ArtistSettings.route) }
                                 )
                             }
-
+                        }
+                    }
+                    item(key = "library_filtering", contentType = "settings_subsection") {
+                        Column {
                             SettingsSubsection(title = stringResource(R.string.settings_filtering_section)) {
                                 SliderSettingsItem(
                                     label = stringResource(R.string.settings_min_song_duration),
@@ -508,7 +521,10 @@ fun SettingsCategoryScreen(
                                     valueText = { value -> "${value.toInt()} MB" }
                                 )
                             }
-
+                        }
+                    }
+                    item(key = "library_sync", contentType = "settings_subsection") {
+                        Column {
                             SettingsSubsection(title = stringResource(R.string.settings_sync_scanning_section)) {
                                 RefreshLibraryItem(
                                     isSyncing = isSyncing,
@@ -535,10 +551,12 @@ fun SettingsCategoryScreen(
                                     leadingIcon = { Icon(Icons.Outlined.Folder, null, tint = MaterialTheme.colorScheme.secondary) }
                                 )
                             }
-
+                        }
+                    }
+                    item(key = "library_storage", contentType = "settings_subsection") {
+                        Column {
                             SettingsSubsection(title = stringResource(R.string.settings_storage_section)) {
                                 val storageUsage by settingsViewModel.storageUsage.collectAsStateWithLifecycle()
-                                LaunchedEffect(Unit) { settingsViewModel.refreshStorageUsage() }
 
                                 val reclaimable = storageUsage?.autoCachedBytes ?: 0L
                                 ActionSettingsItem(
@@ -578,7 +596,10 @@ fun SettingsCategoryScreen(
                                     enabled = reclaimable > 0L
                                 )
                             }
-
+                        }
+                    }
+                    item(key = "library_lyrics", contentType = "settings_subsection") {
+                        Column {
                             SettingsSubsection(
                                 title = stringResource(R.string.settings_lyrics_management_section),
                                 addBottomSpace = false
@@ -614,9 +635,12 @@ fun SettingsCategoryScreen(
                                 )
                             }
                         }
-                        SettingsCategory.APPEARANCE -> {
+                    }
+                }
+                SettingsCategory.APPEARANCE -> {
+                    item(key = "appearance_theme", contentType = "settings_subsection") {
+                        Column {
                             val useSmoothCorners by settingsViewModel.useSmoothCorners.collectAsStateWithLifecycle()
-
                             SettingsSubsection(title = stringResource(R.string.settings_global_theme_section)) {
                                 ThemeSelectorItem(
                                     label = stringResource(R.string.settings_app_language_title),
@@ -663,7 +687,10 @@ fun SettingsCategoryScreen(
                                     leadingIcon = { Icon(Icons.Rounded.UnfoldMore, null, tint = MaterialTheme.colorScheme.secondary) }
                                 )
                             }
-
+                        }
+                    }
+                    item(key = "appearance_now_playing", contentType = "settings_subsection") {
+                        Column {
                             SettingsSubsection(title = stringResource(R.string.settings_now_playing_section)) {
                                 ThemeSelectorItem(
                                     label = stringResource(R.string.settings_player_theme_title),
@@ -702,7 +729,10 @@ fun SettingsCategoryScreen(
                                     leadingIcon = { Icon(painterResource(R.drawable.rounded_view_carousel_24), null, tint = MaterialTheme.colorScheme.secondary) }
                                 )
                             }
-
+                        }
+                    }
+                    item(key = "appearance_collage", contentType = "settings_subsection") {
+                        Column {
                             SettingsSubsection(title = stringResource(R.string.settings_home_collage_section)) {
                                 ThemeSelectorItem(
                                     label = stringResource(R.string.settings_collage_pattern_title),
@@ -722,7 +752,10 @@ fun SettingsCategoryScreen(
                                     leadingIcon = { Icon(painterResource(R.drawable.rounded_shuffle_24), null, tint = MaterialTheme.colorScheme.secondary) }
                                 )
                             }
-
+                        }
+                    }
+                    item(key = "appearance_navigation", contentType = "settings_subsection") {
+                        Column {
                             SettingsSubsection(title = stringResource(R.string.settings_navigation_bar_section)) {
                                 ThemeSelectorItem(
                                     label = stringResource(R.string.settings_navbar_style_title),
@@ -756,7 +789,10 @@ fun SettingsCategoryScreen(
                                     onClick = { navController.navigateSafely("nav_bar_corner_radius") }
                                 )
                             }
-
+                        }
+                    }
+                    item(key = "appearance_lyrics", contentType = "settings_subsection") {
+                        Column {
                             SettingsSubsection(title = stringResource(R.string.settings_lyrics_screen_section)) {
                                 SwitchSettingItem(
                                     title = stringResource(R.string.settings_immersive_lyrics_title),
@@ -782,7 +818,10 @@ fun SettingsCategoryScreen(
                                     )
                                 }
                             }
-
+                        }
+                    }
+                    item(key = "appearance_last", contentType = "settings_subsection") {
+                        Column {
                             SettingsSubsection(
                                 title = stringResource(R.string.settings_app_navigation_section),
                                 addBottomSpace = false
@@ -812,7 +851,11 @@ fun SettingsCategoryScreen(
                                 )
                             }
                         }
-                        SettingsCategory.PLAYBACK -> {
+                    }
+                }
+                SettingsCategory.PLAYBACK -> {
+                    item(key = "playback_background", contentType = "settings_subsection") {
+                        Column {
                             SettingsSubsection(title = stringResource(R.string.settings_background_playback_section)) {
                                 ThemeSelectorItem(
                                     label = stringResource(R.string.settings_keep_playing_title),
@@ -848,7 +891,10 @@ fun SettingsCategoryScreen(
                                     leadingIcon = { Icon(painterResource(R.drawable.rounded_all_inclusive_24), null, tint = MaterialTheme.colorScheme.secondary) }
                                 )
                             }
-
+                        }
+                    }
+                    item(key = "playback_replaygain", contentType = "settings_subsection") {
+                        Column {
                             SettingsSubsection(title = stringResource(R.string.settings_replaygain_section)) {
                                 SwitchSettingItem(
                                     title = stringResource(R.string.settings_replaygain_enable_title),
@@ -872,7 +918,10 @@ fun SettingsCategoryScreen(
                                     )
                                 }
                             }
-
+                        }
+                    }
+                    item(key = "playback_cast", contentType = "settings_subsection") {
+                        Column {
                             SettingsSubsection(title = stringResource(R.string.settings_cast_section)) {
                                 ThemeSelectorItem(
                                     label = stringResource(R.string.settings_cast_autoplay_title),
@@ -883,7 +932,10 @@ fun SettingsCategoryScreen(
                                     leadingIcon = { Icon(painterResource(R.drawable.rounded_cast_24), null, tint = MaterialTheme.colorScheme.secondary) }
                                 )
                             }
-
+                        }
+                    }
+                    item(key = "playback_volume", contentType = "settings_subsection") {
+                        Column {
                             SettingsSubsection(title = stringResource(R.string.settings_volume_section)) {
                                 SwitchSettingItem(
                                     title = stringResource(R.string.settings_pause_on_volume_zero),
@@ -893,7 +945,10 @@ fun SettingsCategoryScreen(
                                     leadingIcon = { Icon(painterResource(R.drawable.rounded_volume_down_24), null, tint = MaterialTheme.colorScheme.secondary) }
                                 )
                             }
-
+                        }
+                    }
+                    item(key = "playback_headphones", contentType = "settings_subsection") {
+                        Column {
                             SettingsSubsection(title = stringResource(R.string.settings_headphones_section)) {
                                 SwitchSettingItem(
                                     title = stringResource(R.string.settings_headphones_resume_title),
@@ -903,7 +958,10 @@ fun SettingsCategoryScreen(
                                     leadingIcon = { Icon(painterResource(R.drawable.rounded_headphones_24), null, tint = MaterialTheme.colorScheme.secondary) }
                                 )
                             }
-
+                        }
+                    }
+                    item(key = "playback_quality", contentType = "settings_subsection") {
+                        Column {
                             SettingsSubsection(title = stringResource(R.string.settings_audio_quality_title)) {
                                 ThemeSelectorItem(
                                     label = stringResource(R.string.settings_audio_quality_title),
@@ -921,7 +979,10 @@ fun SettingsCategoryScreen(
                                     leadingIcon = { Icon(painterResource(R.drawable.outline_high_quality_24), null, tint = MaterialTheme.colorScheme.secondary) }
                                 )
                             }
-
+                        }
+                    }
+                    item(key = "playback_queue", contentType = "settings_subsection") {
+                        Column {
                             SettingsSubsection(title = stringResource(R.string.settings_queue_transitions_section)) {
                                 ThemeSelectorItem(
                                     label = stringResource(R.string.settings_crossfade_title),
@@ -983,9 +1044,12 @@ fun SettingsCategoryScreen(
                                     leadingIcon = { Icon(painterResource(R.drawable.rounded_queue_music_24), null, tint = MaterialTheme.colorScheme.secondary) }
                                 )
                             }
-
                         }
-                        SettingsCategory.BEHAVIOR -> {
+                    }
+                }
+                SettingsCategory.BEHAVIOR -> {
+                    item(key = "behavior_folders", contentType = "settings_subsection") {
+                        Column {
                             SettingsSubsection(
                                 title = stringResource(R.string.settings_folders_section)
                             ) {
@@ -1003,6 +1067,10 @@ fun SettingsCategoryScreen(
                                     }
                                 )
                             }
+                        }
+                    }
+                    item(key = "behavior_gestures", contentType = "settings_subsection") {
+                        Column {
                             SettingsSubsection(
                                 title = stringResource(R.string.settings_player_gestures_section)
                             ) {
@@ -1014,6 +1082,10 @@ fun SettingsCategoryScreen(
                                     leadingIcon = { Icon(painterResource(R.drawable.rounded_touch_app_24), null, tint = MaterialTheme.colorScheme.secondary) }
                                 )
                             }
+                        }
+                    }
+                    item(key = "behavior_haptics", contentType = "settings_subsection") {
+                        Column {
                             SettingsSubsection(
                                 title = stringResource(R.string.settings_haptics_section),
                                 addBottomSpace = false
@@ -1027,19 +1099,24 @@ fun SettingsCategoryScreen(
                                 )
                             }
                         }
-                        SettingsCategory.AI_INTEGRATION -> {
+                    }
+                }
+                SettingsCategory.AI_INTEGRATION -> {
+                    item(key = "ai_studio_card", contentType = "settings_subsection") {
+                        Column {
                             com.theveloper.pixelplay.presentation.components.AutomaticStudioSettingsCard()
                             Spacer(Modifier.height(20.dp))
+                        }
+                    }
+                    item(key = "ai_intelligence_card", contentType = "settings_subsection") {
+                        Column {
                             com.theveloper.pixelplay.presentation.components.MusicIntelligenceSettingsCard()
                             Spacer(Modifier.height(20.dp))
-                            val provider = com.theveloper.pixelplay.data.ai.provider.AiProvider.fromString(aiProvider)
-                            val currentAiBaseUrl by settingsViewModel.currentAiBaseUrl.collectAsStateWithLifecycle()
-                            // Model tuning knobs (temperature/top-p/top-k/penalties), the token-usage
-                            // ledger, and the song-sampling controls are engineer-facing settings that
-                            // most people never need to touch — collapsed by default so the screen a
-                            // regular user sees is just "pick a provider, paste a key, done."
-                            var showAdvancedAiSettings by remember { mutableStateOf(false) }
-
+                        }
+                    }
+                    val provider = com.theveloper.pixelplay.data.ai.provider.AiProvider.fromString(aiProvider)
+                    item(key = "ai_provider", contentType = "settings_subsection") {
+                        Column {
                             // AI Provider Selection
                             SettingsSubsection(title = stringResource(R.string.settings_ai_provider_section)) {
                                 ThemeSelectorItem(
@@ -1081,212 +1158,228 @@ fun SettingsCategoryScreen(
                                     }
                                 )
                             }
-                            
-                            // Consolidated API Key Section — not applicable to ON_DEVICE (no key of any kind).
-                            if (provider != com.theveloper.pixelplay.data.ai.provider.AiProvider.ON_DEVICE) {
-                            SettingsSubsection(title = stringResource(R.string.settings_credentials_section)) {
-                                val sourceLabel = when(provider) {
-                                    com.theveloper.pixelplay.data.ai.provider.AiProvider.GEMINI -> stringResource(R.string.settings_ai_source_gemini)
-                                    com.theveloper.pixelplay.data.ai.provider.AiProvider.DEEPSEEK -> stringResource(R.string.settings_ai_source_deepseek)
-                                    com.theveloper.pixelplay.data.ai.provider.AiProvider.GROQ -> stringResource(R.string.settings_ai_source_groq)
-                                    com.theveloper.pixelplay.data.ai.provider.AiProvider.MISTRAL -> stringResource(R.string.settings_ai_source_mistral)
-                                    com.theveloper.pixelplay.data.ai.provider.AiProvider.NVIDIA -> stringResource(R.string.settings_ai_source_nvidia)
-                                    com.theveloper.pixelplay.data.ai.provider.AiProvider.KIMI -> stringResource(R.string.settings_ai_source_kimi)
-                                    com.theveloper.pixelplay.data.ai.provider.AiProvider.GLM -> stringResource(R.string.settings_ai_source_glm)
-                                    com.theveloper.pixelplay.data.ai.provider.AiProvider.OPENAI -> stringResource(R.string.settings_ai_source_openai)
-                                    com.theveloper.pixelplay.data.ai.provider.AiProvider.OPENROUTER -> "OpenRouter (openrouter.ai)"
-                                    com.theveloper.pixelplay.data.ai.provider.AiProvider.OLLAMA -> "Ollama (local server)"
-                                    com.theveloper.pixelplay.data.ai.provider.AiProvider.CUSTOM -> "Custom Provider"
-                                    com.theveloper.pixelplay.data.ai.provider.AiProvider.ON_DEVICE -> "On-Device (Offline)"
-                                }
+                        }
+                    }
+                    // Consolidated API Key Section — not applicable to ON_DEVICE (no key of any kind).
+                    if (provider != com.theveloper.pixelplay.data.ai.provider.AiProvider.ON_DEVICE) {
+                        item(key = "ai_credentials", contentType = "settings_subsection") {
+                            Column {
+                                SettingsSubsection(title = stringResource(R.string.settings_credentials_section)) {
+                                    val sourceLabel = when(provider) {
+                                        com.theveloper.pixelplay.data.ai.provider.AiProvider.GEMINI -> stringResource(R.string.settings_ai_source_gemini)
+                                        com.theveloper.pixelplay.data.ai.provider.AiProvider.DEEPSEEK -> stringResource(R.string.settings_ai_source_deepseek)
+                                        com.theveloper.pixelplay.data.ai.provider.AiProvider.GROQ -> stringResource(R.string.settings_ai_source_groq)
+                                        com.theveloper.pixelplay.data.ai.provider.AiProvider.MISTRAL -> stringResource(R.string.settings_ai_source_mistral)
+                                        com.theveloper.pixelplay.data.ai.provider.AiProvider.NVIDIA -> stringResource(R.string.settings_ai_source_nvidia)
+                                        com.theveloper.pixelplay.data.ai.provider.AiProvider.KIMI -> stringResource(R.string.settings_ai_source_kimi)
+                                        com.theveloper.pixelplay.data.ai.provider.AiProvider.GLM -> stringResource(R.string.settings_ai_source_glm)
+                                        com.theveloper.pixelplay.data.ai.provider.AiProvider.OPENAI -> stringResource(R.string.settings_ai_source_openai)
+                                        com.theveloper.pixelplay.data.ai.provider.AiProvider.OPENROUTER -> "OpenRouter (openrouter.ai)"
+                                        com.theveloper.pixelplay.data.ai.provider.AiProvider.OLLAMA -> "Ollama (local server)"
+                                        com.theveloper.pixelplay.data.ai.provider.AiProvider.CUSTOM -> "Custom Provider"
+                                        com.theveloper.pixelplay.data.ai.provider.AiProvider.ON_DEVICE -> "On-Device (Offline)"
+                                    }
 
-                                // Gemini is the one provider with a genuine no-cost, no-card-required
-                                // free tier — surfacing the signup link right here turns "go find an
-                                // API key somewhere" into a single tap, for the provider where that
-                                // tap actually leads somewhere free.
-                                if (provider == com.theveloper.pixelplay.data.ai.provider.AiProvider.GEMINI && currentAiApiKey.isBlank()) {
-                                    SettingsItem(
-                                        title = stringResource(R.string.settings_ai_get_free_key),
-                                        subtitle = stringResource(R.string.settings_ai_get_free_key_subtitle),
-                                        onClick = {
-                                            try {
-                                                context.startActivity(
-                                                    Intent(Intent.ACTION_VIEW, "https://aistudio.google.com/apikey".toUri())
-                                                )
-                                            } catch (e: Exception) {
-                                                Toast.makeText(context, "Couldn't open the browser", Toast.LENGTH_SHORT).show()
-                                            }
-                                        },
-                                        leadingIcon = { Icon(Icons.Rounded.OpenInNew, null, tint = MaterialTheme.colorScheme.primary) }
+                                    // Gemini is the one provider with a genuine no-cost, no-card-required
+                                    // free tier — surfacing the signup link right here turns "go find an
+                                    // API key somewhere" into a single tap, for the provider where that
+                                    // tap actually leads somewhere free.
+                                    if (provider == com.theveloper.pixelplay.data.ai.provider.AiProvider.GEMINI && currentAiApiKey.isBlank()) {
+                                        SettingsItem(
+                                            title = stringResource(R.string.settings_ai_get_free_key),
+                                            subtitle = stringResource(R.string.settings_ai_get_free_key_subtitle),
+                                            onClick = {
+                                                try {
+                                                    context.startActivity(
+                                                        Intent(Intent.ACTION_VIEW, "https://aistudio.google.com/apikey".toUri())
+                                                    )
+                                                } catch (e: Exception) {
+                                                    Toast.makeText(context, "Couldn't open the browser", Toast.LENGTH_SHORT).show()
+                                                }
+                                            },
+                                            leadingIcon = { Icon(Icons.Rounded.OpenInNew, null, tint = MaterialTheme.colorScheme.primary) }
+                                        )
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                    }
+
+                                    AiApiKeyItem(
+                                        apiKey = currentAiApiKey,
+                                        onApiKeySave = { settingsViewModel.onAiApiKeyChange(it) },
+                                        title = stringResource(R.string.settings_ai_api_key_title, provider.displayName),
+                                        subtitle = stringResource(R.string.settings_ai_api_key_subtitle, sourceLabel)
                                     )
-                                    Spacer(modifier = Modifier.height(8.dp))
                                 }
-
-                                AiApiKeyItem(
-                                    apiKey = currentAiApiKey,
-                                    onApiKeySave = { settingsViewModel.onAiApiKeyChange(it) },
-                                    title = stringResource(R.string.settings_ai_api_key_title, provider.displayName),
-                                    subtitle = stringResource(R.string.settings_ai_api_key_subtitle, sourceLabel)
-                                )
                             }
+                        }
+                    }
+                    // Model Selection Section
+                    if (currentAiApiKey.isNotBlank()) {
+                        item(key = "ai_model", contentType = "settings_subsection") {
+                            Column {
+                                    SettingsSubsection(title = stringResource(R.string.settings_model_selection_section)) {
+                                        if (uiState.isLoadingModels) {
+                                            Surface(
+                                                color = MaterialTheme.colorScheme.surfaceContainer,
+                                                shape = RoundedCornerShape(10.dp),
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier.padding(16.dp),
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                                ) {
+                                                    CircularProgressIndicator(
+                                                        modifier = Modifier.size(24.dp),
+                                                        strokeWidth = 2.dp
+                                                    )
+                                                    Text(
+                                                        text = stringResource(R.string.settings_loading_models),
+                                                        style = MaterialTheme.typography.bodyMedium,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
+                                                }
+                                            }
+                                        } else if (uiState.modelsFetchError != null) {
+                                            Surface(
+                                                color = MaterialTheme.colorScheme.errorContainer,
+                                                shape = RoundedCornerShape(10.dp),
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) {
+                                                Text(
+                                                    text = uiState.modelsFetchError ?: stringResource(R.string.settings_models_fetch_failed),
+                                                    style = MaterialTheme.typography.bodyMedium,
+                                                    color = MaterialTheme.colorScheme.onErrorContainer,
+                                                    modifier = Modifier.padding(16.dp)
+                                                )
+                                            }
+                                        } else if (uiState.availableModels.isNotEmpty()) {
+                                            SearchableModelSelector(
+                                                label = stringResource(R.string.settings_ai_model_title),
+                                                description = stringResource(R.string.settings_ai_model_subtitle),
+                                                models = uiState.availableModels,
+                                                selectedModelName = currentAiModel.ifEmpty { uiState.availableModels.firstOrNull()?.name ?: "" },
+                                                onModelSelected = { settingsViewModel.onAiModelChange(it) },
+                                                leadingIcon = { Icon(Icons.Rounded.Science, null, tint = MaterialTheme.colorScheme.secondary) }
+                                            )
+                                        }
+                                    }
                             }
+                        }
+                    }
+                    // Base URL Section (only for configurable URL providers)
+                    if (provider.hasConfigurableUrl) {
+                        item(key = "ai_base_url", contentType = "settings_subsection") {
+                            Column {
+                                val currentAiBaseUrl by settingsViewModel.currentAiBaseUrl.collectAsStateWithLifecycle()
+                                    SettingsSubsection(title = "API Base URL") {
+                                        AiApiKeyItem(
+                                            apiKey = currentAiBaseUrl,
+                                            onApiKeySave = { settingsViewModel.onAiBaseUrlChange(provider, it) },
+                                            title = "Base URL",
+                                            subtitle = if (provider == com.theveloper.pixelplay.data.ai.provider.AiProvider.OLLAMA)
+                                                "e.g. http://192.168.1.50:11434/v1 (your Ollama server's LAN address)"
+                                            else
+                                                "e.g. https://api.example.com/v1"
+                                        )
+                                    }
+                            }
+                        }
+                    }
+                    // On-Device Model Section
+                    if (provider == com.theveloper.pixelplay.data.ai.provider.AiProvider.ON_DEVICE) {
+                        item(key = "ai_on_device", contentType = "settings_subsection") {
+                            Column {
+                                    val onDeviceModelInfo by settingsViewModel.onDeviceModelInfo.collectAsStateWithLifecycle()
+                                    val onDeviceImportError by settingsViewModel.onDeviceImportError.collectAsStateWithLifecycle()
 
-                            // Model Selection Section
-                            if (currentAiApiKey.isNotBlank()) {
-                                SettingsSubsection(title = stringResource(R.string.settings_model_selection_section)) {
-                                    if (uiState.isLoadingModels) {
+                                    SettingsSubsection(title = "On-Device Model") {
+                                        Text(
+                                            text = "No download happens automatically — Google's ready-to-use Gemma models require a Hugging Face " +
+                                                "login and license acceptance, so there's no link this app can fetch for you. Download a " +
+                                                ".task or .litertlm file converted for MediaPipe's LLM Inference API yourself (Gemma, Phi-2, " +
+                                                "Falcon-RW-1B, and StableLM all work), then import it below.",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                                        )
+
                                         Surface(
                                             color = MaterialTheme.colorScheme.surfaceContainer,
                                             shape = RoundedCornerShape(10.dp),
-                                            modifier = Modifier.fillMaxWidth()
+                                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
                                         ) {
                                             Row(
                                                 modifier = Modifier.padding(16.dp),
                                                 verticalAlignment = Alignment.CenterVertically,
                                                 horizontalArrangement = Arrangement.spacedBy(12.dp)
                                             ) {
-                                                CircularProgressIndicator(
-                                                    modifier = Modifier.size(24.dp),
-                                                    strokeWidth = 2.dp
+                                                Icon(
+                                                    painter = painterResource(R.drawable.rounded_upload_file_24),
+                                                    contentDescription = null,
+                                                    tint = MaterialTheme.colorScheme.secondary
                                                 )
-                                                Text(
-                                                    text = stringResource(R.string.settings_loading_models),
-                                                    style = MaterialTheme.typography.bodyMedium,
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                                )
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    if (onDeviceModelInfo != null) {
+                                                        Text(
+                                                            text = onDeviceModelInfo!!.fileName,
+                                                            style = MaterialTheme.typography.bodyMedium,
+                                                            fontWeight = FontWeight.Medium
+                                                        )
+                                                        Text(
+                                                            text = "%.1f MB imported".format(onDeviceModelInfo!!.sizeBytes / 1_048_576.0),
+                                                            style = MaterialTheme.typography.bodySmall,
+                                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                        )
+                                                    } else {
+                                                        Text(
+                                                            text = "No model imported",
+                                                            style = MaterialTheme.typography.bodyMedium,
+                                                            fontWeight = FontWeight.Medium
+                                                        )
+                                                        Text(
+                                                            text = "AI features will be unavailable until you import one",
+                                                            style = MaterialTheme.typography.bodySmall,
+                                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                        )
+                                                    }
+                                                }
                                             }
                                         }
-                                    } else if (uiState.modelsFetchError != null) {
-                                        Surface(
-                                            color = MaterialTheme.colorScheme.errorContainer,
-                                            shape = RoundedCornerShape(10.dp),
-                                            modifier = Modifier.fillMaxWidth()
-                                        ) {
+
+                                        if (onDeviceImportError != null) {
                                             Text(
-                                                text = uiState.modelsFetchError ?: stringResource(R.string.settings_models_fetch_failed),
-                                                style = MaterialTheme.typography.bodyMedium,
-                                                color = MaterialTheme.colorScheme.onErrorContainer,
-                                                modifier = Modifier.padding(16.dp)
+                                                text = onDeviceImportError!!,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.error,
+                                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
                                             )
                                         }
-                                    } else if (uiState.availableModels.isNotEmpty()) {
-                                        SearchableModelSelector(
-                                            label = stringResource(R.string.settings_ai_model_title),
-                                            description = stringResource(R.string.settings_ai_model_subtitle),
-                                            models = uiState.availableModels,
-                                            selectedModelName = currentAiModel.ifEmpty { uiState.availableModels.firstOrNull()?.name ?: "" },
-                                            onModelSelected = { settingsViewModel.onAiModelChange(it) },
-                                            leadingIcon = { Icon(Icons.Rounded.Science, null, tint = MaterialTheme.colorScheme.secondary) }
-                                        )
-                                    }
-                                }
-                            }
 
-                            // Base URL Section (only for configurable URL providers)
-                            if (provider.hasConfigurableUrl) {
-                                SettingsSubsection(title = "API Base URL") {
-                                    AiApiKeyItem(
-                                        apiKey = currentAiBaseUrl,
-                                        onApiKeySave = { settingsViewModel.onAiBaseUrlChange(provider, it) },
-                                        title = "Base URL",
-                                        subtitle = if (provider == com.theveloper.pixelplay.data.ai.provider.AiProvider.OLLAMA)
-                                            "e.g. http://192.168.1.50:11434/v1 (your Ollama server's LAN address)"
-                                        else
-                                            "e.g. https://api.example.com/v1"
-                                    )
-                                }
-                            }
-
-                            // On-Device Model Section
-                            if (provider == com.theveloper.pixelplay.data.ai.provider.AiProvider.ON_DEVICE) {
-                                val onDeviceModelInfo by settingsViewModel.onDeviceModelInfo.collectAsStateWithLifecycle()
-                                val onDeviceImportError by settingsViewModel.onDeviceImportError.collectAsStateWithLifecycle()
-
-                                SettingsSubsection(title = "On-Device Model") {
-                                    Text(
-                                        text = "No download happens automatically — Google's ready-to-use Gemma models require a Hugging Face " +
-                                            "login and license acceptance, so there's no link this app can fetch for you. Download a " +
-                                            ".task or .litertlm file converted for MediaPipe's LLM Inference API yourself (Gemma, Phi-2, " +
-                                            "Falcon-RW-1B, and StableLM all work), then import it below.",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                                    )
-
-                                    Surface(
-                                        color = MaterialTheme.colorScheme.surfaceContainer,
-                                        shape = RoundedCornerShape(10.dp),
-                                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
-                                    ) {
                                         Row(
-                                            modifier = Modifier.padding(16.dp),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                                         ) {
-                                            Icon(
-                                                painter = painterResource(R.drawable.rounded_upload_file_24),
-                                                contentDescription = null,
-                                                tint = MaterialTheme.colorScheme.secondary
-                                            )
-                                            Column(modifier = Modifier.weight(1f)) {
-                                                if (onDeviceModelInfo != null) {
-                                                    Text(
-                                                        text = onDeviceModelInfo!!.fileName,
-                                                        style = MaterialTheme.typography.bodyMedium,
-                                                        fontWeight = FontWeight.Medium
-                                                    )
-                                                    Text(
-                                                        text = "%.1f MB imported".format(onDeviceModelInfo!!.sizeBytes / 1_048_576.0),
-                                                        style = MaterialTheme.typography.bodySmall,
-                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                                    )
-                                                } else {
-                                                    Text(
-                                                        text = "No model imported",
-                                                        style = MaterialTheme.typography.bodyMedium,
-                                                        fontWeight = FontWeight.Medium
-                                                    )
-                                                    Text(
-                                                        text = "AI features will be unavailable until you import one",
-                                                        style = MaterialTheme.typography.bodySmall,
-                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                                    )
+                                            FilledTonalButton(
+                                                onClick = { onDeviceModelPicker.launch("*/*") },
+                                                modifier = Modifier.weight(1f)
+                                            ) {
+                                                Text(if (onDeviceModelInfo != null) "Replace model" else "Import model file")
+                                            }
+                                            if (onDeviceModelInfo != null) {
+                                                OutlinedButton(
+                                                    onClick = { settingsViewModel.deleteOnDeviceModel() },
+                                                    modifier = Modifier.weight(1f)
+                                                ) {
+                                                    Text("Remove")
                                                 }
                                             }
                                         }
                                     }
-
-                                    if (onDeviceImportError != null) {
-                                        Text(
-                                            text = onDeviceImportError!!,
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.error,
-                                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
-                                        )
-                                    }
-
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                    ) {
-                                        FilledTonalButton(
-                                            onClick = { onDeviceModelPicker.launch("*/*") },
-                                            modifier = Modifier.weight(1f)
-                                        ) {
-                                            Text(if (onDeviceModelInfo != null) "Replace model" else "Import model file")
-                                        }
-                                        if (onDeviceModelInfo != null) {
-                                            OutlinedButton(
-                                                onClick = { settingsViewModel.deleteOnDeviceModel() },
-                                                modifier = Modifier.weight(1f)
-                                            ) {
-                                                Text("Remove")
-                                            }
-                                        }
-                                    }
-                                }
                             }
-
+                        }
+                    }
+                    item(key = "ai_prompt", contentType = "settings_subsection") {
+                        Column {
                             // Prompt Behavior Section
                             SettingsSubsection(
                                 title = stringResource(R.string.settings_prompt_behavior_section),
@@ -1301,7 +1394,10 @@ fun SettingsCategoryScreen(
                                     subtitle = stringResource(R.string.settings_system_prompt_subtitle)
                                 )
                             }
-
+                        }
+                    }
+                    item(key = "ai_advanced_toggle", contentType = "settings_subsection") {
+                        Column {
                             Spacer(modifier = Modifier.height(8.dp))
                             val advancedRotation by animateFloatAsState(targetValue = if (showAdvancedAiSettings) 180f else 0f)
                             Surface(
@@ -1332,251 +1428,267 @@ fun SettingsCategoryScreen(
                                 }
                             }
                             Spacer(modifier = Modifier.height(8.dp))
-
-                            if (showAdvancedAiSettings) {
-                            // Generation Parameters Section
-                            SettingsSubsection(title = "Generation Parameters") {
-                                SliderSettingsItem(
-                                    label = "Temperature",
-                                    value = settingsViewModel.aiTemperature.collectAsStateWithLifecycle().value,
-                                    valueRange = 0.0f..2.0f,
-                                    steps = 20,
-                                    onValueChange = { settingsViewModel.onAiTemperatureChange(it) },
-                                    valueText = { String.format(Locale.US, "%.2f", it) }
-                                )
-                                Text(
-                                    text = "Controls randomness. Lower = more deterministic, higher = more creative.",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp)
-                                )
-                                SliderSettingsItem(
-                                    label = "Top P",
-                                    value = settingsViewModel.aiTopP.collectAsStateWithLifecycle().value,
-                                    valueRange = 0.0f..1.0f,
-                                    steps = 20,
-                                    onValueChange = { settingsViewModel.onAiTopPChange(it) },
-                                    valueText = { String.format(Locale.US, "%.2f", it) }
-                                )
-                                Text(
-                                    text = "Nucleus sampling. Higher = more diverse tokens considered.",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp)
-                                )
-                                SliderSettingsItem(
-                                    label = "Top K",
-                                    value = settingsViewModel.aiTopK.collectAsStateWithLifecycle().value.toFloat(),
-                                    valueRange = 1f..100f,
-                                    steps = 99,
-                                    onValueChange = { settingsViewModel.onAiTopKChange(it.toInt()) },
-                                    valueText = { it.toInt().toString() }
-                                )
-                                Text(
-                                    text = "Limits token selection to the K most likely candidates.",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp)
-                                )
-                                SliderSettingsItem(
-                                    label = "Max Output Tokens",
-                                    value = settingsViewModel.aiMaxTokens.collectAsStateWithLifecycle().value.toFloat(),
-                                    valueRange = 128f..8192f,
-                                    steps = 63,
-                                    onValueChange = { settingsViewModel.onAiMaxTokensChange(it.toInt()) },
-                                    valueText = { it.toInt().toString() }
-                                )
-                                Text(
-                                    text = "Maximum length of the AI response. Higher = longer but more expensive.",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp)
-                                )
-                                SliderSettingsItem(
-                                    label = "Presence Penalty",
-                                    value = settingsViewModel.aiPresencePenalty.collectAsStateWithLifecycle().value,
-                                    valueRange = -2.0f..2.0f,
-                                    steps = 40,
-                                    onValueChange = { settingsViewModel.onAiPresencePenaltyChange(it) },
-                                    valueText = { String.format(Locale.US, "%.1f", it) }
-                                )
-                                Text(
-                                    text = "Penalizes repeated topics. Positive = more diverse topics.",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp)
-                                )
-                                SliderSettingsItem(
-                                    label = "Frequency Penalty",
-                                    value = settingsViewModel.aiFrequencyPenalty.collectAsStateWithLifecycle().value,
-                                    valueRange = -2.0f..2.0f,
-                                    steps = 40,
-                                    onValueChange = { settingsViewModel.onAiFrequencyPenaltyChange(it) },
-                                    valueText = { String.format(Locale.US, "%.1f", it) }
-                                )
-                                Text(
-                                    text = "Penalizes repeated phrases. Positive = more natural language.",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp)
-                                )
+                        }
+                    }
+                    if (showAdvancedAiSettings) {
+                        item(key = "ai_generation", contentType = "settings_subsection") {
+                            Column {
+                                // Generation Parameters Section
+                                SettingsSubsection(title = "Generation Parameters") {
+                                    SliderSettingsItem(
+                                        label = "Temperature",
+                                        value = settingsViewModel.aiTemperature.collectAsStateWithLifecycle().value,
+                                        valueRange = 0.0f..2.0f,
+                                        steps = 20,
+                                        onValueChange = { settingsViewModel.onAiTemperatureChange(it) },
+                                        valueText = { String.format(Locale.US, "%.2f", it) }
+                                    )
+                                    Text(
+                                        text = "Controls randomness. Lower = more deterministic, higher = more creative.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp)
+                                    )
+                                    SliderSettingsItem(
+                                        label = "Top P",
+                                        value = settingsViewModel.aiTopP.collectAsStateWithLifecycle().value,
+                                        valueRange = 0.0f..1.0f,
+                                        steps = 20,
+                                        onValueChange = { settingsViewModel.onAiTopPChange(it) },
+                                        valueText = { String.format(Locale.US, "%.2f", it) }
+                                    )
+                                    Text(
+                                        text = "Nucleus sampling. Higher = more diverse tokens considered.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp)
+                                    )
+                                    SliderSettingsItem(
+                                        label = "Top K",
+                                        value = settingsViewModel.aiTopK.collectAsStateWithLifecycle().value.toFloat(),
+                                        valueRange = 1f..100f,
+                                        steps = 99,
+                                        onValueChange = { settingsViewModel.onAiTopKChange(it.toInt()) },
+                                        valueText = { it.toInt().toString() }
+                                    )
+                                    Text(
+                                        text = "Limits token selection to the K most likely candidates.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp)
+                                    )
+                                    SliderSettingsItem(
+                                        label = "Max Output Tokens",
+                                        value = settingsViewModel.aiMaxTokens.collectAsStateWithLifecycle().value.toFloat(),
+                                        valueRange = 128f..8192f,
+                                        steps = 63,
+                                        onValueChange = { settingsViewModel.onAiMaxTokensChange(it.toInt()) },
+                                        valueText = { it.toInt().toString() }
+                                    )
+                                    Text(
+                                        text = "Maximum length of the AI response. Higher = longer but more expensive.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp)
+                                    )
+                                    SliderSettingsItem(
+                                        label = "Presence Penalty",
+                                        value = settingsViewModel.aiPresencePenalty.collectAsStateWithLifecycle().value,
+                                        valueRange = -2.0f..2.0f,
+                                        steps = 40,
+                                        onValueChange = { settingsViewModel.onAiPresencePenaltyChange(it) },
+                                        valueText = { String.format(Locale.US, "%.1f", it) }
+                                    )
+                                    Text(
+                                        text = "Penalizes repeated topics. Positive = more diverse topics.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp)
+                                    )
+                                    SliderSettingsItem(
+                                        label = "Frequency Penalty",
+                                        value = settingsViewModel.aiFrequencyPenalty.collectAsStateWithLifecycle().value,
+                                        valueRange = -2.0f..2.0f,
+                                        steps = 40,
+                                        onValueChange = { settingsViewModel.onAiFrequencyPenaltyChange(it) },
+                                        valueText = { String.format(Locale.US, "%.1f", it) }
+                                    )
+                                    Text(
+                                        text = "Penalizes repeated phrases. Positive = more natural language.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp)
+                                    )
+                                }
                             }
-
-                            // Song Data Configuration Section
-                            SettingsSubsection(title = "Song Data Configuration") {
-                                val aiSampleSize by settingsViewModel.aiSampleSize.collectAsStateWithLifecycle()
-                                SliderSettingsItem(
-                                    label = "Sample Size",
-                                    value = aiSampleSize.toFloat(),
-                                    valueRange = 10f..120f,
-                                    steps = 11,
-                                    onValueChange = { settingsViewModel.onAiSampleSizeChange(it.toInt()) },
-                                    valueText = { "${it.toInt()} songs" }
-                                )
-                                Text(
-                                    text = "Number of songs sent to the AI for playlist generation. More = better context but higher cost.",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp)
-                                )
-                                ThemeSelectorItem(
-                                    label = "Digest Detail",
-                                    description = "Controls how much listening history data is included",
-                                    options = mapOf("safe" to "Concise (faster)", "full" to "Full (better quality)"),
-                                    selectedKey = settingsViewModel.aiDigestMode.collectAsStateWithLifecycle().value,
-                                    onSelectionChanged = { settingsViewModel.onAiDigestModeChange(it) },
-                                    leadingIcon = {
-                                        Icon(
-                                            painterResource(R.drawable.rounded_monitoring_24),
-                                            null,
-                                            tint = MaterialTheme.colorScheme.secondary
-                                        )
-                                    }
-                                )
-                                SwitchSettingItem(
-                                    title = "Extended Song Fields",
-                                    subtitle = "Include album, year, and genre info in song data sent to AI",
-                                    checked = settingsViewModel.aiIncludeExtendedFields.collectAsStateWithLifecycle().value,
-                                    onCheckedChange = { settingsViewModel.onAiIncludeExtendedFieldsChange(it) },
-                                    leadingIcon = {
-                                        Icon(
-                                            painterResource(R.drawable.rounded_music_note_24),
-                                            null,
-                                            tint = MaterialTheme.colorScheme.secondary
-                                        )
-                                    }
-                                )
-                            }
-
-                            Spacer(modifier = Modifier.height(16.dp))
-
-                            SettingsSubsection(title = stringResource(R.string.settings_ai_usage_report_section)) {
-                                val recentAiUsage by settingsViewModel.recentAiUsage.collectAsStateWithLifecycle()
-                                val totalPromptTokens by settingsViewModel.totalPromptTokens.collectAsStateWithLifecycle()
-                                val totalOutputTokens by settingsViewModel.totalOutputTokens.collectAsStateWithLifecycle()
-                                val totalThoughtTokens by settingsViewModel.totalThoughtTokens.collectAsStateWithLifecycle()
-
-                                val totalTokens = totalPromptTokens + totalOutputTokens + totalThoughtTokens
-                                val totalTokStr = String.format(Locale.US, "%,d", totalTokens)
-                                val promptTokStr = String.format(Locale.US, "%,d", totalPromptTokens)
-                                val outputTokStr = String.format(Locale.US, "%,d", totalOutputTokens)
-                                val thoughtTokStr = String.format(Locale.US, "%,d", totalThoughtTokens)
-
-                                ActionSettingsItem(
-                                    title = stringResource(R.string.settings_total_consumption_title),
-                                    subtitle = stringResource(
-                                        R.string.settings_ai_usage_tokens_subtitle,
-                                        totalTokStr,
-                                        promptTokStr,
-                                        outputTokStr,
-                                        thoughtTokStr
-                                    ),
-                                    icon = {
-                                        Icon(
-                                            painter = painterResource(R.drawable.rounded_monitoring_24),
-                                            contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.tertiary
-                                        )
-                                    },
-                                    primaryActionLabel = stringResource(R.string.settings_ai_clear_logs),
-                                    onPrimaryAction = { settingsViewModel.clearAiUsageData() }
-                                )
-
-                                if (recentAiUsage.isNotEmpty()) {
-                                    Spacer(modifier = Modifier.height(12.dp))
-                                    var expanded by remember { mutableStateOf(false) }
-                                    val rotation by animateFloatAsState(targetValue = if (expanded) 180f else 0f)
-                                    
-                                    Surface(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .clickable { expanded = !expanded },
-                                        color = Color.Transparent
-                                    ) {
-                                        Row(
-                                            modifier = Modifier.padding(vertical = 8.dp),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.SpaceBetween
-                                        ) {
-                                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                                Icon(
-                                                    painter = painterResource(R.drawable.rounded_monitoring_24),
-                                                    contentDescription = null,
-                                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                    modifier = Modifier.size(20.dp)
-                                                )
-                                                Spacer(modifier = Modifier.width(12.dp))
-                                                Text(
-                                                    text = stringResource(R.string.settings_ai_activity_log_title, recentAiUsage.size),
-                                                    style = MaterialTheme.typography.titleMedium.copy(fontFamily = GoogleSansRounded),
-                                                    color = MaterialTheme.colorScheme.onSurface
-                                                )
-                                            }
+                        }
+                        item(key = "ai_song_data", contentType = "settings_subsection") {
+                            Column {
+                                // Song Data Configuration Section
+                                SettingsSubsection(title = "Song Data Configuration") {
+                                    val aiSampleSize by settingsViewModel.aiSampleSize.collectAsStateWithLifecycle()
+                                    SliderSettingsItem(
+                                        label = "Sample Size",
+                                        value = aiSampleSize.toFloat(),
+                                        valueRange = 10f..120f,
+                                        steps = 11,
+                                        onValueChange = { settingsViewModel.onAiSampleSizeChange(it.toInt()) },
+                                        valueText = { "${it.toInt()} songs" }
+                                    )
+                                    Text(
+                                        text = "Number of songs sent to the AI for playlist generation. More = better context but higher cost.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp)
+                                    )
+                                    ThemeSelectorItem(
+                                        label = "Digest Detail",
+                                        description = "Controls how much listening history data is included",
+                                        options = mapOf("safe" to "Concise (faster)", "full" to "Full (better quality)"),
+                                        selectedKey = settingsViewModel.aiDigestMode.collectAsStateWithLifecycle().value,
+                                        onSelectionChanged = { settingsViewModel.onAiDigestModeChange(it) },
+                                        leadingIcon = {
                                             Icon(
-                                                imageVector = Icons.Rounded.ExpandMore,
-                                                contentDescription = if (expanded) stringResource(R.string.settings_ai_hide_logs) else stringResource(R.string.settings_ai_show_logs),
-                                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                modifier = Modifier.rotate(rotation)
+                                                painterResource(R.drawable.rounded_monitoring_24),
+                                                null,
+                                                tint = MaterialTheme.colorScheme.secondary
                                             )
                                         }
-                                    }
+                                    )
+                                    SwitchSettingItem(
+                                        title = "Extended Song Fields",
+                                        subtitle = "Include album, year, and genre info in song data sent to AI",
+                                        checked = settingsViewModel.aiIncludeExtendedFields.collectAsStateWithLifecycle().value,
+                                        onCheckedChange = { settingsViewModel.onAiIncludeExtendedFieldsChange(it) },
+                                        leadingIcon = {
+                                            Icon(
+                                                painterResource(R.drawable.rounded_music_note_24),
+                                                null,
+                                                tint = MaterialTheme.colorScheme.secondary
+                                            )
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                        item(key = "ai_usage", contentType = "settings_subsection") {
+                            Column {
+                                Spacer(modifier = Modifier.height(16.dp))
 
-                                    AnimatedVisibility(
-                                        visible = expanded,
-                                        enter = expandVertically() + fadeIn(),
-                                        exit = shrinkVertically() + fadeOut()
-                                    ) {
-                                        Column(
+                                SettingsSubsection(title = stringResource(R.string.settings_ai_usage_report_section)) {
+                                    val recentAiUsage by settingsViewModel.recentAiUsage.collectAsStateWithLifecycle()
+                                    val totalPromptTokens by settingsViewModel.totalPromptTokens.collectAsStateWithLifecycle()
+                                    val totalOutputTokens by settingsViewModel.totalOutputTokens.collectAsStateWithLifecycle()
+                                    val totalThoughtTokens by settingsViewModel.totalThoughtTokens.collectAsStateWithLifecycle()
+
+                                    val totalTokens = totalPromptTokens + totalOutputTokens + totalThoughtTokens
+                                    val totalTokStr = String.format(Locale.US, "%,d", totalTokens)
+                                    val promptTokStr = String.format(Locale.US, "%,d", totalPromptTokens)
+                                    val outputTokStr = String.format(Locale.US, "%,d", totalOutputTokens)
+                                    val thoughtTokStr = String.format(Locale.US, "%,d", totalThoughtTokens)
+
+                                    ActionSettingsItem(
+                                        title = stringResource(R.string.settings_total_consumption_title),
+                                        subtitle = stringResource(
+                                            R.string.settings_ai_usage_tokens_subtitle,
+                                            totalTokStr,
+                                            promptTokStr,
+                                            outputTokStr,
+                                            thoughtTokStr
+                                        ),
+                                        icon = {
+                                            Icon(
+                                                painter = painterResource(R.drawable.rounded_monitoring_24),
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.tertiary
+                                            )
+                                        },
+                                        primaryActionLabel = stringResource(R.string.settings_ai_clear_logs),
+                                        onPrimaryAction = { settingsViewModel.clearAiUsageData() }
+                                    )
+
+                                    if (recentAiUsage.isNotEmpty()) {
+                                        Spacer(modifier = Modifier.height(12.dp))
+                                        var expanded by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+                                        val rotation by animateFloatAsState(targetValue = if (expanded) 180f else 0f)
+                                        
+                                        Surface(
                                             modifier = Modifier
                                                 .fillMaxWidth()
-                                                .padding(top = 8.dp, bottom = 8.dp)
+                                                .clickable { expanded = !expanded },
+                                            color = Color.Transparent
                                         ) {
-                                            val dateFormat = SimpleDateFormat("MMMM d, yyyy", Locale.getDefault())
-                                            val groupedUsage = recentAiUsage.groupBy { 
-                                                dateFormat.format(Date(it.timestamp)) 
-                                            }
-
-                                            groupedUsage.forEach { (date, items) ->
-                                                AiUsageDateHeader(date = date)
-                                                items.forEach { usage ->
-                                                    AiUsageLogItem(usage = usage)
+                                            Row(
+                                                modifier = Modifier.padding(vertical = 8.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.SpaceBetween
+                                            ) {
+                                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                                    Icon(
+                                                        painter = painterResource(R.drawable.rounded_monitoring_24),
+                                                        contentDescription = null,
+                                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                        modifier = Modifier.size(20.dp)
+                                                    )
+                                                    Spacer(modifier = Modifier.width(12.dp))
+                                                    Text(
+                                                        text = stringResource(R.string.settings_ai_activity_log_title, recentAiUsage.size),
+                                                        style = MaterialTheme.typography.titleMedium.copy(fontFamily = GoogleSansRounded),
+                                                        color = MaterialTheme.colorScheme.onSurface
+                                                    )
                                                 }
-                                                Spacer(modifier = Modifier.height(8.dp))
+                                                Icon(
+                                                    imageVector = Icons.Rounded.ExpandMore,
+                                                    contentDescription = if (expanded) stringResource(R.string.settings_ai_hide_logs) else stringResource(R.string.settings_ai_show_logs),
+                                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    modifier = Modifier.rotate(rotation)
+                                                )
+                                            }
+                                        }
+
+                                        AnimatedVisibility(
+                                            visible = expanded,
+                                            enter = expandVertically() + fadeIn(),
+                                            exit = shrinkVertically() + fadeOut()
+                                        ) {
+                                            Column(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(top = 8.dp, bottom = 8.dp)
+                                            ) {
+                                                val dateFormat = SimpleDateFormat("MMMM d, yyyy", Locale.getDefault())
+                                                val groupedUsage = recentAiUsage.groupBy { 
+                                                    dateFormat.format(Date(it.timestamp)) 
+                                                }
+
+                                                groupedUsage.forEach { (date, items) ->
+                                                    AiUsageDateHeader(date = date)
+                                                    items.forEach { usage ->
+                                                        AiUsageLogItem(usage = usage)
+                                                    }
+                                                    Spacer(modifier = Modifier.height(8.dp))
+                                                }
                                             }
                                         }
                                     }
                                 }
                             }
+                        }
+                    }
+                }
+                SettingsCategory.BACKUP_RESTORE -> {
+                    if (!uiState.backupInfoDismissed) {
+                        item(key = "backup_info", contentType = "settings_subsection") {
+                            Column {
+                                    BackupInfoNoticeCard(
+                                        onDismiss = { settingsViewModel.setBackupInfoDismissed(true) }
+                                    )
+                                    Spacer(modifier = Modifier.height(10.dp))
                             }
                         }
-                        SettingsCategory.BACKUP_RESTORE -> {
-                            if (!uiState.backupInfoDismissed) {
-                                BackupInfoNoticeCard(
-                                    onDismiss = { settingsViewModel.setBackupInfoDismissed(true) }
-                                )
-                                Spacer(modifier = Modifier.height(10.dp))
-                            }
-
+                    }
+                    item(key = "backup_create", contentType = "settings_subsection") {
+                        Column {
                             SettingsSubsection(title = stringResource(R.string.settings_create_backup_section)) {
                                 ActionSettingsItem(
                                     title = stringResource(R.string.settings_export_backup_title),
@@ -1596,7 +1708,10 @@ fun SettingsCategoryScreen(
                                     enabled = !uiState.isDataTransferInProgress
                                 )
                             }
-
+                        }
+                    }
+                    item(key = "backup_restore", contentType = "settings_subsection") {
+                        Column {
                             SettingsSubsection(
                                 title = stringResource(R.string.settings_restore_backup_section),
                                 addBottomSpace = false
@@ -1617,7 +1732,11 @@ fun SettingsCategoryScreen(
                                 )
                             }
                         }
-                        SettingsCategory.DEVELOPER -> {
+                    }
+                }
+                SettingsCategory.DEVELOPER -> {
+                    item(key = "developer_experiments", contentType = "settings_subsection") {
+                        Column {
                             SettingsSubsection(title = stringResource(R.string.settings_experiments_section)) {
                                 SettingsItem(
                                     title = stringResource(R.string.settings_experimental_title),
@@ -1635,7 +1754,10 @@ fun SettingsCategoryScreen(
                                     }
                                 )
                             }
-
+                        }
+                    }
+                    item(key = "developer_maintenance", contentType = "settings_subsection") {
+                        Column {
                             SettingsSubsection(title = stringResource(R.string.settings_maintenance_section)) {
                                 ActionSettingsItem(
                                     title = stringResource(R.string.settings_force_daily_mix_title),
@@ -1666,7 +1788,10 @@ fun SettingsCategoryScreen(
                                     enabled = paletteRegenerateTargets.isNotEmpty() && !isAnyPaletteRegenerateRunning
                                 )
                             }
-
+                        }
+                    }
+                    item(key = "developer_diagnostics", contentType = "settings_subsection") {
+                        Column {
                             SettingsSubsection(
                                 title = stringResource(R.string.settings_diagnostics_section),
                                 addBottomSpace = false
@@ -1679,19 +1804,18 @@ fun SettingsCategoryScreen(
                                 )
                             }
                         }
-                        SettingsCategory.ABOUT -> {
-                            // About has its own screen
-                        }
-                        SettingsCategory.EQUALIZER -> {
-                            // Equalizer has its own screen, so this block is unreachable via standard navigation
-                            // but required for exhaustiveness.
-                        }
-                        SettingsCategory.DEVICE_CAPABILITIES -> {
-                            // Device Capabilities has its own screen
-                        }
-
                     }
-               }
+                }
+                SettingsCategory.ABOUT -> {
+                    // About has its own screen
+                }
+                SettingsCategory.EQUALIZER -> {
+                    // Equalizer has its own screen, so this block is unreachable via standard navigation
+                    // but required for exhaustiveness.
+                }
+                SettingsCategory.DEVICE_CAPABILITIES -> {
+                    // Device Capabilities has its own screen
+                }
             }
 
             item {

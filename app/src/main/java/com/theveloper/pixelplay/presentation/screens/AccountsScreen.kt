@@ -2,6 +2,7 @@
 
 package com.theveloper.pixelplay.presentation.screens
 
+import com.theveloper.pixelplay.presentation.components.CollapsingHeaderHeight
 import com.theveloper.pixelplay.presentation.components.ScreenChrome
 import android.content.Context
 import android.content.Intent
@@ -107,7 +108,7 @@ fun AccountsScreen(
     val maxTopBarHeight = 180.dp
     val minTopBarHeightPx = with(density) { minTopBarHeight.toPx() }
     val maxTopBarHeightPx = with(density) { maxTopBarHeight.toPx() }
-    val topBarHeight = remember { Animatable(maxTopBarHeightPx) }
+    val topBarHeight = remember { CollapsingHeaderHeight(maxTopBarHeightPx) }
     // Derived, and read only by the top bar below: the per-frame header height never recomposes
     // this screen body.
     val collapseFraction by rememberCollapseFraction(topBarHeight, minTopBarHeightPx, maxTopBarHeightPx)
@@ -132,7 +133,7 @@ fun AccountsScreen(
                 val consumed = newHeight - previousHeight
 
                 if (consumed.roundToInt() != 0) {
-                    coroutineScope.launch { topBarHeight.snapTo(newHeight) }
+                    topBarHeight.snapTo(newHeight)
                 }
 
                 val canConsumeScroll = !(isScrollingDown && newHeight == minTopBarHeightPx)

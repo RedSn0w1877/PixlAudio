@@ -15,8 +15,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.Role
@@ -49,6 +51,8 @@ import com.theveloper.pixelplay.ui.glass.theme.LocalGlassPalette
  * PixlAudio changes: no beat pulse (NexHome drove it from a fake 100 bpm clock, a per-frame redraw
  * for the whole listening session; owner decision G3); palette colours; frosted-tier blur.
  */
+private val SurfaceFill = Color.White.copy(alpha = 0.06f)
+
 @Composable
 fun MediaOrb(
     onClick: () -> Unit,
@@ -104,21 +108,32 @@ fun MediaOrb(
                     if (g <= 0.01f) null else Shadow(radius = orbSize * 0.4f, color = currentAccent.copy(alpha = 0.5f), alpha = g)
                 },
                 layerBlock = { kitJelly(highlight, LiquidMotion.OrbPressScale) },
-                onDrawSurface = {
-                    drawRect(Color.White.copy(alpha = 0.06f))
-                    val g = glow.value.fastCoerceIn(0f, 1f)
-                    if (g > 0.001f) {
-                        drawRect(currentAccent.copy(alpha = 0.9f * g), blendMode = BlendMode.Hue)
-                        drawRect(currentAccent.copy(alpha = 0.38f * g))
-                    }
-                },
+                // Static: the lit fill below animates, and anything this node draws re-records
+                // its backdrop layer (the lens re-rendered every frame of the GlowSpring).
+                onDrawSurface = { drawRect(SurfaceFill) },
             )
+    }
+    // The lit fill is the first thing drawn in the glass node's content, i.e. right after its
+    // surface and inside its clipped offscreen layer, so it blends (Hue) over the same refracted
+    // pixels as before. In its own child layer, a glow or accent change re-records only this
+    // layer; the lens node's display list, which merely references it, stays untouched.
+    val litFill = remember(glow) {
+        Modifier
+            .graphicsLayer()
+            .drawBehind {
+                val g = glow.value.fastCoerceIn(0f, 1f)
+                if (g > 0.001f) {
+                    drawRect(currentAccent.copy(alpha = 0.9f * g), blendMode = BlendMode.Hue)
+                    drawRect(currentAccent.copy(alpha = 0.38f * g))
+                }
+            }
     }
 
     Box(
         modifier
             .size(orbSize)
             .then(orbGlass)
+            .then(litFill)
             .then(receiver.modifier)
             .then(highlight.modifier)
             .then(highlight.gestureModifier)

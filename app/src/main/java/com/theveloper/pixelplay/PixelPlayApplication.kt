@@ -156,6 +156,8 @@ class PixelPlayApplication : Application(), ImageLoaderFactory, Configuration.Pr
         return imageLoader.get().newBuilder()
             .components {
                 add(localArtworkCoilFetcherFactory.get())
+                // Opt-in (SmartImage display requests only): thumbnail-sized CDN variants.
+                add(com.theveloper.pixelplay.data.image.RemoteThumbnailInterceptor())
             }
             .build()
     }

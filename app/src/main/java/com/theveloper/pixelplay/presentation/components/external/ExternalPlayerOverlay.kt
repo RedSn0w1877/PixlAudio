@@ -39,6 +39,8 @@ import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
@@ -73,7 +75,19 @@ fun ExternalPlayerOverlay(
     onDismiss: () -> Unit,
     onOpenFullPlayer: () -> Unit
 ) {
-    val stablePlayerState by playerViewModel.stablePlayerState.collectAsStateWithLifecycle()
+    // Narrow projections of StablePlayerState: the whole state also changes on buffering, lyrics
+    // loading and play/pause, which would recompose the whole overlay each time. Only the song and
+    // duration reach the overlay's body; play/pause is read by the slider and the controls alone.
+    val stablePlayerStateFlow = playerViewModel.stablePlayerState
+    val currentSong = remember(stablePlayerStateFlow) {
+        stablePlayerStateFlow.map { it.currentSong }.distinctUntilChanged()
+    }.collectAsStateWithLifecycle(initialValue = stablePlayerStateFlow.value.currentSong).value
+    val totalDurationRaw by remember(stablePlayerStateFlow) {
+        stablePlayerStateFlow.map { it.totalDuration }.distinctUntilChanged()
+    }.collectAsStateWithLifecycle(initialValue = stablePlayerStateFlow.value.totalDuration)
+    val isPlayingState = remember(stablePlayerStateFlow) {
+        stablePlayerStateFlow.map { it.isPlaying }.distinctUntilChanged()
+    }.collectAsStateWithLifecycle(initialValue = stablePlayerStateFlow.value.isPlaying)
     // Kept as State (no `by`) so reading them stays inside the snapshotFlow/LaunchedEffect below
     // instead of subscribing this whole composable — album art, all three metadata Texts, the
     // slider, and the transport controls — to every ~250ms position tick. See the equivalent
@@ -86,7 +100,6 @@ fun ExternalPlayerOverlay(
     }
     val navBarCornerRadiusRaw by playerViewModel.navBarCornerRadius.collectAsStateWithLifecycle()
     val navBarCornerRadius = sanitizeNavBarCornerRadius(navBarCornerRadiusRaw)
-    val currentSong = stablePlayerState.currentSong
 
     var sheetVisible by remember { mutableStateOf(true) }
     var awaitingSong by remember { mutableStateOf(true) }
@@ -168,7 +181,7 @@ fun ExternalPlayerOverlay(
                         CircularProgressIndicator()
                     }
                 } else {
-                    val totalDuration = stablePlayerState.totalDuration.coerceAtLeast(0L)
+                    val totalDuration = totalDurationRaw.coerceAtLeast(0L)
                     val colorScheme = MaterialTheme.colorScheme
                     val skipContainer = colorScheme.secondaryFixedDim
                     val skipContent = colorScheme.onSecondaryFixed
@@ -282,7 +295,7 @@ fun ExternalPlayerOverlay(
                             inactiveTrackColor = progressColor.copy(alpha = 0.2f),
                             thumbColor = progressColor,
                             wavelength = 30.dp,
-                            isPlaying = stablePlayerState.isPlaying,
+                            isPlaying = isPlayingState.value,
                             semanticsLabel = "Playback position"
                         )
 
@@ -310,7 +323,7 @@ fun ExternalPlayerOverlay(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(horizontal = 12.dp),
-                            isPlayingProvider = { stablePlayerState.isPlaying },
+                            isPlayingProvider = { isPlayingState.value },
                             onPrevious = playerViewModel::previousSong,
                             onPlayPause = playerViewModel::playPause,
                             onNext = playerViewModel::nextSong,

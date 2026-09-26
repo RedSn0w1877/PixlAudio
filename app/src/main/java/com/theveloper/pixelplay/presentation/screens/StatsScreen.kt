@@ -2,6 +2,7 @@
 
 package com.theveloper.pixelplay.presentation.screens
 
+import com.theveloper.pixelplay.presentation.components.CollapsingHeaderHeight
 import com.theveloper.pixelplay.presentation.components.AdaptiveChip
 import com.theveloper.pixelplay.presentation.components.ScreenChrome
 import com.theveloper.pixelplay.presentation.components.glassAwareHeaderFill
@@ -163,7 +164,7 @@ fun StatsScreen(
     val minTopBarHeightPx = with(density) { minTopBarHeight.toPx() }
     val maxTopBarHeightPx = with(density) { maxTopBarHeight.toPx() }
 
-    val topBarHeight = remember { Animatable(maxTopBarHeightPx) }
+    val topBarHeight = remember { CollapsingHeaderHeight(maxTopBarHeightPx) }
     // Derived, and read only by the top bar below: the per-frame header height never recomposes
     // this screen body (or the pull-to-refresh box and list).
     val collapseFraction by rememberCollapseFraction(topBarHeight, minTopBarHeightPx, maxTopBarHeightPx)
@@ -183,9 +184,7 @@ fun StatsScreen(
                 val consumed = newHeight - previousHeight
 
                 if (consumed.roundToInt() != 0) {
-                    coroutineScope.launch {
-                        topBarHeight.snapTo(newHeight)
-                    }
+                    topBarHeight.snapTo(newHeight)
                 }
 
                 val canConsume = !(scrollingDown && newHeight == minTopBarHeightPx)

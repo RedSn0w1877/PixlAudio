@@ -1,5 +1,6 @@
 package com.theveloper.pixelplay.presentation.screens
 
+import com.theveloper.pixelplay.presentation.components.CollapsingHeaderHeight
 import com.theveloper.pixelplay.presentation.components.AdaptivePressSurface
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
@@ -159,7 +160,7 @@ fun ExperimentalSettingsScreen(
     val minTopBarHeightPx = with(density) { minTopBarHeight.toPx() }
     val maxTopBarHeightPx = with(density) { maxTopBarHeight.toPx() }
 
-    val topBarHeight = remember { Animatable(maxTopBarHeightPx) }
+    val topBarHeight = remember { CollapsingHeaderHeight(maxTopBarHeightPx) }
     // Derived, and read only inside ExperimentalSettingsTopBar: the per-frame header height never
     // recomposes this screen body.
     val collapseFraction = rememberCollapseFraction(topBarHeight, minTopBarHeightPx, maxTopBarHeightPx)
@@ -179,9 +180,7 @@ fun ExperimentalSettingsScreen(
                 val consumed = newHeight - previousHeight
 
                 if (consumed.roundToInt() != 0) {
-                    coroutineScope.launch {
-                        topBarHeight.snapTo(newHeight)
-                    }
+                    topBarHeight.snapTo(newHeight)
                 }
 
                 val canConsumeScroll = !(isScrollingDown && newHeight == minTopBarHeightPx)
@@ -1216,7 +1215,7 @@ private fun rememberLiveSliderValue(
  */
 @Composable
 private fun ExperimentalSettingsTopBar(
-    topBarHeight: Animatable<Float, AnimationVector1D>,
+    topBarHeight: CollapsingHeaderHeight,
     collapseFraction: State<Float>,
     onBackClick: () -> Unit
 ) {

@@ -222,6 +222,8 @@ private fun PlayerUiState.toQueueUndoBarProjection(): QueueUndoBarProjection =
 
 /** How long the hidden queue waits after a song change before following it (past the skip animations). */
 private const val HIDDEN_QUEUE_FOLLOW_DELAY_MS = 600L
+/** Lazy items before the first queue row (the "queue_top_spacer" item). */
+private const val QUEUE_ROWS_LAZY_INDEX_OFFSET = 1
 
 @androidx.annotation.OptIn(UnstableApi::class)
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class,
@@ -368,22 +370,25 @@ fun QueueBottomSheet(
                 ?: committedDisplayKeys.takeIf { it.size == displaySongCount }
                 ?: List(displaySongCount) { (queueIndexOffset + it).toLong() }
 
-            val keyToLocalIndex = HashMap<Long, Int>(displaySongCount).apply {
-                for (index in 0 until displaySongCount) {
-                    val stableKey = currentKeys.getOrNull(index) ?: (queueIndexOffset + index).toLong()
-                    put(stableKey, index)
-                }
-            }
+            fun keyAt(index: Int): Long =
+                currentKeys.getOrNull(index) ?: (queueIndexOffset + index).toLong()
 
-            fun resolveKeyToIndex(key: Any?): Int? {
+            // Rows follow the top spacer item, so a row's lazy index is its local index + 1. Checking
+            // that hint first resolves a move in O(1) instead of building a key -> index map of the
+            // whole queue on every crossing; the scan is only a fallback (keys are unique).
+            fun resolveKeyToIndex(key: Any?, lazyIndexHint: Int): Int? {
                 val stableKey = key as? Long ?: return null
-                keyToLocalIndex[stableKey]?.let { return it }
+                val hinted = lazyIndexHint - QUEUE_ROWS_LAZY_INDEX_OFFSET
+                if (hinted in 0 until displaySongCount && keyAt(hinted) == stableKey) return hinted
+                for (index in 0 until displaySongCount) {
+                    if (keyAt(index) == stableKey) return index
+                }
                 val defaultIndex = (stableKey - queueIndexOffset).toInt()
                 return defaultIndex.takeIf { it in 0 until displaySongCount }
             }
 
-            val fromLocalIndex = resolveKeyToIndex(from.key) ?: return@rememberReorderableLazyListState
-            val toLocalIndex = resolveKeyToIndex(to.key) ?: return@rememberReorderableLazyListState
+            val fromLocalIndex = resolveKeyToIndex(from.key, from.index) ?: return@rememberReorderableLazyListState
+            val toLocalIndex = resolveKeyToIndex(to.key, to.index) ?: return@rememberReorderableLazyListState
             if (fromLocalIndex == toLocalIndex) return@rememberReorderableLazyListState
 
             reorderPreviewOrder = currentOrder.toMutableList().apply {
@@ -415,6 +420,12 @@ fun QueueBottomSheet(
                         suffixMatches = false
                         break
                     }
+                }
+                if (suffixMatches && startIndex == 0 && newSongs.size == committedDisplaySongIds.size) {
+                    // Same songs in the same order (a new list instance, e.g. a metadata update):
+                    // the keys already match, so keep the lists — no copies, and no state writes
+                    // that would recompose the queue a second time.
+                    return
                 }
                 if (suffixMatches) {
                     committedDisplaySongIds = committedDisplaySongIds.subList(startIndex, startIndex + newSongs.size).toList()

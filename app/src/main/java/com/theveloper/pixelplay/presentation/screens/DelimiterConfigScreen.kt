@@ -1,4 +1,5 @@
 import com.theveloper.pixelplay.presentation.components.AdaptiveAlertDialog
+import com.theveloper.pixelplay.presentation.components.CollapsingHeaderHeight
 import android.widget.Toast
 import com.theveloper.pixelplay.presentation.components.rememberCollapsingHeaderContentPadding
 import com.theveloper.pixelplay.presentation.components.WithCollapsingHeader
@@ -110,7 +111,7 @@ fun DelimiterConfigScreen(
     val minTopBarHeightPx = with(density) { minTopBarHeight.toPx() }
     val maxTopBarHeightPx = with(density) { maxTopBarHeight.toPx() }
 
-    val topBarHeight = remember { Animatable(maxTopBarHeightPx) }
+    val topBarHeight = remember { CollapsingHeaderHeight(maxTopBarHeightPx) }
     // Read only by the top bar (WithCollapsingHeader below): the per-frame header height never
     // recomposes the screen body or its list.
     val collapseFractionState = rememberCollapseFraction(topBarHeight, minTopBarHeightPx, maxTopBarHeightPx)
@@ -133,9 +134,7 @@ fun DelimiterConfigScreen(
                 val consumed = newHeight - previousHeight
 
                 if (consumed.roundToInt() != 0) {
-                    coroutineScope.launch {
-                        topBarHeight.snapTo(newHeight)
-                    }
+                    topBarHeight.snapTo(newHeight)
                 }
 
                 val canConsumeScroll = !(isScrollingDown && newHeight == minTopBarHeightPx)

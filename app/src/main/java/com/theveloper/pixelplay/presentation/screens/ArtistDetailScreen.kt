@@ -2,6 +2,7 @@
 
 package com.theveloper.pixelplay.presentation.screens
 
+import com.theveloper.pixelplay.presentation.components.CollapsingHeaderHeight
 import com.theveloper.pixelplay.presentation.components.AdaptivePressSurface
 import com.theveloper.pixelplay.presentation.components.glassAwareHeaderFill
 import com.theveloper.pixelplay.presentation.components.glassArtFade
@@ -221,7 +222,7 @@ fun ArtistDetailScreen(
         )
     }
 
-    val topBarHeight = remember { Animatable(maxTopBarHeightPx) }
+    val topBarHeight = remember { CollapsingHeaderHeight(maxTopBarHeightPx) }
     // Read only inside derivedStateOf and WithCollapsingHeader: the per-frame header height never
     // recomposes the screen body or its list.
     val collapseFractionState = rememberCollapseFraction(topBarHeight, minTopBarHeightPx, maxTopBarHeightPx)
@@ -244,9 +245,7 @@ fun ArtistDetailScreen(
                 val consumed = newHeight - previousHeight
 
                 if (consumed.roundToInt() != 0) {
-                    coroutineScope.launch {
-                        topBarHeight.snapTo(newHeight)
-                    }
+                    topBarHeight.snapTo(newHeight)
                 }
 
                 // Si estamos en el tope y scrolleamos hacia arriba, la lista no debe moverse.

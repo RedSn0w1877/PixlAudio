@@ -1,5 +1,6 @@
 package com.theveloper.pixelplay.presentation.screens
 
+import com.theveloper.pixelplay.presentation.components.CollapsingHeaderHeight
 import com.theveloper.pixelplay.presentation.components.AdaptivePressSurface
 import com.theveloper.pixelplay.presentation.components.rememberCollapsingHeaderContentPadding
 import com.theveloper.pixelplay.presentation.components.WithCollapsingHeader
@@ -237,7 +238,7 @@ fun EqualizerScreen(
     val minTopBarHeightPx = with(density) { minTopBarHeight.toPx() }
     val maxTopBarHeightPx = with(density) { maxTopBarHeight.toPx() }
     
-    val topBarHeight = remember { Animatable(maxTopBarHeightPx) }
+    val topBarHeight = remember { CollapsingHeaderHeight(maxTopBarHeightPx) }
     // Read only by the top bar (WithCollapsingHeader below): the per-frame header height never
     // recomposes the screen body or its list.
     val collapseFractionState = rememberCollapseFraction(topBarHeight, minTopBarHeightPx, maxTopBarHeightPx)
@@ -258,7 +259,7 @@ fun EqualizerScreen(
                 val consumed = newHeight - previousHeight
                 
                 if (consumed.roundToInt() != 0) {
-                    coroutineScope.launch { topBarHeight.snapTo(newHeight) }
+                    topBarHeight.snapTo(newHeight)
                 }
                 
                 val canConsumeScroll = !(isScrollingDown && newHeight == minTopBarHeightPx)
@@ -1032,11 +1033,7 @@ private fun CustomVerticalSlider(
         // Usable track height (center of thumb travels within this range, respecting padding)
         val trackHeight = heightPx - thumbSizePx - (verticalPaddingPx * 2)
         val safeTrackHeight = trackHeight.coerceAtLeast(1f)
-        val displayNormalizedValue = if (isInteracting) dragNormalizedValue else normalizedValue
-        
-        // thumb Y position (center)
-        val thumbCenterY = heightPx - verticalPaddingPx - thumbRadiusPx - (displayNormalizedValue * safeTrackHeight)
-        
+
         androidx.compose.foundation.Canvas(
             modifier = Modifier
                 .fillMaxSize()
@@ -1088,6 +1085,11 @@ private fun CustomVerticalSlider(
                     }
                 }
         ) {
+            // The drag position is read here, in draw, so each pointer move only redraws the
+            // slider instead of recomposing it.
+            val displayNormalizedValue = if (isInteracting) dragNormalizedValue else normalizedValue
+            // thumb Y position (center)
+            val thumbCenterY = heightPx - verticalPaddingPx - thumbRadiusPx - (displayNormalizedValue * safeTrackHeight)
             val centerX = size.width / 2
             
             // Determine track drawing width

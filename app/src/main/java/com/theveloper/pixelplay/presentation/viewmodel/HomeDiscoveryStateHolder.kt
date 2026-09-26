@@ -59,6 +59,10 @@ class HomeDiscoveryStateHolder @Inject constructor(
     private val catalog: HomeCatalogRepository
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    // The ranking/planning passes are pure CPU over the whole library: run them on one Default
+    // thread instead of the 64-thread IO pool, so they never compete with Coil decodes and the
+    // UI for more than one core. DB, preferences and network stay on IO.
+    private val planningDispatcher = Dispatchers.Default.limitedParallelism(1)
     private val mutableState = MutableStateFlow(HomeDiscoveryState())
     val state = mutableState.asStateFlow()
     private var refreshJob: Job? = null
@@ -87,31 +91,39 @@ class HomeDiscoveryStateHolder @Inject constructor(
                 lastRefreshHadLibrary = library.isNotEmpty()
                 val favorites = music.getFavoriteSongIdsOnce()
                 val storedSignals = taste.signals()
-                val storedHistory = engagement.getAllEngagements().associate { it.songId to MusicRecommendationEngine.History(
-                    it.playCount, it.totalPlayDurationMs, it.lastPlayedTimestamp
-                ) }
-                val signals = library.associate { it.id to (storedSignals[it.id] ?: storedSignals["spotify_${it.spotifyId}"] ?: MusicRecommendationEngine.Signal()) }
-                val history = library.associate { it.id to (storedHistory[it.id] ?: storedHistory["spotify_${it.spotifyId}"] ?: MusicRecommendationEngine.History()) }
+                val engagements = engagement.getAllEngagements()
+                val (signals, history) = withContext(planningDispatcher) {
+                    val storedHistory = engagements.associate { it.songId to MusicRecommendationEngine.History(
+                        it.playCount, it.totalPlayDurationMs, it.lastPlayedTimestamp
+                    ) }
+                    val signals = library.associate { it.id to (storedSignals[it.id] ?: storedSignals["spotify_${it.spotifyId}"] ?: MusicRecommendationEngine.Signal()) }
+                    val history = library.associate { it.id to (storedHistory[it.id] ?: storedHistory["spotify_${it.spotifyId}"] ?: MusicRecommendationEngine.History()) }
+                    signals to history
+                }
                 val enabled = taste.state.first().discoveryEnabled
                 val cache = if (enabled) catalog.cached() else HomeCatalogSnapshot()
-                fun publish(snapshot: HomeCatalogSnapshot) {
+                suspend fun publish(snapshot: HomeCatalogSnapshot) {
                     val variant = if (PlusLicenseManager(context).activeEntitlement().isActive(now)) {
                         MuselleVariant.PLUS
                     } else MuselleVariant.BASIC
-                    val planned = HomeRecommendationPlanner.plan(
-                        library, favorites, signals, history,
-                        discoveries = snapshot.discoveries.map { it.song },
-                        releases = snapshot.releases.filter { HomeRecommendationPlanner.isRecentRelease(it.releaseDate, LocalDate.now()) }.map { it.song },
-                        nowMs = now, seed = LocalDate.now().toEpochDay(), variant = variant
-                    )
+                    val planned = withContext(planningDispatcher) {
+                        HomeRecommendationPlanner.plan(
+                            library, favorites, signals, history,
+                            discoveries = snapshot.discoveries.map { it.song },
+                            releases = snapshot.releases.filter { HomeRecommendationPlanner.isRecentRelease(it.releaseDate, LocalDate.now()) }.map { it.song },
+                            nowMs = now, seed = LocalDate.now().toEpochDay(), variant = variant
+                        )
+                    }
                     mutableState.update { it.copy(mixes = planned.mixes, shelves = planned.shelves, discoveryEnabled = enabled) }
                 }
                 // Local shelves and cached metadata render before any network request begins.
                 publish(cache)
                 if (enabled && library.isNotEmpty()) {
-                    val seeds = MusicRecommendationEngine.select(
-                        MusicRecommendationEngine.rank(library, favorites, signals, history, now, LocalDate.now().toEpochDay()), 20
-                    ).map { it.song }
+                    val seeds = withContext(planningDispatcher) {
+                        MusicRecommendationEngine.select(
+                            MusicRecommendationEngine.rank(library, favorites, signals, history, now, LocalDate.now().toEpochDay()), 20
+                        ).map { it.song }
+                    }
                     publish(catalog.refresh(seeds, library, force))
                 }
             } catch (e: CancellationException) { throw e }

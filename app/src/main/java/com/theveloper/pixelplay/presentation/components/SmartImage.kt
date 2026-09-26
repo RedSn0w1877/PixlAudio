@@ -48,6 +48,7 @@ import coil.size.Size // Import Coil's Size
 import coil.compose.SubcomposeAsyncImage
 import coil.compose.SubcomposeAsyncImageContent
 import com.theveloper.pixelplay.R
+import com.theveloper.pixelplay.data.image.RemoteThumbnailInterceptor
 
 val SmartImageCompactListTargetSize = Size(96, 96)
 val SmartImageListTargetSize = Size(128, 128)
@@ -143,6 +144,9 @@ fun SmartImage(
                 .memoryCachePolicy(if (useMemoryCache) CachePolicy.ENABLED else CachePolicy.DISABLED)
                 .allowHardware(allowHardware)
                 .apply { if (requestTargetSize != null) size(requestTargetSize) }
+                // Display request: a CDN that encodes the size in the URL may serve a variant
+                // no smaller than this image's size instead of the 640-1000 px original.
+                .apply { RemoteThumbnailInterceptor.optIn(this) }
                 .build()
         }
     }

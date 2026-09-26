@@ -2,6 +2,7 @@
 
 package com.theveloper.pixelplay.presentation.screens
 
+import com.theveloper.pixelplay.presentation.components.CollapsingHeaderHeight
 import com.theveloper.pixelplay.presentation.components.glassAwareHeaderFill
 import com.theveloper.pixelplay.presentation.components.glassArtFade
 import com.theveloper.pixelplay.presentation.components.glassAwareOverlay
@@ -230,7 +231,7 @@ fun AlbumDetailScreen(
                     )
                 }
 
-                val topBarHeight = remember { Animatable(maxTopBarHeightPx) }
+                val topBarHeight = remember { CollapsingHeaderHeight(maxTopBarHeightPx) }
                 // Read only inside derivedStateOf and WithCollapsingHeader: the per-frame header
                 // height never recomposes the list.
                 val collapseFractionState =
@@ -256,9 +257,7 @@ fun AlbumDetailScreen(
                             val consumed = newHeight - previousHeight
 
                             if (consumed.roundToInt() != 0) {
-                                coroutineScope.launch {
-                                    topBarHeight.snapTo(newHeight)
-                                }
+                                topBarHeight.snapTo(newHeight)
                             }
 
                             val canConsumeScroll = !(isScrollingDown && newHeight == minTopBarHeightPx)

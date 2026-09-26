@@ -54,12 +54,14 @@ class StatsViewModel @Inject constructor(
 
     init {
         observeStatsRefreshFlow()
+        // The Home overview starts from the WEEK summary, so it reuses the one computed here
+        // instead of computing the same week a second time in parallel.
         refreshRange(
             range = StatsTimeRange.WEEK,
             showLoading = true,
-            updateWeeklyOverview = true
+            updateWeeklyOverview = true,
+            refreshHomeOverviewAfter = true
         )
-        refreshHomeOverview()
     }
 
     fun onRangeSelected(range: StatsTimeRange) {
@@ -73,9 +75,9 @@ class StatsViewModel @Inject constructor(
         )
     }
 
-    fun refreshWeeklyOverview() {
+    fun refreshWeeklyOverview(refreshHomeOverviewAfter: Boolean = false) {
         viewModelScope.launch {
-            runCatching {
+            val result = runCatching {
                 withContext(Dispatchers.IO) {
                     val songs = loadSongs()
                     playbackStatsRepository.loadSummary(StatsTimeRange.WEEK, songs)
@@ -86,16 +88,24 @@ class StatsViewModel @Inject constructor(
                 Timber.e(throwable, "Failed to load weekly stats overview")
                 _weeklyOverview.value = null
             }
+            if (refreshHomeOverviewAfter) {
+                refreshHomeOverview(weekSummary = result.getOrNull())
+            }
         }
     }
 
-    fun refreshHomeOverview() {
+    /**
+     * The first range with listening activity, WEEK first. [weekSummary], when given, is a WEEK
+     * summary just computed from the same data, reused instead of computing it again.
+     */
+    fun refreshHomeOverview(weekSummary: PlaybackStatsSummary? = null) {
         viewModelScope.launch {
             runCatching {
                 withContext(Dispatchers.IO) {
                     val songs = loadSongs()
                     for (range in HomeOverviewRanges) {
-                        val summary = playbackStatsRepository.loadSummary(range, songs)
+                        val summary = weekSummary?.takeIf { range == StatsTimeRange.WEEK }
+                            ?: playbackStatsRepository.loadSummary(range, songs)
                         if (summary.hasListeningActivity()) {
                             return@withContext summary
                         }
@@ -114,7 +124,8 @@ class StatsViewModel @Inject constructor(
     private fun refreshRange(
         range: StatsTimeRange,
         showLoading: Boolean = true,
-        updateWeeklyOverview: Boolean = false
+        updateWeeklyOverview: Boolean = false,
+        refreshHomeOverviewAfter: Boolean = false
     ) {
         viewModelScope.launch {
             if (showLoading) {
@@ -142,6 +153,11 @@ class StatsViewModel @Inject constructor(
                 )
             }
             summary.exceptionOrNull()?.let { Timber.e(it, "Failed to load stats for range %s", range) }
+            if (refreshHomeOverviewAfter) {
+                refreshHomeOverview(
+                    weekSummary = summary.getOrNull()?.takeIf { range == StatsTimeRange.WEEK }
+                )
+            }
         }
     }
 
@@ -151,15 +167,16 @@ class StatsViewModel @Inject constructor(
                 .drop(1)
                 .collectLatest {
                     val selectedRange = _uiState.value.selectedRange
+                    // One WEEK summary per refresh, shared with the Home overview.
                     refreshRange(
                         range = selectedRange,
                         showLoading = false,
-                        updateWeeklyOverview = selectedRange == StatsTimeRange.WEEK
+                        updateWeeklyOverview = selectedRange == StatsTimeRange.WEEK,
+                        refreshHomeOverviewAfter = selectedRange == StatsTimeRange.WEEK
                     )
                     if (selectedRange != StatsTimeRange.WEEK) {
-                        refreshWeeklyOverview()
+                        refreshWeeklyOverview(refreshHomeOverviewAfter = true)
                     }
-                    refreshHomeOverview()
                 }
         }
     }

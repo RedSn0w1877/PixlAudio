@@ -201,6 +201,21 @@ private fun EditSongContent(
     var pendingCoverArtUri by remember { mutableStateOf<Uri?>(null) }
 
     var showInfoDialog by remember { mutableStateOf(false) }
+    // Word-timed lyrics are stored as LyricsDoc JSON (tens of KB): decode them off the main thread
+    // as soon as the sheet opens, long before the lyrics field (near the end of the list) is
+    // scrolled into view. Tagged with the text it was decoded from, so a stale result is ignored.
+    var decodedLyricsDoc by remember { mutableStateOf<Pair<String, LyricsDoc?>?>(null) }
+    LaunchedEffect(lyrics, storedLyricsDoc) {
+        if (storedLyricsDoc != null) return@LaunchedEffect
+        val text = lyrics
+        val trimmed = text.trim()
+        val doc = if (trimmed.startsWith("{")) {
+            withContext(Dispatchers.Default) { LyricsDocCodec.decode(trimmed) }
+        } else {
+            null
+        }
+        decodedLyricsDoc = text to doc
+    }
     val context = LocalContext.current
     val pickCoverArtLauncher = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) {
@@ -626,8 +641,15 @@ private fun EditSongContent(
                         style = MaterialTheme.typography.labelLarge
                     )
                     // Timed lyrics (a LyricsDoc): show the words only, read-only, never the JSON.
-                    val timedDoc = storedLyricsDoc ?: remember(lyrics) {
-                        lyrics.trim().takeIf { it.startsWith("{") }?.let(LyricsDocCodec::decode)
+                    val predecoded = decodedLyricsDoc
+                    val timedDoc = storedLyricsDoc ?: if (predecoded != null && predecoded.first == lyrics) {
+                        predecoded.second
+                    } else {
+                        // Not decoded yet (the field composed before the background decode
+                        // finished): decode here, as before, so the field never shows the JSON.
+                        remember(lyrics) {
+                            lyrics.trim().takeIf { it.startsWith("{") }?.let(LyricsDocCodec::decode)
+                        }
                     }
                     if (timedDoc != null) {
                         OutlinedTextField(
@@ -944,7 +966,9 @@ fun CoverArtCropperDialog(
         offset = Offset.Zero
     }
 
-    LaunchedEffect(containerSize, scale, loadedBitmap) {
+    // Pinch/pan clamp in the transform callback itself; this only re-clamps when the container or
+    // the bitmap changes (keying it on scale relaunched it on every pinch frame).
+    LaunchedEffect(containerSize, loadedBitmap) {
         loadedBitmap?.let { bitmap ->
             offset = clampOffset(offset, scale, containerSize, bitmap.width, bitmap.height)
         }
