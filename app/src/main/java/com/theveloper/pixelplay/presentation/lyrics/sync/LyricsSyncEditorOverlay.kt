@@ -47,6 +47,7 @@ import com.theveloper.pixelplay.presentation.lyrics.background.rememberLyricsBac
 import com.theveloper.pixelplay.presentation.viewmodel.LyricsSyncEditorStateHolder
 import com.theveloper.pixelplay.presentation.viewmodel.SyncDialog
 import com.theveloper.pixelplay.presentation.viewmodel.SyncPhase
+import com.theveloper.pixelplay.presentation.viewmodel.SyncUiState
 import com.theveloper.pixelplay.ui.glass.GlassAlertDialog
 
 /**
@@ -82,10 +83,19 @@ private fun EditorHost(holder: LyricsSyncEditorStateHolder, phase: SyncPhase) {
     val notice by remember { derivedStateOf { uiState.value.notice } }
     val dialog by remember { derivedStateOf { uiState.value.dialog } }
     val endedEarlyWords by remember { derivedStateOf { uiState.value.endedEarlyWords } }
-    // While the exit animation runs the phase is already Closed: keep drawing the last screen.
-    val lastPhase = remember { LastPhase() }
-    if (phase != SyncPhase.Closed) lastPhase.value = phase
+    // While the exit animation runs the phase is already Closed and the state has been reset:
+    // keep drawing the last screen, with its last state and artwork, so it doesn't blank out
+    // as it fades.
+    val closing = phase == SyncPhase.Closed
+    val lastPhase = remember { Latch<SyncPhase?>(null) }
+    val lastUi = remember { Latch<SyncUiState?>(null) }
+    val lastArtUri = remember { Latch<String?>(null) }
+    if (!closing) {
+        lastPhase.value = phase
+        lastArtUri.value = artUri
+    }
     val shownPhase = lastPhase.value ?: return
+    val shownArtUri = if (closing) lastArtUri.value else artUri
     val palette = rememberSyncEditorPalette()
     val backgroundState = rememberLyricsBackgroundState()
 
@@ -122,7 +132,7 @@ private fun EditorHost(holder: LyricsSyncEditorStateHolder, phase: SyncPhase) {
             },
     ) {
         LyricsArtworkBackground(
-            artUri = artUri,
+            artUri = shownArtUri,
             modifier = Modifier.fillMaxSize(),
             state = backgroundState,
             colorScheme = MaterialTheme.colorScheme,
@@ -141,7 +151,8 @@ private fun EditorHost(holder: LyricsSyncEditorStateHolder, phase: SyncPhase) {
             label = "syncEditorScreen",
             modifier = Modifier.fillMaxSize(),
         ) { target ->
-            val ui = uiState.value
+            val live = uiState.value
+            val ui = if (closing) lastUi.value ?: live else live.also { lastUi.value = it }
             when (target) {
                 SyncPhase.Closed, SyncPhase.Loading -> SyncLoadingScreen()
                 is SyncPhase.ResumePrompt -> SyncResumeScreen(target, ui, holder, palette)
@@ -170,9 +181,8 @@ private fun EditorHost(holder: LyricsSyncEditorStateHolder, phase: SyncPhase) {
     SyncDialogs(dialog, endedEarlyWords, holder)
 }
 
-private class LastPhase {
-    var value: SyncPhase? = null
-}
+/** A plain holder written during composition; reads never trigger recomposition. */
+private class Latch<T>(var value: T)
 
 private fun screenKey(phase: SyncPhase): String = when (phase) {
     SyncPhase.Closed, SyncPhase.Loading -> "loading"
