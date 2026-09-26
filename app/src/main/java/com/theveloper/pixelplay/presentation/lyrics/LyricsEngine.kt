@@ -90,7 +90,10 @@ object LyricsSprings {
 object LyricsBlurMath {
     const val MAX_SIGMA_DP = 5f
     const val SIGMA_PER_STEP_DP = 0.8f
-    const val RADIUS_QUANTUM_PX = 0.25f
+    // 1.5 px, not the spec's 0.25: every row's σ retargets on each line change, and at 0.25 px a
+    // 400 ms tween minted a new BlurEffect every ~3 frames per blurred row (≈8 re-filters per
+    // cascade frame). The eye can't resolve sub-2 px radius steps under that motion.
+    const val RADIUS_QUANTUM_PX = 1.5f
     const val FALLBACK_ALPHA_STEP = 0.06f
     const val FALLBACK_MAX_DISTANCE = 4
 
@@ -109,7 +112,7 @@ object LyricsBlurMath {
     fun fallbackAlphaFactor(distance: Int): Float =
         if (distance <= 0) 1f else 1f - FALLBACK_ALPHA_STEP * min(distance, FALLBACK_MAX_DISTANCE)
 
-    /** Rounds a blur radius to 0.25 px steps so layers are not re-rasterised every frame. */
+    /** Rounds a blur radius to [RADIUS_QUANTUM_PX] steps so layers are not re-filtered every frame. */
     fun quantizeRadiusPx(radiusPx: Float): Float = round(radiusPx / RADIUS_QUANTUM_PX) * RADIUS_QUANTUM_PX
 }
 
@@ -183,6 +186,7 @@ class LyricRowMotion internal constructor() {
     internal val hotState = mutableStateOf(false)
     internal val expandState: MutableFloatState = mutableFloatStateOf(1f)
     internal val presenceState: MutableFloatState = mutableFloatStateOf(1f)
+    internal val prefetchState = mutableStateOf(false)
 
     /**
      * Top of the row in px from the top of the lyrics viewport, **excluding**
@@ -210,6 +214,13 @@ class LyricRowMotion internal constructor() {
 
     /** Alpha multiplier for grouped background vocals (0 while collapsed); 1 for other rows. */
     val presence: Float get() = presenceState.floatValue
+
+    /**
+     * The line turns hot within about [LyricsEngine.PREFETCH_LEAD_MS] (and has not ended): build
+     * its expensive draw caches (word pieces) now, a second ahead of the line-change frame.
+     * Latches true for the life of the row.
+     */
+    val prefetch: Boolean get() = prefetchState.value
 
     /** False until the engine has positioned the row for the first time. */
     val isPlaced: Boolean get() = y < LyricsEngine.OFFSCREEN_Y / 2f
@@ -354,6 +365,8 @@ class LyricsEngine(private val clock: LyricsClock) {
         const val OFFSCREEN_Y = 1_000_000f
 
         const val LEAD_IN_MS = 250L
+        /** How far ahead of turning hot a line is asked to build its word pieces. */
+        const val PREFETCH_LEAD_MS = 1_000L
         const val INACTIVE_SCALE = 0.97f
         const val BACKGROUND_COLLAPSED_SCALE = 0.75f
         const val BACKGROUND_EXPAND_FROM_SCALE = 0.8f
@@ -469,6 +482,7 @@ class LyricsEngine(private val clock: LyricsClock) {
     private var pubActiveness = FloatArray(0)
     private var pubExpand = FloatArray(0)
     private var pubPresence = FloatArray(0)
+    private var pubPrefetch = BooleanArray(0)
     private var pubHot = BooleanArray(0)
 
     // ---- lifecycle flags -------------------------------------------------------------------
@@ -622,6 +636,7 @@ class LyricsEngine(private val clock: LyricsClock) {
         pubExpand = FloatArray(n) { 1f }
         pubPresence = FloatArray(n) { 1f }
         pubHot = BooleanArray(n)
+        pubPrefetch = BooleanArray(n)
 
         laidOut = false
         animateInPending = animateIn
@@ -1123,6 +1138,10 @@ class LyricsEngine(private val clock: LyricsClock) {
             if (hot != pubHot[r]) {
                 pubHot[r] = hot
                 m.hotState.value = hot
+            }
+            if (line >= 0 && !pubPrefetch[r] && t + LEAD_IN_MS + PREFETCH_LEAD_MS >= starts[line] && t < ends[line]) {
+                pubPrefetch[r] = true
+                m.prefetchState.value = true
             }
 
             // expand, presence

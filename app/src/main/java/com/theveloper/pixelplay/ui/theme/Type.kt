@@ -10,9 +10,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.googlefonts.Font
 import androidx.compose.ui.text.googlefonts.GoogleFont
 import androidx.compose.ui.text.style.TextGeometricTransform
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import com.theveloper.pixelplay.R
+import kotlin.math.roundToInt
 
 
 private val montserrat = GoogleFont("Montserrat")
@@ -115,18 +117,18 @@ val GoogleSansRounded = FontFamily(
  */
 const val LyricsDisplayRond = 0f
 
-/** Optical size the lyrics face is cut for: the 34 sp main line. */
-private val LyricsDisplayOpticalSize = 34.sp
+/** Optical size of [LyricsDisplayFamily]: the 34 sp main line. Other sizes use [lyricsDisplayFamily]. */
+private const val LyricsDisplayOpticalSizeSp = 34
 
 @OptIn(ExperimentalTextApi::class)
-private fun lyricsDisplayFont(weight: FontWeight) = androidx.compose.ui.text.font.Font(
+private fun lyricsDisplayFont(weight: FontWeight, opticalSizeSp: Int) = androidx.compose.ui.text.font.Font(
     resId = R.font.gflex_variable,
     weight = weight,
     variationSettings = FontVariation.Settings(
         FontVariation.weight(weight.weight),
         FontVariation.Setting("ROND", LyricsDisplayRond),
         FontVariation.width(100f),
-        FontVariation.opticalSizing(LyricsDisplayOpticalSize)
+        FontVariation.opticalSizing(opticalSizeSp.sp)
     )
 )
 
@@ -136,11 +138,38 @@ private fun lyricsDisplayFont(weight: FontWeight) = androidx.compose.ui.text.fon
  * [LyricsDisplayRond]. Scripts it does not cover fall back to the system font (family only,
  * never the size) — see `LyricsSheet`.
  */
-val LyricsDisplayFamily = FontFamily(
-    lyricsDisplayFont(FontWeight.Medium),
-    lyricsDisplayFont(FontWeight.SemiBold),
-    lyricsDisplayFont(FontWeight.Bold),
+val LyricsDisplayFamily: FontFamily = buildLyricsDisplayFamily(LyricsDisplayOpticalSizeSp)
+
+private fun buildLyricsDisplayFamily(opticalSizeSp: Int) = FontFamily(
+    lyricsDisplayFont(FontWeight.Medium, opticalSizeSp),
+    lyricsDisplayFont(FontWeight.SemiBold, opticalSizeSp),
+    lyricsDisplayFont(FontWeight.Bold, opticalSizeSp),
 )
+
+private val lyricsFamiliesBySize = HashMap<Int, FontFamily>()
+
+/**
+ * The lyrics face with its optical-size axis at the size it is drawn at (opsz = the rendered
+ * size, spec §0): small text gets the text cut, not the tighter display cut. Cached per whole sp.
+ */
+fun lyricsDisplayFamily(size: TextUnit): FontFamily {
+    val sp = if (size.isSp) size.value.roundToInt().coerceIn(LYRICS_OPSZ_MIN, LYRICS_OPSZ_MAX) else LyricsDisplayOpticalSizeSp
+    if (sp == LyricsDisplayOpticalSizeSp) return LyricsDisplayFamily
+    return synchronized(lyricsFamiliesBySize) {
+        lyricsFamiliesBySize.getOrPut(sp) { buildLyricsDisplayFamily(sp) }
+    }
+}
+
+/**
+ * [family] re-cut for [size] when it is the lyrics face; any other family (the system fallback
+ * for scripts the app font lacks, `null`) is returned as-is.
+ */
+fun lyricsFamilyAtSize(family: FontFamily?, size: TextUnit): FontFamily? =
+    if (family === LyricsDisplayFamily) lyricsDisplayFamily(size) else family
+
+// Google Sans Flex's opsz axis range.
+private const val LYRICS_OPSZ_MIN = 6
+private const val LYRICS_OPSZ_MAX = 144
 
 // Tipografía - Usar fuentes amigables y modernas.
 // Considerar añadir fuentes personalizadas en res/font para un look más único.

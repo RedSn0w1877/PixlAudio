@@ -44,6 +44,7 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -284,7 +285,17 @@ class LyricsSyncEditorStateHolder @Inject constructor(
             playback.stablePlayerState
                 .map { it.currentSong?.id }
                 .distinctUntilChanged()
-                .collect { id -> if (id != null && id != song.id) onSongChangedOutside() }
+                .collectLatest { id ->
+                    when {
+                        id == null -> {
+                            // The player unloaded (notification close, playback stopped). A brief
+                            // null can happen during a queue rebuild, so only close if it stays.
+                            delay(UNLOADED_CLOSE_DELAY_MS)
+                            if (session != null) close()
+                        }
+                        id != song.id -> onSongChangedOutside()
+                    }
+                }
         }
         jobs += scope.launch {
             castStateHolder.castSession
@@ -424,7 +435,9 @@ class LyricsSyncEditorStateHolder @Inject constructor(
             if (toFlush != null) {
                 scope.launch(NonCancellable) { draftStore.save(toFlush) }
             }
-            if (playback.currentSpeed() != s.previousSpeed) playback.setPlaybackSpeed(s.previousSpeed)
+            // Always, not only when it differs: a speed change may still be in flight through
+            // the (asynchronous) MediaController, and a skipped restore would leave it applied.
+            playback.setPlaybackSpeed(s.previousSpeed)
             engine.endExactTimingSession()
             transitionController.resume(OWNER)
             InstrumentalCrossfadeController.resume(OWNER)
@@ -695,16 +708,22 @@ class LyricsSyncEditorStateHolder @Inject constructor(
         val position = playback.exactPositionMs()
         val step = LyricsTapSync.jumpToLine(current, lineIndex, speed, offsetMs)
         if (step.draft === current && step.seekToMs == null) return
-        applyDestructive(current, position, step)
+        // A jump the user picked by touching a line always offers Undo if it erased anything.
+        applyDestructive(current, position, step, noticeMin = 0)
     }
 
-    private fun applyDestructive(before: SyncDraft, position: Long, step: SyncStep) {
+    private fun applyDestructive(
+        before: SyncDraft,
+        position: Long,
+        step: SyncStep,
+        noticeMin: Int = REMOVED_WORDS_NOTICE_MIN,
+    ) {
         finishJob?.cancel()
         fixLineReturnJob?.cancel()
         undoSeekJob?.cancel()
         if (step.draft !== before) setDraft(step.draft, dirty = true)
         step.seekToMs?.let(::seekTo)
-        if (step.clearedCount > REMOVED_WORDS_NOTICE_MIN) {
+        if (step.clearedCount > noticeMin) {
             session?.undoSnapshot = before to position
             showNotice(SyncNoticeKind.REMOVED_WORDS, count = step.clearedCount, canUndo = true)
         }
@@ -1018,6 +1037,7 @@ class LyricsSyncEditorStateHolder @Inject constructor(
         val SPEEDS = listOf(1f, 0.75f, 0.5f)
         const val INTRO_SHOW_COUNT = 2
         private const val OPEN_WAIT_MS = 8_000L
+        private const val UNLOADED_CLOSE_DELAY_MS = 600L
         private const val DRAFT_SAVE_DELAY_MS = 1_000L
         private const val FIX_LINE_RETURN_MS = 1_000L
         private const val FINISH_POLL_MS = 100L

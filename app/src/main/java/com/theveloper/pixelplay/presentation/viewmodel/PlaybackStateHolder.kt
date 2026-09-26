@@ -45,6 +45,8 @@ class PlaybackStateHolder @Inject constructor(
     companion object {
         private const val TAG = "PlaybackStateHolder"
         private const val DURATION_MISMATCH_TOLERANCE_MS = 1500L
+        /** Token sentinel: tokens start at 1. */
+        private const val NO_OCCURRENCE = 0L
         // Cap how long we trust a pending seek override against an out-of-date player position.
         // The override exists to mask the few ticks between seekTo() and the player actually
         // reporting the new position. If we never see drift converge within this window we
@@ -290,11 +292,14 @@ class PlaybackStateHolder @Inject constructor(
      * editor stamps. ExoPlayer already corrects it for AudioTrack latency. Main thread only.
      */
     fun exactPositionMs(): Long {
-        val master = dualPlayerEngine.masterPlayer
-        return if (master.mediaItemCount > 0) {
-            master.currentPosition.coerceAtLeast(0L)
+        // Never `masterPlayer` here: its getter rebuilds a released engine (service gone).
+        val master = dualPlayerEngine.masterPlayerIfAlive
+        if (master != null && master.mediaItemCount > 0) return master.currentPosition.coerceAtLeast(0L)
+        val controller = mediaController
+        return if (controller?.isConnected == true) {
+            controller.currentPosition.coerceAtLeast(0L)
         } else {
-            activeLocalPlayer().currentPosition.coerceAtLeast(0L)
+            _currentPosition.value
         }
     }
 
@@ -315,7 +320,10 @@ class PlaybackStateHolder @Inject constructor(
     }
 
     /** Current local playback speed (1 = normal). Main thread only. */
-    fun currentSpeed(): Float = dualPlayerEngine.masterPlayer.playbackParameters.speed
+    fun currentSpeed(): Float =
+        dualPlayerEngine.masterPlayerIfAlive?.playbackParameters?.speed
+            ?: mediaController?.takeIf { it.isConnected }?.playbackParameters?.speed
+            ?: 1f
 
     /** Sets the local playback speed; Media3's Sonic time-stretch keeps the pitch. */
     fun setPlaybackSpeed(speed: Float) {
@@ -323,7 +331,7 @@ class PlaybackStateHolder @Inject constructor(
         if (controller?.isConnected == true) {
             controller.setPlaybackSpeed(speed)
         } else {
-            dualPlayerEngine.masterPlayer.setPlaybackSpeed(speed)
+            dualPlayerEngine.masterPlayerIfAlive?.setPlaybackSpeed(speed)
         }
     }
 
@@ -337,7 +345,8 @@ class PlaybackStateHolder @Inject constructor(
 
     fun rememberPausedPositionOverride(mediaId: String?, positionMs: Long) {
         val safeMediaId = mediaId?.takeIf { it.isNotBlank() } ?: return
-        val activeToken = activatePlaybackOccurrence(safeMediaId, forceNewOccurrence = false) ?: return
+        val activeToken = activatePlaybackOccurrence(safeMediaId, forceNewOccurrence = false)
+        if (activeToken == NO_OCCURRENCE) return
         val safePosition = positionMs.coerceAtLeast(0L)
         pausedPositionOverrideMediaId = safeMediaId
         pausedPositionOverrideToken = activeToken
@@ -366,7 +375,7 @@ class PlaybackStateHolder @Inject constructor(
         }
 
         val activeToken = activatePlaybackOccurrence(safeMediaId, forceNewOccurrence = false)
-            ?: return safeReportedPosition
+        if (activeToken == NO_OCCURRENCE) return safeReportedPosition
 
         val pausedOverride = pausedPositionOverrideMs
             ?.takeIf {
@@ -422,10 +431,14 @@ class PlaybackStateHolder @Inject constructor(
         return preferredPosition
     }
 
+    /**
+     * Returns the active occurrence token, or [NO_OCCURRENCE] (0) without a media id. A primitive
+     * on purpose: this runs on every lyrics frame, and a `Long?` would box each token past 127.
+     */
     private fun activatePlaybackOccurrence(
         mediaId: String?,
         forceNewOccurrence: Boolean
-    ): Long? {
+    ): Long {
         val safeMediaId = mediaId?.takeIf { it.isNotBlank() } ?: run {
             activePositionOccurrenceMediaId = null
             activePositionOccurrenceToken = 0L
@@ -435,7 +448,7 @@ class PlaybackStateHolder @Inject constructor(
                 pausedPositionOverrideMs = null
                 pausedPositionOverrideSetAtMs = 0L
             }
-            return null
+            return NO_OCCURRENCE
         }
 
         val shouldAdvance =

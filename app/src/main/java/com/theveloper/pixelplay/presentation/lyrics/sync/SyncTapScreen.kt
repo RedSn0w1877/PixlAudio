@@ -90,6 +90,8 @@ import com.theveloper.pixelplay.data.lyrics.sync.SyncDraft
 import com.theveloper.pixelplay.presentation.viewmodel.LyricsSyncEditorStateHolder
 import com.theveloper.pixelplay.presentation.viewmodel.SyncUiState
 import com.theveloper.pixelplay.ui.theme.LyricsDisplayFamily
+import com.theveloper.pixelplay.ui.theme.lyricsFamilyAtSize
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
@@ -206,43 +208,28 @@ internal fun SyncTapScreen(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            EditorButton(
+            EditorStackedButton(
                 onClick = holder::undo,
+                icon = Icons.AutoMirrored.Rounded.Undo,
+                label = stringResource(R.string.lyrics_sync_undo),
                 palette = palette,
                 enabled = view.canUndo,
                 modifier = Modifier.weight(1f),
-            ) { color ->
-                Icon(Icons.AutoMirrored.Rounded.Undo, contentDescription = null, tint = color, modifier = Modifier.size(20.dp))
-                Spacer(Modifier.width(6.dp))
-                EditorButtonText(stringResource(R.string.lyrics_sync_undo), color, bold = false)
-            }
-            EditorButton(
+            )
+            EditorStackedButton(
                 onClick = holder::togglePlay,
+                icon = if (ui.isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                label = stringResource(if (ui.isPlaying) R.string.lyrics_sync_pause else R.string.lyrics_sync_play),
                 palette = palette,
                 modifier = Modifier.weight(1f),
-            ) { color ->
-                Icon(
-                    imageVector = if (ui.isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                    contentDescription = null,
-                    tint = color,
-                    modifier = Modifier.size(22.dp),
-                )
-                Spacer(Modifier.width(6.dp))
-                EditorButtonText(
-                    stringResource(if (ui.isPlaying) R.string.lyrics_sync_pause else R.string.lyrics_sync_play),
-                    color,
-                    bold = false,
-                )
-            }
-            EditorButton(
+            )
+            EditorStackedButton(
                 onClick = holder::rewind,
+                icon = Icons.Rounded.Replay5,
+                label = stringResource(R.string.lyrics_sync_back5),
                 palette = palette,
                 modifier = Modifier.weight(1f),
-            ) { color ->
-                Icon(Icons.Rounded.Replay5, contentDescription = null, tint = color, modifier = Modifier.size(20.dp))
-                Spacer(Modifier.width(6.dp))
-                EditorButtonText(stringResource(R.string.lyrics_sync_back5), color, bold = false)
-            }
+            )
         }
         Spacer(Modifier.height(12.dp))
     }
@@ -372,16 +359,10 @@ private fun LyricContext(
         val line = draft.lines[view.currentLine]
         val compact = line.tokenCount > COMPACT_TOKENS
         val wordSize = if (compact) 24.sp else 30.sp
+        // Not tappable: it sits right above the pad, where a novice naturally taps along, and a
+        // tap here would erase the line's taps. "Redo from here" is the previous line's job.
         FlowRow(
-            modifier = Modifier
-                .fillMaxWidth()
-                .then(
-                    if (allowJump) Modifier.clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                        role = Role.Button,
-                    ) { holder.jumpToLine(view.currentLine) } else Modifier
-                ),
+            modifier = Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             for (i in line.firstToken until line.endToken) {
@@ -417,7 +398,7 @@ private fun ContextLine(text: String, fontFamily: FontFamily?, onClick: (() -> U
         color = Color.White.copy(alpha = 0.35f),
         fontSize = 18.sp,
         fontWeight = FontWeight.Medium,
-        fontFamily = fontFamily,
+        fontFamily = lyricsFamilyAtSize(fontFamily, 18.sp),
         maxLines = 2,
         overflow = TextOverflow.Ellipsis,
         modifier = Modifier
@@ -481,7 +462,7 @@ private fun WordChip(
         fontSize = fontSize,
         lineHeight = fontSize * 1.2f,
         fontWeight = FontWeight.SemiBold,
-        fontFamily = fontFamily,
+        fontFamily = lyricsFamilyAtSize(fontFamily, fontSize),
         modifier = decorated,
     )
 }
@@ -506,7 +487,8 @@ private fun NextWordLabel(word: String?, fontFamily: FontFamily?, modifier: Modi
                     text = value,
                     color = Color.White,
                     fontWeight = FontWeight.Bold,
-                    fontFamily = fontFamily,
+                    // Auto-sized between 24 and 40 sp: cut for the middle of that range.
+                    fontFamily = lyricsFamilyAtSize(fontFamily, 32.sp),
                     maxLines = 1,
                     autoSize = TextAutoSize.StepBased(minFontSize = 24.sp, maxFontSize = 40.sp, stepSize = 2.sp),
                     modifier = Modifier.fillMaxWidth(),
@@ -527,8 +509,12 @@ private fun MusicBreakOrContext(
     val position = remember { mutableLongStateOf(holder.positionMs()) }
     LaunchedEffect(breakInfo) {
         while (isActive) {
-            withFrameNanos { }
-            position.longValue = holder.positionMs()
+            val now = holder.positionMs()
+            val moved = now != position.longValue
+            position.longValue = now
+            // Per-frame only while the countdown ring is on screen and moving; otherwise (paused,
+            // or outside the break) a slow poll that still notices a seek back into it.
+            if (moved && breakInfo.anchorMs - now > MUSIC_BREAK_END_MS) withFrameNanos { } else delay(BREAK_IDLE_POLL_MS)
         }
     }
     val inBreak by remember(breakInfo) {
@@ -663,6 +649,9 @@ private fun TapPad(
                             primary?.consume()
                             break
                         }
+                        // A hold that drifts is still a hold: claim the moves so no ancestor
+                        // (the player sheet's drag) turns it into a gesture.
+                        primary.consume()
                     }
                     releaseFeedback()
                     currentOnUp(index, down.uptimeMillis, upTime)
@@ -706,3 +695,5 @@ private const val PRESSED_SCALE = 0.97f
 private val NEXT_BLOCK_HEIGHT = 70.dp
 private val PRESS_SPRING = spring<Float>(dampingRatio = 1f, stiffness = 1_400f)
 private val RELEASE_SPRING = spring<Float>(dampingRatio = 0.7f, stiffness = 900f)
+
+private const val BREAK_IDLE_POLL_MS = 150L

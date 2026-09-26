@@ -740,7 +740,9 @@ class MainActivity : ComponentActivity() {
             .collectAsStateWithLifecycle(initialValue = AppUiStyle.Default.name)
         // What this device can draw: API 33+ everything, 31-32 blur only, 30 nothing (glass then
         // resolves to Material 3, but the saved preference is kept).
-        val glassCapability = remember { GlassCapability.forDevice() }
+        // Battery saver drops the full lens/shader recipes to the cheaper blur-only tier.
+        val powerSave by com.theveloper.pixelplay.ui.glass.rememberPowerSaveMode()
+        val glassCapability = remember(powerSave) { GlassCapability.forDevice(powerSave = powerSave) }
         // "Disable blur all over" wins over the style choice: it is an existing accessibility /
         // performance escape hatch, and glass is the single most expensive thing to draw here.
         val appUiStyle = AppUiStyle.resolve(appUiStyleName, disableBlurAllOver, glassCapability)
@@ -774,6 +776,9 @@ class MainActivity : ComponentActivity() {
         val snapshotLayoutDirection = LocalLayoutDirection.current
         LaunchedEffect(glassBackdrop, captureWindowSnapshot) {
             if (!captureWindowSnapshot) {
+                // Keep the last capture briefly: a sheet opened right after another one closed
+                // (common) reuses it instead of stalling its enter animation on a new capture.
+                if (glassEnabled) delay(GLASS_SNAPSHOT_REUSE_MS)
                 glassBackdrop.clearWindowSnapshot()
                 return@LaunchedEffect
             }
@@ -792,8 +797,11 @@ class MainActivity : ComponentActivity() {
                     if (captured) return
                 }
             }
-            captureOnce()
-            delay(400)
+            // Each capture blocks the main thread while RenderThread rasterises the window, so
+            // never during the sheet's enter motion when avoidable: the first one only if there
+            // is no fresh snapshot to show, the refresh only once the sheet has settled.
+            if (!glassBackdrop.hasFreshWindowSnapshot(GLASS_SNAPSHOT_REUSE_MS)) captureOnce()
+            delay(GLASS_SHEET_SETTLE_MS)
             captureOnce()
         }
 
@@ -1535,3 +1543,9 @@ private class DynamicSmoothCornerShape(
         }
     }
 }
+
+/** A glass window snapshot this recent is reused by the next sheet instead of re-captured. */
+private const val GLASS_SNAPSHOT_REUSE_MS = 1_500L
+
+/** Past a bottom sheet's enter animation: the refresh capture waits this long. */
+private const val GLASS_SHEET_SETTLE_MS = 600L

@@ -1,10 +1,20 @@
 package com.theveloper.pixelplay.ui.glass
 
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.os.Build
+import android.os.PowerManager
 import android.provider.Settings
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.State
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.luminance
@@ -83,8 +93,12 @@ enum class GlassCapability {
     val hasBlur: Boolean get() = this != None
 
     companion object {
-        fun forDevice(sdkInt: Int = Build.VERSION.SDK_INT): GlassCapability = when {
-            sdkInt >= Build.VERSION_CODES.TIRAMISU -> Full
+        /**
+         * @param powerSave battery saver is on: drop the full lens/shader recipes to [BlurOnly]
+         *   (the cheaper tier). The saved preference is untouched; glass comes back with it off.
+         */
+        fun forDevice(sdkInt: Int = Build.VERSION.SDK_INT, powerSave: Boolean = false): GlassCapability = when {
+            sdkInt >= Build.VERSION_CODES.TIRAMISU -> if (powerSave) BlurOnly else Full
             sdkInt >= Build.VERSION_CODES.S -> BlurOnly
             else -> None
         }
@@ -230,3 +244,27 @@ data class GlassEffectValues(
     val refractionHeight: Dp,
     val refractionAmount: Dp
 )
+
+/** Battery saver as state, kept current by the system broadcast. */
+@Composable
+fun rememberPowerSaveMode(): State<Boolean> {
+    val appContext = LocalContext.current.applicationContext
+    val powerManager = remember(appContext) { appContext.getSystemService(PowerManager::class.java) }
+    val state = remember(appContext) { mutableStateOf(powerManager?.isPowerSaveMode == true) }
+    DisposableEffect(appContext) {
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                state.value = powerManager?.isPowerSaveMode == true
+            }
+        }
+        ContextCompat.registerReceiver(
+            appContext,
+            receiver,
+            IntentFilter(PowerManager.ACTION_POWER_SAVE_MODE_CHANGED),
+            ContextCompat.RECEIVER_NOT_EXPORTED
+        )
+        state.value = powerManager?.isPowerSaveMode == true
+        onDispose { appContext.unregisterReceiver(receiver) }
+    }
+    return state
+}

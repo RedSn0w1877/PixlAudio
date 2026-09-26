@@ -70,6 +70,7 @@ import com.theveloper.pixelplay.presentation.lyrics.model.PreparedLine
 import com.theveloper.pixelplay.presentation.lyrics.model.PreparedLyrics
 import com.theveloper.pixelplay.presentation.lyrics.model.Row
 import com.theveloper.pixelplay.ui.theme.LyricsDisplayFamily
+import com.theveloper.pixelplay.ui.theme.lyricsFamilyAtSize
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withTimeoutOrNull
@@ -107,10 +108,15 @@ data class KaraokeLyricsAppearance(
  * thread once per frame; [offsetMsProvider] is the additive lyric sync offset.
  */
 @Composable
-fun rememberLyricsClock(positionProvider: () -> Long, offsetMsProvider: () -> Long = { 0L }): LyricsClock {
+fun rememberLyricsClock(positionProvider: LongSource, offsetMsProvider: LongSource = LongSource { 0L }): LyricsClock {
     val position by rememberUpdatedState(positionProvider)
     val offset by rememberUpdatedState(offsetMsProvider)
-    return remember { LyricsClock(positionProvider = { position() }, offsetMsProvider = { offset() }) }
+    return remember {
+        LyricsClock(
+            positionProvider = { position.getAsLong() },
+            offsetMsProvider = { offset.getAsLong() },
+        )
+    }
 }
 
 @Composable
@@ -207,9 +213,14 @@ fun KaraokeLyricsView(
     }
 
     // ---- shared text style -----------------------------------------------------------------
-    val style = remember(textMeasurer, density, appearance, prepared.hasDuet, reducedMotion) {
+    // `brightArt` only moves the inactive alpha (a draw value): keep it out of the key, so a
+    // track change onto brighter/darker art never replaces the style and re-measures every line.
+    val measureAppearance = appearance.copy(brightArt = false)
+    val style = remember(textMeasurer, density, measureAppearance, prepared.hasDuet, reducedMotion) {
         buildRenderStyle(textMeasurer, density, appearance, prepared.hasDuet, reducedMotion)
     }
+    val inactiveAlpha = inactiveAlphaFor(appearance)
+    SideEffect { style.inactiveAlphaState.floatValue = inactiveAlpha }
 
     // Pivots depend only on the alignment / duet layout, so a bright-art or blur change keeps
     // the measured heights and press state.
@@ -238,6 +249,10 @@ fun KaraokeLyricsView(
                 val radius = m.blurRadiusPx
                 renderEffect = if (blurSupported && radius > 0f) blurCache[radius] else null
                 alpha = (m.depthAlpha * m.presence).coerceIn(0f, 1f)
+                // A row's text never overdraws itself, so modulating the alpha looks identical and
+                // skips a per-row offscreen buffer (API 30 depth falloff: 8-10 rows below alpha 1).
+                // A blurred row needs its layer anyway.
+                compositingStrategy = if (renderEffect == null) CompositingStrategy.ModulateAlpha else CompositingStrategy.Auto
                 clip = false
             }
             block
@@ -555,7 +570,7 @@ private fun buildRenderStyle(
     val size = MAIN_FONT_SP * appearance.textScale.coerceIn(0.6f, 2f)
     val main = TextStyle(
         color = Color.White,
-        fontFamily = appearance.fontFamily,
+        fontFamily = lyricsFamilyAtSize(appearance.fontFamily, size.sp),
         fontWeight = FontWeight.Bold,
         fontSize = size.sp,
         lineHeight = LyricsRenderStyle.LINE_HEIGHT_EM.em,
@@ -567,23 +582,24 @@ private fun buildRenderStyle(
     )
     val emPx = with(densityScope) { size.sp.toPx() }
     val density = densityScope.density
-    val inactive = when {
-        appearance.highContrast -> KaraokeAlpha.INACTIVE_HIGH_CONTRAST
-        appearance.brightArt -> KaraokeAlpha.INACTIVE_BRIGHT_ART
-        else -> KaraokeAlpha.INACTIVE
-    }
+    val inactive = inactiveAlphaFor(appearance)
     return LyricsRenderStyle(
         textMeasurer = measurer,
         main = main,
-        background = main.copy(fontSize = (size * LyricsRenderStyle.BACKGROUND_EM).sp),
+        background = main.copy(
+            fontSize = (size * LyricsRenderStyle.BACKGROUND_EM).sp,
+            fontFamily = lyricsFamilyAtSize(appearance.fontFamily, (size * LyricsRenderStyle.BACKGROUND_EM).sp),
+        ),
         translation = main.copy(
             fontSize = (size * LyricsRenderStyle.TRANSLATION_EM).sp,
+            fontFamily = lyricsFamilyAtSize(appearance.fontFamily, (size * LyricsRenderStyle.TRANSLATION_EM).sp),
             fontWeight = FontWeight.SemiBold,
             letterSpacing = 0.em,
             lineBreak = LineBreak.Paragraph,
         ),
         romanization = main.copy(
             fontSize = (size * LyricsRenderStyle.ROMANIZATION_EM).sp,
+            fontFamily = lyricsFamilyAtSize(appearance.fontFamily, (size * LyricsRenderStyle.ROMANIZATION_EM).sp),
             fontWeight = FontWeight.SemiBold,
             letterSpacing = 0.em,
             lineBreak = LineBreak.Paragraph,
@@ -605,6 +621,12 @@ private fun buildRenderStyle(
 }
 
 private const val MAIN_FONT_SP = 34f
+
+private fun inactiveAlphaFor(appearance: KaraokeLyricsAppearance): Float = when {
+    appearance.highContrast -> KaraokeAlpha.INACTIVE_HIGH_CONTRAST
+    appearance.brightArt -> KaraokeAlpha.INACTIVE_BRIGHT_ART
+    else -> KaraokeAlpha.INACTIVE
+}
 
 private fun isReducedMotion(context: Context): Boolean =
     Settings.Global.getFloat(context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f

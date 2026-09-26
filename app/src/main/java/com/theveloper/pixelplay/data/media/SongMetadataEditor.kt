@@ -110,7 +110,7 @@ class SongMetadataEditor(
         albumArtist: String?,
         composer: String?,
         genre: String,
-        lyrics: String
+        lyrics: String?
     ): String? {
         if (title.isBlank()) return "Title cannot be empty"
         if (title.length > MetadataLimits.MAX_TITLE_LENGTH) return "Title too long"
@@ -119,7 +119,7 @@ class SongMetadataEditor(
         if (!albumArtist.isNullOrBlank() && albumArtist.length > MetadataLimits.MAX_ALBUM_ARTIST_LENGTH) return "Album artist name too long"
         if (!composer.isNullOrBlank() && composer.length > MetadataLimits.MAX_COMPOSER_LENGTH) return "Composer name too long"
         if (genre.length > MetadataLimits.MAX_GENRE_LENGTH) return "Genre too long"
-        if (lyrics.length > MetadataLimits.MAX_LYRICS_LENGTH) return "Lyrics too long"
+        if (lyrics != null && lyrics.length > MetadataLimits.MAX_LYRICS_LENGTH) return "Lyrics too long"
         return null
     }
 
@@ -238,7 +238,7 @@ class SongMetadataEditor(
         newAlbumArtist: String? = null,
         newComposer: String? = null,
         newGenre: String,
-        newLyrics: String,
+        newLyrics: String?,
         newTrackNumber: Int,
         newDiscNumber: Int?,
         newReplayGainTrackGainDb: String? = null,
@@ -257,7 +257,8 @@ class SongMetadataEditor(
         }
 
         try {
-            val trimmedLyrics = newLyrics.trim()
+            // null = keep the file's existing lyrics tag untouched.
+            val trimmedLyrics = newLyrics?.trim()
             val trimmedGenre = newGenre.trim()
             val normalizedGenre = trimmedGenre.takeIf { it.isNotBlank() }
             val replayGainTrackUpdate = parseReplayGainUpdate(
@@ -742,7 +743,7 @@ class SongMetadataEditor(
         newAlbumArtist: String?,
         newComposer: String?,
         newGenre: String,
-        newLyrics: String,
+        newLyrics: String?,
         newTrackNumber: Int,
         newDiscNumber: Int?,
         replayGainTrackUpdate: ReplayGainUpdate = ReplayGainUpdate.Keep,
@@ -790,7 +791,7 @@ class SongMetadataEditor(
                 }
                 propertyMap.upsertOrRemove("COMPOSER", newComposer)
                 propertyMap.upsertOrRemove("GENRE", newGenre)
-                propertyMap.upsertOrRemove("LYRICS", newLyrics)
+                if (newLyrics != null) propertyMap.upsertOrRemove("LYRICS", newLyrics)
                 propertyMap["TRACKNUMBER"] = arrayOf(newTrackNumber.toString())
                 if (newDiscNumber != null && newDiscNumber > 0) {
                     propertyMap["DISCNUMBER"] = arrayOf(newDiscNumber.toString())
@@ -868,7 +869,7 @@ class SongMetadataEditor(
         newAlbumArtist: String?,
         newComposer: String?,
         newGenre: String,
-        newLyrics: String,
+        newLyrics: String?,
         newTrackNumber: Int,
         newDiscNumber: Int?,
         replayGainTrackUpdate: ReplayGainUpdate = ReplayGainUpdate.Keep,
@@ -903,7 +904,9 @@ class SongMetadataEditor(
                 tag.deleteField(FieldKey.GENRE)
             }
             
-            if (newLyrics.isNotBlank()) {
+            if (newLyrics == null) {
+                // Lyrics not edited: leave the tag as it is.
+            } else if (newLyrics.isNotBlank()) {
                 tag.setField(FieldKey.LYRICS, newLyrics)
             } else {
                 tag.deleteField(FieldKey.LYRICS)
@@ -966,7 +969,7 @@ class SongMetadataEditor(
         newAlbumArtist: String?,
         newComposer: String?,
         newGenre: String,
-        newLyrics: String,
+        newLyrics: String?,
         newTrackNumber: Int,
         newDiscNumber: Int?,
         replayGainTrackUpdate: ReplayGainUpdate = ReplayGainUpdate.Keep,
@@ -999,7 +1002,7 @@ class SongMetadataEditor(
             tags.replaceSingleComment("COMPOSER", newComposer)
             tags.replaceSingleComment("ALBUM", newAlbum)
             tags.replaceSingleComment("GENRE", newGenre)
-            tags.replaceSingleComment("LYRICS", newLyrics)
+            if (newLyrics != null) tags.replaceSingleComment("LYRICS", newLyrics)
             tags.replaceSingleComment("TRACKNUMBER", newTrackNumber.takeIf { it > 0 }?.toString())
             tags.replaceSingleComment("DISCNUMBER", newDiscNumber?.takeIf { it > 0 }?.toString())
             tags.applyReplayGainUpdate(REPLAYGAIN_TRACK_GAIN_KEY, replayGainTrackUpdate)

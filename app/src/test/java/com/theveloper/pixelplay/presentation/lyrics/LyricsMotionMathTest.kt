@@ -231,8 +231,9 @@ class LyricsMotionMathTest {
         assertEquals(6.7550f, LyricsBlurMath.sigmaDpToRadiusPx(1.6f, 2.75f), 1e-3f)
         assertEquals(0f, LyricsBlurMath.sigmaDpToRadiusPx(0.1f, 1f), 0f)
         assertEquals(LyricsBlurMath.sigmaDpToRadiusPx(5f, 3f), LyricsBlurMath.cssShadowBlurToRadiusPx(10f, 3f), 1e-5f)
-        assertEquals(1.25f, LyricsBlurMath.quantizeRadiusPx(1.13f), 1e-6f)
-        assertEquals(1.0f, LyricsBlurMath.quantizeRadiusPx(1.12f), 1e-6f)
+        assertEquals(1.5f, LyricsBlurMath.quantizeRadiusPx(1.13f), 1e-6f)
+        assertEquals(0f, LyricsBlurMath.quantizeRadiusPx(0.74f), 1e-6f)
+        assertEquals(7.5f, LyricsBlurMath.quantizeRadiusPx(6.7550f), 1e-6f)
     }
 
     @Test
@@ -241,5 +242,17 @@ class LyricsMotionMathTest {
         assertEquals(0.94f, LyricsBlurMath.fallbackAlphaFactor(1), 1e-6f)
         assertEquals(0.152f, 0.2f * LyricsBlurMath.fallbackAlphaFactor(4), 1e-6f)
         assertEquals(0.152f, 0.2f * LyricsBlurMath.fallbackAlphaFactor(9), 1e-6f)
+    }
+
+    @Test
+    fun unsungNeverDropsBelowTheInactiveTier() {
+        val tiers = floatArrayOf(KaraokeAlpha.INACTIVE, KaraokeAlpha.INACTIVE_BRIGHT_ART, KaraokeAlpha.INACTIVE_HIGH_CONTRAST)
+        for (inactive in tiers) {
+            for (step in 0..20) {
+                val a = step / 20f
+                assertTrue("tier $inactive at a=$a", KaraokeAlpha.unsung(a, inactive) >= inactive - 1e-6f)
+            }
+        }
+        assertEquals(0.60f, KaraokeAlpha.unsung(1f, KaraokeAlpha.INACTIVE_BRIGHT_ART), 1e-6f)
     }
 }

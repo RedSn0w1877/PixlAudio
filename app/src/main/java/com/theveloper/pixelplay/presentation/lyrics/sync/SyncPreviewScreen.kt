@@ -41,6 +41,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -60,6 +61,7 @@ import androidx.compose.ui.unit.sp
 import com.theveloper.pixelplay.R
 import com.theveloper.pixelplay.presentation.lyrics.KaraokeLyricsAppearance
 import com.theveloper.pixelplay.presentation.lyrics.KaraokeLyricsView
+import com.theveloper.pixelplay.presentation.lyrics.rememberLyricsAppearancePrefs
 import com.theveloper.pixelplay.presentation.lyrics.rememberLyricsClock
 import com.theveloper.pixelplay.presentation.lyrics.rememberLyricsEngine
 import com.theveloper.pixelplay.presentation.viewmodel.LyricsSyncEditorStateHolder
@@ -88,11 +90,12 @@ internal fun SyncPreviewScreen(
     val covered = remember(ui.draft?.songId, ui.draft?.lines?.size) {
         ui.draft?.lines?.all { isCoveredByAppFont(it.text) } ?: true
     }
-    val appearance = remember(covered, brightArt) {
-        KaraokeLyricsAppearance(
-            fontFamily = if (covered) LyricsDisplayFamily else null,
-            brightArt = brightArt,
-        )
+    // The same preferences the lyrics sheet reads (alignment, blur, contrast, size), so the
+    // preview the user approves before saving is exactly what the lyrics screen will show.
+    val prefs by rememberLyricsAppearancePrefs()
+    val textSize = MaterialTheme.typography.titleLarge.fontSize
+    val appearance = remember(covered, brightArt, prefs, textSize) {
+        prefs.toAppearance(if (covered) LyricsDisplayFamily else null, textSize, brightArt)
     }
     var showShare by remember { mutableStateOf(false) }
 

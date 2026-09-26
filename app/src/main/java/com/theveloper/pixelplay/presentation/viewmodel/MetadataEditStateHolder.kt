@@ -56,7 +56,7 @@ private data class PendingMetadataEdit(
     val albumArtist: String,
     val composer: String,
     val genre: String,
-    val lyrics: String,
+    val lyrics: String?,
     val trackNumber: Int,
     val discNumber: Int?,
     val replayGainTrackGainDb: String?,
@@ -117,6 +117,8 @@ class MetadataEditStateHolder @Inject constructor(
         val updatedSong: Song? = null,
         val updatedAlbumArtUri: String? = null,
         val parsedLyrics: Lyrics? = null,
+        /** The edit left the lyrics alone; callers keep whatever lyrics they already show. */
+        val lyricsUntouched: Boolean = false,
         val error: MetadataEditError? = null,
         val errorMessage: String? = null
     ) {
@@ -146,7 +148,7 @@ class MetadataEditStateHolder @Inject constructor(
         newAlbumArtist: String,
         newComposer: String,
         newGenre: String,
-        newLyrics: String,
+        newLyrics: String?,
         newTrackNumber: Int,
         newDiscNumber: Int?,
         newReplayGainTrackGainDb: String? = null,
@@ -178,8 +180,10 @@ class MetadataEditStateHolder @Inject constructor(
             coverArtUpdate
         }
 
-        val trimmedLyrics = newLyrics.trim()
-        val normalizedLyrics = trimmedLyrics.takeIf { it.isNotBlank() }
+        // null = the user did not edit the lyrics: keep the file's tag, the Room row and any tap-sync.
+        val lyricsUntouched = newLyrics == null
+        val trimmedLyrics = newLyrics?.trim()
+        val normalizedLyrics = trimmedLyrics?.takeIf { it.isNotBlank() }
         // We parse lyrics here just to ensure they are valid or to have them ready, 
         // essentially mirroring logic in ViewModel
         val parsedLyrics = normalizedLyrics?.let { LyricsUtils.parseLyrics(it) }
@@ -219,11 +223,13 @@ class MetadataEditStateHolder @Inject constructor(
                 result.updatedAlbumArtUri ?: song.albumArtUriString
             }
             
-            // Update Repository (Lyrics)
-            if (normalizedLyrics != null) {
-                musicRepository.updateLyrics(resolvedSongId, normalizedLyrics)
-            } else {
-                musicRepository.resetLyrics(resolvedSongId)
+            // Update Repository (Lyrics) — only when the lyrics were actually edited.
+            if (!lyricsUntouched) {
+                if (normalizedLyrics != null) {
+                    musicRepository.updateLyrics(resolvedSongId, normalizedLyrics)
+                } else {
+                    musicRepository.resetLyrics(resolvedSongId)
+                }
             }
 
             val updatedSong = song.copy(
@@ -232,7 +238,7 @@ class MetadataEditStateHolder @Inject constructor(
                 album = newAlbum,
                 albumArtist = newAlbumArtist.trim().takeIf { it.isNotBlank() },
                 genre = newGenre,
-                lyrics = normalizedLyrics,
+                lyrics = if (lyricsUntouched) song.lyrics else normalizedLyrics,
                 trackNumber = newTrackNumber,
                 discNumber = newDiscNumber,
                 albumArtUriString = refreshedAlbumArtUri,
@@ -268,7 +274,8 @@ class MetadataEditStateHolder @Inject constructor(
                 success = true,
                 updatedSong = freshSong,
                 updatedAlbumArtUri = freshSong.albumArtUriString,
-                parsedLyrics = parsedLyrics
+                parsedLyrics = parsedLyrics,
+                lyricsUntouched = lyricsUntouched
             )
         } else {
             Log.w("MetadataEditStateHolder", "Metadata edit failed: ${result.error} - ${result.errorMessage}")
@@ -339,7 +346,7 @@ class MetadataEditStateHolder @Inject constructor(
         newAlbumArtist: String,
         newComposer: String,
         newGenre: String,
-        newLyrics: String,
+        newLyrics: String?,
         newTrackNumber: Int,
         newDiscNumber: Int?,
         newReplayGainTrackGainDb: String? = null,
@@ -602,7 +609,7 @@ class MetadataEditStateHolder @Inject constructor(
         newAlbumArtist: String,
         newComposer: String,
         newGenre: String,
-        newLyrics: String,
+        newLyrics: String?,
         newTrackNumber: Int,
         newDiscNumber: Int?,
         newReplayGainTrackGainDb: String?,
@@ -652,7 +659,7 @@ class MetadataEditStateHolder @Inject constructor(
                 playbackStateHolder.updateStablePlayerState {
                     it.copy(
                         currentSong = updatedSong,
-                        lyrics = result.parsedLyrics
+                        lyrics = if (result.lyricsUntouched) it.lyrics else result.parsedLyrics
                     )
                 }
 
@@ -728,7 +735,8 @@ class MetadataEditStateHolder @Inject constructor(
                 newAlbumArtist = albumArtist ?: (song.albumArtist ?: ""),
                 newComposer = composer ?: "",
                 newGenre = genre ?: (song.genre ?: ""),
-                newLyrics = lyrics ?: (song.lyrics ?: ""),
+                // null = not part of this batch edit: leave each song's lyrics (and tap-syncs) alone.
+                newLyrics = lyrics,
                 newTrackNumber = trackNumber ?: song.trackNumber,
                 newDiscNumber = discNumber ?: song.discNumber,
                 newReplayGainTrackGainDb = replayGainTrackGainDb,
@@ -762,7 +770,7 @@ class MetadataEditStateHolder @Inject constructor(
                     playbackStateHolder.updateStablePlayerState {
                         it.copy(
                             currentSong = updatedSong,
-                            lyrics = result.parsedLyrics
+                            lyrics = if (result.lyricsUntouched) it.lyrics else result.parsedLyrics
                         )
                     }
 
@@ -848,7 +856,7 @@ class MetadataEditStateHolder @Inject constructor(
                 newAlbumArtist = sourceSong.albumArtist ?: "",
                 newComposer = "",
                 newGenre = newGenre,
-                newLyrics = sourceSong.lyrics ?: "",
+                newLyrics = null, // genre-only edit: never touch the lyrics
                 newTrackNumber = sourceSong.trackNumber,
                 newDiscNumber = sourceSong.discNumber,
                 coverArtUpdate = null

@@ -38,6 +38,8 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
@@ -58,8 +60,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.currentStateAsState
-import com.theveloper.pixelplay.data.preferences.PlayerAmbientStyle
-import com.theveloper.pixelplay.presentation.components.player.PlayerAmbientBackground
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlin.math.cos
 import kotlin.math.roundToInt
@@ -225,7 +226,7 @@ fun LyricsArtworkBackground(
     val started by remember(lifecycleState) {
         derivedStateOf { lifecycleState.value.isAtLeast(Lifecycle.State.STARTED) }
     }
-    val powerSave by rememberPowerSaveMode()
+    val powerSave by com.theveloper.pixelplay.ui.glass.rememberPowerSaveMode()
     val onScreen = visible && started
 
     // Bake (or fetch) the sprites whenever the art or the view's aspect changes.
@@ -252,17 +253,19 @@ fun LyricsArtworkBackground(
         val motion = !powerSave
         if (!motion && animator.fadeDone) return@LaunchedEffect
         var lastFrame = -1L
-        var lastPublish = -1L
         while (isActive) {
+            if (lastFrame >= 0L) {
+                // Sleep until the next 33 ms slot rather than asking for every vsync: frames that
+                // publish nothing would still wake the main thread and hold the panel at 120 Hz.
+                val waitMs = (FRAME_INTERVAL_NANOS - FRAME_SLACK_NANOS - (System.nanoTime() - lastFrame)) / 1_000_000L
+                if (waitMs > 0L) delay(waitMs)
+            }
             val keepGoing = withFrameNanos { now ->
+                // Integrates over the real frame-time delta, so the motion speed is unchanged.
                 val dt = if (lastFrame < 0L) 0f else ((now - lastFrame) / 1_000_000_000f).coerceIn(0f, 0.1f)
                 lastFrame = now
                 animator.step(dt, motion)
-                val due = lastPublish < 0L || now - lastPublish >= FRAME_INTERVAL_NANOS - FRAME_SLACK_NANOS
-                if (due || animator.fadeDone != animator.publishedFadeDone) {
-                    animator.publish()
-                    lastPublish = now
-                }
+                animator.publish()
                 motion || !animator.fadeDone
             }
             if (!keepGoing) break
@@ -318,20 +321,20 @@ fun LyricsArtworkBackground(
             .drawBehind { drawRect(baseFill) }
     ) {
         if (onScreen && (showGradient || gradientPresent)) {
-            PlayerAmbientBackground(
-                style = PlayerAmbientStyle.FLOWING_GRADIENT,
-                albumArtUri = null,
+            LyricsFlowingGradient(
+                animator = animator,
                 colorScheme = colorScheme,
-                audioSessionIdProvider = { 0 },
-                isPlayingProvider = { false },
-                modifier = Modifier.graphicsLayer { alpha = gradientAlpha.value }
+                alpha = { gradientAlpha.value },
+                modifier = Modifier.fillMaxSize(),
             )
         }
         Spacer(
             modifier = Modifier
                 .fillMaxSize()
-                // Own layer: invalidated only by the 30 fps tick below, never by lyric state.
-                .graphicsLayer { }
+                // Own, cached (offscreen) layer: re-rasterised only when the 30 fps tick below
+                // re-records it. Every other frame — lyric cascades, drags, the controls — HWUI
+                // just blits the cached texture instead of re-running the full-screen shader.
+                .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
                 .drawBehind {
                     animator.tick.intValue // Subscribe this draw (only) to the 30 fps tick.
                     painter.draw(this, animator, brightArtScrim)
@@ -340,29 +343,63 @@ fun LyricsArtworkBackground(
     }
 }
 
-/** Power-save mode as state, updated by the system broadcast. */
+/**
+ * The no-art fallback: the player's flowing gradient (same three blobs, same 50 s loop), but on
+ * this background's 30 fps tick and with its brushes built once per size, so a frame neither
+ * allocates nor redraws at display rate.
+ */
 @Composable
-private fun rememberPowerSaveMode(): State<Boolean> {
-    val appContext = LocalContext.current.applicationContext
-    val powerManager = remember(appContext) { appContext.getSystemService(PowerManager::class.java) }
-    val state = remember(appContext) { mutableStateOf(powerManager?.isPowerSaveMode == true) }
-    DisposableEffect(appContext) {
-        val receiver = object : BroadcastReceiver() {
-            override fun onReceive(context: Context?, intent: Intent?) {
-                state.value = powerManager?.isPowerSaveMode == true
+private fun LyricsFlowingGradient(
+    animator: BackgroundAnimator,
+    colorScheme: ColorScheme,
+    alpha: () -> Float,
+    modifier: Modifier = Modifier,
+) {
+    val colorA = colorScheme.primary.copy(alpha = 0.55f)
+    val colorB = colorScheme.tertiary.copy(alpha = 0.50f)
+    val colorC = colorScheme.secondary.copy(alpha = 0.42f)
+    Spacer(
+        modifier = modifier
+            .graphicsLayer { this.alpha = alpha() }
+            .drawWithCache {
+                val w = size.width
+                val h = size.height
+                val radius = kotlin.math.min(w, h) * 0.78f
+                // Centred on the origin; each frame only translates the canvas.
+                fun blob(color: Color) = Brush.radialGradient(
+                    0f to color,
+                    0.55f to color.copy(alpha = color.alpha * 0.7f),
+                    1f to Color.Transparent,
+                    center = Offset.Zero,
+                    radius = radius,
+                )
+                val brushA = blob(colorA)
+                val brushB = blob(colorB)
+                val brushC = blob(colorC)
+                onDrawBehind {
+                    animator.tick.intValue // Subscribe this draw (only) to the 30 fps tick.
+                    val turn = (animator.elapsedSeconds / FLOWING_GRADIENT_PERIOD_S) % 1f
+                    val angleA = turn * TWO_PI
+                    val angleB = turn * TWO_PI * 0.63f + 1.7f
+                    val angleC = turn * TWO_PI * 0.47f + 3.4f
+                    translate(w * (0.5f + 0.26f * cos(angleC + 2.1f)), h * (0.5f + 0.26f * sin(angleC))) {
+                        drawCircle(brushC, radius, Offset.Zero)
+                    }
+                    translate(w * (0.5f + 0.30f * cos(angleB + PI_F)), h * (0.68f + 0.20f * sin(angleB))) {
+                        drawCircle(brushB, radius, Offset.Zero)
+                    }
+                    translate(w * (0.5f + 0.32f * cos(angleA)), h * (0.32f + 0.22f * sin(angleA * 1.3f))) {
+                        drawCircle(brushA, radius, Offset.Zero)
+                    }
+                }
             }
-        }
-        ContextCompat.registerReceiver(
-            appContext,
-            receiver,
-            IntentFilter(PowerManager.ACTION_POWER_SAVE_MODE_CHANGED),
-            ContextCompat.RECEIVER_NOT_EXPORTED
-        )
-        state.value = powerManager?.isPowerSaveMode == true
-        onDispose { appContext.unregisterReceiver(receiver) }
-    }
-    return state
+    )
 }
+
+private const val FLOWING_GRADIENT_PERIOD_S = 50f
+private const val PI_F = Math.PI.toFloat()
+private const val TWO_PI = 2f * PI_F
+
 
 /**
  * Motion + crossfade clock. Integrates every frame but publishes to the draw only through [tick],
@@ -395,6 +432,11 @@ internal class BackgroundAnimator(initial: SpriteSet?, val reducedMotion: Boolea
         private set
 
     private val phaseAccum = DoubleArray(4)
+    private var timeAccum = 0.0
+
+    /** Motion time in seconds, published with [phases] (drives the no-art gradient). */
+    var elapsedSeconds: Float = 0f
+        private set
     private var pendingFade = 1f
     val fadeDone: Boolean get() = pendingFade >= 1f
     var publishedFadeDone: Boolean = true
@@ -428,6 +470,7 @@ internal class BackgroundAnimator(initial: SpriteSet?, val reducedMotion: Boolea
             for (k in 0 until 4) {
                 phaseAccum[k] = (phaseAccum[k] + rates[k] * dtSeconds) % PHASE_WRAP
             }
+            timeAccum = (timeAccum + dtSeconds) % FLOWING_GRADIENT_PERIOD_S
         }
         if (pendingFade < 1f) {
             pendingFade = (pendingFade + dtSeconds * 1000f / CROSSFADE_MS).coerceAtMost(1f)
@@ -441,6 +484,7 @@ internal class BackgroundAnimator(initial: SpriteSet?, val reducedMotion: Boolea
 
     fun publish() {
         for (k in 0 until 4) phases[k] = phaseAccum[k].toFloat()
+        elapsedSeconds = timeAccum.toFloat()
         fade = pendingFade
         publishedFadeDone = fadeDone
         if (fadeDone && previous != null) previous = null

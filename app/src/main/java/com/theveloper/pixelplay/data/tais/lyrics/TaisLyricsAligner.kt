@@ -170,7 +170,11 @@ class TaisLyricsAligner @Inject constructor(
      * format [com.theveloper.pixelplay.utils.LyricsUtils.parseLyrics] round-trips through. Future
      * playbacks hit the cache and skip re-running alignment entirely.
      */
-    suspend fun persistAligned(song: Song, alignedLines: List<SyncedLine>) {
+    /**
+     * Returns false (nothing written) when the user saved their own tap-sync while alignment was
+     * running — it wins over acoustic alignment unless [overrideUser] ("Replace") was chosen.
+     */
+    suspend fun persistAligned(song: Song, alignedLines: List<SyncedLine>, overrideUser: Boolean = false): Boolean {
         val words = alignedLines.flatMap { it.words.orEmpty() }
         require(words.isNotEmpty() && words.any { it.time > 0 } &&
             words.all { it.time >= 0 } && words.zipWithNext().all { (a, b) -> a.time <= b.time }) {
@@ -189,7 +193,10 @@ class TaisLyricsAligner @Inject constructor(
                 }.joinToString("")
             }
         }
+        // Alignment takes minutes: re-check right before the write, not only when the job started.
+        if (!overrideUser && lyricsRepository.isUserSynced(song)) return false
         lyricsRepository.updateLyrics(song, rawLyrics)
+        return true
     }
 
     private fun formatLrcTimestamp(timeMs: Int): String {

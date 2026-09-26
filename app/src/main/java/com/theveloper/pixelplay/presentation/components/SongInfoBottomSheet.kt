@@ -139,7 +139,7 @@ fun SongInfoBottomSheet(
         albumArtist: String,
         composer: String,
         genre: String,
-        lyrics: String,
+        lyrics: String?,
         trackNumber: Int,
         discNumber: Int?,
         replayGainTrackGainDb: String,

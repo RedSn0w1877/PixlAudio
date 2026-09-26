@@ -5,6 +5,16 @@ import androidx.compose.runtime.mutableLongStateOf
 import kotlin.math.abs
 
 /**
+ * A primitive `Long` supplier. The lyrics frame loop reads positions through these every frame; a
+ * `() -> Long` is a `Function0<Long>` whose `invoke()` boxes each millisecond value.
+ */
+fun interface LongSource {
+    fun getAsLong(): Long
+}
+
+private val ZeroLongSource = LongSource { 0L }
+
+/**
  * The lyrics time base (spec §3.4). Once per frame, [tick] reads the player position through
  * [positionProvider] (expected to be the frame-accurate, speed-aware `framePositionMs()` on the
  * main thread), adds the lyric sync offset, and publishes the result in [nowMs].
@@ -19,8 +29,8 @@ import kotlin.math.abs
  */
 @Stable
 class LyricsClock(
-    private val positionProvider: () -> Long,
-    private val offsetMsProvider: () -> Long = { 0L },
+    private val positionProvider: LongSource,
+    private val offsetMsProvider: LongSource = ZeroLongSource,
 ) {
     private val nowState = mutableLongStateOf(0L)
 
@@ -51,7 +61,7 @@ class LyricsClock(
      * touching the guard. The frame loop uses it while idle to notice a seek or an offset change
      * that happened while paused.
      */
-    fun peekMs(): Long = positionProvider() + offsetMsProvider()
+    fun peekMs(): Long = positionProvider.getAsLong() + offsetMsProvider.getAsLong()
 
     /**
      * The frame loop went idle: the next [tick] must not predict across the idle gap (that gap is
@@ -66,7 +76,7 @@ class LyricsClock(
      * @return `true` if this sample was a seek.
      */
     fun tick(frameNanos: Long): Boolean {
-        val raw = positionProvider() + offsetMsProvider()
+        val raw = positionProvider.getAsLong() + offsetMsProvider.getAsLong()
         if (!initialized) {
             initialized = true
             lastFrameNanos = frameNanos

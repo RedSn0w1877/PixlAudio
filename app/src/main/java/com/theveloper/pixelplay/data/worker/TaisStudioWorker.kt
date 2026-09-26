@@ -155,10 +155,16 @@ class TaisStudioWorker @AssistedInject constructor(
                 }
                 check(sourceAudioPath.isNotBlank()) { "This song has no available audio source" }
                 reportProgress(STAGE_ALIGNING, ALIGN_RANGE_START, "Syncing ${song.title} word-by-word…")
-                val wordSyncProduced = runWordSyncAlignment(song, sourceAudioPath, state) { done, total ->
+                val wordSyncProduced = runWordSyncAlignment(song, sourceAudioPath, state, overrideUser) { done, total ->
                     val overall = (ALIGN_RANGE_START + (done.toFloat() / total.coerceAtLeast(1)) * ALIGN_RANGE_SPAN)
                         .toInt().coerceIn(ALIGN_RANGE_START, 100)
                     reportProgress(STAGE_ALIGNING, overall, "${song.title} — pass $done of $total…")
+                }
+                if (wordSyncProduced == null) {
+                    // The user saved their own timing while this job was aligning: theirs wins.
+                    val detail = applicationContext.getString(R.string.lyrics_sync_studio_kept)
+                    reportProgress(STAGE_DONE, 100, detail)
+                    return@withLock Result.success(resultData(OUTCOME_SKIPPED, false, detail))
                 }
                 check(wordSyncProduced) { "No usable word timing was produced. Existing lyrics were kept." }
                 reportProgress(STAGE_DONE, 100, "Done — ${song.title} lyrics synced")
@@ -206,13 +212,17 @@ class TaisStudioWorker @AssistedInject constructor(
         )
     }
 
-    /** Returns true if word-level sync was newly produced (false if skipped — already synced, or no lyrics at all). */
+    /**
+     * Returns true if word-level sync was newly produced, false if skipped (already synced, or no
+     * lyrics at all), or null if the user's own tap-sync appeared meanwhile and was kept.
+     */
     private suspend fun runWordSyncAlignment(
         song: com.theveloper.pixelplay.data.model.Song,
         sourceAudioPath: String,
         state: TaisLyricsAligner.AlignmentState,
+        overrideUser: Boolean,
         onWindowProgress: suspend (Int, Int) -> Unit
-    ): Boolean {
+    ): Boolean? {
         val (plainLines, knownLineStartMs) = when (state) {
             is TaisLyricsAligner.AlignmentState.PlainTextOnly -> state.lines to null
             // Real line timestamps make chunk windowing exact instead of a proportional guess —
@@ -233,7 +243,7 @@ class TaisStudioWorker @AssistedInject constructor(
             onWindowProgress(done, total)
         }
         if (aligned.isEmpty()) return false
-        lyricsAligner.persistAligned(song, aligned)
+        if (!lyricsAligner.persistAligned(song, aligned, overrideUser)) return null
         return true
     }
 

@@ -7,10 +7,12 @@ import com.theveloper.pixelplay.data.model.SyncedLine
 import com.theveloper.pixelplay.data.model.SyncedWord
 import com.theveloper.pixelplay.data.repository.LyricsRepository
 import com.theveloper.pixelplay.data.tais.TaisAiEngine
+import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.mockk
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
@@ -30,6 +32,21 @@ class TaisLyricsPersistenceTest {
         coVerify(exactly = 1) {
             repository.updateLyrics(song, "[00:01.00]<00:01.00>Hello <00:01.50>world")
         }
+    }
+
+    @Test
+    fun `a tap-sync saved while aligning is kept, unless the user chose Replace`() = runTest {
+        val song = Song.emptySong().copy(id = "42")
+        val lines = listOf(SyncedLine(1000, "Hello world", listOf(
+            SyncedWord(1000, "Hello"), SyncedWord(1500, "world")
+        )))
+        coEvery { repository.isUserSynced(song) } returns true
+
+        assertFalse(aligner.persistAligned(song, lines))
+        coVerify(exactly = 0) { repository.updateLyrics(song, any()) }
+
+        assertTrue(aligner.persistAligned(song, lines, overrideUser = true))
+        coVerify(exactly = 1) { repository.updateLyrics(song, any()) }
     }
 
     @Test

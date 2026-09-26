@@ -16,6 +16,7 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -91,18 +92,27 @@ private fun EditorHost(holder: LyricsSyncEditorStateHolder, phase: SyncPhase) {
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
+    val hostView = LocalView.current
+    DisposableEffect(hostView, holder) {
+        onDispose {
+            // The activity is finishing (not a configuration change): the session must not
+            // outlive it with the player slowed down and crossfades suspended.
+            if (hostView.context.findActivity()?.isFinishing == true) holder.close()
+        }
+    }
     BackHandler(enabled = phase != SyncPhase.Closed) { holder.onBack() }
 
     Box(
         modifier = Modifier
             .fillMaxSize()
             // Nothing below (the lyrics sheet, the player) may see touches while editing: being
-            // hit here is enough, since pointer input never falls through to a lower sibling.
-            // Nothing is consumed, so the editor's own buttons and gestures work normally.
+            // hit here is enough for lower siblings, since pointer input never falls through.
+            // Ancestors are another matter — the player sheet's vertical drag sits above us — so
+            // any drag nobody in the editor claimed is consumed here once it passes touch slop.
+            // Taps are never consumed, so the editor's own buttons keep working; its own scrolls
+            // consume first (children see the Main pass before us) and are left alone.
             .pointerInput(Unit) {
-                awaitPointerEventScope {
-                    while (true) awaitPointerEvent()
-                }
+                detectDragGestures { change, _ -> change.consume() }
             },
     ) {
         LyricsArtworkBackground(

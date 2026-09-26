@@ -91,6 +91,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -160,6 +161,8 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.withContext
 
 private const val PREVIOUS_TRACK_RESTART_THRESHOLD_MS = 10_000L
+/** The sync editor fades in over ~280 ms; the player underneath stops drawing after this. */
+private const val EDITOR_COVER_DELAY_MS = 450L
 private const val SKIP_COMMAND_GUARD_MS = 96L
 
 private enum class SkipDirection { PREVIOUS, NEXT }
@@ -264,6 +267,25 @@ fun FullPlayerContent(
             it != com.theveloper.pixelplay.presentation.viewmodel.SyncPhase.Closed
         }
     }.collectAsStateWithLifecycle(initialValue = false)
+
+    // The lyrics sheet and the sync editor are opaque and full-screen. Once one has finished
+    // coming in, the player underneath stops drawing (HWUI does no occlusion culling, so its
+    // blurred cover, glass and per-frame wavy progress would otherwise be replayed and overdrawn
+    // on every frame) and its progress wave stops animating.
+    val lyricsVisibleState = remember { MutableTransitionState(false) }
+    lyricsVisibleState.targetState = showLyricsSheet && !lyricsSyncEditorOpen
+    var editorCovering by remember { mutableStateOf(false) }
+    LaunchedEffect(lyricsSyncEditorOpen) {
+        if (lyricsSyncEditorOpen) {
+            kotlinx.coroutines.delay(EDITOR_COVER_DELAY_MS)
+            editorCovering = true
+        } else {
+            editorCovering = false
+        }
+    }
+    val playerCovered by remember {
+        derivedStateOf { editorCovering || (lyricsVisibleState.isIdle && lyricsVisibleState.currentState) }
+    }
 
     // Single subscription — replaces 11 independent collectAsStateWithLifecycle calls.
     // distinctUntilChanged in the ViewModel ensures this only emits when something
@@ -572,7 +594,7 @@ fun FullPlayerContent(
             currentSheetState = currentSheetState,
             progressActiveColor = progressActiveColor,
             playerOnBaseColor = playerOnBaseColor,
-            allowRealtimeUpdates = allowRealtimeUpdates,
+            allowRealtimeUpdates = allowRealtimeUpdates && !playerCovered,
             isSheetDragGestureActive = isSheetDragGestureActive,
             loadingTweaks = loadingTweaks
         )
@@ -652,7 +674,10 @@ fun FullPlayerContent(
 
     Scaffold(
         containerColor = Color.Transparent,
-        modifier = Modifier.pointerInput(currentSheetState, queueGestureBottomExclusionPx) {
+        modifier = Modifier
+            // Read in the layer only: flipping it never recomposes or re-lays out the player.
+            .graphicsLayer { alpha = if (playerCovered) 0f else 1f }
+            .pointerInput(currentSheetState, queueGestureBottomExclusionPx) {
             val queueDragActivationThresholdPx = 4.dp.toPx()
             val quickFlickVelocityThreshold = -520f
 
@@ -980,7 +1005,7 @@ fun FullPlayerContent(
         }
     }
     AnimatedVisibility(
-        visible = showLyricsSheet && !lyricsSyncEditorOpen,
+        visibleState = lyricsVisibleState,
         enter = slideInVertically(
             initialOffsetY = { it / 5 },
             animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)

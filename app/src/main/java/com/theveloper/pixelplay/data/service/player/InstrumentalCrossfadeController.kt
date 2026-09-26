@@ -35,8 +35,16 @@ class InstrumentalCrossfadeController(
     private val scope: CoroutineScope
 ) {
     private var shadowPlayer: ExoPlayer? = null
+    private var mainPlayerRef: Player? = null
     private var currentSongId: String? = null
     private var resyncJob: Job? = null
+
+    /** A suspend owner forced the vocals back while the instrumental was audible; re-apply on resume. */
+    private var restoreInstrumentalOnResume = false
+
+    init {
+        active = java.lang.ref.WeakReference(this)
+    }
 
     var isCrossfadedToInstrumental: Boolean = false
         private set
@@ -94,6 +102,7 @@ class InstrumentalCrossfadeController(
                 playWhenReady = mainPlayer.playWhenReady
             }
             shadowPlayer = player
+            mainPlayerRef = mainPlayer
             isCrossfadedToInstrumental = false
             startResyncLoop(mainPlayer)
         } catch (e: Exception) {
@@ -108,7 +117,9 @@ class InstrumentalCrossfadeController(
             while (true) {
                 delay(RESYNC_INTERVAL_MS)
                 val shadow = shadowPlayer ?: break
-                if (!mainPlayer.isPlaying || isSuspended) continue
+                // Keeps running while suspended too: it only ever seeks the shadow, never the main
+                // player, and the shadow must stay aligned for when it is audible again.
+                if (!mainPlayer.isPlaying) continue
                 val drift = abs(shadow.currentPosition - mainPlayer.currentPosition)
                 if (drift > DRIFT_TOLERANCE_MS) {
                     shadow.seekTo(mainPlayer.currentPosition)
@@ -168,23 +179,52 @@ class InstrumentalCrossfadeController(
         resyncJob = null
         shadowPlayer?.release()
         shadowPlayer = null
+        mainPlayerRef = null
         isCrossfadedToInstrumental = false
+        restoreInstrumentalOnResume = false
+    }
+
+    /**
+     * A suspend owner (the tap-sync editor) needs to hear the vocals it is timing: snap back to
+     * the original if the instrumental is audible. The owner pauses first, so the snap is silent.
+     */
+    private fun onSuspended() {
+        if (!isCrossfadedToInstrumental) return
+        val main = mainPlayerRef ?: return
+        val shadow = shadowPlayer ?: return
+        shadow.volume = 0f
+        main.volume = 1f
+        shadow.seekTo(main.currentPosition)
+        isCrossfadedToInstrumental = false
+        restoreInstrumentalOnResume = true
+    }
+
+    private fun onResumed() {
+        if (!restoreInstrumentalOnResume) return
+        restoreInstrumentalOnResume = false
+        val main = mainPlayerRef ?: return
+        scope.launch { crossfadeToInstrumental(main) }
     }
 
     companion object {
         /**
-         * Owners that forbid crossfades and drift re-seeks for now (the lyrics tap-sync editor,
-         * which needs exact, uninterrupted media time). Main thread only.
+         * Owners that forbid crossfades for now (the lyrics tap-sync editor, which needs to hear
+         * the vocals it times). Suspending snaps back to the original. Main thread only.
          */
         private val suspendedBy = mutableSetOf<String>()
         private val isSuspended: Boolean get() = suspendedBy.isNotEmpty()
 
+        /** The service's live controller, so suspend owners can bring the vocals back. */
+        private var active: java.lang.ref.WeakReference<InstrumentalCrossfadeController>? = null
+
         fun suspend(owner: String) {
             suspendedBy += owner
+            active?.get()?.onSuspended()
         }
 
         fun resume(owner: String) {
             suspendedBy -= owner
+            if (!isSuspended) active?.get()?.onResumed()
         }
 
         private const val TAG = "InstrumentalCrossfade"

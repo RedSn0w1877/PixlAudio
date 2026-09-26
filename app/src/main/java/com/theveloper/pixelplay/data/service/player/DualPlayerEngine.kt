@@ -691,6 +691,14 @@ class DualPlayerEngine @Inject constructor(
             return playerA
         }
 
+    /**
+     * The master player only if it is alive — never rebuilds a released engine the way
+     * [masterPlayer] does. For per-frame UI reads (e.g. the lyrics sync editor's clock), which
+     * must not resurrect an ExoPlayer outside the MediaSession after the service went away.
+     */
+    val masterPlayerIfAlive: Player?
+        get() = if (!isReleased && ::playerA.isInitialized) playerA else null
+
     fun isTransitionRunning(): Boolean = transitionRunning
 
     fun isUsingWindowedQueue(): Boolean = activePlayerUsesWindowedQueue

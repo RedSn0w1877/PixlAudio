@@ -39,6 +39,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Constraints
 import com.theveloper.pixelplay.presentation.lyrics.model.PreparedLine
 import com.theveloper.pixelplay.presentation.lyrics.model.VoiceRole
+import kotlinx.coroutines.launch
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
@@ -69,8 +70,13 @@ internal class LyricsRenderStyle(
     val extraGapPx: Float,
     val alignment: KaraokeAlignment,
     val hasDuet: Boolean,
-    /** Inactive line alpha: 0.20, 0.50 over bright art, 0.55 under increased contrast (§1.2). */
-    val inactiveAlpha: Float,
+    /**
+     * Inactive line alpha at construction: 0.20, 0.50 over bright art, 0.55 under increased
+     * contrast (§1.2). Draw-only, so it lives in snapshot state read in draw: the bright-art flag
+     * flipping on a track change redraws the rows instead of replacing this style (which would
+     * re-measure every line).
+     */
+    inactiveAlpha: Float,
     /** Increased contrast: no word gradient; unsung words 0.6, sung 1.0. */
     val highContrast: Boolean,
     /** No lift and no emphasis (activeness still fades). */
@@ -79,6 +85,11 @@ internal class LyricsRenderStyle(
     val showRomanization: Boolean,
 ) {
     val bgEmPx: Float = emPx * BACKGROUND_EM
+
+    internal val inactiveAlphaState = androidx.compose.runtime.mutableFloatStateOf(inactiveAlpha)
+
+    /** Snapshot read: call in draw only. */
+    val inactiveAlpha: Float get() = inactiveAlphaState.floatValue
 
     /** §1.1: in duet songs lead lines keep 15% free on the end side, duet lines on the start side. */
     fun startPadding(role: VoiceRole, widthPx: Int): Float = when {
@@ -213,8 +224,16 @@ internal class LyricLineNode(
     private var hlRight = 0f
     private var hlBottom = 0f
 
-    /** Word-sweep pieces, built the first time the line turns hot (§5.2). */
+    /**
+     * Word-sweep pieces (§5.2). Built off the hot frame: when the engine flags the row as about
+     * to turn hot ([LyricRowMotion.prefetch]) a posted task builds them, so measuring the pieces
+     * never lands on the line-change frame. Built inline only as a fallback (e.g. right after a
+     * seek straight into the line).
+     */
     private var segments: LineSegments? = null
+    private var segmentsBuildPending = false
+    /** Bumped on every re-measure, so a posted build for stale text is dropped. */
+    private var measureGeneration = 0
 
     // ---- sweep brush cache --------------------------------------------------------------------
     private var sweepBrush: SweepBrush? = null
@@ -241,6 +260,7 @@ internal class LyricLineNode(
         this.onClick = onClick
         if (remeasure) {
             measuredWidth = -1
+            measureGeneration++
             segments = null
             sweepBrush = null
             sweepKey = Long.MIN_VALUE
@@ -328,6 +348,21 @@ internal class LyricLineNode(
         measuredWidth = width
         measuredHeight = y.roundToInt()
         segments = null
+        measureGeneration++
+    }
+
+    /** Builds the word pieces in a posted task (outside any draw pass), once. */
+    private fun requestSegments() {
+        if (segmentsBuildPending || !isAttached) return
+        segmentsBuildPending = true
+        val generation = measureGeneration
+        coroutineScope.launch {
+            segmentsBuildPending = false
+            val main = layout
+            if (segments == null && main != null && generation == measureGeneration) {
+                segments = buildSegments(main)
+            }
+        }
     }
 
     // =========================================================================================
@@ -372,6 +407,7 @@ internal class LyricLineNode(
         }
 
         val animateWords = line.hasWordTiming && (hot || a > ACTIVENESS_EPS)
+        if (!animateWords && line.hasWordTiming && segments == null && m.prefetch) requestSegments()
         if (animateWords) {
             val segs = segments ?: buildSegments(main).also { segments = it }
             // Hot: subscribe to the clock. Fading out: sample it without subscribing — the

@@ -192,8 +192,16 @@ object KaraokeAlpha {
 
     fun lerp(from: Float, to: Float, f: Float): Float = from + (to - from) * f
 
-    /** Unsung words of a word-synced line: `lerp(inactive, 0.35, a)`. */
-    fun unsung(a: Float, inactive: Float = INACTIVE): Float = lerp(inactive, UNSUNG_ACTIVE, a)
+    /** How far the unsung words of the active line sit above the inactive lines, at least. */
+    const val UNSUNG_MIN_LIFT = 0.10f
+
+    /**
+     * Unsung words of a word-synced line: `lerp(inactive, 0.35, a)`. The active target never
+     * drops below `inactive + 0.10`, so over bright art (inactive 0.50) the active line's unsung
+     * words brighten to 0.60 instead of dimming below the lines around them.
+     */
+    fun unsung(a: Float, inactive: Float = INACTIVE): Float =
+        lerp(inactive, kotlin.math.max(UNSUNG_ACTIVE, inactive + UNSUNG_MIN_LIFT), a)
 
     /** Sung words, or a whole line-synced-only line: `lerp(inactive, 1.0, a)`. */
     fun sung(a: Float, inactive: Float = INACTIVE): Float = lerp(inactive, SUNG, a)

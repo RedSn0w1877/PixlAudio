@@ -153,6 +153,7 @@ import com.theveloper.pixelplay.presentation.lyrics.KaraokeAlignment
 import com.theveloper.pixelplay.presentation.lyrics.KaraokeLyricsAppearance
 import com.theveloper.pixelplay.presentation.lyrics.KaraokeLyricsView
 import com.theveloper.pixelplay.presentation.lyrics.lyricsEdgeFade
+import com.theveloper.pixelplay.presentation.lyrics.LongSource
 import com.theveloper.pixelplay.presentation.lyrics.rememberLyricsClock
 import com.theveloper.pixelplay.presentation.lyrics.rememberLyricsEngine
 import com.theveloper.pixelplay.presentation.lyrics.background.LyricsArtworkBackground
@@ -258,7 +259,7 @@ fun LyricsSheet(
     stablePlayerStateFlow: StateFlow<StablePlayerState>,
     playbackPositionFlow: StateFlow<Long>,
     // Frame-accurate, speed-aware position for the karaoke lyrics (main thread, every frame).
-    positionProvider: () -> Long = { playbackPositionFlow.value },
+    positionProvider: LongSource = LongSource { playbackPositionFlow.value },
     // Render-ready synced lyrics (built off-thread by LyricsStateHolder); null = build here.
     preparedLyricsFlow: StateFlow<PreparedLyrics?>? = null,
     studioInstrumentalAvailableFlow: StateFlow<Boolean> = MutableStateFlow(false),
@@ -310,11 +311,13 @@ fun LyricsSheet(
     // ─── Enter / Exit animation state ────────────────────────────────────────
     // Mirrors the player-sheet pattern: a plain Float in state drives graphicsLayer
     // at draw-phase (no recomposition per frame). 0f = fully visible, 1f = dismissed.
-    var backProgress by remember { mutableFloatStateOf(1f) }
+    // The state object itself is held (never delegated): reading it in this body would subscribe
+    // the whole sheet to every frame of the enter spring and of the predictive-back gesture.
+    val backProgressState = remember { mutableFloatStateOf(1f) }
 
-    // Draw-phase lambda provider — read only inside graphicsLayer so layout is never
+    // Draw-phase provider — read only inside graphicsLayer so neither composition nor layout is
     // re-triggered during the gesture (same technique as SheetVisualState).
-    val backProgressProvider = rememberUpdatedState(backProgress)
+    val backProgressProvider = remember(backProgressState) { { backProgressState.floatValue } }
 
     // Enter animation: slide up from +6 % height + fade in.
     LaunchedEffect(Unit) {
@@ -325,13 +328,13 @@ fun LyricsSheet(
                 stiffness = Spring.StiffnessMediumLow,
                 dampingRatio = Spring.DampingRatioLowBouncy
             )
-        ) { backProgress = value }
+        ) { backProgressState.floatValue = value }
     }
 
     // Predictive-back (Android 13+) or plain back on older devices.
     LyricsPredictiveBackHandler(
         enabled = true,
-        onProgressChanged = { backProgress = it },
+        onProgressChanged = { backProgressState.floatValue = it },
         onBack = onBackClick
     )
 
@@ -358,42 +361,11 @@ fun LyricsSheet(
 
     val context = LocalContext.current
 
-    // Read lyrics alignment preference internally from DataStore
-    val lyricsAlignmentFlow = remember(context) {
-        context.dataStore.data.map { it[stringPreferencesKey("lyrics_alignment")] ?: "left" }
-    }
-    val lyricsAlignment by lyricsAlignmentFlow.collectAsStateWithLifecycle(initialValue = "left")
-
-    // Read lyrics translation preference internally from DataStore
-    val showLyricsTranslationFlow = remember(context) {
-        context.dataStore.data.map { it[booleanPreferencesKey("show_lyrics_translation")] ?: true }
-    }
-    val showLyricsTranslation by showLyricsTranslationFlow.collectAsStateWithLifecycle(initialValue = true)
-
-    // Read lyrics romanization preference internally from DataStore
-    val showLyricsRomanizationFlow = remember(context) {
-        context.dataStore.data.map { it[booleanPreferencesKey("show_lyrics_romanization")] ?: true }
-    }
-    val showLyricsRomanization by showLyricsRomanizationFlow.collectAsStateWithLifecycle(initialValue = true)
-
-    val animatedLyricsBlurEnabledFlow = remember(context) {
-        context.dataStore.data.map { it[booleanPreferencesKey("animated_lyrics_blur_enabled")] ?: true }
-    }
-    val animatedLyricsBlurEnabled by animatedLyricsBlurEnabledFlow.collectAsStateWithLifecycle(initialValue = true)
-
-    val disableBlurAllOverFlow = remember(context) {
-        context.dataStore.data.map { it[booleanPreferencesKey("disable_blur_all_over")] ?: false }
-    }
-    val disableBlurAllOver by disableBlurAllOverFlow.collectAsStateWithLifecycle(initialValue = false)
-
-    val animatedLyricsBlurStrengthFlow = remember(context) {
-        // Lowered from 2.5f: with real per-line timestamps actually driving the current-line
-        // spotlight (most of the library never had reliable enough timing for that to kick in
-        // before), 2.5f/line reached the 10dp blur cap by only 4 lines away — every line but the
-        // current one turned into an unreadable haze instead of a legible "de-emphasized" look.
-        context.dataStore.data.map { it[androidx.datastore.preferences.core.floatPreferencesKey("animated_lyrics_blur_strength")] ?: 1.2f }
-    }
-    val animatedLyricsBlurStrength by animatedLyricsBlurStrengthFlow.collectAsStateWithLifecycle(initialValue = 1.2f)
+    // The lyrics look preferences, read through the helper the sync editor's Preview shares.
+    val appearancePrefs by com.theveloper.pixelplay.presentation.lyrics.rememberLyricsAppearancePrefs()
+    val lyricsAlignment = appearancePrefs.alignment
+    val showLyricsTranslation = appearancePrefs.showTranslation
+    val showLyricsRomanization = appearancePrefs.showRomanization
 
     // Read keep-screen-on preference from DataStore
     val keepScreenOnFlow = remember(context) {
@@ -468,7 +440,9 @@ fun LyricsSheet(
 
     // Immersive Mode State
     var immersiveMode by remember { mutableStateOf(false) }
-    var lastInteractionTime by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    // Last touch, kept out of composition: every pointer-down and every drag event writes it,
+    // and an observed state here would recompose the whole sheet on each of them.
+    val lastInteractionAt = remember { longArrayOf(SystemClock.uptimeMillis()) }
     var showMoreSheet by remember { mutableStateOf(false) }
     val moreSheetState = rememberModalBottomSheetState(
         skipPartiallyExpanded = true
@@ -482,6 +456,9 @@ fun LyricsSheet(
     val swipeThresholdPx = with(LocalDensity.current) { swipeThreshold.toPx() }
     val overlayTranslation = remember { Animatable(0f) }
     val swipeProgress = remember { Animatable(0f) }
+    // Thresholds of the per-event drag state: composition only hears when they flip.
+    val swipeOverlayVisible by remember { derivedStateOf { isSwipeActive || swipeProgress.value > 0f } }
+    val swipeTowardsNext by remember { derivedStateOf { dragOffset < 0 } }
 
     // Reset keep-screen-on when the physical screen goes off (power button / OEM sleep gesture).
     // ACTION_SCREEN_OFF is a guaranteed platform broadcast; no OEM can suppress it.
@@ -503,10 +480,20 @@ fun LyricsSheet(
     }
 
     // Auto-hide controls logic
-    LaunchedEffect(immersiveLyricsEnabled, lastInteractionTime, showSyncedLyrics, isImmersiveTemporarilyDisabled) {
+    // One long-lived timer per mode: it sleeps until the last touch is `timeout` old instead of
+    // restarting on every touch. Showing the controls (immersiveMode → false) re-arms it.
+    LaunchedEffect(immersiveLyricsEnabled, showSyncedLyrics, isImmersiveTemporarilyDisabled, immersiveMode) {
         if (immersiveLyricsEnabled && showSyncedLyrics == true && !isImmersiveTemporarilyDisabled) {
-            delay(immersiveLyricsTimeout)
-            immersiveMode = true
+            if (!immersiveMode) {
+                while (true) {
+                    val remaining = immersiveLyricsTimeout - (SystemClock.uptimeMillis() - lastInteractionAt[0])
+                    if (remaining <= 0L) {
+                        immersiveMode = true
+                        break
+                    }
+                    delay(remaining)
+                }
+            }
         } else {
             immersiveMode = false
         }
@@ -573,49 +560,34 @@ fun LyricsSheet(
                 lastRawPosition[0]
             } else {
                 // While the seek bar is being dragged the lyrics follow the finger.
-                (previewSeekState.value ?: currentPositionProvider()).also { lastRawPosition[0] = it }
+                val raw = previewSeekState.value ?: currentPositionProvider.getAsLong()
+                lastRawPosition[0] = raw
+                raw
             }
         },
         offsetMsProvider = { syncOffsetState.value.toLong() }
     )
     val lyricsEngine = rememberLyricsEngine(lyricsClock)
     val backgroundState = rememberLyricsBackgroundState()
-    val highContrast = remember(context) { isIncreasedContrast(context) }
-    val karaokeAppearance = remember(
-        lyricsFontFamily, lyricsTextStyle.fontSize, lyricsAlignment, backgroundState.isBrightArt, highContrast,
-        animatedLyricsBlurEnabled, disableBlurAllOver, animatedLyricsBlurStrength,
-        showLyricsTranslation, showLyricsRomanization
-    ) {
-        KaraokeLyricsAppearance(
-            fontFamily = lyricsFontFamily,
-            textScale = if (lyricsTextStyle.fontSize.isSp) lyricsTextStyle.fontSize.value / DEFAULT_LYRICS_TEXT_SP else 1f,
-            alignment = when (lyricsAlignment) {
-                "center" -> KaraokeAlignment.CENTER
-                "right" -> KaraokeAlignment.END
-                else -> KaraokeAlignment.START
-            },
-            brightArt = backgroundState.isBrightArt,
-            highContrast = highContrast,
-            blurEnabled = animatedLyricsBlurEnabled && !disableBlurAllOver,
-            // The preference's default (1.2) maps to the spec's σ table (strength 1).
-            blurStrength = animatedLyricsBlurStrength / DEFAULT_BLUR_STRENGTH_PREF,
-            showTranslation = showLyricsTranslation,
-            showRomanization = showLyricsRomanization,
-        )
+    val highContrast = appearancePrefs.highContrast
+    val karaokeAppearance = remember(lyricsFontFamily, lyricsTextStyle.fontSize, backgroundState.isBrightArt, appearancePrefs) {
+        appearancePrefs.toAppearance(lyricsFontFamily, lyricsTextStyle.fontSize, backgroundState.isBrightArt)
     }
     // Plain (unsynced) lyrics: 20 sp, weight 500, white at 0.85, normal scroll (§1.1).
     val plainLyricsStyle = remember(lyricsFontFamily, karaokeAppearance.textScale) {
+        val plainSize = (PLAIN_LYRICS_TEXT_SP * karaokeAppearance.textScale.coerceIn(0.6f, 2f)).sp
         TextStyle(
-            fontFamily = lyricsFontFamily,
+            fontFamily = com.theveloper.pixelplay.ui.theme.lyricsFamilyAtSize(lyricsFontFamily, plainSize),
             fontWeight = FontWeight.Medium,
-            fontSize = (PLAIN_LYRICS_TEXT_SP * karaokeAppearance.textScale.coerceIn(0.6f, 2f)).sp,
+            fontSize = plainSize,
             lineHeight = 1.35.em,
             letterSpacing = (-0.005).em
         )
     }
 
     fun resetImmersiveTimer() {
-        lastInteractionTime = System.currentTimeMillis()
+        lastInteractionAt[0] = SystemClock.uptimeMillis()
+        // Same-value writes are no-ops for snapshot state, so this costs nothing while visible.
         immersiveMode = false
     }
 
@@ -751,7 +723,7 @@ fun LyricsSheet(
             // 0f = fully visible, 1f = fully dismissed.
             // Effect: scale down to 92 % + slide down 8 % of height.
             .graphicsLayer {
-                val p = backProgressProvider.value
+                val p = backProgressProvider()
                 val scale = lerp(1f, 0.92f, p)
                 scaleX = scale
                 scaleY = scale
@@ -1041,7 +1013,7 @@ fun LyricsSheet(
                     onShowSyncedLyricsChange = { showSyncedLyrics = it },
                     onNavigateBack = onBackClick,
                     onMoreClick = { showMoreSheet = true },
-                    backProgressProvider = { backProgressProvider.value },
+                    backProgressProvider = backProgressProvider,
                 )
             }
 
@@ -1061,8 +1033,8 @@ fun LyricsSheet(
             }
 
             // ─── Swipe feedback overlay ──────────────────────────────────────
-            if (isSwipeActive || swipeProgress.value > 0f) {
-                val isNext = dragOffset < 0
+            if (swipeOverlayVisible) {
+                val isNext = swipeTowardsNext
                 val overlayAlignment = if (isNext) Alignment.CenterEnd else Alignment.CenterStart
                 val icon = if (isNext) Icons.Rounded.SkipNext else Icons.Rounded.SkipPrevious
 
@@ -1634,13 +1606,15 @@ private fun LyricsPlaybackSeekBar(
     isPlaying: Boolean,
     modifier: Modifier = Modifier
 ) {
-    val playbackPosition by playbackPositionFlow.collectAsStateWithLifecycle()
+    // Held as a State, never read here: only the seek bar's snapshotFlow follows the 250 ms ticks.
+    val playbackPosition = playbackPositionFlow.collectAsStateWithLifecycle()
+    val positionProvider = remember(playbackPosition) { { playbackPosition.value } }
 
     PlayerSeekBar(
         backgroundColor = backgroundColor,
         onBackgroundColor = onBackgroundColor,
         primaryColor = accentColor,
-        currentPosition = playbackPosition,
+        currentPosition = positionProvider,
         totalDuration = totalDuration,
         onSeek = onSeekTo,
         onSeekPreview = onSeekPreviewChange,
@@ -1918,18 +1892,8 @@ private fun LyricsSyncChip(onClick: () -> Unit, onDismiss: () -> Unit) {
 }
 
 /** `titleLarge`'s size: the lyrics text style arrives at this size unless the user scaled it. */
-private const val DEFAULT_LYRICS_TEXT_SP = 22f
 private const val PLAIN_LYRICS_TEXT_SP = 20f
 
-/** Default of the "animated lyrics blur strength" preference; it maps to the spec's σ table. */
-private const val DEFAULT_BLUR_STRENGTH_PREF = 1.2f
-
-/** Increased contrast (API 34+, `UiModeManager.contrast ≥ 0.5`): §1.2's high-contrast lyrics. */
-private fun isIncreasedContrast(context: android.content.Context): Boolean {
-    if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.UPSIDE_DOWN_CAKE) return false
-    val uiModeManager = context.getSystemService(android.app.UiModeManager::class.java) ?: return false
-    return uiModeManager.contrast >= 0.5f
-}
 
 internal fun resolveSeekPositionMs(
     lineTimeMs: Long,

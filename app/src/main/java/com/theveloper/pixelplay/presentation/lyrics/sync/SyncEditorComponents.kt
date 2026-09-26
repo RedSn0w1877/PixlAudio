@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
@@ -38,6 +39,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -159,6 +161,7 @@ internal fun EditorButton(
     onPanel: Boolean = false,
     enabled: Boolean = true,
     height: Dp = 56.dp,
+    horizontalPadding: Dp = 20.dp,
     content: @Composable RowScope.(contentColor: Color) -> Unit,
 ) {
     val container = when {
@@ -185,11 +188,47 @@ internal fun EditorButton(
                 role = Role.Button,
                 onClick = onClick,
             )
-            .padding(horizontal = 20.dp),
+            .padding(horizontal = horizontalPadding),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
     ) {
         content(if (enabled) contentColor else contentColor.copy(alpha = 0.5f))
+    }
+}
+
+/**
+ * A compact editor button: icon over a short label, so three of them side by side always read
+ * in full on a narrow phone and at large font scales.
+ */
+@Composable
+internal fun EditorStackedButton(
+    onClick: () -> Unit,
+    icon: ImageVector,
+    label: String,
+    palette: SyncEditorPalette,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+) {
+    EditorButton(
+        onClick = onClick,
+        palette = palette,
+        modifier = modifier,
+        enabled = enabled,
+        height = 60.dp,
+        horizontalPadding = 6.dp,
+    ) { color ->
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(22.dp))
+            Text(
+                text = label,
+                color = color,
+                fontSize = 13.sp,
+                lineHeight = 15.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
     }
 }
 

@@ -15,6 +15,8 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import com.theveloper.pixelplay.ui.glass.LocalRecordingBackdrops
+import com.theveloper.pixelplay.ui.glass.isGlassEnabled
 import kotlinx.coroutines.isActive
 import kotlin.math.PI
 import kotlin.math.sin
@@ -37,9 +39,13 @@ fun PlayingEqIcon(
     val fullRotation = (2f * PI).toFloat()
     val phaseAnim = remember { Animatable(0f) }
     val wanderAnim = remember { Animatable(0f) }
+    // Inside a recorded glass backdrop (e.g. the queue list the toolbar and FAB refract) anything
+    // animating per frame would make every glass layer sampling it re-blur and re-lens each frame
+    // for as long as music plays. There the bars hold still (still bars, not the paused dots).
+    val animate = !(isGlassEnabled && LocalRecordingBackdrops.current.isNotEmpty())
 
-    LaunchedEffect(isPlaying, phaseDurationMillis) {
-        if (!isPlaying) return@LaunchedEffect
+    LaunchedEffect(isPlaying, animate, phaseDurationMillis) {
+        if (!isPlaying || !animate) return@LaunchedEffect
         while (isActive) {
             val start = (phaseAnim.value % fullRotation).let { if (it < 0f) it + fullRotation else it }
             phaseAnim.snapTo(start)
@@ -50,8 +56,8 @@ fun PlayingEqIcon(
         }
     }
 
-    LaunchedEffect(isPlaying, wanderDurationMillis) {
-        if (!isPlaying) return@LaunchedEffect
+    LaunchedEffect(isPlaying, animate, wanderDurationMillis) {
+        if (!isPlaying || !animate) return@LaunchedEffect
         while (isActive) {
             val start = (wanderAnim.value % fullRotation).let { if (it < 0f) it + fullRotation else it }
             wanderAnim.snapTo(start)

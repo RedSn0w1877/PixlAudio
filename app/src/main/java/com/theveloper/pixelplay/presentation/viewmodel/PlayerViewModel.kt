@@ -788,6 +788,17 @@ class PlayerViewModel @Inject constructor(
             // Opening the editor from outside the player (Edit song → Fix timing) shows the player.
             lyricsSyncEditor.expandPlayerRequests.collect { expandPlayerSheet() }
         }
+        viewModelScope.launch {
+            // Safety net: the editor lives inside the full player. If the player collapses with a
+            // session open, end it (the draft is kept) so its speed, pause-at-end, crossfade
+            // suspension, keep-screen-on and Back handling never leak into the rest of the app.
+            sheetState.collect { state ->
+                if (state == PlayerSheetState.COLLAPSED && lyricsSyncEditor.phase.value != SyncPhase.Closed) {
+                    lyricsSyncEditor.onHostStopped()
+                    lyricsSyncEditor.close()
+                }
+            }
+        }
         playbackStateHolder.initialize(
             coroutineScope = viewModelScope,
             onCastSeekBlocked = {
@@ -2824,6 +2835,9 @@ class PlayerViewModel @Inject constructor(
 
 
     override fun onCleared() {
+        // The host is going away for good: end any tap-sync session (flushes its draft) while the
+        // controller still exists, so speed, crossfades and offload are put back as they were.
+        lyricsSyncEditor.close()
         val controllerToRelease = mediaController
         mediaControllerSyncStateHolder.clearMediaControllerPlaybackListeners(controllerToRelease)
         playbackStateHolder.clearMediaController(controllerToRelease)
@@ -3100,7 +3114,7 @@ class PlayerViewModel @Inject constructor(
         newAlbumArtist: String,
         newComposer: String,
         newGenre: String,
-        newLyrics: String,
+        newLyrics: String?,
         newTrackNumber: Int,
         newDiscNumber: Int?,
         newReplayGainTrackGainDb: String? = null,

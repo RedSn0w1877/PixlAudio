@@ -137,6 +137,13 @@ class PageBackdrop internal constructor(
     /** The full (pre-downscale) size of [snapshotBitmap], i.e. the size it is drawn back at. */
     internal var snapshotSize: IntSize = IntSize.Zero
 
+    /** `SystemClock.uptimeMillis()` of the last capture (0 = none), to reuse it for back-to-back sheets. */
+    internal var snapshotTakenAtMs: Long = 0L
+
+    /** A snapshot taken within [maxAgeMs] is still on hand (the previous sheet just closed). */
+    fun hasFreshWindowSnapshot(maxAgeMs: Long): Boolean =
+        snapshotBitmap != null && android.os.SystemClock.uptimeMillis() - snapshotTakenAtMs <= maxAgeMs
+
     /**
      * Screen position of the snapshot's top-left corner. Screen, not window, coordinates: an
      * AlertDialog's window is centred and wrap-sized, so window positions from inside it do not
@@ -284,6 +291,7 @@ suspend fun PageBackdrop.captureWindowSnapshot(
     val bitmap = scratchLayer.toImageBitmap()
     snapshotSize = full
     snapshotBitmap = bitmap
+    snapshotTakenAtMs = android.os.SystemClock.uptimeMillis()
     return true
 }
 
@@ -291,6 +299,7 @@ suspend fun PageBackdrop.captureWindowSnapshot(
 fun PageBackdrop.clearWindowSnapshot() {
     snapshotBitmap = null
     snapshotSize = IntSize.Zero
+    snapshotTakenAtMs = 0L
 }
 
 /**

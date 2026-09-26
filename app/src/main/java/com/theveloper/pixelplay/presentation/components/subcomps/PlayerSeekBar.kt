@@ -17,6 +17,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -43,7 +46,11 @@ fun PlayerSeekBar(
     backgroundColor: Color,
     onBackgroundColor: Color,
     primaryColor: Color,
-    currentPosition: Long,
+    /**
+     * Read only inside a snapshotFlow, never in composition: the position ticks 4× a second and
+     * the bar must not recompose for it (only the slider's draw follows).
+     */
+    currentPosition: () -> Long,
     totalDuration: Long,
     onSeek: (Long) -> Unit,
     onSeekPreview: ((Long?) -> Unit)? = null,
@@ -53,28 +60,35 @@ fun PlayerSeekBar(
     inactiveTrackColor: Color = primaryColor.copy(alpha = 0.2f)
 ) {
     val hapticFeedback = LocalHapticFeedback.current
-    val progressFraction = remember(currentPosition, totalDuration) {
-        if (totalDuration > 0) {
-            (currentPosition.toFloat() / totalDuration.toFloat()).coerceIn(0f, 1f)
-        } else {
-            0f
+    val positionProvider by rememberUpdatedState(currentPosition)
+    val durationState = rememberUpdatedState(totalDuration)
+    val progressFractionState = remember {
+        derivedStateOf {
+            val duration = durationState.value
+            if (duration > 0) {
+                (positionProvider().toFloat() / duration.toFloat()).coerceIn(0f, 1f)
+            } else {
+                0f
+            }
         }
     }
 
     var isUserSeeking by remember { mutableStateOf(false) }
     var lastSeekFinishedTime by remember { mutableStateOf(0L) }
     var targetSeekFraction by remember { mutableFloatStateOf(-1f) }
-    var seekFraction by remember { mutableFloatStateOf(progressFraction) }
+    var seekFraction by remember { mutableFloatStateOf(progressFractionState.value) }
     val lastHapticStep = remember { intArrayOf(-1) }
 
-    LaunchedEffect(progressFraction, isUserSeeking) {
-        if (!isUserSeeking) {
-            val now = System.currentTimeMillis()
-            val timeSinceSeek = now - lastSeekFinishedTime
-            val diffFraction = kotlin.math.abs(progressFraction - targetSeekFraction)
-            if (targetSeekFraction < 0f || timeSinceSeek > 5000L || diffFraction < 0.04f) {
-                seekFraction = progressFraction
-                targetSeekFraction = -1f
+    LaunchedEffect(Unit) {
+        snapshotFlow { progressFractionState.value to isUserSeeking }.collect { (progressFraction, seeking) ->
+            if (!seeking) {
+                val now = System.currentTimeMillis()
+                val timeSinceSeek = now - lastSeekFinishedTime
+                val diffFraction = kotlin.math.abs(progressFraction - targetSeekFraction)
+                if (targetSeekFraction < 0f || timeSinceSeek > 5000L || diffFraction < 0.04f) {
+                    seekFraction = progressFraction
+                    targetSeekFraction = -1f
+                }
             }
         }
     }

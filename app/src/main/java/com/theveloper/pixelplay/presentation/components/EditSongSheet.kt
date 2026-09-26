@@ -117,7 +117,8 @@ fun EditSongSheet(
         albumArtist: String,
         composer: String,
         genre: String,
-        lyrics: String,
+        /** `null` = the lyrics were not edited here; leave the stored lyrics (and any tap-sync) alone. */
+        lyrics: String?,
         trackNumber: Int,
         discNumber: Int?,
         replayGainTrackGainDb: String,
@@ -169,7 +170,8 @@ private fun EditSongContent(
         albumArtist: String,
         composer: String,
         genre: String,
-        lyrics: String,
+        /** `null` = the lyrics were not edited here; leave the stored lyrics (and any tap-sync) alone. */
+        lyrics: String?,
         trackNumber: Int,
         discNumber: Int?,
         replayGainTrackGainDb: String,
@@ -186,6 +188,9 @@ private fun EditSongContent(
     var composer by remember { mutableStateOf("") }
     var genre by remember { mutableStateOf(song.genre ?: "") }
     var lyrics by remember { mutableStateOf(song.lyrics ?: "") }
+    // Only an edit made in this field may overwrite the stored lyrics. Saving a title fix must never
+    // reset or overwrite a timed doc / the user's own tap-sync that lives in Room + lyrics/{id}.json.
+    var lyricsEdited by remember { mutableStateOf(false) }
     var trackNumber by remember { mutableStateOf(song.trackNumber.toString()) }
     var discNumber by remember { mutableStateOf(song.discNumber?.toString() ?: "") }
     var replayGainTrackGainDb by remember { mutableStateOf("") }
@@ -213,6 +218,7 @@ private fun EditSongContent(
         composer = ""
         genre = song.genre ?: ""
         lyrics = song.lyrics ?: ""
+        lyricsEdited = false
         trackNumber = song.trackNumber.toString()
         discNumber = song.discNumber?.toString() ?: ""
         replayGainTrackGainDb = ""
@@ -665,7 +671,10 @@ private fun EditSongContent(
                             value = lyrics,
                             colors = textFieldColors,
                             shape = textFieldShape,
-                            onValueChange = { lyrics = it },
+                            onValueChange = {
+                                lyrics = it
+                                lyricsEdited = true
+                            },
                             placeholder = { Text(stringResource(R.string.lyrics_title)) },
                             leadingIcon = { Icon(Icons.AutoMirrored.Rounded.Notes, tint = MaterialTheme.colorScheme.primary, contentDescription = stringResource(R.string.lyrics_title)) },
                             modifier = Modifier
@@ -732,7 +741,7 @@ private fun EditSongContent(
                                     albumArtist.trim(),
                                     composer.trim(),
                                     genre.trim(),
-                                    lyrics,
+                                    lyrics.takeIf { lyricsEdited },
                                     resolvedTrackNumber,
                                     resolvedDiscNumber,
                                     replayGainTrackGainDb.trim(),
