@@ -128,11 +128,34 @@ class TransitionController @Inject constructor(
         engine.addPlayerSwapListener(swapListener)
     }
 
+    /**
+     * Owners that currently forbid transitions (e.g. the lyrics tap-sync editor, which needs the
+     * song to stay on player A at its own speed until the end). Main thread only.
+     */
+    private val suspendedBy = mutableSetOf<String>()
+
+    /** Stops scheduling transitions until every owner has called [resume]. */
+    fun suspend(owner: String) {
+        if (!suspendedBy.add(owner) || suspendedBy.size > 1) return
+        Timber.tag("TransitionDebug").d("Transitions suspended by %s", owner)
+        transitionSchedulerJob?.cancel()
+        transitionSchedulerJob = null
+        engine.cancelNext()
+    }
+
+    fun resume(owner: String) {
+        if (!suspendedBy.remove(owner) || suspendedBy.isNotEmpty()) return
+        Timber.tag("TransitionDebug").d("Transitions resumed by %s", owner)
+        if (transitionListener == null) return
+        engine.masterPlayer.currentMediaItem?.let { scheduleTransitionFor(it) }
+    }
+
     private fun scheduleTransitionFor(currentMediaItem: MediaItem) {
         // Cancel any existing job first and reset pauseAtEnd so a stale `true`
         // from the previous job doesn't cause an unexpected pause.
         transitionSchedulerJob?.cancel()
         engine.setPauseAtEndOfMediaItems(shouldPause = false)
+        if (suspendedBy.isNotEmpty()) return
 
         transitionSchedulerJob = scope.launch {
             // If a transition is currently running, cancel it immediately.

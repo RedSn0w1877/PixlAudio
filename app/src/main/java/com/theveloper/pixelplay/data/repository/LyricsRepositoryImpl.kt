@@ -124,6 +124,8 @@ class LyricsRepositoryImpl @Inject constructor(
 
     companion object {
         private const val TAG = "LyricsRepository"
+        /** `LyricsEntity.source` / `LyricsMetadata.source` of a sync the user made themselves. */
+        const val USER_SOURCE = "user"
         
         // Cache sizes (matching Rhythm)
         private const val MAX_LYRICS_CACHE_SIZE = 150
@@ -437,8 +439,8 @@ class LyricsRepositoryImpl @Inject constructor(
                     // Cache the result
                     lyricsCache.put(cacheKey, lyrics)
                     
-                    // Save to JSON disk cache if from API
-                    if (sourceName == "API") {
+                    // Save to JSON disk cache if from API — never over a sync the user made.
+                    if (sourceName == "API" && !isUserSynced(song)) {
                         saveLocalLyricsJson(song, lyrics)
                     }
                     
@@ -490,7 +492,11 @@ class LyricsRepositoryImpl @Inject constructor(
             ?: candidates.firstOrNull()
     }
 
-    override suspend fun saveOnlineSyncedLyrics(song: Song, result: OnlineSyncedLyrics) {
+    override suspend fun saveOnlineSyncedLyrics(song: Song, result: OnlineSyncedLyrics, overrideUser: Boolean) {
+        if (!overrideUser && isUserSynced(song)) {
+            Log.d(TAG, "Keeping the user's own lyrics sync for ${song.id}; catalog result not saved")
+            return
+        }
         val raw = lyricsToRawContent(result.lyrics) ?: error("No usable lyrics from the provider")
         updateLyrics(song, raw)
     }
@@ -1549,7 +1555,10 @@ class LyricsRepositoryImpl @Inject constructor(
         }
     }
 
-    override suspend fun updateLyrics(songId: Long, lyricsContent: String): Unit = withContext(Dispatchers.IO) {
+    override suspend fun updateLyrics(songId: Long, lyricsContent: String): Unit =
+        updateLyricsRow(songId, lyricsContent, source = "manual")
+
+    private suspend fun updateLyricsRow(songId: Long, lyricsContent: String, source: String): Unit = withContext(Dispatchers.IO) {
         LogUtils.d(this@LyricsRepositoryImpl, "Updating lyrics for songId: $songId")
 
         val parsedLyrics = LyricsUtils.parseLyrics(lyricsContent)
@@ -1563,7 +1572,7 @@ class LyricsRepositoryImpl @Inject constructor(
                  songId = songId,
                  content = lyricsContent,
                  isSynced = parsedLyrics.synced?.isNotEmpty() == true,
-                 source = "manual"
+                 source = source
              )
         )
 
@@ -1572,15 +1581,47 @@ class LyricsRepositoryImpl @Inject constructor(
         LogUtils.d(this@LyricsRepositoryImpl, "Updated and cached lyrics for songId: $songId")
     }
 
-    override suspend fun updateLyrics(song: Song, lyricsContent: String): Unit = withContext(Dispatchers.IO) {
+    override suspend fun updateLyrics(song: Song, lyricsContent: String, source: String): Unit = withContext(Dispatchers.IO) {
         val parsed = LyricsUtils.parseLyrics(lyricsContent)
         require(parsed.isValid()) { "Cannot save empty lyrics" }
         // Streaming song IDs (spotify_..., including YouTube imports) have no LyricsEntity
         // foreign key. Their existing JSON store is durable and read by getStoredLyrics.
         // Commit it atomically and surface disk failures instead of reporting a false success.
         saveLocalLyricsJson(song, parsed, requireSuccess = true)
-        song.id.toLongOrNull()?.let { updateLyrics(it, lyricsContent) }
+        song.id.toLongOrNull()?.let { updateLyricsRow(it, lyricsContent, source) }
         lyricsCache.put(generateCacheKey(song.id), parsed)
+    }
+
+    override suspend fun resetLyrics(song: Song): Unit = withContext(Dispatchers.IO) {
+        val numericId = song.id.toLongOrNull()
+        if (numericId != null) {
+            resetLyrics(numericId)
+            return@withContext
+        }
+        lyricsCache.remove(generateCacheKey(song.id))
+        try {
+            val file = File(context.filesDir, "lyrics/${song.id}.json")
+            if (file.exists()) file.delete()
+        } catch (e: Exception) {
+            Log.w(TAG, "Error deleting JSON cache: ${e.message}")
+        }
+    }
+
+    override suspend fun isUserSynced(song: Song): Boolean = withContext(Dispatchers.IO) {
+        val roomSource = song.id.toLongOrNull()?.let { id ->
+            try {
+                lyricsDao.getLyrics(id)?.source
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                null
+            }
+        }
+        // A Room row is what loadStoredLyrics serves first, so it decides for numeric ids.
+        if (roomSource != null) return@withContext roomSource == USER_SOURCE
+        val document = readLyricsJsonCache(song)?.lyricsDocument ?: return@withContext false
+        // Cheap pre-check before decoding the whole document.
+        if (!document.contains("\"$USER_SOURCE\"")) return@withContext false
+        com.theveloper.pixelplay.data.model.LyricsDocCodec.decode(document)?.metadata?.source == USER_SOURCE
     }
 
     override suspend fun resetLyrics(songId: Long): Unit = withContext(Dispatchers.IO) {

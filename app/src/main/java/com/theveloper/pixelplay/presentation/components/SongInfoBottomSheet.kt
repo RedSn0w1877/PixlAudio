@@ -112,6 +112,7 @@ import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
+import dagger.hilt.android.EntryPointAccessors
 
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
@@ -774,10 +775,41 @@ fun SongInfoBottomSheet(
         }
     }
 
+    // Timed lyrics the user (or a catalog) stored: Edit song shows them as words plus
+    // "Change the words" / "Fix timing", which open the sync editor in the player.
+    val lyricsSyncAccess = remember(context) {
+        EntryPointAccessors.fromApplication(
+            context.applicationContext,
+            com.theveloper.pixelplay.presentation.lyrics.sync.LyricsSyncEntryPoint::class.java
+        )
+    }
+    var storedLyricsDoc by remember(song.id) {
+        mutableStateOf<com.theveloper.pixelplay.data.model.LyricsDoc?>(null)
+    }
+    LaunchedEffect(showEditSheet, song.id) {
+        if (showEditSheet) {
+            storedLyricsDoc = runCatching {
+                lyricsSyncAccess.lyricsRepository().getStoredLyrics(song)?.first?.document
+            }.getOrNull()
+        }
+    }
+
     EditSongSheet(
         visible = showEditSheet,
         song = song,
         onDismiss = { showEditSheet = false },
+        storedLyricsDoc = storedLyricsDoc,
+        onSyncLyrics = { changeWords ->
+            showEditSheet = false
+            val editor = lyricsSyncAccess.lyricsSyncEditor()
+            editor.requestOpen(
+                song,
+                if (changeWords) com.theveloper.pixelplay.presentation.viewmodel.SyncEntry.WORDS
+                else com.theveloper.pixelplay.presentation.viewmodel.SyncEntry.FIX_TIMING
+            )
+            if (!editor.isCurrentSong(song.id)) onPlaySong()
+            onDismiss()
+        },
         onSave = { title, artist, album, albumArtist, composer, genre, lyrics, trackNumber, discNumber, replayGainTrackGainDb, replayGainAlbumGainDb, coverArt ->
             onEditSong(
                 title,

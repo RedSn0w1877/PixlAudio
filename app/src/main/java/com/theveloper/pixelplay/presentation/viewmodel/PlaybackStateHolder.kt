@@ -285,6 +285,48 @@ class PlaybackStateHolder @Inject constructor(
         return resolveUiPosition(currentMediaId, controller.currentPosition)
     }
 
+    /**
+     * The in-process player's own position, with no UI overrides: what the lyrics tap-sync
+     * editor stamps. ExoPlayer already corrects it for AudioTrack latency. Main thread only.
+     */
+    fun exactPositionMs(): Long {
+        val master = dualPlayerEngine.masterPlayer
+        return if (master.mediaItemCount > 0) {
+            master.currentPosition.coerceAtLeast(0L)
+        } else {
+            activeLocalPlayer().currentPosition.coerceAtLeast(0L)
+        }
+    }
+
+    /** Whether the local player means to play (its `playWhenReady`, as the controller sees it). */
+    fun localPlayWhenReady(): Boolean = activeLocalPlayer().playWhenReady
+
+    /** Plays the local player (no toggle). */
+    fun playLocal() {
+        val player = activeLocalPlayer()
+        if (player.playbackState == Player.STATE_IDLE && player.mediaItemCount > 0) player.prepare()
+        if (!player.playWhenReady) player.play()
+    }
+
+    /** Pauses the local player (no toggle). */
+    fun pauseLocal() {
+        val player = activeLocalPlayer()
+        if (player.playWhenReady) player.pause()
+    }
+
+    /** Current local playback speed (1 = normal). Main thread only. */
+    fun currentSpeed(): Float = dualPlayerEngine.masterPlayer.playbackParameters.speed
+
+    /** Sets the local playback speed; Media3's Sonic time-stretch keeps the pitch. */
+    fun setPlaybackSpeed(speed: Float) {
+        val controller = mediaController
+        if (controller?.isConnected == true) {
+            controller.setPlaybackSpeed(speed)
+        } else {
+            dualPlayerEngine.masterPlayer.setPlaybackSpeed(speed)
+        }
+    }
+
     fun ensureCurrentPlaybackOccurrence(mediaId: String?) {
         activatePlaybackOccurrence(mediaId, forceNewOccurrence = false)
     }

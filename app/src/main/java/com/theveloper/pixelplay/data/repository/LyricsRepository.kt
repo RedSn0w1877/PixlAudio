@@ -9,7 +9,11 @@ data class OnlineSyncedLyrics(val lyrics: Lyrics, val source: String)
 interface LyricsRepository {
     /** Explicit resync searches verified catalogs before spending time on acoustic generation. */
     suspend fun findOnlineSyncedLyrics(song: Song): OnlineSyncedLyrics? = null
-    suspend fun saveOnlineSyncedLyrics(song: Song, result: OnlineSyncedLyrics) {
+    /**
+     * Persists catalog lyrics. Does nothing when the user synced this song themselves
+     * ([isUserSynced]) unless [overrideUser] is set (the user chose "Replace").
+     */
+    suspend fun saveOnlineSyncedLyrics(song: Song, result: OnlineSyncedLyrics, overrideUser: Boolean = false) {
         error("Online lyric persistence is unavailable")
     }
 
@@ -52,10 +56,24 @@ interface LyricsRepository {
      */
     suspend fun updateLyrics(songId: Long, lyricsContent: String)
 
-    /** Persists lyrics for local and streaming songs, whose IDs need not be numeric. */
-    suspend fun updateLyrics(song: Song, lyricsContent: String) {
+    /**
+     * Persists lyrics for local and streaming songs, whose IDs need not be numeric.
+     * [source] is stored with the Room row; the "sync it yourself" editor passes `"user"`.
+     */
+    suspend fun updateLyrics(song: Song, lyricsContent: String, source: String = "manual") {
         updateLyrics(requireNotNull(song.id.toLongOrNull()), lyricsContent)
     }
+
+    /**
+     * Removes every stored copy of a song's lyrics (Room row for numeric ids, the
+     * `lyrics/{id}.json` store for any id, and the in-memory cache), so the next load refetches.
+     */
+    suspend fun resetLyrics(song: Song) {
+        song.id.toLongOrNull()?.let { resetLyrics(it) }
+    }
+
+    /** True when the stored lyrics are a sync the user made themselves (source `"user"`). */
+    suspend fun isUserSynced(song: Song): Boolean = false
     
     /**
      * Reset lyrics for a song (remove from database and cache).

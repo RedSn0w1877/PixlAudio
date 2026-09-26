@@ -90,6 +90,15 @@ import java.io.ByteArrayOutputStream
 import java.util.Locale
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
+import com.theveloper.pixelplay.data.model.LyricsDoc
+import com.theveloper.pixelplay.data.model.LyricsDocCodec
+import androidx.compose.material.icons.rounded.TouchApp
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
 
 private fun formatReplayGainForInput(gainDb: Float?): String {
     return gainDb?.let { String.format(Locale.US, "%.2f", it) }.orEmpty()
@@ -114,7 +123,11 @@ fun EditSongSheet(
         replayGainTrackGainDb: String,
         replayGainAlbumGainDb: String,
         coverArtUpdate: CoverArtUpdate?
-    ) -> Unit
+    ) -> Unit,
+    /** The stored lyrics when they are a timed document (never shown as JSON). */
+    storedLyricsDoc: LyricsDoc? = null,
+    /** Opens the "sync it yourself" editor: `true` = "Change the words", `false` = "Fix timing". */
+    onSyncLyrics: ((changeWords: Boolean) -> Unit)? = null
 ) {
     val transitionState = remember { MutableTransitionState(false) }
     transitionState.targetState = visible
@@ -135,7 +148,9 @@ fun EditSongSheet(
                 EditSongContent(
                     song = song,
                     onDismiss = onDismiss,
-                    onSave = onSave
+                    onSave = onSave,
+                    storedLyricsDoc = storedLyricsDoc,
+                    onSyncLyrics = onSyncLyrics
                 )
             }
         }
@@ -161,6 +176,8 @@ private fun EditSongContent(
         replayGainAlbumGainDb: String,
         coverArtUpdate: CoverArtUpdate?
     ) -> Unit,
+    storedLyricsDoc: LyricsDoc? = null,
+    onSyncLyrics: ((changeWords: Boolean) -> Unit)? = null,
 ) {
     var title by remember { mutableStateOf(song.title) }
     var artist by remember { mutableStateOf(song.displayArtist) }
@@ -603,7 +620,44 @@ private fun EditSongContent(
                         color = MaterialTheme.colorScheme.primary,
                         style = MaterialTheme.typography.labelLarge
                     )
-                    Row(
+                    // Timed lyrics (a LyricsDoc): show the words only, read-only, never the JSON.
+                    val timedDoc = storedLyricsDoc ?: remember(lyrics) {
+                        lyrics.trim().takeIf { it.startsWith("{") }?.let(LyricsDocCodec::decode)
+                    }
+                    if (timedDoc != null) {
+                        OutlinedTextField(
+                            value = remember(timedDoc) { timedDoc.lines.joinToString("\n") { it.text.trim() } },
+                            onValueChange = {},
+                            readOnly = true,
+                            colors = textFieldColors,
+                            shape = textFieldShape,
+                            leadingIcon = { Icon(Icons.AutoMirrored.Rounded.Notes, tint = MaterialTheme.colorScheme.primary, contentDescription = stringResource(R.string.lyrics_title)) },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(150.dp)
+                        )
+                        if (onSyncLyrics != null) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                FilledTonalButton(
+                                    onClick = { onSyncLyrics(true) },
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text(stringResource(R.string.lyrics_sync_change_words), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                }
+                                FilledTonalButton(
+                                    onClick = { onSyncLyrics(false) },
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Icon(Icons.Rounded.TouchApp, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    Spacer(Modifier.width(6.dp))
+                                    Text(stringResource(R.string.lyrics_sync_fix_timing), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                }
+                            }
+                        }
+                    } else Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically
                     ) {

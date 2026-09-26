@@ -78,6 +78,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import kotlinx.coroutines.flow.map
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -254,6 +255,15 @@ fun FullPlayerContent(
     val taizoSheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
     
     val lyricsSearchUiState by playerViewModel.lyricsSearchUiState.collectAsStateWithLifecycle()
+    val syncChipDismissedIds by playerViewModel.lyricsSyncEditor.chipDismissedSongIds
+        .collectAsStateWithLifecycle(initialValue = emptySet())
+    // While the sync editor covers the screen the lyrics sheet leaves composition, so its
+    // karaoke frame loop and animated artwork don't keep running underneath.
+    val lyricsSyncEditorOpen by remember(playerViewModel) {
+        playerViewModel.lyricsSyncEditor.phase.map {
+            it != com.theveloper.pixelplay.presentation.viewmodel.SyncPhase.Closed
+        }
+    }.collectAsStateWithLifecycle(initialValue = false)
 
     // Single subscription — replaces 11 independent collectAsStateWithLifecycle calls.
     // distinctUntilChanged in the ViewModel ensures this only emits when something
@@ -970,7 +980,7 @@ fun FullPlayerContent(
         }
     }
     AnimatedVisibility(
-        visible = showLyricsSheet,
+        visible = showLyricsSheet && !lyricsSyncEditorOpen,
         enter = slideInVertically(
             initialOffsetY = { it / 5 },
             animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)
@@ -1035,9 +1045,20 @@ fun FullPlayerContent(
             isFavoriteProvider = isFavoriteProvider,
             onShuffleToggle = onShuffleToggle,
             onRepeatToggle = onRepeatToggle,
-            onFavoriteToggle = onFavoriteToggle
+            onFavoriteToggle = onFavoriteToggle,
+            onSyncYourself = if (isRemotePlaybackActive || isCastConnecting) null else {
+                { playerViewModel.openLyricsSyncEditor() }
+            },
+            syncChipDismissed = currentSong?.id?.let { it in syncChipDismissedIds } ?: true,
+            onDismissSyncChip = { currentSong?.id?.let(playerViewModel.lyricsSyncEditor::dismissChip) }
         )
     }
+
+    // "Sync it yourself" editor: drawn above the lyrics sheet, closed unless a session is open.
+    com.theveloper.pixelplay.presentation.lyrics.sync.LyricsSyncEditorOverlay(
+        holder = playerViewModel.lyricsSyncEditor,
+        colorScheme = LocalMaterialTheme.current
+    )
 
     val artistPickerSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     if (showArtistPicker && currentSongArtists.isNotEmpty()) {

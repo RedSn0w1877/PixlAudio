@@ -827,7 +827,7 @@ class DualPlayerEngine @Inject constructor(
 
     private fun scheduleAudioOffloadFallbackIfNeeded(player: ExoPlayer) {
         cancelAudioOffloadFallback()
-        if (!audioOffloadEnabled || transitionRunning || !player.playWhenReady || player.isPlaying) return
+        if (!offloadAllowed || transitionRunning || !player.playWhenReady || player.isPlaying) return
         if (!isLikelyLocalMedia(player.currentMediaItem)) return
 
         val watchedMediaId = player.currentMediaItem?.mediaId ?: return
@@ -903,6 +903,8 @@ class DualPlayerEngine @Inject constructor(
 
     private fun disableAudioOffloadForSession(reason: String) {
         if (!audioOffloadEnabled) return
+        // Offload is already off during an exact-timing session; a rebuild would drop its state.
+        if (exactTimingSessions > 0) return
         if (transitionRunning) {
             Timber.tag("DualPlayerEngine").w("Skipping offload fallback during active transition. %s", reason)
             return
@@ -1154,7 +1156,7 @@ class DualPlayerEngine @Inject constructor(
             setAudioAttributes(audioAttributes, false)
             val offloadPreferences = TrackSelectionParameters.AudioOffloadPreferences.Builder()
                 .setAudioOffloadMode(
-                    if (audioOffloadEnabled) {
+                    if (offloadAllowed) {
                         TrackSelectionParameters.AudioOffloadPreferences.AUDIO_OFFLOAD_MODE_ENABLED
                     } else {
                         TrackSelectionParameters.AudioOffloadPreferences.AUDIO_OFFLOAD_MODE_DISABLED
@@ -1183,8 +1185,50 @@ class DualPlayerEngine @Inject constructor(
 
     fun setPauseAtEndOfMediaItems(shouldPause: Boolean) {
         if (::playerA.isInitialized) {
-            playerA.pauseAtEndOfMediaItems = shouldPause
+            // An exact-timing session always pauses at the end of the item.
+            playerA.pauseAtEndOfMediaItems = shouldPause || exactTimingSessions > 0
         }
+    }
+
+    // ── Exact-timing sessions (the "sync it yourself" lyrics editor) ─────────────────────────
+    // Offload reports a coarse position and may ignore speed changes, so a tap-sync session turns
+    // it off through the track-selection parameters (no player rebuild) and pauses at the end of
+    // the item. Reference-counted and idempotent per begin/end pair.
+    private var exactTimingSessions = 0
+    private var pauseAtEndBeforeExactTiming = false
+
+    private val offloadAllowed: Boolean get() = audioOffloadEnabled && exactTimingSessions == 0
+
+    private fun applyOffloadMode(player: ExoPlayer, enabled: Boolean) {
+        val preferences = TrackSelectionParameters.AudioOffloadPreferences.Builder()
+            .setAudioOffloadMode(
+                if (enabled) TrackSelectionParameters.AudioOffloadPreferences.AUDIO_OFFLOAD_MODE_ENABLED
+                else TrackSelectionParameters.AudioOffloadPreferences.AUDIO_OFFLOAD_MODE_DISABLED
+            )
+            .build()
+        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+            .setAudioOffloadPreferences(preferences)
+            .build()
+    }
+
+    fun beginExactTimingSession() {
+        initialize()
+        exactTimingSessions++
+        if (exactTimingSessions > 1) return
+        pauseAtEndBeforeExactTiming = playerA.pauseAtEndOfMediaItems
+        cancelAudioOffloadFallback()
+        applyOffloadMode(playerA, enabled = false)
+        playerB?.let { applyOffloadMode(it, enabled = false) }
+        playerA.pauseAtEndOfMediaItems = true
+    }
+
+    fun endExactTimingSession() {
+        if (exactTimingSessions == 0) return
+        exactTimingSessions--
+        if (exactTimingSessions > 0 || !::playerA.isInitialized) return
+        applyOffloadMode(playerA, enabled = audioOffloadEnabled)
+        playerB?.let { applyOffloadMode(it, enabled = audioOffloadEnabled) }
+        playerA.pauseAtEndOfMediaItems = pauseAtEndBeforeExactTiming
     }
 
     fun getNextTransitionTarget(currentMediaItem: MediaItem, repeatMode: Int): TransitionTarget? {

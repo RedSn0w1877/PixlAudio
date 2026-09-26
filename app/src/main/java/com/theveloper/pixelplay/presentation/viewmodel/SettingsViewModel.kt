@@ -53,6 +53,7 @@ import com.theveloper.pixelplay.data.model.Song
 import com.theveloper.pixelplay.data.service.player.HiFiCapabilityChecker
 import com.theveloper.pixelplay.utils.AppLocaleManager
 import java.io.File
+import kotlinx.coroutines.flow.first
 
 data class SettingsUiState(
     val isLoadingDirectories: Boolean = false,
@@ -1428,6 +1429,39 @@ class SettingsViewModel @Inject constructor(
 
     val tapBackgroundClosesPlayer: StateFlow<Boolean> = userPreferencesRepository.tapBackgroundClosesPlayerFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
+
+    // "Sync it yourself" tap timing. Own flows on purpose: the Group1/Group2 combines above cast
+    // by position, so a new flow there would shift every later index.
+    val lyricsTapOffsetMs: StateFlow<Int> = userPreferencesRepository.lyricsTapOffsetSpeakerMsFlow
+        .stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5000),
+            UserPreferencesRepository.DEFAULT_LYRICS_TAP_OFFSET_SPEAKER_MS
+        )
+
+    val lyricsSyncHaptics: StateFlow<Boolean> = userPreferencesRepository.lyricsSyncHapticsFlow
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
+
+    /** Moves both tap offsets (speaker/wired and Bluetooth) by [deltaMs], keeping their gap. */
+    fun adjustLyricsTapOffset(deltaMs: Int) {
+        viewModelScope.launch {
+            val speaker = userPreferencesRepository.lyricsTapOffsetSpeakerMsFlow.first()
+            val bluetooth = userPreferencesRepository.lyricsTapOffsetBluetoothMsFlow.first()
+            userPreferencesRepository.setLyricsTapOffsetSpeakerMs(speaker + deltaMs)
+            userPreferencesRepository.setLyricsTapOffsetBluetoothMs(bluetooth + deltaMs)
+        }
+    }
+
+    fun resetLyricsTapOffset() {
+        viewModelScope.launch {
+            userPreferencesRepository.setLyricsTapOffsetSpeakerMs(UserPreferencesRepository.DEFAULT_LYRICS_TAP_OFFSET_SPEAKER_MS)
+            userPreferencesRepository.setLyricsTapOffsetBluetoothMs(UserPreferencesRepository.DEFAULT_LYRICS_TAP_OFFSET_BLUETOOTH_MS)
+        }
+    }
+
+    fun setLyricsSyncHaptics(enabled: Boolean) {
+        viewModelScope.launch { userPreferencesRepository.setLyricsSyncHaptics(enabled) }
+    }
 
     fun setAlbumArtQuality(quality: AlbumArtQuality) {
         viewModelScope.launch {

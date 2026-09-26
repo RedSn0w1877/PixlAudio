@@ -219,6 +219,8 @@ class PlayerViewModel @Inject constructor(
     val playlistSelectionStateHolder: PlaylistSelectionStateHolder,
     private val playbackDispatchStateHolder: PlaybackDispatchStateHolder,
     private val mediaControllerSyncStateHolder: MediaControllerSyncStateHolder,
+    /** "Sync it yourself" lyrics editor (facade only; its state lives in the holder). */
+    val lyricsSyncEditor: LyricsSyncEditorStateHolder,
     private val sessionToken: SessionToken,
     private val mediaControllerFactory: com.theveloper.pixelplay.data.media.MediaControllerFactory
 ) : ViewModel() {
@@ -782,6 +784,10 @@ class PlayerViewModel @Inject constructor(
         listeningStatsTracker.initialize(viewModelScope)
         dailyMixStateHolder.initialize(viewModelScope)
         lyricsStateHolder.initialize(viewModelScope, lyricsLoadCallback, playbackStateHolder.stablePlayerState)
+        viewModelScope.launch {
+            // Opening the editor from outside the player (Edit song → Fix timing) shows the player.
+            lyricsSyncEditor.expandPlayerRequests.collect { expandPlayerSheet() }
+        }
         playbackStateHolder.initialize(
             coroutineScope = viewModelScope,
             onCastSeekBlocked = {
@@ -2997,6 +3003,9 @@ class PlayerViewModel @Inject constructor(
 
     /** Re-fetches lyrics for the current song — used after [com.theveloper.pixelplay.data.worker.TaisStudioWorker] persists new word-synced lyrics, so the sheet picks up the upgrade without the user re-opening it. */
     fun refreshLyricsFromCache() = loadLyricsForCurrentSong()
+
+    /** Opens the "sync it yourself" editor for the song that is playing. */
+    fun openLyricsSyncEditor(entry: SyncEntry = SyncEntry.AUTO) = lyricsSyncEditor.open(entry)
 
     /**
      * Swaps the *currently playing* item's audio source to [instrumentalPath] (a TAIS Studio

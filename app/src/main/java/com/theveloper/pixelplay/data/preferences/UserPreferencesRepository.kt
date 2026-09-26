@@ -253,6 +253,13 @@ class UserPreferencesRepository @Inject constructor(
         val LYRICS_SYNC_OFFSETS = stringPreferencesKey("lyrics_sync_offsets_json")
         val LYRICS_SOURCE_PREFERENCE = stringPreferencesKey("lyrics_source_preference")
         val AUTO_SCAN_LRC_FILES = booleanPreferencesKey("auto_scan_lrc_files")
+        // "Sync it yourself" lyrics editor
+        val LYRICS_TAP_OFFSET_SPEAKER_MS = intPreferencesKey("lyrics_tap_offset_speaker_ms")
+        val LYRICS_TAP_OFFSET_BLUETOOTH_MS = intPreferencesKey("lyrics_tap_offset_bluetooth_ms")
+        val LYRICS_SYNC_DEFAULT_SPEED = floatPreferencesKey("lyrics_sync_default_speed")
+        val LYRICS_SYNC_HAPTICS = booleanPreferencesKey("lyrics_sync_haptics")
+        val LYRICS_SYNC_INTRO_SEEN_COUNT = intPreferencesKey("lyrics_sync_intro_seen_count")
+        val LYRICS_SYNC_CHIP_DISMISSED_SONG_IDS = stringSetPreferencesKey("lyrics_sync_chip_dismissed_song_ids")
 
         // Playback
         val AUDIO_QUALITY = stringPreferencesKey("audio_quality")
@@ -1275,6 +1282,61 @@ suspend fun markDirectoryRulesVersionApplied(version: Int) {
         dataStore.edit { it[PreferencesKeys.ANIMATED_LYRICS_BLUR_STRENGTH] = strength }
     }
 
+    // ─── "Sync it yourself" lyrics editor ────────────────────────────────────
+
+    /** Reaction time taken off every tap, per audio route (spec: 100 ms speaker/wired, 180 ms Bluetooth). */
+    val lyricsTapOffsetSpeakerMsFlow: Flow<Int> =
+        pref { it[PreferencesKeys.LYRICS_TAP_OFFSET_SPEAKER_MS] ?: DEFAULT_LYRICS_TAP_OFFSET_SPEAKER_MS }
+
+    val lyricsTapOffsetBluetoothMsFlow: Flow<Int> =
+        pref { it[PreferencesKeys.LYRICS_TAP_OFFSET_BLUETOOTH_MS] ?: DEFAULT_LYRICS_TAP_OFFSET_BLUETOOTH_MS }
+
+    suspend fun setLyricsTapOffsetSpeakerMs(offsetMs: Int) {
+        dataStore.edit { it[PreferencesKeys.LYRICS_TAP_OFFSET_SPEAKER_MS] = offsetMs.coerceIn(0, MAX_LYRICS_TAP_OFFSET_MS) }
+    }
+
+    suspend fun setLyricsTapOffsetBluetoothMs(offsetMs: Int) {
+        dataStore.edit { it[PreferencesKeys.LYRICS_TAP_OFFSET_BLUETOOTH_MS] = offsetMs.coerceIn(0, MAX_LYRICS_TAP_OFFSET_MS) }
+    }
+
+    val lyricsSyncDefaultSpeedFlow: Flow<Float> =
+        pref { it[PreferencesKeys.LYRICS_SYNC_DEFAULT_SPEED] ?: 1f }
+
+    suspend fun setLyricsSyncDefaultSpeed(speed: Float) {
+        dataStore.edit { it[PreferencesKeys.LYRICS_SYNC_DEFAULT_SPEED] = speed }
+    }
+
+    val lyricsSyncHapticsFlow: Flow<Boolean> =
+        pref { it[PreferencesKeys.LYRICS_SYNC_HAPTICS] ?: true }
+
+    suspend fun setLyricsSyncHaptics(enabled: Boolean) {
+        dataStore.edit { it[PreferencesKeys.LYRICS_SYNC_HAPTICS] = enabled }
+    }
+
+    val lyricsSyncIntroSeenCountFlow: Flow<Int> =
+        pref { it[PreferencesKeys.LYRICS_SYNC_INTRO_SEEN_COUNT] ?: 0 }
+
+    suspend fun incrementLyricsSyncIntroSeenCount() {
+        dataStore.edit {
+            it[PreferencesKeys.LYRICS_SYNC_INTRO_SEEN_COUNT] = (it[PreferencesKeys.LYRICS_SYNC_INTRO_SEEN_COUNT] ?: 0) + 1
+        }
+    }
+
+    suspend fun setLyricsSyncIntroSeenCount(count: Int) {
+        dataStore.edit { it[PreferencesKeys.LYRICS_SYNC_INTRO_SEEN_COUNT] = count }
+    }
+
+    val lyricsSyncChipDismissedSongIdsFlow: Flow<Set<String>> =
+        pref { it[PreferencesKeys.LYRICS_SYNC_CHIP_DISMISSED_SONG_IDS] ?: emptySet() }
+
+    suspend fun dismissLyricsSyncChip(songId: String) {
+        dataStore.edit {
+            val current = it[PreferencesKeys.LYRICS_SYNC_CHIP_DISMISSED_SONG_IDS] ?: emptySet()
+            // Bounded so the set can't grow forever: keep the most recent 500.
+            it[PreferencesKeys.LYRICS_SYNC_CHIP_DISMISSED_SONG_IDS] = (current + songId).toList().takeLast(500).toSet()
+        }
+    }
+
     // ─── Custom genres ────────────────────────────────────────────────────────
 
     val customGenresFlow: Flow<Set<String>> =
@@ -1544,6 +1606,10 @@ suspend fun markDirectoryRulesVersionApplied(version: Int) {
         )
 
         const val DEFAULT_ALBUM_ART_CACHE_LIMIT_MB = 200
+
+        const val DEFAULT_LYRICS_TAP_OFFSET_SPEAKER_MS = 100
+        const val DEFAULT_LYRICS_TAP_OFFSET_BLUETOOTH_MS = 180
+        const val MAX_LYRICS_TAP_OFFSET_MS = 400
     }
 
     // ─── Private utilities ────────────────────────────────────────────────────

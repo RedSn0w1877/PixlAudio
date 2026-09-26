@@ -1280,6 +1280,10 @@ class MusicService : MediaLibraryService() {
             schedulePlaybackSnapshotPersist()
         }
 
+        override fun onPlaybackParametersChanged(playbackParameters: androidx.media3.common.PlaybackParameters) {
+            instrumentalCrossfadeController.onPlaybackParametersChanged(playbackParameters)
+        }
+
         override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
             instrumentalCrossfadeController.onPlayWhenReadyChanged(playWhenReady)
             when {

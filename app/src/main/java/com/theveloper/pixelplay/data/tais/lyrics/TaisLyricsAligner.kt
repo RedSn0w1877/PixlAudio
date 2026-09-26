@@ -86,8 +86,14 @@ class TaisLyricsAligner @Inject constructor(
 
     suspend fun findOnlineSyncedLyrics(song: Song) = lyricsRepository.findOnlineSyncedLyrics(song)
 
-    suspend fun saveOnlineSyncedLyrics(song: Song, result: com.theveloper.pixelplay.data.repository.OnlineSyncedLyrics) =
-        lyricsRepository.saveOnlineSyncedLyrics(song, result)
+    suspend fun saveOnlineSyncedLyrics(
+        song: Song,
+        result: com.theveloper.pixelplay.data.repository.OnlineSyncedLyrics,
+        overrideUser: Boolean = false,
+    ) = lyricsRepository.saveOnlineSyncedLyrics(song, result, overrideUser)
+
+    /** The user synced this song themselves ("Sync it yourself"); Lyric Sync keeps it by default. */
+    suspend fun isUserSynced(song: Song): Boolean = lyricsRepository.isUserSynced(song)
 
     /** Fetches lyrics through the existing repository, then classifies them via [alignmentStateFor]. */
     suspend fun loadAndClassify(

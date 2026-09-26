@@ -9,6 +9,7 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
+import com.theveloper.pixelplay.R
 import com.theveloper.pixelplay.data.cache.AudioCacheManager
 import com.theveloper.pixelplay.data.repository.MusicRepository
 import com.theveloper.pixelplay.data.spotify.SpotifyStreamProxy
@@ -74,6 +75,12 @@ class TaisStudioWorker @AssistedInject constructor(
                 if (automatic && !AutomaticStudioPolicy.canProcessDuration(song.duration)) {
                     return@withLock AutomaticStudioEnvironment.deferredResult("This track needs a manual sync")
                 }
+                val overrideUser = inputData.getBoolean(INPUT_OVERRIDE_USER, false)
+                if (!overrideUser && lyricsAligner.isUserSynced(song)) {
+                    val detail = applicationContext.getString(R.string.lyrics_sync_studio_kept)
+                    reportProgress(STAGE_DONE, 100, detail)
+                    return@withLock Result.success(resultData(OUTCOME_SKIPPED, false, detail))
+                }
                 reportProgress(STAGE_DOWNLOADING, 0, "Finding lyrics for ${song.title}…")
                 // Quiet work reads local state first, then performs one catalog search.
                 // The normal repository loader can itself fetch catalogs, so using it
@@ -108,7 +115,7 @@ class TaisStudioWorker @AssistedInject constructor(
                         return@withLock Result.success(resultData(OUTCOME_SKIPPED, false, "Existing word timings were kept"))
                     }
                     currentCoroutineContext().ensureActive()
-                    lyricsAligner.saveOnlineSyncedLyrics(song, online)
+                    lyricsAligner.saveOnlineSyncedLyrics(song, online, overrideUser = overrideUser)
                     val hasWords = vocalLines.isNotEmpty() && wordLines == vocalLines.size
                     val detail = when {
                         hasWords -> "Word-synced lyrics from ${online.source}"
@@ -238,6 +245,8 @@ class TaisStudioWorker @AssistedInject constructor(
         private const val INPUT_CONTINUE_ON_FAILURE = "continue_on_failure"
         private const val INPUT_BATCH_INDEX = "batch_index"
         private const val INPUT_BATCH_TOTAL = "batch_total"
+        /** The user chose "Replace" over their own tap-sync ("Sync it yourself"). */
+        private const val INPUT_OVERRIDE_USER = "override_user"
         const val REQUEST_CREATED_TAG = "lyric_requested_"
         const val BATCH_CREATED_TAG = "lyric_batch_created_"
         const val OUTPUT_SONG_ID = "lyric_song_id"
@@ -289,7 +298,8 @@ class TaisStudioWorker @AssistedInject constructor(
             batchIndex: Int = 0,
             batchTotal: Int = 0,
             forceResync: Boolean = false,
-            automatic: Boolean = false
+            automatic: Boolean = false,
+            overrideUser: Boolean = false
         ): androidx.work.OneTimeWorkRequest =
             OneTimeWorkRequestBuilder<TaisStudioWorker>()
                 .setInputData(
@@ -297,6 +307,7 @@ class TaisStudioWorker @AssistedInject constructor(
                         INPUT_SONG_ID to songId,
                         INPUT_AUTOMATIC_STUDIO to automatic,
                         INPUT_FORCE_RESYNC to forceResync,
+                        INPUT_OVERRIDE_USER to overrideUser,
                         INPUT_SOURCE_AUDIO_PATH to sourceAudioPath,
                         INPUT_CONTINUE_ON_FAILURE to (batchCreatedAt != null),
                         INPUT_BATCH_INDEX to batchIndex,
@@ -317,13 +328,19 @@ class TaisStudioWorker @AssistedInject constructor(
                 .addTag(uniqueWorkName(songId))
                 .build()
 
-        fun enqueue(workManager: WorkManager, songId: String, sourceAudioPath: String, forceResync: Boolean = false) {
+        fun enqueue(
+            workManager: WorkManager,
+            songId: String,
+            sourceAudioPath: String,
+            forceResync: Boolean = false,
+            overrideUser: Boolean = false
+        ) {
             // Explicit user work always preempts quiet maintenance work for responsiveness.
             workManager.cancelAllWorkByTag(AUTO_STUDIO_WORK_TAG)
             workManager.enqueueUniqueWork(
                 uniqueWorkName(songId),
                 ExistingWorkPolicy.KEEP,
-                buildRequest(songId, sourceAudioPath, forceResync = forceResync)
+                buildRequest(songId, sourceAudioPath, forceResync = forceResync, overrideUser = overrideUser)
             )
         }
     }

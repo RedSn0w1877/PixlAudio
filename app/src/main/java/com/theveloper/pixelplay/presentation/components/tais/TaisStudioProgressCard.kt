@@ -36,7 +36,18 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
+import com.theveloper.pixelplay.R
 import com.theveloper.pixelplay.data.model.Song
+import com.theveloper.pixelplay.data.repository.LyricsRepository
+import com.theveloper.pixelplay.ui.glass.GlassAlertDialog
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.res.stringResource
+import dagger.hilt.EntryPoint
+import dagger.hilt.InstallIn
+import dagger.hilt.android.EntryPointAccessors
+import dagger.hilt.components.SingletonComponent
+import kotlinx.coroutines.launch
 import com.theveloper.pixelplay.data.worker.BsRoformerRenderWorker
 import com.theveloper.pixelplay.data.worker.StemSeparatorWorker
 import com.theveloper.pixelplay.data.worker.TaisStudioWorker
@@ -138,16 +149,59 @@ fun TaisStudioProgressCard(
     }
 }
 
-/** Explicit user action also works for lyrics which already contain word timings. */
+@EntryPoint
+@InstallIn(SingletonComponent::class)
+internal interface LyricsSyncJobEntryPoint {
+    fun lyricsRepository(): LyricsRepository
+}
+
+/**
+ * Explicit user action also works for lyrics which already contain word timings. A song the
+ * user synced themselves ("Sync it yourself") asks first; "Replace" passes the override flag.
+ */
 @Composable
 fun LyricsSyncJobRow(song: Song?, onLyricsReady: (Boolean) -> Unit = {}) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val repository = remember(context) {
+        EntryPointAccessors.fromApplication(context.applicationContext, LyricsSyncJobEntryPoint::class.java)
+            .lyricsRepository()
+    }
+    var overrideUser by remember(song?.id) { mutableStateOf(false) }
+    var pendingStart by remember(song?.id) { mutableStateOf<(() -> Unit)?>(null) }
+
+    pendingStart?.let { start ->
+        GlassAlertDialog(
+            onDismissRequest = { pendingStart = null },
+            text = { Text(stringResource(R.string.lyrics_sync_studio_replace_q)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    pendingStart = null
+                    overrideUser = true
+                    start()
+                }) { Text(stringResource(R.string.lyrics_sync_replace)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingStart = null }) { Text(stringResource(R.string.lyrics_sync_keep_mine)) }
+            }
+        )
+    }
+
     TaisJobRow(
         song = song,
         buttonLabel = "Sync / resync lyrics",
         readyLabel = "Lyrics synced.",
         uniqueWorkName = TaisStudioWorker::uniqueWorkName,
         enqueue = { manager, track ->
-            TaisStudioWorker.enqueue(manager, track.id, track.contentUriString, forceResync = true)
+            TaisStudioWorker.enqueue(
+                manager, track.id, track.contentUriString, forceResync = true, overrideUser = overrideUser
+            )
+        },
+        interceptStart = { track, start ->
+            scope.launch {
+                overrideUser = false
+                if (repository.isUserSynced(track)) pendingStart = start else start()
+            }
         },
         percentOf = { it.progress.getInt(TaisStudioWorker.PROGRESS_PERCENT, 0) },
         detailOf = { it.progress.getString(TaisStudioWorker.PROGRESS_DETAIL) },
@@ -170,7 +224,8 @@ private fun TaisJobRow(
     percentOf: (WorkInfo) -> Int,
     detailOf: (WorkInfo) -> String?,
     failureReasonOf: (WorkInfo) -> String?,
-    onSucceeded: (WorkInfo) -> Unit
+    onSucceeded: (WorkInfo) -> Unit,
+    interceptStart: ((Song, start: () -> Unit) -> Unit)? = null
 ) {
     val context = LocalContext.current
     var isRunning by remember(song?.id) { mutableStateOf(false) }
@@ -268,11 +323,14 @@ private fun TaisJobRow(
         FilledTonalButton(
             onClick = {
                 val s = song ?: return@FilledTonalButton
-                isRunning = true
-                percent = 0
-                succeeded = false
-                failureReason = null
-                enqueue(WorkManager.getInstance(context), s)
+                val start = {
+                    isRunning = true
+                    percent = 0
+                    succeeded = false
+                    failureReason = null
+                    enqueue(WorkManager.getInstance(context), s)
+                }
+                interceptStart?.invoke(s, start) ?: start()
             },
             enabled = song != null && !isRunning,
             modifier = Modifier.fillMaxWidth()

@@ -314,6 +314,9 @@ class PlayerViewModelTest {
             playlistSelectionStateHolder = mockPlaylistSelectionStateHolder,
             playbackDispatchStateHolder = playbackDispatchStateHolder,
             mediaControllerSyncStateHolder = mediaControllerSyncStateHolder,
+            lyricsSyncEditor = mockk(relaxed = true) {
+                every { expandPlayerRequests } returns kotlinx.coroutines.flow.MutableSharedFlow()
+            },
             sessionToken = sessionToken,
             mediaControllerFactory = mockMediaControllerFactory,
         )

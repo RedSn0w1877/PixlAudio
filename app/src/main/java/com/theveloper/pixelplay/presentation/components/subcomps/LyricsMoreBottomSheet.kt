@@ -2,6 +2,7 @@ package com.theveloper.pixelplay.presentation.components.subcomps
 
 import com.theveloper.pixelplay.ui.glass.GlassSwitch
 import androidx.compose.foundation.background
+import androidx.compose.material.icons.rounded.TouchApp
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -103,8 +104,13 @@ fun LyricsMoreBottomSheet(
     accentColor: Color = MaterialTheme.colorScheme.primary,
     onAccentColor: Color = MaterialTheme.colorScheme.onPrimary,
     tertiaryColor: Color = MaterialTheme.colorScheme.tertiary,
-    onTertiaryColor: Color = MaterialTheme.colorScheme.onTertiary
+    onTertiaryColor: Color = MaterialTheme.colorScheme.onTertiary,
+    /** "Sync the words yourself"; null hides the item (no song, or casting). */
+    onSyncYourself: (() -> Unit)? = null
 ) {
+    val paragraphBreak = "\n\n"
+    val isUserSynced = lyrics?.document?.metadata?.source == com.theveloper.pixelplay.data.lyrics.sync.LyricsTapSync.SOURCE_USER
+    val hasWordTiming = lyrics?.synced.orEmpty().any { !it.words.isNullOrEmpty() }
     val navigationBarsPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     var showResetDialog by remember { mutableStateOf(false) }
     var showDebugDialog by remember { mutableStateOf(false) }
@@ -144,6 +150,42 @@ fun LyricsMoreBottomSheet(
                     color = accentColor,
                     style = MaterialTheme.typography.bodyLargeEmphasized
                 )
+                // Sync the words yourself (first item)
+                if (onSyncYourself != null) {
+                    ListItem(
+                        headlineContent = {
+                            Text(
+                                stringResource(
+                                    if (isUserSynced) R.string.lyrics_sync_fix_title else R.string.lyrics_sync_yourself_title
+                                )
+                            )
+                        },
+                        supportingContent = if (!isUserSynced && !hasWordTiming) {
+                            { Text(stringResource(R.string.lyrics_sync_yourself_sub)) }
+                        } else null,
+                        leadingContent = {
+                            Icon(
+                                imageVector = Icons.Rounded.TouchApp,
+                                contentDescription = null
+                            )
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp, bottomStart = 8.dp, bottomEnd = 8.dp))
+                            .background(itemBackgroundColor)
+                            .clickable {
+                                onDismissRequest()
+                                onSyncYourself()
+                            },
+                        colors = ListItemDefaults.colors(
+                            containerColor = Color.Transparent,
+                            headlineColor = contentColor,
+                            supportingColor = contentColor.copy(alpha = 0.7f),
+                            leadingIconColor = accentColor
+                        )
+                    )
+                }
+
                  // Save lyrics to .lrc
                 if (lyrics != null) {
                     ListItem(
@@ -156,7 +198,10 @@ fun LyricsMoreBottomSheet(
                         },
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp, bottomStart = 8.dp, bottomEnd = 8.dp))
+                            .clip(
+                                if (onSyncYourself != null) RoundedCornerShape(8.dp)
+                                else RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp, bottomStart = 8.dp, bottomEnd = 8.dp)
+                            )
                             .background(itemBackgroundColor)
                             .clickable {
                                 onDismissRequest()
@@ -259,7 +304,16 @@ fun LyricsMoreBottomSheet(
                 androidx.compose.material3.AlertDialog(
                     onDismissRequest = { showResetDialog = false },
                     title = { Text(stringResource(R.string.lyrics_reset_dialog_title)) },
-                    text = { Text(stringResource(R.string.lyrics_reset_dialog_message)) },
+                    text = {
+                        Text(
+                            if (isUserSynced) {
+                                stringResource(R.string.lyrics_reset_dialog_message) + paragraphBreak +
+                                    stringResource(R.string.lyrics_reset_also_user)
+                            } else {
+                                stringResource(R.string.lyrics_reset_dialog_message)
+                            }
+                        )
+                    },
                     confirmButton = {
                         androidx.compose.material3.TextButton(
                             onClick = {

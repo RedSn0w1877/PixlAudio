@@ -165,6 +165,11 @@ import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.unit.em
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import androidx.compose.material.icons.rounded.TouchApp
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 
 internal data class LyricsSheetColors(
     val container: Color,
@@ -290,6 +295,11 @@ fun LyricsSheet(
     onRepeatToggle: () -> Unit,
     onFavoriteToggle: () -> Unit,
     modifier: Modifier = Modifier,
+    /** Opens the "sync it yourself" editor; null hides its entry points (e.g. while casting). */
+    onSyncYourself: (() -> Unit)? = null,
+    /** The user closed the "Make the words light up" chip for this song. */
+    syncChipDismissed: Boolean = true,
+    onDismissSyncChip: () -> Unit = {},
     swipeThreshold: Dp = 100.dp,
     // Kept for source compatibility; the karaoke view anchors and animates lines itself.
     @Suppress("UNUSED_PARAMETER") highlightZoneFraction: Float = 0.08f,
@@ -454,6 +464,17 @@ fun LyricsSheet(
     val hasSyncedLyrics = remember(lyrics) {
         !lyrics?.synced.isNullOrEmpty()
     }
+
+    // Line-only or plain lyrics can be word-synced by hand ("sync it yourself").
+    val lyricsLackWordTiming = remember(lyrics) {
+        val current = lyrics
+        current != null &&
+            current.document?.metadata?.source != com.theveloper.pixelplay.data.lyrics.sync.LyricsTapSync.SOURCE_USER &&
+            current.synced.orEmpty().none { !it.words.isNullOrEmpty() } &&
+            current.document?.lines.orEmpty().none { it.syllables.isNotEmpty() } &&
+            (!current.synced.isNullOrEmpty() || !current.plain.isNullOrEmpty())
+    }
+    val showSyncChip = onSyncYourself != null && !syncChipDismissed && lyricsLackWordTiming
 
     // Immersive Mode State
     var immersiveMode by remember { mutableStateOf(false) }
@@ -821,13 +842,33 @@ fun LyricsSheet(
                                     } else {
                                         currentSong?.let { song ->
                                             MaterialTheme(colorScheme = colorScheme) {
-                                                com.theveloper.pixelplay.presentation.components.tais.InstrumentalRenderAction(
-                                                    song = song,
-                                                    instrumentalActive = studioInstrumentalActive,
-                                                    onPlayInstrumental = onPlayInstrumental,
-                                                    onPlayOriginal = onToggleStudioInstrumental,
-                                                    onFindLyrics = { showFetchLyricsDialog = true }
-                                                )
+                                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                                    com.theveloper.pixelplay.presentation.components.tais.InstrumentalRenderAction(
+                                                        song = song,
+                                                        instrumentalActive = studioInstrumentalActive,
+                                                        onPlayInstrumental = onPlayInstrumental,
+                                                        onPlayOriginal = onToggleStudioInstrumental,
+                                                        onFindLyrics = { showFetchLyricsDialog = true }
+                                                    )
+                                                    if (onSyncYourself != null) {
+                                                        androidx.compose.material3.TextButton(
+                                                            onClick = onSyncYourself,
+                                                            modifier = Modifier.padding(top = 8.dp)
+                                                        ) {
+                                                            Icon(
+                                                                imageVector = androidx.compose.material.icons.Icons.Rounded.TouchApp,
+                                                                contentDescription = null,
+                                                                tint = Color.White.copy(alpha = 0.85f),
+                                                                modifier = Modifier.size(18.dp)
+                                                            )
+                                                            Spacer(Modifier.width(8.dp))
+                                                            Text(
+                                                                text = stringResource(R.string.lyrics_sync_empty_button),
+                                                                color = Color.White.copy(alpha = 0.85f)
+                                                            )
+                                                        }
+                                                    }
+                                                }
                                             }
                                         }
                                     }
@@ -845,7 +886,7 @@ fun LyricsSheet(
                                 isPlaying = isPlaying,
                                 songKey = currentSong?.id,
                                 appearance = karaokeAppearance,
-                                topInset = LyricsHeaderInset,
+                                topInset = if (showSyncChip) LyricsHeaderInset + SyncChipInset else LyricsHeaderInset,
                                 onInteraction = { resetImmersiveTimer() },
                                 onSeekLine = { line ->
                                     onSeekTo(
@@ -906,6 +947,22 @@ fun LyricsSheet(
                             }
                         }
                     }
+                }
+
+                // "Make the words light up - Sync it yourself": line-only or plain lyrics only.
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = showSyncChip && !immersiveMode,
+                    enter = fadeIn(),
+                    exit = fadeOut(),
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .zIndex(2f)
+                        .padding(top = LyricsHeaderInset, start = 18.dp, end = 18.dp)
+                ) {
+                    LyricsSyncChip(
+                        onClick = { onSyncYourself?.invoke() },
+                        onDismiss = onDismissSyncChip
+                    )
                 }
                 
             }
@@ -1135,6 +1192,7 @@ fun LyricsSheet(
                         resetImmersiveTimer()
                         onFavoriteToggle()
                     },
+                    onSyncYourself = if (currentSong != null) onSyncYourself else null,
                 )
             }
         }
@@ -1412,6 +1470,58 @@ private fun isCoveredByAppFont(lyrics: Lyrics): Boolean {
 
 /** Height of the track-info pill that overlays the top of the lyrics (4 dp margin + 66 dp art). */
 private val LyricsHeaderInset = 78.dp
+
+/** Extra top inset while the "sync it yourself" chip sits under the header. */
+private val SyncChipInset = 48.dp
+
+@Composable
+private fun LyricsSyncChip(onClick: () -> Unit, onDismiss: () -> Unit) {
+    val glass = com.theveloper.pixelplay.ui.glass.isGlassEnabled
+    val shape: androidx.compose.ui.graphics.Shape =
+        if (glass) com.theveloper.pixelplay.ui.glass.GlassShapes.Capsule else CircleShape
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .height(40.dp)
+            .clip(shape)
+            .background(Color.White.copy(alpha = if (glass) 0.14f else 0.16f))
+            .then(
+                if (glass) Modifier.border(0.75.dp, Color.White.copy(alpha = 0.24f), shape) else Modifier
+            )
+            .clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = onClick)
+            .padding(start = 14.dp)
+    ) {
+        Icon(
+            imageVector = androidx.compose.material.icons.Icons.Rounded.TouchApp,
+            contentDescription = null,
+            tint = Color.White,
+            modifier = Modifier.size(18.dp)
+        )
+        Spacer(Modifier.width(8.dp))
+        Text(
+            text = stringResource(R.string.lyrics_sync_chip),
+            color = Color.White,
+            style = MaterialTheme.typography.labelLarge,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f, fill = false)
+        )
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier
+                .size(40.dp)
+                .clip(CircleShape)
+                .clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = onDismiss)
+        ) {
+            Icon(
+                imageVector = androidx.compose.material.icons.Icons.Rounded.Close,
+                contentDescription = stringResource(R.string.common_dismiss),
+                tint = Color.White.copy(alpha = 0.8f),
+                modifier = Modifier.size(16.dp)
+            )
+        }
+    }
+}
 
 /** `titleLarge`'s size: the lyrics text style arrives at this size unless the user scaled it. */
 private const val DEFAULT_LYRICS_TEXT_SP = 22f

@@ -5,6 +5,7 @@ import android.net.Uri
 import androidx.media3.common.AudioAttributes as Media3AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import com.theveloper.pixelplay.data.tais.TaisInstrumentalIndex
@@ -88,6 +89,7 @@ class InstrumentalCrossfadeController(
                 volume = 0f
                 setMediaItem(MediaItem.fromUri(Uri.fromFile(file)))
                 prepare()
+                playbackParameters = mainPlayer.playbackParameters
                 seekTo(mainPlayer.currentPosition)
                 playWhenReady = mainPlayer.playWhenReady
             }
@@ -106,7 +108,7 @@ class InstrumentalCrossfadeController(
             while (true) {
                 delay(RESYNC_INTERVAL_MS)
                 val shadow = shadowPlayer ?: break
-                if (!mainPlayer.isPlaying) continue
+                if (!mainPlayer.isPlaying || isSuspended) continue
                 val drift = abs(shadow.currentPosition - mainPlayer.currentPosition)
                 if (drift > DRIFT_TOLERANCE_MS) {
                     shadow.seekTo(mainPlayer.currentPosition)
@@ -120,12 +122,19 @@ class InstrumentalCrossfadeController(
         shadowPlayer?.seekTo(positionMs)
     }
 
+    /** Keeps the shadow at the main player's speed (e.g. the lyrics sync editor's slower speeds). */
+    fun onPlaybackParametersChanged(parameters: PlaybackParameters) {
+        val shadow = shadowPlayer ?: return
+        if (shadow.playbackParameters != parameters) shadow.playbackParameters = parameters
+    }
+
     fun onPlayWhenReadyChanged(playWhenReady: Boolean) {
         shadowPlayer?.playWhenReady = playWhenReady
     }
 
     /** Returns false (no-op) if no render exists for the current song. */
     suspend fun crossfadeToInstrumental(mainPlayer: Player, durationMs: Long = DEFAULT_CROSSFADE_MS): Boolean {
+        if (isSuspended) return false
         if (!ensurePrepared(mainPlayer)) return false
         val shadow = shadowPlayer ?: return false
         shadow.seekTo(mainPlayer.currentPosition)
@@ -163,6 +172,21 @@ class InstrumentalCrossfadeController(
     }
 
     companion object {
+        /**
+         * Owners that forbid crossfades and drift re-seeks for now (the lyrics tap-sync editor,
+         * which needs exact, uninterrupted media time). Main thread only.
+         */
+        private val suspendedBy = mutableSetOf<String>()
+        private val isSuspended: Boolean get() = suspendedBy.isNotEmpty()
+
+        fun suspend(owner: String) {
+            suspendedBy += owner
+        }
+
+        fun resume(owner: String) {
+            suspendedBy -= owner
+        }
+
         private const val TAG = "InstrumentalCrossfade"
         private const val RESYNC_INTERVAL_MS = 4000L
         private const val DRIFT_TOLERANCE_MS = 200L

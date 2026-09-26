@@ -188,6 +188,7 @@ import com.theveloper.pixelplay.presentation.viewmodel.LyricsRefreshProgress
 import com.theveloper.pixelplay.presentation.viewmodel.PlayerViewModel
 import com.theveloper.pixelplay.presentation.viewmodel.SettingsViewModel
 import com.theveloper.pixelplay.ui.theme.GoogleSansRounded
+import androidx.compose.material.icons.rounded.TouchApp
 
 @androidx.annotation.OptIn(UnstableApi::class)
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
@@ -245,6 +246,7 @@ fun SettingsCategoryScreen(
     var syncRequestObservedRunning by remember { mutableStateOf(false) }
     var syncIndicatorLabel by remember { mutableStateOf<String?>(null) }
     var showClearLyricsDialog by remember { mutableStateOf(false) }
+    var showTapTimingDialog by remember { mutableStateOf(false) }
     var showRebuildDatabaseWarning by remember { mutableStateOf(false) }
     var showRegenerateDailyMixDialog by remember { mutableStateOf(false) }
     var showRegenerateStatsDialog by remember { mutableStateOf(false) }
@@ -592,6 +594,13 @@ fun SettingsCategoryScreen(
                                         )
                                     },
                                     leadingIcon = { Icon(painterResource(R.drawable.rounded_lyrics_24), null, tint = MaterialTheme.colorScheme.secondary) }
+                                )
+                                val lyricsTapOffsetMs by settingsViewModel.lyricsTapOffsetMs.collectAsStateWithLifecycle()
+                                SettingsItem(
+                                    title = stringResource(R.string.settings_lyrics_tap_timing),
+                                    subtitle = stringResource(R.string.settings_lyrics_tap_timing_sub, lyricsTapOffsetMs),
+                                    leadingIcon = { Icon(Icons.Rounded.TouchApp, null, tint = MaterialTheme.colorScheme.secondary) },
+                                    onClick = { showTapTimingDialog = true }
                                 )
                                 SettingsItem(
                                     title = stringResource(R.string.settings_reset_imported_lyrics_title),
@@ -1916,6 +1925,10 @@ fun SettingsCategoryScreen(
     }
     
      // Dialogs logic (copied)
+    if (showTapTimingDialog) {
+        LyricsTapTimingDialog(settingsViewModel = settingsViewModel, onDismiss = { showTapTimingDialog = false })
+    }
+
     if (showClearLyricsDialog) {
         GlassAlertDialog(
             icon = { Icon(Icons.Outlined.Warning, null) },
