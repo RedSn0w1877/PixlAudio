@@ -79,7 +79,13 @@ fun WavySliderExpressive(
     waveAmplitudeWhenPlaying: Dp = 4.dp,
     thumbLineHeightWhenInteracting: Dp = 24.dp,
     semanticsLabel: String? = null,
-    semanticsProgressStep: Float = 0.01f
+    semanticsProgressStep: Float = 0.01f,
+    /**
+     * True when [value] already changes every frame (a frame clock, as in the full player).
+     * The track and thumb then draw it directly; the per-sample tween below exists only for
+     * callers whose value arrives in coarse ticks.
+     */
+    frameAccurateValue: Boolean = false
 ) {
     val density = LocalDensity.current
     val strokeWidthPx = with(density) { strokeWidth.toPx() }
@@ -156,7 +162,8 @@ fun WavySliderExpressive(
         mutableFloatStateOf(initialNorm)
     }
     var lastProgressUpdateNanos by remember { mutableLongStateOf(0L) }
-    LaunchedEffect(isInteracting, enabled) {
+    LaunchedEffect(isInteracting, enabled, frameAccurateValue) {
+        if (frameAccurateValue) return@LaunchedEffect
         snapshotFlow { normalizedValueState.value }.collect { target ->
             if (!enabled || isInteracting) {
                 renderedNormalizedProgress.floatValue = target
@@ -205,6 +212,16 @@ fun WavySliderExpressive(
         }
     }
 
+    // Read only in draw (the indicator's progress lambda and the thumb Canvas). The float
+    // state is read through floatValue so the tweened path doesn't box per frame.
+    val drawnProgress: () -> Float = remember(frameAccurateValue) {
+        if (frameAccurateValue) {
+            { normalizedValueState.value }
+        } else {
+            { renderedNormalizedProgress.floatValue }
+        }
+    }
+
     val containerHeight = max(WavyProgressIndicatorDefaults.LinearContainerHeight, max(thumbRadius * 2, thumbLineHeightWhenInteracting))
 
     Box(
@@ -234,7 +251,7 @@ fun WavySliderExpressive(
     ) {
         if (isVisible) {
             LinearWavyProgressIndicator(
-                progress = { renderedNormalizedProgress.floatValue },
+                progress = drawnProgress,
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = trackEdgePadding.coerceAtLeast(0.dp))
@@ -262,7 +279,11 @@ fun WavySliderExpressive(
             val trackEnd = size.width - edgePaddingPx
             val trackWidth = (trackEnd - trackStart).coerceAtLeast(0f)
             val thumbY = size.height / 2
-            val renderedProgress = renderedNormalizedProgress.floatValue
+            val renderedProgress = if (frameAccurateValue) {
+                normalizedValueState.value
+            } else {
+                renderedNormalizedProgress.floatValue
+            }
 
             fun lerp(start: Float, stop: Float, fraction: Float): Float {
                 return start + (stop - start) * fraction

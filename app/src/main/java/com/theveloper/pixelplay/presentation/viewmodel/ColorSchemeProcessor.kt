@@ -484,17 +484,16 @@ class ColorSchemeProcessor @Inject constructor(
 
         memoryCache.get(cacheKey)?.let { return it }
 
-        val cachedEntity = withContext(Dispatchers.IO) {
+        // The DB read and the entity -> ColorScheme mapping (~70 hex parses and two schemes)
+        // both run off the caller's thread, which is often main.
+        val schemePair = withContext(Dispatchers.IO) {
             albumArtThemeDao.getThemeByUriAndStyle(
                 albumArtUri,
                 paletteStyleCacheKey(paletteStyle, colorAccuracyLevel)
-            )
-        }
-        if (cachedEntity == null) return null
+            )?.let(::mapEntityToColorSchemePair)
+        } ?: return null
 
-        return mapEntityToColorSchemePair(cachedEntity).also { schemePair ->
-            memoryCache.put(cacheKey, schemePair)
-        }
+        return schemePair.also { memoryCache.put(cacheKey, it) }
     }
 
     companion object {

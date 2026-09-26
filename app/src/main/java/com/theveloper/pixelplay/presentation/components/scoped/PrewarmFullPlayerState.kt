@@ -11,8 +11,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import kotlinx.coroutines.delay
 
+/**
+ * Composes a throw-away full player for a couple of frames when the first song appears, so its
+ * first composition (fonts, images, pager) is warm before the user expands. One-shot per
+ * "has a song" session: once the real full player is kept composed (see
+ * [rememberFullPlayerCompositionPolicy]) a second copy on every skip is pure waste.
+ */
 @Composable
-internal fun rememberPrewarmFullPlayer(currentSongId: String?): Boolean {
+internal fun rememberPrewarmFullPlayer(hasCurrentSong: Boolean): Boolean {
     val context = LocalContext.current
 
     // OPT #5: Skip prewarm entirely on low-RAM devices. Having two FullPlayerContent
@@ -27,12 +33,12 @@ internal fun rememberPrewarmFullPlayer(currentSongId: String?): Boolean {
 
     if (isLowRamDevice) return false
 
-    LaunchedEffect(currentSongId) {
-        if (currentSongId != null) {
+    LaunchedEffect(hasCurrentSong) {
+        if (hasCurrentSong) {
             prewarmFullPlayer = true
         }
     }
-    LaunchedEffect(currentSongId, prewarmFullPlayer) {
+    LaunchedEffect(hasCurrentSong, prewarmFullPlayer) {
         if (prewarmFullPlayer) {
             delay(32)
             prewarmFullPlayer = false

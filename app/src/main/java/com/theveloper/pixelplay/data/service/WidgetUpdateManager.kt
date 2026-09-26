@@ -5,6 +5,7 @@ import androidx.glance.appwidget.GlanceAppWidgetManager
 import androidx.glance.appwidget.state.updateAppWidgetState
 import com.theveloper.pixelplay.data.diagnostics.PerformanceMetrics
 import com.theveloper.pixelplay.data.model.PlayerInfo
+import com.theveloper.pixelplay.data.service.wear.WearPresenceMonitor
 import com.theveloper.pixelplay.data.service.wear.WearStatePublisher
 import com.theveloper.pixelplay.ui.glancewidget.BarWidget4x1
 import com.theveloper.pixelplay.ui.glancewidget.ControlWidget4x2
@@ -16,6 +17,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import timber.log.Timber
 import kotlin.math.abs
@@ -34,12 +37,18 @@ import kotlin.math.abs
  * State *assembly* stays in the service (it is intimately tied to the player,
  * repositories, favorites and theme), supplied here through [buildPlayerInfo] and
  * [resolveCurrentMediaIdForWear]. This manager only orchestrates the *update*.
+ *
+ * Nothing is built when nobody would see it: with no home-screen widget and no reachable watch,
+ * an update returns before [buildPlayerInfo]. The Wear-only parts of the state (lyrics, queue
+ * revision, watch palette) are only assembled when a watch is reachable. The work runs off the
+ * main thread (the service's scope is Main), except the player/cast snapshot inside
+ * [buildPlayerInfo], which hops to Main itself.
  */
 internal class WidgetUpdateManager(
     private val context: Context,
     private val scope: CoroutineScope,
     private val wearStatePublisher: WearStatePublisher,
-    private val buildPlayerInfo: suspend () -> PlayerInfo,
+    private val buildPlayerInfo: suspend (includeWearState: Boolean) -> PlayerInfo,
     private val resolveCurrentMediaIdForWear: suspend () -> String?,
 ) {
     private companion object {
@@ -54,7 +63,24 @@ internal class WidgetUpdateManager(
 
     private var debouncedUpdateJob: Job? = null
     private var followUpUpdateJob: Job? = null
+    @Volatile
     private var lastWidgetPlayerInfo: PlayerInfo? = null
+    // Whether the widgets / the watch were served by the last update. A consumer that just
+    // appeared has no state yet, so its first update must not be skipped by the diff.
+    @Volatile
+    private var widgetsPrimed = false
+    @Volatile
+    private var wearPrimed = false
+    private val updateMutex = Mutex()
+
+    private val wearPresenceMonitor = WearPresenceMonitor(context) {
+        // A watch just became reachable: publish the current state now.
+        wearPrimed = false
+        requestFullUpdate(force = true)
+    }
+
+    @Volatile
+    private var wearMonitorStarted = false
 
     fun requestFullUpdate(force: Boolean = false) {
         debouncedUpdateJob?.cancel()
@@ -83,6 +109,12 @@ internal class WidgetUpdateManager(
         debouncedUpdateJob?.cancel()
     }
 
+    /** [cancel] plus dropping the watch listener. Call from the service's onDestroy. */
+    fun release() {
+        cancel()
+        wearPresenceMonitor.stop()
+    }
+
     /**
      * Drops the cached [PlayerInfo] so its embedded artwork ByteArray becomes
      * GC-eligible under memory pressure. The next update rebuilds it from scratch.
@@ -92,26 +124,64 @@ internal class WidgetUpdateManager(
         wearStatePublisher.clearCache()
     }
 
-    private suspend fun processUpdateInternal() {
-        val playerInfo = buildPlayerInfo()
-        val oldInfo = lastWidgetPlayerInfo
+    private suspend fun processUpdateInternal() = updateMutex.withLock {
+        withContext(Dispatchers.Default) {
+            if (!wearMonitorStarted) {
+                // Lazily, on the first update: nothing extra at service start.
+                wearMonitorStarted = true
+                wearPresenceMonitor.start()
+            }
+            val hasWidgets = hasAnyWidget()
+            val hasWatch = wearPresenceMonitor.isWatchReachable()
+            if (!hasWidgets && !hasWatch) {
+                // Nobody to show it to: don't build anything. The next consumer to appear gets
+                // a full update (the primed flags are cleared).
+                lastWidgetPlayerInfo = null
+                widgetsPrimed = false
+                wearPrimed = false
+                return@withContext
+            }
 
-        val shouldUpdateWidgets = oldInfo == null || shouldUpdateWidget(oldInfo, playerInfo)
-        val shouldPublishWear = oldInfo == null || shouldPublishWearState(oldInfo, playerInfo)
+            val playerInfo = buildPlayerInfo(hasWatch)
+            val oldInfo = lastWidgetPlayerInfo
 
-        if (shouldUpdateWidgets || shouldPublishWear) {
-            lastWidgetPlayerInfo = playerInfo
+            val shouldUpdateWidgets = hasWidgets &&
+                (oldInfo == null || !widgetsPrimed || shouldUpdateWidget(oldInfo, playerInfo))
+            val shouldPublishWear = hasWatch &&
+                (oldInfo == null || !wearPrimed || shouldPublishWearState(oldInfo, playerInfo))
+
+            if (shouldUpdateWidgets || shouldPublishWear) {
+                lastWidgetPlayerInfo = playerInfo
+            }
+            widgetsPrimed = hasWidgets
+            wearPrimed = hasWatch
+
+            if (shouldUpdateWidgets) {
+                updateGlanceWidgets(playerInfo)
+            }
+
+            if (shouldPublishWear) {
+                val currentMediaId = resolveCurrentMediaIdForWear()
+                // Publish state to Wear OS watch
+                wearStatePublisher.publishState(currentMediaId, playerInfo)
+            }
         }
+    }
 
-        if (shouldUpdateWidgets) {
-            updateGlanceWidgets(playerInfo)
+    private suspend fun hasAnyWidget(): Boolean = withContext(Dispatchers.IO) {
+        val anyWidgets = runCatching {
+            val glanceManager = GlanceAppWidgetManager(context)
+            glanceManager.getGlanceIds(PixelPlayGlanceWidget::class.java).isNotEmpty() ||
+                glanceManager.getGlanceIds(BarWidget4x1::class.java).isNotEmpty() ||
+                glanceManager.getGlanceIds(ControlWidget4x2::class.java).isNotEmpty() ||
+                glanceManager.getGlanceIds(GridWidget2x2::class.java).isNotEmpty()
+        }.getOrElse { error ->
+            Timber.tag(TAG).w(error, "Unable to list widgets")
+            // Unknown: behave as before and try to update them.
+            true
         }
-
-        if (shouldPublishWear) {
-            val currentMediaId = resolveCurrentMediaIdForWear()
-            // Publish state to Wear OS watch
-            wearStatePublisher.publishState(currentMediaId, playerInfo)
-        }
+        if (!anyWidgets) PerformanceMetrics.setWidgetActive(false)
+        anyWidgets
     }
 
     private fun shouldUpdateWidget(old: PlayerInfo, new: PlayerInfo): Boolean {

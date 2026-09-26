@@ -64,6 +64,7 @@ class PlaybackStateHolder @Inject constructor(
         private const val SLIDER_TICK_MS = 250L
         private const val MINIPLAYER_TICK_MS = 1000L
         private const val BACKGROUND_TICK_MS = 1000L
+        private const val INTERACTIVE_CHECK_INTERVAL_MS = 2000L
         /**
          * Threshold above which we skip per-item moveMediaItem calls and use
          * a single setMediaItems call instead. moveMediaItem triggers an IPC
@@ -834,8 +835,22 @@ class PlaybackStateHolder @Inject constructor(
             controller.playbackState != Player.STATE_ENDED
     }
 
+    // PowerManager.isInteractive is a binder call; the tick loop asks every 250 ms. The screen
+    // state doesn't need to be fresher than a couple of seconds for picking a tick rate.
+    private var cachedIsInteractive = true
+    private var cachedIsInteractiveAtMs = 0L
+
+    private fun isInteractiveCached(): Boolean {
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (cachedIsInteractiveAtMs == 0L || now - cachedIsInteractiveAtMs >= INTERACTIVE_CHECK_INTERVAL_MS) {
+            cachedIsInteractive = powerManager.isInteractive
+            cachedIsInteractiveAtMs = now
+        }
+        return cachedIsInteractive
+    }
+
     private fun currentProgressTickMs(): Long {
-        if (!powerManager.isInteractive) return BACKGROUND_TICK_MS
+        if (!isInteractiveCached()) return BACKGROUND_TICK_MS
         // Interactive but the slider isn't mounted (mini-player / lock-screen
         // notification only) — second-level precision is enough.
         return if (_sliderUiMounted.value) SLIDER_TICK_MS else MINIPLAYER_TICK_MS

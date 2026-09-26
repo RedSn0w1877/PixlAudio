@@ -12,9 +12,9 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -39,7 +39,7 @@ import androidx.media3.common.util.UnstableApi
 import com.theveloper.pixelplay.data.model.Song
 import com.theveloper.pixelplay.presentation.viewmodel.PlayerViewModel
 import com.theveloper.pixelplay.presentation.viewmodel.PlaylistViewModel
-import com.theveloper.pixelplay.presentation.viewmodel.StablePlayerState
+import com.theveloper.pixelplay.presentation.components.scoped.PlayerSheetFieldStates
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.coroutines.flow.map
 import kotlin.math.roundToInt
@@ -54,8 +54,8 @@ internal data class SaveQueueOverlayData(
 internal fun UnifiedPlayerQueueLayer(
     shouldRenderLayer: Boolean,
     keepQueueSheetWarm: Boolean,
-    albumColorScheme: ColorScheme,
-    queueScrimAlpha: Float,
+    colorScheme: () -> ColorScheme,
+    queueScrimAlphaState: State<Float>,
     showQueueSheet: Boolean,
     isQueueCollapsing: Boolean,
     queueHiddenOffsetPx: Float,
@@ -66,7 +66,10 @@ internal fun UnifiedPlayerQueueLayer(
     currentPlaybackQueue: ImmutableList<Song>,
     currentQueueSourceName: String,
     currentMediaItemIndex: Int,
-    infrequentPlayerState: StablePlayerState,
+    currentSongId: String?,
+    isPlaying: Boolean,
+    repeatMode: Int,
+    isShuffleEnabled: Boolean,
     activeTimerValueDisplay: State<String?>,
     activeTimerDurationMinutes: State<Int?>,
     playCount: State<Float>,
@@ -99,12 +102,17 @@ internal fun UnifiedPlayerQueueLayer(
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        if (queueScrimAlpha > 0f) {
+        // The scrim alpha follows every frame of a queue drag: it is read in the layer only,
+        // and the Box is composed only while it is above zero (a threshold, not a per-frame read).
+        val showQueueScrim by remember(queueScrimAlphaState) {
+            derivedStateOf { queueScrimAlphaState.value > 0f }
+        }
+        if (showQueueScrim) {
             Box(
                 modifier = Modifier
                     .matchParentSize()
                     .zIndex(0f)
-                    .graphicsLayer { alpha = queueScrimAlpha }
+                    .graphicsLayer { alpha = queueScrimAlphaState.value }
                     .background(MaterialTheme.colorScheme.scrim)
             )
         }
@@ -114,11 +122,7 @@ internal fun UnifiedPlayerQueueLayer(
         }
 
         if (shouldRenderQueueSheet) {
-            MaterialTheme(
-                colorScheme = albumColorScheme,
-                typography = MaterialTheme.typography,
-                shapes = MaterialTheme.shapes
-            ) {
+            PlayerSchemeMaterialTheme(scheme = colorScheme) {
                 QueueBottomSheet(
                     modifier = Modifier
                         .fillMaxSize()
@@ -137,17 +141,17 @@ internal fun UnifiedPlayerQueueLayer(
                         },
                     queue = currentPlaybackQueue,
                     currentQueueSourceName = currentQueueSourceName,
-                    currentSongId = infrequentPlayerState.currentSong?.id,
+                    currentSongId = currentSongId,
                     currentMediaItemIndex = currentMediaItemIndex,
                     isVisible = showQueueSheet,
-                    isPlaying = infrequentPlayerState.isPlaying,
+                    isPlaying = isPlaying,
                     onDismiss = onDismissQueue,
                     onSongInfoClick = onSongInfoClick,
                     onPlaySong = onPlaySong,
                     onRemoveSong = onRemoveSong,
                     onReorder = onReorder,
-                    repeatMode = infrequentPlayerState.repeatMode,
-                    isShuffleOn = infrequentPlayerState.isShuffleEnabled,
+                    repeatMode = repeatMode,
+                    isShuffleOn = isShuffleEnabled,
                     onToggleRepeat = onToggleRepeat,
                     onToggleShuffle = onToggleShuffle,
                     onClearQueue = onClearQueue,
@@ -178,7 +182,7 @@ internal fun UnifiedPlayerQueueLayer(
 @Composable
 internal fun UnifiedPlayerSongInfoLayer(
     selectedSongForInfo: Song?,
-    albumColorScheme: ColorScheme,
+    colorScheme: () -> ColorScheme,
     playerViewModel: PlayerViewModel,
     currentPlaybackQueueProvider: () -> ImmutableList<Song>,
     currentQueueSourceNameProvider: () -> String,
@@ -200,11 +204,7 @@ internal fun UnifiedPlayerSongInfoLayer(
 
         val liveSong = liveSongState
 
-        MaterialTheme(
-            colorScheme = albumColorScheme,
-            typography = MaterialTheme.typography,
-            shapes = MaterialTheme.shapes
-        ) {
+        PlayerSchemeMaterialTheme(scheme = colorScheme) {
             SongInfoBottomSheet(
                 song = liveSong,
                 isFavorite = liveSong.isFavorite,
@@ -281,8 +281,9 @@ internal fun UnifiedPlayerQueueAndSongInfoHost(
     shouldRenderHost: Boolean,
     keepQueueSheetWarm: Boolean,
     isQueueTelemetryActive: Boolean,
-    albumColorScheme: ColorScheme,
-    queueScrimAlpha: Float,
+    albumSchemeState: State<ColorScheme>,
+    targetSchemeState: State<ColorScheme>,
+    queueScrimAlphaState: State<Float>,
     showQueueSheet: Boolean,
     isQueueCollapsing: Boolean,
     queueHiddenOffsetPx: Float,
@@ -291,7 +292,7 @@ internal fun UnifiedPlayerQueueAndSongInfoHost(
     onQueueSheetHeightPxChange: (Float) -> Unit,
     configurationResetKey: Any,
     currentQueueSourceName: String,
-    infrequentPlayerState: StablePlayerState,
+    fieldStates: PlayerSheetFieldStates,
     playerViewModel: PlayerViewModel,
     selectedSongForInfo: Song?,
     onSelectedSongForInfoChange: (Song?) -> Unit,
@@ -342,9 +343,21 @@ internal fun UnifiedPlayerQueueAndSongInfoHost(
             inactiveEndOfTrackTimerActiveState
         }
 
-    CompositionLocalProvider(
-        LocalMaterialTheme provides albumColorScheme
-    ) {
+    // The queue stays composed (hidden) whenever the player is expanded. While hidden it gets
+    // the target scheme, so the album colour fade after a skip doesn't recompose the whole
+    // queue (its MaterialTheme is a static local) on every frame. On screen: the animated one.
+    val queueOnScreen = showQueueSheet || isQueueCollapsing
+    val songInfoOpen = selectedSongForInfo != null
+    val queueScheme = remember(albumSchemeState, targetSchemeState, queueOnScreen) {
+        { if (queueOnScreen) albumSchemeState.value else targetSchemeState.value }
+    }
+    val songInfoScheme = remember(albumSchemeState) { { albumSchemeState.value } }
+    val hostScheme = remember(albumSchemeState, targetSchemeState, queueOnScreen, songInfoOpen) {
+        val animated = queueOnScreen || songInfoOpen
+        { if (animated) albumSchemeState.value else targetSchemeState.value }
+    }
+
+    ProvidePlayerScheme(scheme = hostScheme) {
         Box(modifier = Modifier.fillMaxSize()) {
             val onDismissQueueRequest = remember(onAnimateQueueSheet) { { onAnimateQueueSheet(false) } }
             val onQueueSongInfoClick = remember(onSelectedSongForInfoChange) {
@@ -401,8 +414,8 @@ internal fun UnifiedPlayerQueueAndSongInfoHost(
             UnifiedPlayerQueueLayer(
                 shouldRenderLayer = true,
                 keepQueueSheetWarm = keepQueueSheetWarm,
-                albumColorScheme = albumColorScheme,
-                queueScrimAlpha = queueScrimAlpha,
+                colorScheme = queueScheme,
+                queueScrimAlphaState = queueScrimAlphaState,
                 showQueueSheet = showQueueSheet,
                 isQueueCollapsing = isQueueCollapsing,
                 queueHiddenOffsetPx = queueHiddenOffsetPx,
@@ -412,8 +425,11 @@ internal fun UnifiedPlayerQueueAndSongInfoHost(
                 configurationResetKey = configurationResetKey,
                 currentPlaybackQueue = currentPlaybackQueue,
                 currentQueueSourceName = currentQueueSourceName,
-                currentMediaItemIndex = infrequentPlayerState.currentMediaItemIndex,
-                infrequentPlayerState = infrequentPlayerState,
+                currentMediaItemIndex = fieldStates.currentMediaItemIndex.value,
+                currentSongId = fieldStates.currentSong.value?.id,
+                isPlaying = fieldStates.isPlaying.value,
+                repeatMode = fieldStates.repeatMode.value,
+                isShuffleEnabled = fieldStates.isShuffleEnabled.value,
                 activeTimerValueDisplay = activeTimerValueDisplay,
                 activeTimerDurationMinutes = activeTimerDurationMinutes,
                 playCount = playCount,
@@ -442,7 +458,7 @@ internal fun UnifiedPlayerQueueAndSongInfoHost(
 
             UnifiedPlayerSongInfoLayer(
                 selectedSongForInfo = selectedSongForInfo,
-                albumColorScheme = albumColorScheme,
+                colorScheme = songInfoScheme,
                 playerViewModel = playerViewModel,
                 currentPlaybackQueueProvider = playbackQueueProvider,
                 currentQueueSourceNameProvider = queueSourceNameProvider,
@@ -478,21 +494,16 @@ internal fun UnifiedPlayerSaveQueueLayer(
 internal fun UnifiedPlayerCastLayer(
     showCastSheet: Boolean,
     internalIsKeyboardVisible: Boolean,
-    albumColorScheme: ColorScheme,
+    albumSchemeState: State<ColorScheme>,
     playerViewModel: PlayerViewModel,
     onDismiss: () -> Unit,
     onExpansionChanged: (Float) -> Unit
 ) {
     if (!showCastSheet || internalIsKeyboardVisible) return
 
-    CompositionLocalProvider(
-        LocalMaterialTheme provides albumColorScheme
-    ) {
-        MaterialTheme(
-            colorScheme = LocalMaterialTheme.current,
-            typography = MaterialTheme.typography,
-            shapes = MaterialTheme.shapes
-        ) {
+    val castScheme = remember(albumSchemeState) { { albumSchemeState.value } }
+    ProvidePlayerScheme(scheme = castScheme) {
+        PlayerSchemeMaterialTheme(scheme = castScheme) {
             CastBottomSheet(
                 playerViewModel = playerViewModel,
                 onDismiss = onDismiss,

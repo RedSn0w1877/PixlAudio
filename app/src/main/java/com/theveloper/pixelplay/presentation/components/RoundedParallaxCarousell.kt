@@ -275,12 +275,17 @@ private fun RoundedCarousel(
         val carouselItemInfo = remember { CarouselItemDrawInfoImpl() }
         val scope = remember { CarouselItemScopeImpl(itemInfo = carouselItemInfo) }
 
-        val cachedShape = remember(itemCornerRadius) {
-            RoundedCornerShape(itemCornerRadius)
-        }
-
-        val clipShape = remember(cachedShape) {
+        // The same rounded rect the old Path outline traced (maskRect ∩ layer, inflated 0.5 px,
+        // RoundedCornerShape's radius clamped to half the shorter side), returned as a
+        // round-rect outline: a hardware clip on every API level, and no Path + Outline.Generic
+        // allocated per visible item on every scroll frame. The last outline is reused while
+        // the rect doesn't move (the focused item at rest).
+        val clipShape = remember(itemCornerRadius) {
             object : Shape {
+                private var lastRect: Rect? = null
+                private var lastRadiusPx = -1f
+                private var lastOutline: Outline? = null
+
                 override fun createOutline(
                     size: Size,
                     layoutDirection: LayoutDirection,
@@ -291,16 +296,23 @@ private fun RoundedCarousel(
                     // intersecta con bounds y da un respiro sub-px para que no se vea 「cortado」
                     val rect = carouselItemInfo.maskRect.intersect(layerBounds).inflate(0.5f)
 
-                    // 2) Creamos un outline redondeado del tamaño del rect ya intersectado
-                    val localSize = Size(rect.width, rect.height)
-                    val baseOutline = cachedShape.createOutline(localSize, layoutDirection, density)
+                    // 2) Radio como RoundedCornerShape: limitado a la mitad del lado menor
+                    val radiusPx = with(density) { itemCornerRadius.toPx() }
+                        .coerceAtMost(min(rect.width, rect.height) / 2f)
+                        .coerceAtLeast(0f)
 
-                    // 3) Lo pasamos a Path y lo trasladamos a (left,top) del maskRect
-                    val path = Path().apply {
-                        addOutline(baseOutline)
-                        translate(Offset(rect.left, rect.top))
-                    }
-                    return Outline.Generic(path)
+                    val cached = lastOutline
+                    if (cached != null && rect == lastRect && radiusPx == lastRadiusPx) return cached
+                    val outline = Outline.Rounded(
+                        androidx.compose.ui.geometry.RoundRect(
+                            rect = rect,
+                            cornerRadius = CornerRadius(radiusPx, radiusPx)
+                        )
+                    )
+                    lastRect = rect
+                    lastRadiusPx = radiusPx
+                    lastOutline = outline
+                    return outline
                 }
             }
         }
@@ -315,15 +327,21 @@ private fun RoundedCarousel(
 
         //val clipShape = rememberRoundedClipShape(carouselItemInfo, itemCornerRadius)
 
-        val animatedAlpha by animateFloatAsState(
-            targetValue = if (carouselStyle == CarouselStyle.ONE_PEEK && page > state.pagerState.currentPage + 1) 0f else 1f,
+        // Threshold read: a page change recomposes only the pages whose answer flips.
+        val isBeyondOnePeek by remember(page, carouselStyle) {
+            derivedStateOf {
+                carouselStyle == CarouselStyle.ONE_PEEK && page > state.pagerState.currentPage + 1
+            }
+        }
+        val animatedAlpha = animateFloatAsState(
+            targetValue = if (isBeyondOnePeek) 0f else 1f,
             animationSpec = tween(durationMillis = 200),
             label = "CarouselItemAlpha"
         )
 
         Box(
             modifier = Modifier
-                .graphicsLayer { alpha = animatedAlpha }
+                .graphicsLayer { alpha = animatedAlpha.value }
                 .carouselItem(
                     index = page,
                     state = state,
@@ -427,16 +445,27 @@ sealed interface CarouselItemDrawInfo {
     val maskRect: Rect
 }
 
+/**
+ * Written from the item's layer block on every scroll frame and read by the clip shape inside
+ * that same block, so these are plain fields, not snapshot state (four state writes per item
+ * per frame, and a layer that re-observed its own writes). [minSize]/[maxSize] are computed on
+ * demand: nothing reads them per frame.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 private class CarouselItemDrawInfoImpl : CarouselItemDrawInfo {
-    var sizeState by mutableFloatStateOf(0f)
-    var minSizeState by mutableFloatStateOf(0f)
-    var maxSizeState by mutableFloatStateOf(0f)
-    var maskRectState by mutableStateOf(Rect.Zero)
-    override val size: Float get() = sizeState
-    override val minSize: Float get() = minSizeState
-    override val maxSize: Float get() = maxSizeState
-    override val maskRect: Rect get() = maskRectState
+    var sizeValue = 0f
+    var maskRectValue = Rect.Zero
+    var strategy: Strategy? = null
+    var scrollOffset = 0f
+    var maxScrollOffset = 0f
+    override val size: Float get() = sizeValue
+    override val minSize: Float
+        get() = strategy?.getKeylineListForScrollOffset(scrollOffset, maxScrollOffset, roundToNearestStep = true)
+            ?.minBy { it.size }?.size ?: 0f
+    override val maxSize: Float
+        get() = strategy?.getKeylineListForScrollOffset(scrollOffset, maxScrollOffset, roundToNearestStep = true)
+            ?.firstFocal?.size ?: 0f
+    override val maskRect: Rect get() = maskRectValue
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -473,12 +502,14 @@ private data class CarouselItemModifierNodeElement(
     }
 
     override fun update(node: CarouselItemModifierNode) {
+        // Only what the measure pass depends on forces a re-measure.
+        val needsMeasure = node.index != index || node.state != state || node.strategy != strategy
         node.index = index
         node.state = state
         node.strategy = strategy
         node.carouselItemDrawInfo = carouselItemDrawInfo
         node.clipShape = clipShape
-        node.invalidateMeasurement()
+        if (needsMeasure) node.invalidateMeasurement()
     }
 }
 
@@ -524,10 +555,6 @@ private class CarouselItemModifierNode(
                 val maxScrollOffset = calculateMaxScrollOffset(state, strategyResult)
                 val keylines =
                     strategyResult.getKeylineListForScrollOffset(scrollOffset, maxScrollOffset)
-                val roundedKeylines =
-                    strategyResult.getKeylineListForScrollOffset(
-                        scrollOffset, maxScrollOffset, roundToNearestStep = true
-                    )
 
                 val itemSizeWithSpacing =
                     strategyResult.itemMainAxisSize + strategyResult.itemSpacing
@@ -579,10 +606,11 @@ private class CarouselItemModifierNode(
                 val maskRect = Rect(left, top, right, bottom).intersect(layerBounds)
 
                 // --- actualizar info para la máscara (para MaskScope, etc.)
-                carouselItemDrawInfo.sizeState = ik.size
-                carouselItemDrawInfo.minSizeState = roundedKeylines.minBy { it.size }.size
-                carouselItemDrawInfo.maxSizeState = roundedKeylines.firstFocal.size
-                carouselItemDrawInfo.maskRectState = maskRect
+                carouselItemDrawInfo.sizeValue = ik.size
+                carouselItemDrawInfo.maskRectValue = maskRect
+                carouselItemDrawInfo.strategy = strategyResult
+                carouselItemDrawInfo.scrollOffset = scrollOffset
+                carouselItemDrawInfo.maxScrollOffset = maxScrollOffset
 
                 // --- CLIP: siempre activado con la forma redondeada
                 clip = true

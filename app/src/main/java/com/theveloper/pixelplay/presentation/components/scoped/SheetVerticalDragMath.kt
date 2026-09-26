@@ -19,18 +19,43 @@ internal fun computeSheetVerticalDragFrame(
     initialFractionOnDragStart: Float,
     initialYOnDragStart: Float
 ): SheetVerticalDragFrame {
-    val newY = (currentTranslationY + dragAmount)
-        .coerceIn(
-            expandedY - miniHeightPx * 0.2f,
-            collapsedY + miniHeightPx * 0.2f
-        )
-    val denominator = (collapsedY - expandedY).coerceAtLeast(1f)
-    val dragRatio = (initialYOnDragStart - newY) / denominator
-    val newFraction = (initialFractionOnDragStart + dragRatio).coerceIn(0f, 1f)
+    val newY = sheetDragTranslationY(currentTranslationY, dragAmount, expandedY, collapsedY, miniHeightPx)
     return SheetVerticalDragFrame(
         translationY = newY,
-        expansionFraction = newFraction
+        expansionFraction = sheetDragExpansionFraction(
+            newY = newY,
+            expandedY = expandedY,
+            collapsedY = collapsedY,
+            initialFractionOnDragStart = initialFractionOnDragStart,
+            initialYOnDragStart = initialYOnDragStart
+        )
     )
+}
+
+/** The translation half of [computeSheetVerticalDragFrame], without allocating a frame object. */
+internal fun sheetDragTranslationY(
+    currentTranslationY: Float,
+    dragAmount: Float,
+    expandedY: Float,
+    collapsedY: Float,
+    miniHeightPx: Float
+): Float = (currentTranslationY + dragAmount)
+    .coerceIn(
+        expandedY - miniHeightPx * 0.2f,
+        collapsedY + miniHeightPx * 0.2f
+    )
+
+/** The expansion half of [computeSheetVerticalDragFrame], without allocating a frame object. */
+internal fun sheetDragExpansionFraction(
+    newY: Float,
+    expandedY: Float,
+    collapsedY: Float,
+    initialFractionOnDragStart: Float,
+    initialYOnDragStart: Float
+): Float {
+    val denominator = (collapsedY - expandedY).coerceAtLeast(1f)
+    val dragRatio = (initialYOnDragStart - newY) / denominator
+    return (initialFractionOnDragStart + dragRatio).coerceIn(0f, 1f)
 }
 
 internal fun resolveVerticalSheetTargetState(

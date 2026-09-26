@@ -7,6 +7,7 @@ import android.app.PendingIntent
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.res.Configuration
 import android.content.pm.ServiceInfo
 import android.database.ContentObserver
 import android.graphics.Bitmap
@@ -233,7 +234,7 @@ class MusicService : MediaLibraryService() {
             context = applicationContext,
             scope = serviceScope,
             wearStatePublisher = wearStatePublisher,
-            buildPlayerInfo = { buildPlayerInfo() },
+            buildPlayerInfo = { includeWearState -> buildPlayerInfo(includeWearState) },
             resolveCurrentMediaIdForWear = { resolveCurrentMediaIdForWear() },
         )
     }
@@ -1507,7 +1508,7 @@ class MusicService : MediaLibraryService() {
         playbackSnapshotPersistJob?.cancel()
         mediaSessionButtonRefreshJob?.cancel()
         followUpMediaSessionUiRefreshJob?.cancel()
-        widgetUpdateManager.cancel()
+        widgetUpdateManager.release()
         castSyncCoordinator.stop()
         unregisterHeadsetReconnectMonitor()
         unregisterSystemVolumeObserver()
@@ -1532,6 +1533,13 @@ class MusicService : MediaLibraryService() {
         Thread.currentThread().setUncaughtExceptionHandler(previousMainThreadExceptionHandler)
         previousMainThreadExceptionHandler = null
         super.onDestroy()
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        // Wallpaper colour changes (Material You) arrive as a configuration change: the cached
+        // dynamic scheme for the widgets/watch must be rebuilt.
+        cachedDynamicSchemePair = null
     }
 
     override fun onTrimMemory(level: Int) {
@@ -1932,39 +1940,58 @@ class MusicService : MediaLibraryService() {
     private var mediaSessionButtonRefreshJob: Job? = null
     private var lastAppliedMediaButtonSignature: String? = null
 
-    private suspend fun resolveCurrentMediaIdForWear(): String? {
+    // Called off the main thread by WidgetUpdateManager: the Cast SDK and the player are read on Main.
+    private suspend fun resolveCurrentMediaIdForWear(): String? = withContext(Dispatchers.Main) {
         val remoteSongId = castSyncCoordinator.resolveRemoteSnapshot()?.songId
         if (!remoteSongId.isNullOrBlank()) {
-            return remoteSongId
+            remoteSongId
+        } else {
+            engine.masterPlayer.currentMediaItem?.mediaId
         }
-        val player = engine.masterPlayer
-        return withContext(Dispatchers.Main) { player.currentMediaItem?.mediaId }
     }
 
+    /** The cast queue's revision inputs, read on the main thread (the Cast SDK requires it). */
+    private class RemoteQueueRevisionInput(val tokens: List<String>, val currentItemId: Int)
+
+    private fun readRemoteQueueRevisionInput(): RemoteQueueRevisionInput? {
+        val remoteClient = castSyncCoordinator.currentRemoteMediaClient()
+        val remoteStatus = remoteClient?.mediaStatus
+        val remoteQueueItems = remoteStatus?.queueItems.orEmpty()
+        if (remoteQueueItems.isEmpty()) return null
+        val remoteTokens = remoteQueueItems.map { item ->
+            item.customData
+                ?.optString("songId")
+                ?.takeIf { it.isNotBlank() }
+                ?: item.media?.contentId
+                ?: item.itemId.toString()
+        }
+        return RemoteQueueRevisionInput(remoteTokens, remoteStatus?.currentItemId ?: 0)
+    }
+
+    // The local queue revision walks the whole timeline; it only changes with the timeline
+    // (an immutable snapshot, so identity is enough) or the current index.
+    private var cachedWearQueueRevisionTimeline: Timeline? = null
+    private var cachedWearQueueRevisionIndex = -1
+    private var cachedWearQueueRevision = ""
+
+    /**
+     * Off the main thread: [timeline] is an immutable snapshot and [remoteInput] was read on Main.
+     */
     private fun buildWearQueueRevision(
         timeline: Timeline,
         currentIndex: Int,
         currentMediaId: String?,
+        remoteInput: RemoteQueueRevisionInput?,
     ): String {
-        val remoteClient = castSyncCoordinator.currentRemoteMediaClient()
-        val remoteStatus = remoteClient?.mediaStatus
-        val remoteQueueItems = remoteStatus?.queueItems.orEmpty()
-        if (remoteQueueItems.isNotEmpty()) {
-            val remoteCurrentIndex = remoteQueueItems.indexOfFirst {
-                it.itemId == remoteStatus?.currentItemId
-            }.takeIf { it >= 0 } ?: 0
-            val remoteTokens = remoteQueueItems.map { item ->
-                item.customData
-                    ?.optString("songId")
-                    ?.takeIf { it.isNotBlank() }
-                    ?: item.media?.contentId
-                    ?: item.itemId.toString()
-            }
-            return encodeWearQueueRevision(remoteTokens, remoteStatus?.currentItemId ?: 0)
+        if (remoteInput != null) {
+            return encodeWearQueueRevision(remoteInput.tokens, remoteInput.currentItemId)
         }
 
         if (timeline.isEmpty) {
             return currentMediaId.orEmpty()
+        }
+        if (timeline === cachedWearQueueRevisionTimeline && currentIndex == cachedWearQueueRevisionIndex) {
+            return cachedWearQueueRevision
         }
 
         val window = Timeline.Window()
@@ -1982,7 +2009,11 @@ class MusicService : MediaLibraryService() {
             }
         }
         val safeCurrentIndex = currentIndex.coerceIn(0, (timeline.windowCount - 1).coerceAtLeast(0))
-        return encodeWearQueueRevision(tokens, safeCurrentIndex)
+        return encodeWearQueueRevision(tokens, safeCurrentIndex).also {
+            cachedWearQueueRevisionTimeline = timeline
+            cachedWearQueueRevisionIndex = currentIndex
+            cachedWearQueueRevision = it
+        }
     }
 
     private fun encodeWearQueueRevision(queueTokens: List<String>, currentIndex: Int): String {
@@ -1997,8 +2028,13 @@ class MusicService : MediaLibraryService() {
         }.hashCode().toString()
     }
 
-    private suspend fun buildPlayerInfo(): PlayerInfo {
-        val player = engine.masterPlayer
+    /**
+     * Runs off the main thread (WidgetUpdateManager calls it on Default). Everything that must be
+     * read on Main (the player, the Cast SDK, service fields written on Main) is read in the one
+     * `withContext(Dispatchers.Main)` block below. [includeWearState] is false when no watch is
+     * reachable: the Wear-only parts (lyrics, queue revision, watch palette) are then skipped.
+     */
+    private suspend fun buildPlayerInfo(includeWearState: Boolean): PlayerInfo {
         // Batch all main-thread reads into a single context switch (was 7 separate hops → 1)
         var currentItem: MediaItem? = null
         var isPlaying = false
@@ -2007,8 +2043,13 @@ class MusicService : MediaLibraryService() {
         var totalDuration = 0L
         var snapshotWindowIndex = 0
         var snapshotTimeline: Timeline = Timeline.EMPTY
+        var remoteSnapshot: RemotePlaybackSnapshot? = null
+        var remoteQueueRevisionInput: RemoteQueueRevisionInput? = null
+        var favoriteIdsSnapshot: Set<String> = emptySet()
+        var manualShuffleSnapshot = false
 
         withContext(Dispatchers.Main) {
+            val player = engine.masterPlayer
             currentItem = player.currentMediaItem
             isPlaying = player.isPlaying
             repeatMode = player.repeatMode
@@ -2016,9 +2057,15 @@ class MusicService : MediaLibraryService() {
             totalDuration = player.duration.coerceAtLeast(0)
             snapshotWindowIndex = player.currentMediaItemIndex
             snapshotTimeline = player.currentTimeline
+            remoteSnapshot = castSyncCoordinator.resolveRemoteSnapshot()
+            if (includeWearState) {
+                remoteQueueRevisionInput = readRemoteQueueRevisionInput()
+            }
+            favoriteIdsSnapshot = favoriteSongIds
+            manualShuffleSnapshot = isManualShuffleEnabled
         }
 
-        var shuffleEnabled = isManualShuffleEnabled // Manual shuffle for sync with PlayerViewModel
+        var shuffleEnabled = manualShuffleSnapshot // Manual shuffle for sync with PlayerViewModel
 
         var title = currentItem?.mediaMetadata?.title?.toString().orEmpty()
         var artist = currentItem?.mediaMetadata?.artist?.toString().orEmpty()
@@ -2026,7 +2073,7 @@ class MusicService : MediaLibraryService() {
         var artworkUri = resolveWidgetArtworkUriCandidates(currentItem?.mediaMetadata).firstOrNull()
         var artworkData = currentItem?.mediaMetadata?.artworkData
 
-        castSyncCoordinator.resolveRemoteSnapshot()?.let { remote ->
+        remoteSnapshot?.let { remote ->
             if (remote.title.isNotBlank()) {
                 title = remote.title
             }
@@ -2069,10 +2116,11 @@ class MusicService : MediaLibraryService() {
 
         val schemePair: ColorSchemePair? = when {
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && playerTheme == ThemePreference.DYNAMIC ->
-                ColorSchemePair(
+                // Only changes with the wallpaper colours (a configuration change, which clears it).
+                cachedDynamicSchemePair ?: ColorSchemePair(
                     light = dynamicLightColorScheme(applicationContext),
                     dark = dynamicDarkColorScheme(applicationContext)
-                )
+                ).also { cachedDynamicSchemePair = it }
             artUriString != null ->
                 // Skip heavy palette recomputation when art, style, and accuracy haven't changed
                 if (
@@ -2123,15 +2171,20 @@ class MusicService : MediaLibraryService() {
                 darkPrevNextIcon = it.dark.primary.toArgb()
             )
         }
-        val wearThemePalette = schemePair?.let { buildWearThemePalette(it.dark) }
+        val wearThemePalette = if (includeWearState) schemePair?.let { buildWearThemePalette(it.dark) } else null
 
-        val isFavorite = isSongFavorite(mediaId)
-        val lyrics = resolveWearLyrics(mediaId)
-        val wearQueueRevision = buildWearQueueRevision(
-            timeline = snapshotTimeline,
-            currentIndex = snapshotWindowIndex,
-            currentMediaId = mediaId,
-        )
+        val isFavorite = mediaId != null && favoriteIdsSnapshot.contains(mediaId)
+        val lyrics = if (includeWearState) resolveWearLyrics(mediaId) else null
+        val wearQueueRevision = if (includeWearState) {
+            buildWearQueueRevision(
+                timeline = snapshotTimeline,
+                currentIndex = snapshotWindowIndex,
+                currentMediaId = mediaId,
+                remoteInput = remoteQueueRevisionInput,
+            )
+        } else {
+            ""
+        }
 
         val queueItems = mutableListOf<com.theveloper.pixelplay.data.model.QueueItem>()
         // Reuse snapshotTimeline / snapshotWindowIndex captured at the top — no extra main-thread hop
@@ -2204,6 +2257,9 @@ class MusicService : MediaLibraryService() {
     private var cachedSchemePaletteStyle: AlbumArtPaletteStyle? = null
     private var cachedSchemeColorAccuracy: Int = AlbumArtColorAccuracy.DEFAULT
     private var cachedColorSchemePair: ColorSchemePair? = null
+    @Volatile
+    private var cachedDynamicSchemePair: ColorSchemePair? = null
+    private var cachedWidgetArtFromEmbedded = false
     private var cachedWidgetArtSourceKey: String? = null
     private var cachedWidgetArtResolvedUri: String? = null
     private var cachedWidgetArtBytes: ByteArray? = null
@@ -2211,6 +2267,7 @@ class MusicService : MediaLibraryService() {
     private var cachedWidgetArtLoadFailureAtMs: Long = 0L
 
     private fun invalidateCachedWidgetArtwork() {
+        cachedWidgetArtFromEmbedded = false
         cachedWidgetArtSourceKey = null
         cachedWidgetArtResolvedUri = null
         cachedWidgetArtBytes = null
@@ -2223,15 +2280,6 @@ class MusicService : MediaLibraryService() {
         embeddedArt: ByteArray?,
         artUris: List<Uri>,
     ): Pair<ByteArray?, String?> = withContext(Dispatchers.IO) {
-        // Try embedded art first — but fall through to URI loading if sanitization fails
-        val sanitizedFromEmbedded = embeddedArt?.takeIf { it.isNotEmpty() }?.let { bytes ->
-            runCatching {
-                ArtworkTransportSanitizer.sanitizeEncodedBytes(
-                    data = bytes,
-                    config = ArtworkTransportSanitizer.WIDGET_CONFIG,
-                )
-            }.getOrNull()
-        }
         val candidateUriStrings = LinkedHashSet<String>().apply {
             artUris.forEach { candidate ->
                 candidate.toString()
@@ -2245,17 +2293,37 @@ class MusicService : MediaLibraryService() {
             candidateUriStrings = candidateUriStrings,
         )
 
+        // Same song, same art sources: reuse the bytes we already produced. This check used to
+        // run after re-encoding the embedded art, so every play/pause decoded and re-encoded it.
+        // Embedded art still wins over bytes that were loaded from a URI.
+        val hasEmbeddedArt = embeddedArt != null && embeddedArt.isNotEmpty()
+        if (
+            sourceKey != null &&
+            sourceKey == cachedWidgetArtSourceKey &&
+            cachedWidgetArtBytes != null &&
+            (cachedWidgetArtFromEmbedded || !hasEmbeddedArt)
+        ) {
+            return@withContext cachedWidgetArtBytes to (cachedWidgetArtResolvedUri ?: preferredUriString)
+        }
+
+        // Try embedded art first — but fall through to URI loading if sanitization fails
+        val sanitizedFromEmbedded = embeddedArt?.takeIf { it.isNotEmpty() }?.let { bytes ->
+            runCatching {
+                ArtworkTransportSanitizer.sanitizeEncodedBytes(
+                    data = bytes,
+                    config = ArtworkTransportSanitizer.WIDGET_CONFIG,
+                )
+            }.getOrNull()
+        }
+
         if (sanitizedFromEmbedded != null) {
+            cachedWidgetArtFromEmbedded = true
             cachedWidgetArtSourceKey = sourceKey
             cachedWidgetArtResolvedUri = preferredUriString
             cachedWidgetArtBytes = sanitizedFromEmbedded
             cachedWidgetArtLoadFailureKey = null
             cachedWidgetArtLoadFailureAtMs = 0L
             return@withContext sanitizedFromEmbedded to preferredUriString
-        }
-
-        if (sourceKey != null && sourceKey == cachedWidgetArtSourceKey && cachedWidgetArtBytes != null) {
-            return@withContext cachedWidgetArtBytes to (cachedWidgetArtResolvedUri ?: preferredUriString)
         }
         if (sourceKey != null && sourceKey == cachedWidgetArtLoadFailureKey) {
             val failureAgeMs = SystemClock.elapsedRealtime() - cachedWidgetArtLoadFailureAtMs
@@ -2280,6 +2348,7 @@ class MusicService : MediaLibraryService() {
             val candidateUri = parseArtworkUriString(candidateUriString) ?: continue
             val loadedBytes = loadArtworkBytesForWidget(candidateUri)
             if (loadedBytes != null) {
+                cachedWidgetArtFromEmbedded = false
                 cachedWidgetArtSourceKey = sourceKey
                 cachedWidgetArtResolvedUri = candidateUriString
                 cachedWidgetArtBytes = loadedBytes

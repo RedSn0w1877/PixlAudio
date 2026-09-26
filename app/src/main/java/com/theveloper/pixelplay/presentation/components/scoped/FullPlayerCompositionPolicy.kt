@@ -25,22 +25,27 @@ internal data class FullPlayerCompositionPolicy(
  * read inside [derivedStateOf] / [snapshotFlow] — never as a `remember` key or
  * `LaunchedEffect` key. This prevents per-frame recomposition of the caller during
  * sheet drag gestures.
+ *
+ * Keyed on *having* a song, not on which song: once the hidden full player is warm it stays
+ * composed across skips and only recomposes. (Keying on the song id tore the whole tree down on
+ * every skip from the mini player and rebuilt it from scratch 650 ms later.)
  */
 @Composable
 internal fun rememberFullPlayerCompositionPolicy(
-    currentSongId: String?,
+    hasCurrentSong: Boolean,
     currentSheetState: PlayerSheetState,
     expansionFraction: Animatable<Float, AnimationVector1D>,
     collapsedWarmDelayMs: Long = 650L
 ): FullPlayerCompositionPolicy {
-    var keepFullPlayerComposed by remember(currentSongId) { mutableStateOf(false) }
+    var keepFullPlayerComposed by remember(hasCurrentSong) { mutableStateOf(false) }
 
-    LaunchedEffect(currentSongId, currentSheetState) {
-        if (currentSongId == null) {
+    LaunchedEffect(hasCurrentSong, currentSheetState) {
+        if (!hasCurrentSong) {
             keepFullPlayerComposed = false
             return@LaunchedEffect
         }
 
+        if (keepFullPlayerComposed) return@LaunchedEffect
         if (currentSheetState == PlayerSheetState.EXPANDED) {
             keepFullPlayerComposed = true
         } else {
@@ -58,8 +63,8 @@ internal fun rememberFullPlayerCompositionPolicy(
     // never terminated — it kept reading expansionFraction on every frame
     // for the rest of the song's lifetime, even though there was nothing
     // left to do once keepFullPlayerComposed was true.
-    LaunchedEffect(currentSongId) {
-        if (currentSongId == null) return@LaunchedEffect
+    LaunchedEffect(hasCurrentSong) {
+        if (!hasCurrentSong) return@LaunchedEffect
         snapshotFlow {
             keepFullPlayerComposed || expansionFraction.value > 0.12f
         }.first { it }
@@ -68,9 +73,9 @@ internal fun rememberFullPlayerCompositionPolicy(
 
     // Read expansion fraction inside derivedStateOf so that changes only trigger
     // recomposition of direct consumers when the Boolean result flips.
-    val shouldRenderFullPlayer by remember(currentSongId, currentSheetState) {
+    val shouldRenderFullPlayer by remember(hasCurrentSong, currentSheetState) {
         derivedStateOf {
-            currentSongId != null && (
+            hasCurrentSong && (
                 currentSheetState == PlayerSheetState.EXPANDED ||
                     expansionFraction.value > 0.015f ||
                     keepFullPlayerComposed

@@ -42,7 +42,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
@@ -78,6 +77,7 @@ import com.theveloper.pixelplay.presentation.components.scoped.rememberFullPlaye
 import com.theveloper.pixelplay.presentation.components.scoped.rememberCastSheetState
 import com.theveloper.pixelplay.presentation.components.scoped.rememberFullPlayerVisualState
 import com.theveloper.pixelplay.presentation.components.scoped.rememberMiniPlayerDismissGestureHandler
+import com.theveloper.pixelplay.presentation.components.scoped.rememberPlayerSheetFieldStates
 import com.theveloper.pixelplay.presentation.components.scoped.rememberPrewarmFullPlayer
 import com.theveloper.pixelplay.presentation.components.scoped.rememberQueueSheetState
 import com.theveloper.pixelplay.presentation.components.scoped.rememberSheetActionHandlers
@@ -97,6 +97,12 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.roundToInt
+
+/** Subscribes to [positionFlow] (keeping its producer running) without reading the value. */
+@Composable
+private fun KeepPlaybackPositionPollAlive(positionFlow: kotlinx.coroutines.flow.StateFlow<Long>) {
+    positionFlow.collectAsStateWithLifecycle()
+}
 
 private data class PlayerUiSheetSliceV2(
     val currentQueueSourceName: String = "",
@@ -183,19 +189,20 @@ fun UnifiedPlayerSheetV2(
         )
     }
 
+    // Never read the whole StablePlayerState here: it emits 3-5 times per skip (lyrics,
+    // duration, buffering...) and this body is ~700 lines. Each field is its own derived state.
     val infrequentPlayerStateReference = playerViewModel.stablePlayerState.collectAsStateWithLifecycle()
-    val infrequentPlayerState = infrequentPlayerStateReference.value
+    val playerFieldStates = rememberPlayerSheetFieldStates(infrequentPlayerStateReference)
+    val currentSong = playerFieldStates.currentSong.value
     val currentBackStackEntry by navController.currentBackStackEntryAsState()
 
-    val currentPositionState = playerViewModel.currentPlaybackPosition.collectAsStateWithLifecycle()
-    val remotePositionState = playerViewModel.remotePosition.collectAsStateWithLifecycle()
-    val isRemotePlaybackActive by playerViewModel.isRemotePlaybackActive.collectAsStateWithLifecycle()
-    val positionToDisplayProvider = remember(isRemotePlaybackActive) {
-        {
-            if (isRemotePlaybackActive) remotePositionState.value
-            else currentPositionState.value
-        }
+    // The full player reads the frame-accurate position (the lyrics clock's source, which
+    // already covers casting) only when it needs it, so this sheet no longer subscribes to the
+    // polled position: with only the mini player showing, nothing polls it at all.
+    val positionToDisplayProvider = remember(playerViewModel) {
+        { playerViewModel.currentPositionForLyrics() }
     }
+    val isRemotePlaybackActive by playerViewModel.isRemotePlaybackActive.collectAsStateWithLifecycle()
 
     val isFavorite by playerViewModel.isCurrentSongFavorite.collectAsStateWithLifecycle()
 
@@ -213,9 +220,12 @@ fun UnifiedPlayerSheetV2(
     val preparingSongId = playerUiSheetSlice.preparingSongId
 
     val currentSheetContentState by playerViewModel.sheetState.collectAsStateWithLifecycle()
-    val predictiveBackCollapseProgress by playerViewModel.predictiveBackCollapseFraction.collectAsStateWithLifecycle()
+    // Changes on every frame of a back gesture: kept as a State and read only inside the
+    // layout/draw providers of rememberSheetVisualState, never in this body.
+    val predictiveBackCollapseProgressState =
+        playerViewModel.predictiveBackCollapseFraction.collectAsStateWithLifecycle()
     val predictiveBackSwipeEdge by playerViewModel.predictiveBackSwipeEdge.collectAsStateWithLifecycle()
-    val prewarmFullPlayer = rememberPrewarmFullPlayer(infrequentPlayerState.currentSong?.id)
+    val prewarmFullPlayer = rememberPrewarmFullPlayer(hasCurrentSong = currentSong != null)
 
     val playerConfig by playerViewModel.playerConfigSlice.collectAsStateWithLifecycle()
     val navBarCornerRadius = sanitizeNavBarCornerRadius(playerConfig.navBarCornerRadius)
@@ -235,7 +245,8 @@ fun UnifiedPlayerSheetV2(
         with(density) { configuration.screenWidthDp.dp.toPx() }
     }
     val dismissThresholdPx = remember(screenWidthPx) { screenWidthPx * 0.4f }
-    val swipeDismissProgress by remember(dismissThresholdPx) {
+    // Changes on every frame of the mini-player dismiss drag: read only inside the providers.
+    val swipeDismissProgressState = remember(dismissThresholdPx) {
         derivedStateOf {
             if (dismissThresholdPx == 0f) 0f
             else (abs(offsetAnimatable.value) / dismissThresholdPx).coerceIn(0f, 1f)
@@ -248,9 +259,13 @@ fun UnifiedPlayerSheetV2(
     val miniPlayerContentHeightPx = remember { with(density) { MiniPlayerHeight.toPx() } }
 
     val isCastConnecting by playerViewModel.isCastConnecting.collectAsStateWithLifecycle()
-    val showPlayerContentArea by remember(infrequentPlayerState.currentSong, isCastConnecting) {
-        derivedStateOf { infrequentPlayerState.currentSong != null || isCastConnecting }
+    if (isRemotePlaybackActive || isCastConnecting) {
+        // While casting, the position poll also mirrors the remote play/buffering state into
+        // StablePlayerState, so it must keep running whenever the player UI is up.
+        KeepPlaybackPositionPollAlive(playerViewModel.currentPlaybackPosition)
     }
+    val showPlayerContentArea = currentSong != null || isCastConnecting
+    val showPlayerContentAreaState = rememberUpdatedState(showPlayerContentArea)
 
     val playerContentExpansionFraction = playerViewModel.playerContentExpansionFraction
     val isPlayerFullyExpanded by remember(playerContentExpansionFraction, currentSheetContentState) {
@@ -310,7 +325,7 @@ fun UnifiedPlayerSheetV2(
         initialOffsetY = initialFullPlayerOffsetY
     )
     val fullPlayerCompositionPolicy = rememberFullPlayerCompositionPolicy(
-        currentSongId = infrequentPlayerState.currentSong?.id,
+        hasCurrentSong = currentSong != null,
         currentSheetState = currentSheetContentState,
         expansionFraction = playerContentExpansionFraction
     )
@@ -331,7 +346,7 @@ fun UnifiedPlayerSheetV2(
     ) {
         sheetMotionController.animateTo(
             targetExpanded = targetExpanded,
-            canExpand = showPlayerContentArea,
+            canExpand = showPlayerContentAreaState.value,
             collapsedY = sheetCollapsedTargetYProvider(),
             animationSpec = animationSpec,
             initialVelocity = initialVelocity
@@ -407,7 +422,7 @@ fun UnifiedPlayerSheetV2(
     val sheetVisualState = rememberSheetVisualState(
         showPlayerContentArea = showPlayerContentArea,
         collapsedStateHorizontalPadding = collapsedStateHorizontalPadding,
-        predictiveBackCollapseProgress = predictiveBackCollapseProgress,
+        predictiveBackCollapseProgressState = predictiveBackCollapseProgressState,
         predictiveBackSwipeEdge = predictiveBackSwipeEdge,
         currentSheetContentState = currentSheetContentState,
         playerContentExpansionFraction = playerContentExpansionFraction,
@@ -417,9 +432,9 @@ fun UnifiedPlayerSheetV2(
         navBarStyle = navBarStyle,
         navBarCornerRadiusDp = navBarCornerRadius.dp,
         isNavBarHidden = isNavBarHidden,
-        isPlaying = infrequentPlayerState.isPlaying,
-        hasCurrentSong = infrequentPlayerState.currentSong != null,
-        swipeDismissProgress = swipeDismissProgress
+        isPlayingState = playerFieldStates.isPlaying,
+        hasCurrentSong = currentSong != null,
+        swipeDismissProgressState = swipeDismissProgressState
     )
     val currentBottomPadding = sheetVisualState.currentBottomPadding
     val playerContentAreaHeightPxProvider = sheetVisualState.playerContentAreaHeightPxProvider
@@ -524,15 +539,15 @@ fun UnifiedPlayerSheetV2(
         isQueueCollapsing = queueSheetState.isCollapsing,
         queueHiddenOffsetPx = queueHiddenOffsetPx,
         screenHeightPx = screenHeightPx,
-        castSheetOpenFraction = castSheetState.castSheetOpenFraction,
+        castSheetOpenFractionState = castSheetState.castSheetOpenFractionState,
         queueSheetOffset = queueSheetOffset,
         queuePredictiveBackProgress = queuePredictiveBackProgress
     )
     val internalIsKeyboardVisible = sheetOverlayState.internalIsKeyboardVisible
     val actuallyShowSheetContent = sheetOverlayState.actuallyShowSheetContent
     val isQueueVisible = sheetOverlayState.isQueueVisible
-    val bottomSheetOpenFraction = sheetOverlayState.bottomSheetOpenFraction
-    val queueScrimAlpha = sheetOverlayState.queueScrimAlpha
+    val bottomSheetOpenFractionState = sheetOverlayState.bottomSheetOpenFractionState
+    val queueScrimAlphaState = sheetOverlayState.queueScrimAlphaState
     val shouldRenderQueueHost by remember(internalIsKeyboardVisible, selectedSongForInfo) {
         derivedStateOf {
             !internalIsKeyboardVisible || selectedSongForInfo != null
@@ -556,7 +571,6 @@ fun UnifiedPlayerSheetV2(
     val activePlayerSchemePair by playerViewModel.activePlayerColorSchemePair.collectAsStateWithLifecycle()
     val themedAlbumArtUri by playerViewModel.currentThemedAlbumArtUri.collectAsStateWithLifecycle()
     val isDarkTheme = LocalPixelPlayDarkTheme.current
-    val currentSong = infrequentPlayerState.currentSong
     val sheetThemeState = rememberSheetThemeState(
         activePlayerSchemePair = activePlayerSchemePair,
         isDarkTheme = isDarkTheme,
@@ -566,17 +580,22 @@ fun UnifiedPlayerSheetV2(
         preparingSongId = preparingSongId,
         systemColorScheme = MaterialTheme.colorScheme
     )
-    val albumColorScheme = sheetThemeState.albumColorScheme
-    val miniPlayerScheme = sheetThemeState.miniPlayerScheme
+    // Both are States: reading `.value` here would recompose this whole sheet on every frame
+    // of the colour fade (skip) and of the mini-player appear animation.
+    val albumSchemeState = sheetThemeState.albumSchemeState
+    val targetSchemeState = sheetThemeState.targetSchemeState
     val isPreparingPlayback = sheetThemeState.isPreparingPlayback
-    val miniReadyAlpha = sheetThemeState.miniReadyAlpha
-    val miniAppearScale = sheetThemeState.miniAppearScale
-    val playerAreaBackground = sheetThemeState.playerAreaBackground
+    val miniAppearProgress = sheetThemeState.miniAppearProgress
+    val playerAreaBackgroundProvider = remember(albumSchemeState) {
+        { albumSchemeState.value.primaryContainer }
+    }
 
     // Elevation is only visible in the mini/collapsed state (expansion < 0.18).
-    // miniReadyAlpha fades the shadow in during the initial song-appear animation.
+    // miniAppearProgress fades the shadow in during the initial song-appear animation.
     val isDragging = sheetBackAndDragState.isDragging
-    val visualCardShadowElevation by remember(showQueueSheet, miniReadyAlpha, isDragging) {
+    // Read in the card's layer only: it animates with the mini-player appear (and crosses
+    // thresholds during drags), so reading it here would recompose the whole sheet per frame.
+    val visualCardShadowElevationState = remember(showQueueSheet, miniAppearProgress, isDragging) {
         derivedStateOf {
             if (
                 showQueueSheet ||
@@ -586,7 +605,7 @@ fun UnifiedPlayerSheetV2(
             ) {
                 0.dp
             } else {
-                (3f * miniReadyAlpha).dp
+                (3f * miniAppearProgress.value).dp
             }
         }
     }
@@ -628,10 +647,10 @@ fun UnifiedPlayerSheetV2(
 
     val playerSheetSemanticsDescription = remember(
         currentSheetContentState,
-        infrequentPlayerState.currentSong?.title
+        currentSong?.title
     ) {
         "PixelPlay player sheet ${currentSheetContentState.name.lowercase()} " +
-            (infrequentPlayerState.currentSong?.title ?: "")
+            (currentSong?.title ?: "")
     }
 
     Surface(
@@ -669,10 +688,12 @@ fun UnifiedPlayerSheetV2(
                         modifier = Modifier
                             .fillMaxWidth()
                             .graphicsLayer {
+                                val appear = miniAppearProgress.value
+                                val miniAppearScale = androidx.compose.ui.util.lerp(0.985f, 1f, appear)
                                 translationX = offsetAnimatable.value
                                 scaleX = miniAppearScale
                                 scaleY = visualOvershootScaleY.value * miniAppearScale
-                                alpha = miniReadyAlpha
+                                alpha = appear
                                 transformOrigin = TransformOrigin(0.5f, 1f)
                             }
                             // outerLayout:
@@ -701,19 +722,20 @@ fun UnifiedPlayerSheetV2(
                                     placeable.placeRelative(startPaddingPx, 0)
                                 }
                             }
-                            // Always apply Modifier.shadow with the dynamic elevation
-                            // (0.dp renders nothing). Keeping the modifier chain
-                            // structurally stable avoids the costly relayout/redraw
-                            // restructure when the elevation crosses 0.dp during
+                            // Modifier.shadow's layer, with the elevation read at draw time
+                            // (0 renders nothing). The layer is always present, so the chain
+                            // never restructures when the elevation crosses 0 during
                             // expand/collapse or right after play/pause.
-                            .shadow(
-                                elevation = visualCardShadowElevation,
-                                shape = sheetInteractionState.playerShadowShape,
-                                clip = false
-                            )
-                            .background(
-                                color = playerAreaBackground,
+                            .graphicsLayer {
+                                shadowElevation = visualCardShadowElevationState.value.toPx()
                                 shape = sheetInteractionState.playerShadowShape
+                                clip = false
+                            }
+                            // Same pixels as .background(color, shape); the colour is read at
+                            // draw time so the album colour fade only redraws the card.
+                            .drawBackgroundOutline(
+                                shape = sheetInteractionState.playerShadowShape,
+                                color = playerAreaBackgroundProvider
                             )
                             .clip(sheetInteractionState.playerShadowShape)
                             // innerLayout:
@@ -763,15 +785,13 @@ fun UnifiedPlayerSheetV2(
                             }
                     ) {
                         UnifiedPlayerMiniAndFullLayers(
-                            currentSong = infrequentPlayerState.currentSong,
-                            miniPlayerScheme = miniPlayerScheme,
-                            overallSheetTopCornerRadiusProvider = overallSheetTopCornerRadiusProvider,
-                            infrequentPlayerState = infrequentPlayerState,
+                            fieldStates = playerFieldStates,
+                            albumSchemeState = albumSchemeState,
+                            targetSchemeState = targetSchemeState,
                             isCastConnecting = isCastConnecting,
                             isPreparingPlayback = isPreparingPlayback,
                             playerContentExpansionFraction = playerContentExpansionFraction,
-                            albumColorScheme = albumColorScheme,
-                            bottomSheetOpenFraction = bottomSheetOpenFraction,
+                            bottomSheetOpenFractionState = bottomSheetOpenFractionState,
                             fullPlayerVisualState = fullPlayerVisualState,
                             containerHeight = containerHeight,
                             currentQueueSourceName = currentQueueSourceName,
@@ -796,11 +816,10 @@ fun UnifiedPlayerSheetV2(
 
                 UnifiedPlayerPrewarmLayer(
                     prewarmFullPlayer = prewarmFullPlayer && !shouldRenderFullPlayer,
-                    currentSong = infrequentPlayerState.currentSong,
+                    fieldStates = playerFieldStates,
                     containerHeight = containerHeight,
-                    albumColorScheme = albumColorScheme,
+                    targetSchemeState = targetSchemeState,
                     currentQueueSourceName = currentQueueSourceName,
-                    infrequentPlayerState = infrequentPlayerState,
                     carouselStyle = carouselStyle,
                     fullPlayerLoadingTweaks = fullPlayerLoadingTweaks,
                     playerViewModel = playerViewModel,
@@ -856,8 +875,9 @@ fun UnifiedPlayerSheetV2(
                 keepQueueSheetWarm = currentSheetContentState == PlayerSheetState.EXPANDED &&
                     !internalIsKeyboardVisible,
                 isQueueTelemetryActive = isQueueTelemetryActive,
-                albumColorScheme = albumColorScheme,
-                queueScrimAlpha = queueScrimAlpha,
+                albumSchemeState = albumSchemeState,
+                targetSchemeState = targetSchemeState,
+                queueScrimAlphaState = queueScrimAlphaState,
                 showQueueSheet = showQueueSheet,
                 isQueueCollapsing = queueSheetState.isCollapsing,
                 queueHiddenOffsetPx = queueHiddenOffsetPx,
@@ -866,7 +886,7 @@ fun UnifiedPlayerSheetV2(
                 onQueueSheetHeightPxChange = onQueueSheetHeightPxChange,
                 configurationResetKey = configuration,
                 currentQueueSourceName = currentQueueSourceName,
-                infrequentPlayerState = infrequentPlayerState,
+                fieldStates = playerFieldStates,
                 playerViewModel = playerViewModel,
                 selectedSongForInfo = selectedSongForInfo,
                 onSelectedSongForInfoChange = sheetActionHandlers.onSelectedSongForInfoChange,
@@ -887,7 +907,7 @@ fun UnifiedPlayerSheetV2(
     UnifiedPlayerCastLayer(
         showCastSheet = castSheetState.showCastSheet,
         internalIsKeyboardVisible = internalIsKeyboardVisible,
-        albumColorScheme = albumColorScheme,
+        albumSchemeState = albumSchemeState,
         playerViewModel = playerViewModel,
         onDismiss = castSheetState.dismissCastSheet,
         onExpansionChanged = castSheetState.onCastExpansionChanged

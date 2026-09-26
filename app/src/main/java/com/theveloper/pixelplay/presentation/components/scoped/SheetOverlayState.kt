@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.ime
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -19,13 +20,18 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlin.math.max
 
+/**
+ * The three fractions animate with every frame of a queue/cast drag or open/close, so they are
+ * handed out as [State]s: read `.value` only in layout/draw (or inside a derivedStateOf), never
+ * in a composable body, or the whole player sheet recomposes per frame.
+ */
 internal data class SheetOverlayState(
     val internalIsKeyboardVisible: Boolean,
     val actuallyShowSheetContent: Boolean,
     val isQueueVisible: Boolean,
-    val queueVisualOpenFraction: Float,
-    val bottomSheetOpenFraction: Float,
-    val queueScrimAlpha: Float
+    val queueVisualOpenFractionState: State<Float>,
+    val bottomSheetOpenFractionState: State<Float>,
+    val queueScrimAlphaState: State<Float>
 )
 
 @Composable
@@ -37,7 +43,7 @@ internal fun rememberSheetOverlayState(
     isQueueCollapsing: Boolean,
     queueHiddenOffsetPx: Float,
     screenHeightPx: Float,
-    castSheetOpenFraction: Float,
+    castSheetOpenFractionState: State<Float>,
     queueSheetOffset: Animatable<Float, AnimationVector1D>,
     queuePredictiveBackProgress: Animatable<Float, AnimationVector1D>
 ): SheetOverlayState {
@@ -89,26 +95,23 @@ internal fun rememberSheetOverlayState(
             }
         }
     }
-    val queueVisualOpenFraction by queueVisualOpenFractionState
  
-    val bottomSheetOpenFractionState = remember(queueVisualOpenFractionState, castSheetOpenFraction) {
-        derivedStateOf { max(queueVisualOpenFractionState.value, castSheetOpenFraction) }
+    val bottomSheetOpenFractionState = remember(queueVisualOpenFractionState, castSheetOpenFractionState) {
+        derivedStateOf { max(queueVisualOpenFractionState.value, castSheetOpenFractionState.value) }
     }
-    val bottomSheetOpenFraction by bottomSheetOpenFractionState
  
     val queueScrimAlphaState = remember(queueVisualOpenFractionState) {
         derivedStateOf {
             (queueVisualOpenFractionState.value * 0.45f).coerceIn(0f, 0.45f)
         }
     }
-    val queueScrimAlpha by queueScrimAlphaState
 
     return SheetOverlayState(
         internalIsKeyboardVisible = internalIsKeyboardVisible,
         actuallyShowSheetContent = actuallyShowSheetContent,
         isQueueVisible = isQueueVisible,
-        queueVisualOpenFraction = queueVisualOpenFraction,
-        bottomSheetOpenFraction = bottomSheetOpenFraction,
-        queueScrimAlpha = queueScrimAlpha
+        queueVisualOpenFractionState = queueVisualOpenFractionState,
+        bottomSheetOpenFractionState = bottomSheetOpenFractionState,
+        queueScrimAlphaState = queueScrimAlphaState
     )
 }

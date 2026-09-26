@@ -439,12 +439,9 @@ class MediaControllerSyncStateHolder @Inject constructor(
         }
         syncPlaybackPositionFromPlayer(mediaItem.mediaId, currentPosition)
 
-        song?.let { currentSongValue ->
-            cb.scope.launch {
-                val uri = currentSongValue.albumArtUriString?.toUri()
-                val currentUri = playbackStateHolder.stablePlayerState.value.currentSong?.albumArtUriString
-                themeStateHolder.extractAndGenerateColorScheme(uri, currentUri)
-            }
+        song?.let {
+            // The album palette is not extracted here: PlayerViewModel's collector on the current
+            // song's art URI (mapLatest, cancels superseded work) already covers this change.
             cb.loadLyricsForCurrentSong()
         }
     }
@@ -722,12 +719,8 @@ class MediaControllerSyncStateHolder @Inject constructor(
                             playerCtrl.currentPosition.coerceAtLeast(0L)
                         )
 
-                        song?.let { currentSongValue ->
-                            launch {
-                                val uri = currentSongValue.albumArtUriString?.toUri()
-                                val currentUri = playbackStateHolder.stablePlayerState.value.currentSong?.albumArtUriString
-                                themeStateHolder.extractAndGenerateColorScheme(uri, currentUri)
-                            }
+                        song?.let {
+                            // Palette: covered by PlayerViewModel's art-URI collector (see above).
                             cb.loadLyricsForCurrentSong()
                         }
                     } ?: run {

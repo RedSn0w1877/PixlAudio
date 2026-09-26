@@ -139,6 +139,9 @@ internal fun ImmutableList<Song>.asPersistentPlaybackQueue(): PersistentList<Son
 internal fun ImmutableList<Song>.replaceSong(updatedSong: Song): ImmutableList<Song> {
     val index = indexOfFirst { it.id == updatedSong.id }
     if (index == -1) return this
+    // An equal song keeps the same queue instance: a new instance re-emits queueFlow and makes
+    // the carousel, the queue sheet and the neighbour-palette preload redo O(n) work for nothing.
+    if (this[index] == updatedSong) return this
     return asPersistentPlaybackQueue().set(index, updatedSong)
 }
 
@@ -464,6 +467,15 @@ class PlayerViewModel @Inject constructor(
         )
 
     /** Which ambient background style the full player shows (exclusive, not layered). */
+    /**
+     * The queue sheet's "show history" preference on its own. The queue used to create the whole
+     * SettingsViewModel (and its big combines) just to read this one boolean.
+     */
+    val showQueueHistory: StateFlow<Boolean> =
+        userPreferencesRepository.showQueueHistoryFlow
+            .distinctUntilChanged()
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
+
     val playerAmbientStyle: StateFlow<com.theveloper.pixelplay.data.preferences.PlayerAmbientStyle> =
         userPreferencesRepository.playerAmbientStyleFlow.stateIn(
             viewModelScope,
@@ -2910,7 +2922,9 @@ class PlayerViewModel @Inject constructor(
             currentSong = playbackStateHolder.stablePlayerState.value.currentSong,
             queue = _playerUiState.value.currentPlaybackQueue,
             queueName = _playerUiState.value.currentQueueSourceName,
-            position = playbackStateHolder.currentPosition.value,
+            // Read the player now: the polled position isn't refreshed while only the mini
+            // player is showing (nothing subscribes to it then).
+            position = playbackStateHolder.framePositionMs(),
             getUiState = { _playerUiState.value },
             updateUiState = { mutation -> _playerUiState.update(mutation) },
             disconnectRemoteIfNeeded = {

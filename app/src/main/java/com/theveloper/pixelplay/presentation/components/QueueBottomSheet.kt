@@ -106,6 +106,8 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.flow.first
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.rememberCoroutineScope
@@ -152,7 +154,6 @@ import com.theveloper.pixelplay.presentation.components.player.AnimatedPlaybackC
 import com.theveloper.pixelplay.presentation.viewmodel.PlayerUiState
 import com.theveloper.pixelplay.presentation.viewmodel.PlayerViewModel
 import com.theveloper.pixelplay.presentation.viewmodel.PlaylistViewModel
-import com.theveloper.pixelplay.presentation.viewmodel.SettingsViewModel
 import com.theveloper.pixelplay.presentation.utils.LocalAppHapticsConfig
 import com.theveloper.pixelplay.presentation.utils.performAppCompatHapticFeedback
 import com.theveloper.pixelplay.ui.theme.GoogleSansRounded
@@ -209,6 +210,9 @@ private fun PlayerUiState.toQueueUndoBarProjection(): QueueUndoBarProjection =
         removedSongTitle = lastRemovedQueueSong?.title.orEmpty()
     )
 
+/** How long the hidden queue waits after a song change before following it (past the skip animations). */
+private const val HIDDEN_QUEUE_FOLLOW_DELAY_MS = 600L
+
 @androidx.annotation.OptIn(UnstableApi::class)
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class,
     ExperimentalMaterial3ExpressiveApi::class
@@ -217,7 +221,6 @@ private fun PlayerUiState.toQueueUndoBarProjection(): QueueUndoBarProjection =
 fun QueueBottomSheet(
     viewModel: PlayerViewModel = hiltViewModel(),
     playlistViewModel: PlaylistViewModel = hiltViewModel(),
-    settingsViewModel: SettingsViewModel = hiltViewModel(),
     queue: List<Song>,
     currentQueueSourceName: String,
     currentSongId: String?,
@@ -291,8 +294,7 @@ fun QueueBottomSheet(
     }
 
     // Read show queue history preference
-    val settingsState by settingsViewModel.uiState.collectAsStateWithLifecycle()
-    val showQueueHistory = settingsState.showQueueHistory
+    val showQueueHistory by viewModel.showQueueHistory.collectAsStateWithLifecycle()
 
     // Offset to convert display indices to queue indices when history is hidden.
     val queueIndexOffset = if (showQueueHistory || currentSongIndex < 0) 0 else currentSongIndex
@@ -490,7 +492,17 @@ fun QueueBottomSheet(
     // This prevents annoying jumps when adding/removing other items in the queue.
     var isFirstScrollByCurrentSongId by remember(currentSongId) { mutableStateOf(true) }
 
+    val latestIsQueueVisible = rememberUpdatedState(isVisible)
     LaunchedEffect(currentSongId) {
+        // The queue stays composed (hidden) while the player is expanded. Hidden, it still
+        // follows the current song, but only after the skip's carousel and colour animations
+        // have settled instead of composing rows in the middle of them (or as soon as the
+        // queue is opened, whichever comes first).
+        if (!latestIsQueueVisible.value) {
+            kotlinx.coroutines.withTimeoutOrNull(HIDDEN_QUEUE_FOLLOW_DELAY_MS) {
+                snapshotFlow { latestIsQueueVisible.value }.first { it }
+            }
+        }
         if (!isReordering && !reorderHandleInUse && currentSongDisplayIndex >= 0 && currentSongDisplayIndex < displaySongCount) {
             val firstVisible = listState.firstVisibleItemIndex
             val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0

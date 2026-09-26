@@ -1,5 +1,6 @@
 package com.theveloper.pixelplay.presentation.components.player
 
+import kotlinx.coroutines.flow.distinctUntilChanged
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.res.Configuration
@@ -77,6 +78,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.withFrameNanos
+import kotlinx.coroutines.flow.collectLatest
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -126,7 +129,6 @@ import com.theveloper.pixelplay.presentation.components.AlbumCarouselSection
 import com.theveloper.pixelplay.presentation.components.AutoScrollingTextOnDemand
 import com.theveloper.pixelplay.presentation.components.LocalMaterialTheme
 import com.theveloper.pixelplay.presentation.components.LyricsSheet
-import com.theveloper.pixelplay.presentation.components.scoped.rememberSmoothProgress
 import com.theveloper.pixelplay.presentation.components.subcomps.FetchLyricsDialog
 import com.theveloper.pixelplay.presentation.viewmodel.LyricsSearchUiState
 import com.theveloper.pixelplay.presentation.viewmodel.PlayerSheetState
@@ -156,6 +158,8 @@ private const val PREVIOUS_TRACK_RESTART_THRESHOLD_MS = 10_000L
 /** The sync editor fades in over ~280 ms; the player underneath stops drawing after this. */
 private const val EDITOR_COVER_DELAY_MS = 450L
 private const val SKIP_COMMAND_GUARD_MS = 96L
+/** While paused, how often the seek bar checks for a seek made outside the app. */
+private const val PAUSED_PROGRESS_CHECK_MS = 250L
 
 private enum class SkipDirection { PREVIOUS, NEXT }
 
@@ -341,9 +345,13 @@ fun FullPlayerContent(
         }
     )
 
-    // totalDurationValue is derived from stablePlayerState, so it's fine.
-    // OPTIMIZATION: Use passed provider instead of collecting flow
-    val totalDurationValue = totalDurationProvider()
+    // The duration is read by the progress section only (totalDurationProvider is backed by a
+    // per-field derived state), so a duration emission doesn't re-run this whole body.
+    // One frame-accurate position source for the seek bar: the same speed-aware, extrapolated
+    // controller position the lyrics clock reads (no IPC, no boxing).
+    val progressPositionSource = remember(playerViewModel) {
+        com.theveloper.pixelplay.presentation.lyrics.LongSource { playerViewModel.currentPositionForLyrics() }
+    }
 
     val playerOnBaseColor = LocalMaterialTheme.current.onPrimaryContainer
     val playerAccentColor = LocalMaterialTheme.current.primary
@@ -577,8 +585,8 @@ fun FullPlayerContent(
             playbackMetadataBitrate = playbackAudioMetadata.bitrate,
             playbackMetadataSampleRate = playbackAudioMetadata.sampleRate,
             audioQualityTierLabel = audioQuality.label,
-            currentPositionProvider = currentPositionProvider,
-            totalDurationValue = totalDurationValue,
+            positionSource = progressPositionSource,
+            totalDurationProvider = totalDurationProvider,
             showPlayerFileInfo = showPlayerFileInfo,
             onSeek = onSeek,
             expansionFractionProvider = expansionFractionProvider,
@@ -587,6 +595,7 @@ fun FullPlayerContent(
             progressActiveColor = progressActiveColor,
             playerOnBaseColor = playerOnBaseColor,
             allowRealtimeUpdates = allowRealtimeUpdates && !playerCovered,
+            isPlayerCovered = playerCovered,
             isSheetDragGestureActive = isSheetDragGestureActive,
             loadingTweaks = loadingTweaks
         )
@@ -1194,6 +1203,7 @@ private fun FullPlayerAlbumCoverSection(
                 },
                 onAlbumClick = onAlbumClick,
                 carouselStyle = carouselStyle,
+                animateProgrammaticScroll = { expansionFractionProvider() > 0.01f },
                 modifier = Modifier
                     .height(carouselHeight)
                     .graphicsLayer {
@@ -1303,8 +1313,8 @@ private fun FullPlayerProgressSection(
     playbackMetadataBitrate: Int?,
     playbackMetadataSampleRate: Int?,
     audioQualityTierLabel: String,
-    currentPositionProvider: () -> Long,
-    totalDurationValue: Long,
+    positionSource: com.theveloper.pixelplay.presentation.lyrics.LongSource,
+    totalDurationProvider: () -> Long,
     showPlayerFileInfo: Boolean,
     onSeek: (Long) -> Unit,
     expansionFractionProvider: () -> Float,
@@ -1313,6 +1323,7 @@ private fun FullPlayerProgressSection(
     progressActiveColor: Color,
     playerOnBaseColor: Color,
     allowRealtimeUpdates: Boolean,
+    isPlayerCovered: Boolean,
     isSheetDragGestureActive: Boolean,
     loadingTweaks: FullPlayerLoadingTweaks
 ) {
@@ -1335,8 +1346,8 @@ private fun FullPlayerProgressSection(
 
     PlayerProgressBarSection(
         songId = song.id,
-        currentPositionProvider = currentPositionProvider,
-        totalDurationValue = totalDurationValue,
+        positionSource = positionSource,
+        totalDurationValue = totalDurationProvider(),
         songDurationHintMs = song.duration,
         audioMimeType = audioMimeType,
         audioBitrate = audioBitrate,
@@ -1352,6 +1363,7 @@ private fun FullPlayerProgressSection(
         thumbColor = progressActiveColor,
         timeTextColor = playerOnBaseColor,
         allowRealtimeUpdates = allowRealtimeUpdates,
+        isPlayerCovered = isPlayerCovered,
         isSheetDragGestureActive = isSheetDragGestureActive,
         loadingTweaks = loadingTweaks
     )
@@ -1610,8 +1622,10 @@ private fun SongMetadataDisplaySection(
             )
         }
         
-        val stablePlayerState by playerViewModel.stablePlayerState.collectAsStateWithLifecycle()
-        val isBuffering = stablePlayerState.isBuffering
+        // Only the buffering flag: the whole StablePlayerState emits several times per skip.
+        val isBuffering by remember(playerViewModel) {
+            playerViewModel.stablePlayerState.map { it.isBuffering }.distinctUntilChanged()
+        }.collectAsStateWithLifecycle(initialValue = playerViewModel.stablePlayerState.value.isBuffering)
 
 
         AnimatedVisibility(
@@ -1786,7 +1800,7 @@ private fun formatAudioMetaLabel(
 @Composable
 private fun PlayerProgressBarSection(
     songId: String,
-    currentPositionProvider: () -> Long,
+    positionSource: com.theveloper.pixelplay.presentation.lyrics.LongSource,
     totalDurationValue: Long,
     songDurationHintMs: Long,
     audioMimeType: String?,
@@ -1803,6 +1817,7 @@ private fun PlayerProgressBarSection(
     thumbColor: Color,
     timeTextColor: Color,
     allowRealtimeUpdates: Boolean = true,
+    isPlayerCovered: Boolean = false,
     isSheetDragGestureActive: Boolean = false,
     loadingTweaks: FullPlayerLoadingTweaks? = null,
     modifier: Modifier = Modifier
@@ -1811,13 +1826,7 @@ private fun PlayerProgressBarSection(
     val isVisible by remember(expansionFractionProvider) {
         derivedStateOf { expansionFractionProvider() > 0.01f }
     }
-    val isExpanded by remember(currentSheetState, expansionFractionProvider) {
-        derivedStateOf {
-            currentSheetState == PlayerSheetState.EXPANDED && expansionFractionProvider() >= 0.995f
-        }
-    }
     val shouldRunRealtimeUpdates = allowRealtimeUpdates && isVisible
-    val shouldSampleProgress = isVisible
 
     val reportedDuration = totalDurationValue.coerceAtLeast(0L)
     val hintDuration = songDurationHintMs.coerceAtLeast(0L)
@@ -1852,16 +1861,65 @@ private fun PlayerProgressBarSection(
         }
     }
     val durationForCalc = displayDurationValue.coerceAtLeast(1L)
-    
-    // Pass isVisible to rememberSmoothProgress
-    val (smoothProgressState, _) = rememberSmoothProgress(
-        isPlayingProvider = isPlayingProvider,
-        currentPositionProvider = currentPositionProvider,
-        totalDuration = displayDurationValue,
-        sampleWhilePlayingMs = if (shouldRunRealtimeUpdates && isExpanded) 180L else 500L,
-        sampleWhilePausedMs = 800L,
-        isVisible = shouldSampleProgress
-    )
+
+    // The lyrics model: one frame loop samples the frame-accurate player position into a
+    // single snapshot Long, which is read only in draw (thumb + wave) and, rounded to whole
+    // seconds, by the time labels. This replaces the old 250 ms poll -> 180 ms sampler ->
+    // per-sample tween chain, whose two rates aliased into a stutter.
+    val progressClock = remember(positionSource) {
+        com.theveloper.pixelplay.presentation.lyrics.LyricsClock(positionSource).also {
+            // Publish the real position before the first frame so the thumb never starts at 0.
+            it.tick(System.nanoTime())
+        }
+    }
+    val latestIsVisible = rememberUpdatedState(isVisible)
+    val latestIsCovered = rememberUpdatedState(isPlayerCovered)
+    val latestIsPlayingProvider = rememberUpdatedState(isPlayingProvider)
+    LaunchedEffect(progressClock) {
+        // 0 = idle (hidden or covered by the lyrics/sync editor), 1 = paused, 2 = playing.
+        snapshotFlow {
+            when {
+                !latestIsVisible.value || latestIsCovered.value -> 0
+                latestIsPlayingProvider.value() -> 2
+                else -> 1
+            }
+        }.collectLatest { mode ->
+            when (mode) {
+                2 -> {
+                    progressClock.isPlaying = true
+                    progressClock.rebase()
+                    while (true) {
+                        withFrameNanos { progressClock.tick(it) }
+                    }
+                }
+                1 -> {
+                    // Paused: sample once, then only look for a seek made elsewhere
+                    // (notification, watch, car) a few times a second. No frame loop.
+                    progressClock.isPlaying = false
+                    withFrameNanos { progressClock.tick(it) }
+                    while (true) {
+                        kotlinx.coroutines.delay(PAUSED_PROGRESS_CHECK_MS)
+                        if (progressClock.peekMs() != progressClock.currentMs) {
+                            withFrameNanos { progressClock.tick(it) }
+                        }
+                    }
+                }
+                else -> progressClock.rebase()
+            }
+        }
+    }
+    LaunchedEffect(songId) {
+        progressClock.reset()
+    }
+    // Stable for the section's lifetime (the slider remembers the State it is first given);
+    // the duration is read through an updated state instead of being a key.
+    val latestDurationForCalc = rememberUpdatedState(durationForCalc)
+    val smoothProgressState = remember(progressClock) {
+        derivedStateOf {
+            (progressClock.nowMs.coerceAtLeast(0L).toFloat() / latestDurationForCalc.value.toFloat())
+                .coerceIn(0f, 1f)
+        }
+    }
 
     var sliderDragValue by remember { mutableStateOf<Float?>(null) }
     // Held seek target (fraction) — mirrors PlayerSeekBar so the slider stays where the user
@@ -1879,7 +1937,10 @@ private fun PlayerProgressBarSection(
     // Release the held target once smooth progress catches up (within 4%) or after a 5 s
     // safety net — same thresholds as the LyricsSheet PlayerSeekBar. Re-keying on songId
     // restarts the snapshotFlow so the new song's progress drives the catch-up cleanly.
-    LaunchedEffect(songId) {
+    // Only runs while a target is held: the progress now changes every frame.
+    val hasHeldSeekTarget = targetSeekFraction >= 0f
+    LaunchedEffect(songId, hasHeldSeekTarget, smoothProgressState) {
+        if (!hasHeldSeekTarget) return@LaunchedEffect
         snapshotFlow { smoothProgressState.value }.collect { progress ->
             if (sliderDragValue != null) return@collect
             val target = targetSeekFraction
@@ -2038,6 +2099,8 @@ private fun EfficientSlider(
         value = { valueState.value },
         onValueChange = onValueChangeWithHaptics,
         onValueCommit = onValueCommit,
+        // The value is already frame-accurate (frame clock), so no per-sample tween.
+        frameAccurateValue = true,
         interactionSource = interactionSource,
         activeTrackColor = activeTrackColor,
         inactiveTrackColor = inactiveTrackColor,
@@ -2239,7 +2302,9 @@ private fun DelayedContent(
         },
         label = "DelayedContentBlendAlpha"
     )
-    val placeholderBlendAlpha by animateFloatAsState(
+    // Animates for 360 ms after every expand: kept as a State, read in the layer, and only its
+    // "still visible" threshold is read in composition.
+    val placeholderBlendAlphaState = animateFloatAsState(
         targetValue = if (isDelayGateOpen) 0f else 1f,
         animationSpec = if (isDelayGateOpen) {
             tween(durationMillis = 360, easing = FastOutSlowInEasing)
@@ -2248,6 +2313,9 @@ private fun DelayedContent(
         },
         label = "DelayedPlaceholderBlendAlpha"
     )
+    val isPlaceholderVisible by remember(placeholderBlendAlphaState) {
+        derivedStateOf { placeholderBlendAlphaState.value > 0.001f }
+    }
 
     if (shouldDelay) {
         Box(modifier = sharedBoundsModifier) {
@@ -2262,9 +2330,9 @@ private fun DelayedContent(
                     content()
                 }
             }
-            if (showPlaceholders && placeholderBlendAlpha > 0.001f) {
+            if (showPlaceholders && isPlaceholderVisible) {
                 Box(
-                    modifier = Modifier.graphicsLayer { alpha = placeholderBlendAlpha }
+                    modifier = Modifier.graphicsLayer { alpha = placeholderBlendAlphaState.value }
                 ) {
                     placeholder()
                 }

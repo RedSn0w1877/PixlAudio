@@ -5,17 +5,18 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.AnimationVector1D
 import androidx.compose.material3.ColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.Stable
+import androidx.compose.runtime.State
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
-import androidx.compose.ui.util.lerp
 import com.theveloper.pixelplay.data.model.Song
 import com.theveloper.pixelplay.data.preferences.ThemePreference
 import com.theveloper.pixelplay.presentation.viewmodel.ColorSchemePair
@@ -27,14 +28,19 @@ import com.theveloper.pixelplay.presentation.viewmodel.ColorSchemePair
  * They are computed inline in the consuming composable's `graphicsLayer` / `derivedStateOf`,
  * reading directly from the [Animatable] expansion fraction during the draw phase.
  * This eliminates per-frame recomposition that the old [Transition]-based approach caused.
+ *
+ * The album colour fade is exposed as [State]s, never as values: whoever reads
+ * `albumSchemeState.value` subscribes to every frame of the ~0.35 s fade, so it must only be
+ * read inside a small restart scope (see `ProvidePlayerScheme`) or at draw time.
+ * Subtrees that are not on screen read [targetSchemeState] instead, which only changes once
+ * per song. [miniAppearProgress] is read in `graphicsLayer` only.
  */
-internal data class SheetThemeState(
-    val albumColorScheme: ColorScheme,
-    val miniPlayerScheme: ColorScheme,
+@Stable
+internal class SheetThemeState(
+    val albumSchemeState: State<ColorScheme>,
+    val targetSchemeState: State<ColorScheme>,
     val isPreparingPlayback: Boolean,
-    val miniReadyAlpha: Float,
-    val miniAppearScale: Float,
-    val playerAreaBackground: Color
+    val miniAppearProgress: Animatable<Float, AnimationVector1D>
 )
 
 internal fun resolvePlayerSheetTargetScheme(
@@ -119,21 +125,12 @@ internal fun rememberSheetThemeState(
         systemColorScheme = systemColorScheme
     )
 
-    val rawMiniPlayerScheme = resolvePlayerSheetTargetScheme(
-        isAlbumArtTheme = isAlbumArtTheme,
-        hasAlbumArt = hasAlbumArt,
-        currentSongActiveScheme = currentSongActiveScheme,
-        lastAlbumScheme = lastAlbumSchemeSnapshot,
-        systemColorScheme = systemColorScheme
-    )
-
     // --- Batch Color Animation ---
     // Instead of 34×2 = 68 independent animateColorAsState (one Spring coroutine each),
     // we use a single Animatable<Float> progress [0,1] that interpolates between the
-    // previous and the new target ColorScheme manually. This reduces per-frame State reads
-    // from 68 → 0 (the lerp runs during the Animatable tick, not during recomposition).
-    val albumColorScheme = rememberBatchAnimatedColorScheme(rawAlbumColorScheme)
-    val miniPlayerScheme = rememberBatchAnimatedColorScheme(rawMiniPlayerScheme)
+    // previous and the new target ColorScheme manually. The mini player and the full player
+    // share this one animation (their targets are identical).
+    val batchScheme = rememberBatchAnimatedColorScheme(rawAlbumColorScheme)
 
     val miniAppearProgress = remember { Animatable(0f) }
     LaunchedEffect(currentSong?.id) {
@@ -147,28 +144,30 @@ internal fun rememberSheetThemeState(
         }
     }
 
-    val miniReadyAlpha = miniAppearProgress.value
-    val miniAppearScale = lerp(0.985f, 1f, miniAppearProgress.value)
-    val playerAreaBackground = miniPlayerScheme.primaryContainer
-
-    // NOTE: miniAlpha and effectivePlayerAreaElevation are no longer computed here.
-    // They were driven by the expansion fraction via the Transition API, which
-    // read `playerContentExpansionFraction.value` during composition — causing
-    // per-frame recomposition of UnifiedPlayerSheetV2 during every gesture.
-    //
-    // These values are now computed inline at their consumption sites:
-    //   - miniAlpha → inside graphicsLayer in UnifiedPlayerMiniAndFullLayers
+    // NOTE: miniAlpha, the mini-appear alpha/scale and effectivePlayerAreaElevation are not
+    // computed here. Reading an animating value in this (non-restartable) function would
+    // recompose the whole UnifiedPlayerSheetV2 on every frame. They are read at their
+    // consumption sites instead:
+    //   - miniAlpha / miniAppearProgress → inside graphicsLayer
     //   - elevation → inside derivedStateOf for visualCardShadowElevation
+    //   - card background → drawn from albumSchemeState at draw time
 
-    return SheetThemeState(
-        albumColorScheme = albumColorScheme,
-        miniPlayerScheme = miniPlayerScheme,
-        isPreparingPlayback = isPreparingPlayback,
-        miniReadyAlpha = miniReadyAlpha,
-        miniAppearScale = miniAppearScale,
-        playerAreaBackground = playerAreaBackground
-    )
+    return remember(batchScheme, miniAppearProgress, isPreparingPlayback) {
+        SheetThemeState(
+            albumSchemeState = batchScheme.animated,
+            targetSchemeState = batchScheme.target,
+            isPreparingPlayback = isPreparingPlayback,
+            miniAppearProgress = miniAppearProgress
+        )
+    }
 }
+
+internal class BatchAnimatedColorScheme(
+    /** The interpolated scheme; changes on every frame of a fade. */
+    val animated: State<ColorScheme>,
+    /** The scheme the fade is heading to; changes once per target change. */
+    val target: State<ColorScheme>
+)
 
 /**
  * Animates a [ColorScheme] transition using a single [Animatable]<Float> progress value
@@ -179,16 +178,16 @@ internal fun rememberSheetThemeState(
  * the 34 concurrent [State] reads that were triggering recomposition on every animation frame.
  */
 @Composable
-private fun rememberBatchAnimatedColorScheme(target: ColorScheme): ColorScheme {
+private fun rememberBatchAnimatedColorScheme(target: ColorScheme): BatchAnimatedColorScheme {
     val progress = remember { Animatable(1f) }
-    var fromScheme by remember { mutableStateOf(target) }
-    var toScheme by remember { mutableStateOf(target) }
+    val fromSchemeState = remember { mutableStateOf(target) }
+    val toSchemeState = remember { mutableStateOf(target) }
 
     LaunchedEffect(target) {
-        if (toScheme == target) return@LaunchedEffect
+        if (toSchemeState.value == target) return@LaunchedEffect
         // Snapshot current interpolated state as the new "from"
-        fromScheme = lerpColorScheme(fromScheme, toScheme, progress.value)
-        toScheme = target
+        fromSchemeState.value = lerpColorScheme(fromSchemeState.value, toSchemeState.value, progress.value)
+        toSchemeState.value = target
         progress.snapTo(0f)
         progress.animateTo(
             targetValue = 1f,
@@ -198,12 +197,17 @@ private fun rememberBatchAnimatedColorScheme(target: ColorScheme): ColorScheme {
         )
     }
 
-    // derivedStateOf ensures we only recompose consumers when progress.value actually changes,
-    // not on every State read elsewhere in the composition.
-    val interpolated by remember {
-        derivedStateOf { lerpColorScheme(fromScheme, toScheme, progress.value) }
+    // Returned as State: only the scopes that read `.value` follow the fade.
+    return remember {
+        BatchAnimatedColorScheme(
+            animated = derivedStateOf {
+                val p = progress.value
+                val to = toSchemeState.value
+                if (p >= 1f) to else lerpColorScheme(fromSchemeState.value, to, p)
+            },
+            target = toSchemeState
+        )
     }
-    return interpolated
 }
 
 /**

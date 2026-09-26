@@ -4,6 +4,7 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -11,7 +12,8 @@ import androidx.compose.runtime.setValue
 
 internal data class CastSheetState(
     val showCastSheet: Boolean,
-    val castSheetOpenFraction: Float,
+    /** Animates for 220 ms on open/close: read `.value` in layout/draw or a derivedStateOf only. */
+    val castSheetOpenFractionState: State<Float>,
     val openCastSheet: () -> Unit,
     val dismissCastSheet: () -> Unit,
     val onCastExpansionChanged: (Float) -> Unit
@@ -20,7 +22,7 @@ internal data class CastSheetState(
 @Composable
 internal fun rememberCastSheetState(): CastSheetState {
     var showCastSheet by remember { mutableStateOf(false) }
-    val castSheetOpenFraction by animateFloatAsState(
+    val castSheetOpenFractionState = animateFloatAsState(
         targetValue = if (showCastSheet) 1f else 0f,
         animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
         label = "castSheetOpenFraction"
@@ -40,7 +42,7 @@ internal fun rememberCastSheetState(): CastSheetState {
 
     return CastSheetState(
         showCastSheet = showCastSheet,
-        castSheetOpenFraction = castSheetOpenFraction,
+        castSheetOpenFractionState = castSheetOpenFractionState,
         openCastSheet = openCastSheet,
         dismissCastSheet = dismissCastSheet,
         onCastExpansionChanged = onCastExpansionChanged

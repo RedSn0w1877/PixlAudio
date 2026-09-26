@@ -49,12 +49,18 @@ fun AlbumCarouselSection(
     modifier: Modifier = Modifier,
     carouselStyle: String = CarouselStyle.NO_PEEK,
     itemSpacing: Dp = 8.dp,
-    albumArtQuality: AlbumArtQuality = AlbumArtQuality.MEDIUM
+    albumArtQuality: AlbumArtQuality = AlbumArtQuality.MEDIUM,
+    /**
+     * Read when a programmatic scroll starts. False while the carousel isn't on screen (the
+     * warm, hidden full player): the carousel then jumps to the new item instead of running a
+     * scroll animation nobody sees.
+     */
+    animateProgrammaticScroll: () -> Boolean = { true }
 ) {
     if (queue.isEmpty()) return
 
-    // Mantiene compatibilidad con tu llamada actual
-    val initialIndex = remember(currentSong?.id, currentMediaItemIndex, queue) {
+    // Player -> Carousel (also the initial page). Computed once; it used to be computed twice.
+    val currentSongIndex = remember(currentSong?.id, currentMediaItemIndex, queue) {
         resolveCurrentQueueIndex(
             currentSong = currentSong,
             currentMediaItemIndex = currentMediaItemIndex,
@@ -63,7 +69,7 @@ fun AlbumCarouselSection(
     }
 
     val carouselState = rememberRoundedParallaxCarouselState(
-        initialPage = initialIndex,
+        initialPage = currentSongIndex,
         pageCount = { queue.size }
     )
 
@@ -85,21 +91,15 @@ fun AlbumCarouselSection(
         else Size(albumArtQuality.maxSize, albumArtQuality.maxSize)
     }
 
-    // Player -> Carousel
-    val currentSongIndex = remember(currentSong?.id, currentMediaItemIndex, queue) {
-        resolveCurrentQueueIndex(
-            currentSong = currentSong,
-            currentMediaItemIndex = currentMediaItemIndex,
-            queue = queue
-        )
-    }
     val requestedTargetIndex = remember(requestedScrollIndex, queue) {
         requestedScrollIndex?.takeIf { it in queue.indices }
     }
     val effectiveTargetIndex = requestedTargetIndex ?: currentSongIndex
-    val carouselItemKeys = remember(queue) {
-        buildQueueOccurrenceKeys(queue)
-    }
+    // Keys depend only on the ids and art of the queue, not on the list instance: a hydration or
+    // lyrics load that rebuilds the queue with the same songs keeps the same key list.
+    // remember() compares keys with equals(), so an equal signature keeps the old key list.
+    val keySignature = remember(queue) { QueueKeySignature(queue) }
+    val carouselItemKeys = remember(keySignature) { buildQueueOccurrenceKeys(queue) }
 
     PrefetchAlbumNeighbors(
         isActive = expansionFraction > 0.08f,
@@ -145,9 +145,10 @@ fun AlbumCarouselSection(
                               currentSong.id == lastSettledSongId && 
                               requestedTargetIndex == null
             
-            if (isShiftOnly) {
+            if (isShiftOnly || !animateProgrammaticScroll()) {
                 // Same song moved to a new index: scroll instantly to maintain focus
                 // and avoid showing the wrong item for the duration of an animation.
+                // Also instant while the carousel is hidden.
                 carouselState.pagerState.scrollToPage(effectiveTargetIndex)
             } else {
                 programmaticScrollInProgress = true
@@ -198,7 +199,10 @@ fun AlbumCarouselSection(
             itemKey = { index -> carouselItemKeys.getOrNull(index) ?: "queue_item_$index" },
             content = { index ->
                 val song = queue[index]
-                val isFocusedItem = carouselState.pagerState.currentPage == index
+                // A threshold read: a page change recomposes only the two pages it affects.
+                val isFocusedItem by remember(index) {
+                    derivedStateOf { carouselState.pagerState.currentPage == index }
+                }
                 Box(
                     Modifier
                         .fillMaxSize()
@@ -239,6 +243,30 @@ private fun resolveCurrentQueueIndex(
         ?: queue.indexOf(currentSong)
             .takeIf { it >= 0 }
         ?: 0
+}
+
+/**
+ * Equality over what the carousel keys are built from (id + art per position), so a new queue
+ * instance holding the same songs compares equal and the O(n) key rebuild is skipped.
+ */
+private class QueueKeySignature(val queue: ImmutableList<Song>) {
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other !is QueueKeySignature) return false
+        val a = queue
+        val b = other.queue
+        if (a === b) return true
+        if (a.size != b.size) return false
+        for (i in a.indices) {
+            val x = a[i]
+            val y = b[i]
+            if (x === y) continue
+            if (x.id != y.id || x.albumArtUriString != y.albumArtUriString) return false
+        }
+        return true
+    }
+
+    override fun hashCode(): Int = queue.size
 }
 
 private fun buildQueueOccurrenceKeys(queue: ImmutableList<Song>): List<String> {

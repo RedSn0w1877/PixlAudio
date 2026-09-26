@@ -1,5 +1,7 @@
 package com.theveloper.pixelplay.presentation.screens
 
+import com.theveloper.pixelplay.presentation.components.rememberIsCurrentSong
+import com.theveloper.pixelplay.presentation.components.rememberPlaybackRowState
 import com.theveloper.pixelplay.presentation.components.rememberNotCoveredByPlayer
 import kotlinx.coroutines.Job
 import com.theveloper.pixelplay.presentation.navigation.navigateSafely
@@ -824,13 +826,10 @@ fun SongListItemFavsWrapper(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    // Collect the stablePlayerState once
-    val stablePlayerState by playerViewModel.stablePlayerState.collectAsStateWithLifecycle()
-
-    // Derive isThisSongPlaying using remember
-    val isThisSongPlaying = remember(song.id, stablePlayerState.currentSong?.id, stablePlayerState.isPlaying) {
-        song.id == stablePlayerState.currentSong?.id
-    }
+    // Only (currentSongId, isPlaying): lyrics, duration and buffering emissions don't reach the row.
+    val playbackRowState = rememberPlaybackRowState(playerViewModel.stablePlayerState)
+    val isCurrentSong by rememberIsCurrentSong(playbackRowState, song.id)
+    val isPlaying by remember(playbackRowState) { derivedStateOf { playbackRowState.value.isPlaying } }
 
     // Call the presentational composable
     SongListItemFavs(
@@ -839,8 +838,8 @@ fun SongListItemFavsWrapper(
         title = song.title,
         artist = song.displayArtist,
         albumArtUrl = song.albumArtUriString,
-        isPlaying = stablePlayerState.isPlaying,
-        isCurrentSong = song.id == stablePlayerState.currentSong?.id,
+        isPlaying = isPlaying,
+        isCurrentSong = isCurrentSong,
         onClick = onClick
     )
 }

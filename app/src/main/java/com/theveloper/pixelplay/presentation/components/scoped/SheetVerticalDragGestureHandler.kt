@@ -13,10 +13,13 @@ import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import com.theveloper.pixelplay.presentation.viewmodel.PlayerSheetState
+import androidx.compose.runtime.MonotonicFrameClock
+import androidx.compose.runtime.withFrameNanos
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.yield
 
 /**
  * Encapsulates vertical drag gesture state and target resolution for the player sheet.
@@ -49,9 +52,21 @@ internal class SheetVerticalDragGestureHandler(
     private var accumulatedDragYSinceStart = 0f
     private var dragSnapJob: Job? = null
 
+    // Drag deltas arrive at the touch rate (120-240 Hz). Each one only updates these fields; a
+    // single loop per drag applies the latest target once per frame (the queue sheet's
+    // pattern), instead of a coroutine + mutex + two Animatable snaps per touch event.
+    // [dragTranslationY] tracks the target as the deltas accumulate, since the Animatable
+    // itself only catches up once per frame.
+    private var dragTranslationY = Float.NaN
+    private var pendingTranslationY = 0f
+    private var pendingExpansionFraction = 0f
+    private var hasPendingSnap = false
+
     fun onDragStart() {
         dragSnapJob?.cancel()
-        dragSnapJob = scope.launch(start = CoroutineStart.UNDISPATCHED) {
+        dragSnapJob = null
+        hasPendingSnap = false
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
             sheetMotionController.stop()
         }
         onDraggingChange(true)
@@ -59,6 +74,7 @@ internal class SheetVerticalDragGestureHandler(
         velocityTracker.resetTracking()
         initialFractionOnDragStart = playerContentExpansionFraction.value
         initialYOnDragStart = currentSheetTranslationY.value
+        dragTranslationY = Float.NaN
         accumulatedDragYSinceStart = 0f
     }
 
@@ -68,28 +84,66 @@ internal class SheetVerticalDragGestureHandler(
         dragAmount: Float
     ) {
         accumulatedDragYSinceStart += dragAmount
-        val dragFrame = computeSheetVerticalDragFrame(
-            currentTranslationY = currentSheetTranslationY.value,
+        val expandedY = expandedYProvider()
+        val collapsedY = collapsedYProvider()
+        val baseTranslationY =
+            if (dragTranslationY.isNaN()) currentSheetTranslationY.value else dragTranslationY
+        val newY = sheetDragTranslationY(
+            currentTranslationY = baseTranslationY,
             dragAmount = dragAmount,
-            expandedY = expandedYProvider(),
-            collapsedY = collapsedYProvider(),
-            miniHeightPx = miniHeightPxProvider(),
+            expandedY = expandedY,
+            collapsedY = collapsedY,
+            miniHeightPx = miniHeightPxProvider()
+        )
+        dragTranslationY = newY
+        pendingTranslationY = newY
+        pendingExpansionFraction = sheetDragExpansionFraction(
+            newY = newY,
+            expandedY = expandedY,
+            collapsedY = collapsedY,
             initialFractionOnDragStart = initialFractionOnDragStart,
             initialYOnDragStart = initialYOnDragStart
         )
-        dragSnapJob?.cancel()
-        dragSnapJob = scope.launch(start = CoroutineStart.UNDISPATCHED) {
-            sheetMotionController.snapTo(
-                translationYValue = dragFrame.translationY,
-                expansionFractionValue = dragFrame.expansionFraction
-            )
-        }
+        hasPendingSnap = true
+        launchDragSnapLoopIfNeeded()
         velocityTracker.addPosition(uptimeMillis, position)
+    }
+
+    private fun launchDragSnapLoopIfNeeded() {
+        if (dragSnapJob?.isActive == true) return
+        // UNDISPATCHED: the first delta of a drag lands on the very next frame.
+        dragSnapJob = scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            while (hasPendingSnap) {
+                hasPendingSnap = false
+                sheetMotionController.snapTo(
+                    translationYValue = pendingTranslationY,
+                    expansionFractionValue = pendingExpansionFraction
+                )
+                if (coroutineContext[MonotonicFrameClock] != null) {
+                    withFrameNanos { }
+                } else {
+                    yield()
+                }
+            }
+        }
     }
 
     fun onDragEnd() {
         dragSnapJob?.cancel()
         dragSnapJob = null
+        if (hasPendingSnap) {
+            // Land the last delta before deciding and animating from it.
+            hasPendingSnap = false
+            val lastY = pendingTranslationY
+            val lastFraction = pendingExpansionFraction
+            scope.launch(start = CoroutineStart.UNDISPATCHED) {
+                sheetMotionController.snapTo(
+                    translationYValue = lastY,
+                    expansionFractionValue = lastFraction
+                )
+            }
+        }
+        dragTranslationY = Float.NaN
         onDraggingChange(false)
         onDraggingPlayerAreaChange(false)
 

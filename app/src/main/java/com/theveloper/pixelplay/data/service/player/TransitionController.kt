@@ -3,6 +3,7 @@ package com.theveloper.pixelplay.data.service.player
 import androidx.annotation.OptIn
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.Timeline
 import androidx.media3.common.util.UnstableApi
@@ -16,6 +17,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
@@ -23,6 +25,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import timber.log.Timber
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -114,6 +117,21 @@ class TransitionController @Inject constructor(
                 }
             }
 
+            override fun onPositionDiscontinuity(
+                oldPosition: Player.PositionInfo,
+                newPosition: Player.PositionInfo,
+                reason: Int
+            ) {
+                // A seek moves the transition point closer or further: wake the countdown so it
+                // re-measures instead of sleeping through the new target.
+                if (reason == Player.DISCONTINUITY_REASON_SEEK) countdownWakeups.trySend(Unit)
+            }
+
+            override fun onPlaybackParametersChanged(playbackParameters: PlaybackParameters) {
+                // The countdown's sleep is scaled by the playback speed.
+                countdownWakeups.trySend(Unit)
+            }
+
             override fun onRepeatModeChanged(repeatMode: Int) {
                 Timber.tag("TransitionDebug").d("Repeat mode changed to %d. Rescheduling transition.", repeatMode)
                 transitionSchedulerJob?.cancel()
@@ -127,6 +145,9 @@ class TransitionController @Inject constructor(
         currentObservedPlayer?.addListener(transitionListener!!)
         engine.addPlayerSwapListener(swapListener)
     }
+
+    /** Wakes the crossfade countdown early (a seek or a speed change). Conflated. */
+    private val countdownWakeups = Channel<Unit>(Channel.CONFLATED)
 
     /**
      * Owners that currently forbid transitions (e.g. the lyrics tap-sync editor, which needs the
@@ -291,20 +312,24 @@ class TransitionController @Inject constructor(
                     return@collectLatest
                 }
 
-                // Wait loop with adaptive sleep. 250ms near-end cadence still lands the crossfade
-                // within ±125ms of the target — imperceptible for a multi-second overlap, and 5×
-                // fewer wakeups in the last second of every track.
+                // Wait loop with adaptive sleep. Far from the target it sleeps in one go until ~4 s
+                // before it (scaled by the playback speed) instead of waking every second for the
+                // whole song; a seek or a speed change wakes it early to re-measure. 250ms
+                // near-end cadence still lands the crossfade within ±125ms of the target —
+                // imperceptible for a multi-second overlap.
+                countdownWakeups.tryReceive() // drop a wake-up left over from before this song
                 while (player.currentPosition < transitionPoint && isActive) {
                     val remaining = transitionPoint - player.currentPosition
+                    val speed = player.playbackParameters.speed.coerceAtLeast(0.1f)
                     val sleep = when {
-                        remaining > 5000 -> 1000L
+                        remaining > 5000 -> ((remaining - 4000) / speed).toLong()
                         remaining > 1000 -> 250L
                         else -> 50L
                     }.coerceAtMost(remaining).coerceAtLeast(1L)
                     if (remaining < 2000 && remaining % 500 < 50) {
                         Timber.tag("TransitionDebug").v("Countdown: %d ms to transition", remaining)
                     }
-                    delay(sleep)
+                    withTimeoutOrNull(sleep) { countdownWakeups.receive() }
                 }
 
                 // Final check to ensure the job wasn't cancelled while waiting.

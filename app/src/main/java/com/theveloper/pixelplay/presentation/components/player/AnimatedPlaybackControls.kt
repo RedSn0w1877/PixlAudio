@@ -31,8 +31,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.rememberCoroutineScope
-import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -95,7 +93,6 @@ fun AnimatedPlaybackControls(
     var playPauseVisualState by remember { mutableStateOf(isPlaying) }
     var pendingPlayPauseState by remember { mutableStateOf<Boolean?>(null) }
     val hapticFeedback = LocalHapticFeedback.current
-    val coroutineScope = rememberCoroutineScope()
 
     val motionScheme = remember { MotionScheme.expressive() }
     val defaultSpatialDpSpec = remember { motionScheme.defaultSpatialSpec<Dp>() }
@@ -171,14 +168,12 @@ fun AnimatedPlaybackControls(
             modifier = Modifier.fillMaxSize(),
             measurePolicy = rowMeasurePolicy,
             content = {
+                // The command goes out on the tap; the press-weight animation (driven by
+                // lastClicked, read in the measure policy) runs alongside it.
                 val onPreviousClick = {
                     lastClicked = PlaybackButtonType.PREVIOUS
                     clickTrigger++
-                    coroutineScope.launch {
-                        delay(180)
-                        onPrevious()
-                    }
-                    Unit
+                    onPrevious()
                 }
                 Box(
                     modifier = Modifier
@@ -244,11 +239,7 @@ fun AnimatedPlaybackControls(
                 val onNextClick = {
                     lastClicked = PlaybackButtonType.NEXT
                     clickTrigger++
-                    coroutineScope.launch {
-                        delay(180)
-                        onNext()
-                    }
-                    Unit
+                    onNext()
                 }
                 Box(
                     modifier = Modifier

@@ -1,5 +1,7 @@
 package com.theveloper.pixelplay.presentation.screens
 
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import com.theveloper.pixelplay.ui.theme.VisualStyle
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.material3.Slider
@@ -126,7 +128,10 @@ fun ExperimentalSettingsScreen(
     val taisChatSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     val context = androidx.compose.ui.platform.LocalContext.current
-    val stableState by playerViewModel.stablePlayerState.collectAsStateWithLifecycle()
+    // Only the current song is shown here; lyrics/duration/buffering emissions don't recompose.
+    val stableStateCurrentSong by remember(playerViewModel) {
+        playerViewModel.stablePlayerState.map { it.currentSong }.distinctUntilChanged()
+    }.collectAsStateWithLifecycle(initialValue = playerViewModel.stablePlayerState.value.currentSong)
 
     val transitionState = remember { MutableTransitionState(false) }
     LaunchedEffect(true) { transitionState.targetState = true }
@@ -572,7 +577,7 @@ fun ExperimentalSettingsScreen(
                             }
 
                             com.theveloper.pixelplay.presentation.components.tais.TaisStudioProgressCard(
-                                song = stableState.currentSong,
+                                song = stableStateCurrentSong,
                                 showRoformerTools = true,
                                 onInstrumentalReady = { instrumentalPath ->
                                     playerViewModel.switchToStudioInstrumental(instrumentalPath)
