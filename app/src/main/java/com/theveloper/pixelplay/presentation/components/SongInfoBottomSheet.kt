@@ -376,7 +376,7 @@ fun SongInfoBottomSheet(
             180.dp
         ).coerceAtLeast(280.dp)
 
-    ModalBottomSheet(
+    AdaptiveModalBottomSheet(
         containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
         onDismissRequest = {
             android.util.Log.d("PixelPlayerDebug", "ModalBottomSheet: onDismissRequest called, showEditSheet=$showEditSheet")
@@ -873,7 +873,7 @@ private fun ToneTargetPickerDialog(
     onTargetSelected: (ToneTarget) -> Unit,
 ) {
     BasicAlertDialog(onDismissRequest = onDismiss) {
-        Surface(
+        AdaptiveDialogSurface(
             shape = AbsoluteSmoothCornerShape(
                 cornerRadiusTR = 32.dp,
                 smoothnessAsPercentBR = 60,
@@ -975,7 +975,7 @@ private fun ToneConfirmationDialog(
     onConfirm: () -> Unit,
 ) {
     BasicAlertDialog(onDismissRequest = onDismiss) {
-        Surface(
+        AdaptiveDialogSurface(
             shape = AbsoluteSmoothCornerShape(
                 cornerRadiusTR = 32.dp,
                 smoothnessAsPercentBR = 60,

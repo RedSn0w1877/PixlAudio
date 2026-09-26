@@ -1,5 +1,6 @@
 package com.theveloper.pixelplay.presentation.screens
 
+import com.theveloper.pixelplay.presentation.components.AdaptiveModalBottomSheet
 import com.theveloper.pixelplay.presentation.components.rememberIsCurrentSong
 import com.theveloper.pixelplay.presentation.components.rememberPlaybackRowState
 import com.theveloper.pixelplay.presentation.components.rememberNotCoveredByPlayer
@@ -41,7 +42,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.LargeExtendedFloatingActionButton
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHostState
@@ -595,7 +595,7 @@ fun HomeScreen(
         }
     }
     if (showChangelogBottomSheet) {
-        ModalBottomSheet(
+        AdaptiveModalBottomSheet(
             containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
             onDismissRequest = { showChangelogBottomSheet = false },
             sheetState = sheetState
@@ -606,7 +606,7 @@ fun HomeScreen(
         }
     }
     if (showJobsBottomSheet) {
-        ModalBottomSheet(
+        AdaptiveModalBottomSheet(
             containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
             onDismissRequest = { showJobsBottomSheet = false },
             sheetState = jobsSheetState
@@ -617,7 +617,7 @@ fun HomeScreen(
         }
     }
     if (showBetaInfoBottomSheet) {
-        ModalBottomSheet(
+        AdaptiveModalBottomSheet(
             containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
             onDismissRequest = { showBetaInfoBottomSheet = false },
             sheetState = betaSheetState,

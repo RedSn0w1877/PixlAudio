@@ -53,7 +53,7 @@ fun Beta05CleanInstallDisclaimerDialog(
     val actionShape = AbsoluteSmoothCornerShape(18.dp, 60)
 
     BasicAlertDialog(onDismissRequest = { onDismiss(dontShowAgain) }) {
-        Surface(
+        AdaptiveDialogSurface(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 0.dp)

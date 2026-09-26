@@ -1,10 +1,12 @@
 package com.theveloper.pixelplay.presentation.screens
 
+import com.theveloper.pixelplay.ui.glass.LocalGlassModeEnabled
+import com.theveloper.pixelplay.presentation.components.AdaptiveAlertDialog
+import com.theveloper.pixelplay.presentation.components.AdaptiveModalBottomSheet
 import com.theveloper.pixelplay.presentation.components.rememberAppListState
 import com.theveloper.pixelplay.presentation.components.rememberIsSongPlaying
 import com.theveloper.pixelplay.presentation.components.rememberIsCurrentSong
 import com.theveloper.pixelplay.presentation.components.rememberPlaybackRowState
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Scaffold
 import com.theveloper.pixelplay.presentation.navigation.navigateSafely
 import com.theveloper.pixelplay.presentation.navigation.navigateSafelyReplacing
@@ -74,7 +76,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.LargeFlexibleTopAppBar
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -760,6 +761,7 @@ fun PlaylistDetailScreen(
                                         isCurrentSong = rememberIsCurrentSong(playbackRowState, song.id).value,
                                         isPlaying = rememberIsSongPlaying(playbackRowState, song.id).value,
                                         isDragging = isDragging,
+                                        glass = LocalGlassModeEnabled.current,
                                         onRemoveClick = {
                                             if (!isFolderPlaylist) {
                                                 currentPlaylist.let {
@@ -835,7 +837,7 @@ fun PlaylistDetailScreen(
     if (showPlaylistOptionsSheet && !isFolderPlaylist) {
         val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
-        ModalBottomSheet(
+        AdaptiveModalBottomSheet(
             onDismissRequest = { showPlaylistOptionsSheet = false },
             sheetState = sheetState,
             containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
@@ -973,7 +975,7 @@ fun PlaylistDetailScreen(
         )
     }
     if (showDeleteConfirmation && currentPlaylist != null) {
-        AlertDialog(
+        AdaptiveAlertDialog(
             onDismissRequest = { showDeleteConfirmation = false },
             title = { Text(deletePlaylistConfirmTitle) },
             text = {

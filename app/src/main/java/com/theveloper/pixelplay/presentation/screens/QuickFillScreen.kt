@@ -2,6 +2,8 @@
 
 package com.theveloper.pixelplay.presentation.screens
 
+import com.theveloper.pixelplay.presentation.components.AdaptiveFullScreenDialog
+import com.theveloper.pixelplay.presentation.components.AdaptiveAlertDialog
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
@@ -55,7 +57,7 @@ fun QuickFillDialog(
     onAddCustomGenre: (String, Int) -> Unit
 ) {
     if (visible) {
-        Dialog(
+        AdaptiveFullScreenDialog(
             onDismissRequest = onDismiss,
             properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
         ) {
@@ -402,7 +404,7 @@ fun GenreValidatorContent(
         var newGenreName by remember { mutableStateOf("") }
         var selectedIcon by remember { mutableIntStateOf(GenreIconProvider.SELECTABLE_ICONS.first()) }
         
-        AlertDialog(
+        AdaptiveAlertDialog(
             onDismissRequest = { showCustomDialog = false },
             title = { Text(addCustomGenreTitle) },
             text = {

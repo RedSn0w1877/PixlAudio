@@ -1,5 +1,6 @@
 package com.theveloper.pixelplay.presentation.screens
 
+import com.theveloper.pixelplay.presentation.components.AdaptiveAlertDialog
 import com.theveloper.pixelplay.presentation.components.rememberCollapsingHeaderContentPadding
 import com.theveloper.pixelplay.presentation.components.WithCollapsingHeader
 import com.theveloper.pixelplay.presentation.components.rememberCollapseFraction
@@ -37,7 +38,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.RestartAlt
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -386,7 +386,7 @@ fun WordDelimiterConfigScreen(
         }
 
         if (showResetDialog) {
-            AlertDialog(
+            AdaptiveAlertDialog(
                 onDismissRequest = { showResetDialog = false },
                 title = {
                     Text(

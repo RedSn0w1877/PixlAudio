@@ -82,7 +82,7 @@ fun PlayStoreAnnouncementDialog(
     val hasPlayStoreLink = !announcement.playStoreUrl.isNullOrBlank()
 
     BasicAlertDialog(onDismissRequest = onDismiss) {
-        Surface(
+        AdaptiveDialogSurface(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 20.dp),

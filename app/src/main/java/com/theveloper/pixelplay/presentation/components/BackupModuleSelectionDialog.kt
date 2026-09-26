@@ -121,7 +121,7 @@ fun BackupModuleSelectionDialog(
     }
 
     if (transitionState.currentState || transitionState.targetState) {
-        Dialog(
+        AdaptiveFullScreenDialog(
             onDismissRequest = { closeDialog(onDismiss) },
             properties = DialogProperties(
                 usePlatformDefaultWidth = false,

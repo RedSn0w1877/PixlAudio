@@ -2,7 +2,6 @@
 
 package com.theveloper.pixelplay.presentation.components
 
-import androidx.compose.material3.AlertDialog
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -30,7 +29,6 @@ import androidx.compose.material3.FabPosition
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -81,7 +79,7 @@ fun ReorderTabsSheet(
     }
 
     if (showResetDialog) {
-        AlertDialog(
+        AdaptiveAlertDialog(
             onDismissRequest = { showResetDialog = false },
             title = { Text(stringResource(R.string.reorder_tabs_reset_dialog_title)) },
             text = { Text(stringResource(R.string.reorder_tabs_reset_dialog_body)) },
@@ -128,7 +126,7 @@ fun ReorderTabsSheet(
     )
     var isLoading by remember { mutableStateOf(false) }
 
-    ModalBottomSheet(
+    AdaptiveModalBottomSheet(
         onDismissRequest = { onDismiss() },
         sheetState = sheetState,
         containerColor = MaterialTheme.colorScheme.surface

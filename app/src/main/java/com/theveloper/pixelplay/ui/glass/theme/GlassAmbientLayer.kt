@@ -69,30 +69,31 @@ class GlassAmbientState internal constructor(isDark: Boolean) {
     }
 
     /**
-     * Draws the ambient at [dstSize], top-left at the origin. Reads snapshot state, so a glass node
-     * drawing it is invalidated during a crossfade and never otherwise.
+     * Draws the ambient at [dstSize], top-left at the origin, at [alpha]. Reads snapshot state, so a
+     * glass node drawing it is invalidated during a crossfade and never otherwise.
      */
-    fun draw(scope: DrawScope, dstSize: Size = scope.size) {
+    fun draw(scope: DrawScope, dstSize: Size = scope.size, alpha: Float = 1f) {
         val w = dstSize.width.roundToInt()
         val h = dstSize.height.roundToInt()
         if (w <= 0 || h <= 0) return
         val intSize = IntSize(w, h)
         val cur = current
         val f = fade.value
+        if (alpha <= 0f) return
         if (cur == null) {
-            scope.drawRect(baseColor, size = dstSize)
+            scope.drawRect(baseColor, size = dstSize, alpha = alpha)
             return
         }
         val prev = previous
         if (f < 1f) {
             if (prev != null) {
-                scope.drawImage(prev, dstOffset = IntOffset.Zero, dstSize = intSize, filterQuality = FilterQuality.Low)
+                scope.drawImage(prev, dstOffset = IntOffset.Zero, dstSize = intSize, alpha = alpha, filterQuality = FilterQuality.Low)
             } else {
-                scope.drawRect(baseColor, size = dstSize)
+                scope.drawRect(baseColor, size = dstSize, alpha = alpha)
             }
-            scope.drawImage(cur, dstOffset = IntOffset.Zero, dstSize = intSize, alpha = f, filterQuality = FilterQuality.Low)
+            scope.drawImage(cur, dstOffset = IntOffset.Zero, dstSize = intSize, alpha = f * alpha, filterQuality = FilterQuality.Low)
         } else {
-            scope.drawImage(cur, dstOffset = IntOffset.Zero, dstSize = intSize, filterQuality = FilterQuality.Low)
+            scope.drawImage(cur, dstOffset = IntOffset.Zero, dstSize = intSize, alpha = alpha, filterQuality = FilterQuality.Low)
         }
     }
 }

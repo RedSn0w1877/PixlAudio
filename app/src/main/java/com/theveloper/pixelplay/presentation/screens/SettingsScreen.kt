@@ -1,5 +1,7 @@
 package com.theveloper.pixelplay.presentation.screens
 
+import com.theveloper.pixelplay.ui.glass.LocalGlassModeEnabled
+import com.theveloper.pixelplay.presentation.components.AdaptiveClickableSurface
 import com.theveloper.pixelplay.presentation.components.ScreenChrome
 import com.theveloper.pixelplay.presentation.navigation.navigateSafely
 
@@ -354,7 +356,7 @@ fun ExpressiveNavigationItem(
     onClick: () -> Unit,
     shape: androidx.compose.ui.graphics.Shape = RoundedCornerShape(24.dp)
 ) {
-    Surface(
+    AdaptiveClickableSurface(
         onClick = onClick,
         shape = shape,
         color = MaterialTheme.colorScheme.surfaceContainer,
@@ -409,11 +411,11 @@ fun ExpressiveCategoryItem(
     shape: androidx.compose.ui.graphics.Shape = RoundedCornerShape(24.dp),
     customColors: Pair<Color, Color>? = null
 ) {
-    Surface(
+    AdaptiveClickableSurface(
         onClick = onClick,
         shape = shape,
         color = MaterialTheme.colorScheme.surfaceContainer,
-        modifier = Modifier.fillMaxWidth().height(88.dp) 
+        modifier = Modifier.fillMaxWidth().height(88.dp)
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -495,6 +497,10 @@ private fun getAccountsColors(isDark: Boolean): Pair<Color, Color> {
 
 @Composable
 fun ExpressiveSettingsGroup(content: @Composable () -> Unit) {
+    if (LocalGlassModeEnabled.current) {
+        GlassSettingsGroup(modifier = Modifier.fillMaxWidth(), content = content)
+        return
+    }
     Column(
         modifier = Modifier
             .fillMaxWidth()

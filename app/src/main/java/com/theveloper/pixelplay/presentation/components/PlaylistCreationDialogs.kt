@@ -44,7 +44,6 @@ import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Key
 import androidx.compose.material.icons.automirrored.rounded.PlaylistAdd
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.BottomAppBar
@@ -131,7 +130,7 @@ fun PlaylistCreationTypeDialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = true)
     ) {
-        Surface(
+        AdaptiveDialogSurface(
             shape = dialogShape,
             color = MaterialTheme.colorScheme.surfaceContainerHigh,
             tonalElevation = 6.dp
@@ -309,7 +308,7 @@ fun CreateAiPlaylistDialog(
     transitionState.targetState = visible
 
     if (transitionState.currentState || transitionState.targetState) {
-        Dialog(
+        AdaptiveFullScreenDialog(
             onDismissRequest = {
                 if (!isGenerating) {
                     onDismiss()
@@ -940,7 +939,7 @@ private fun ChipsSingleSelect(
     
     // Custom input dialog
     if (showCustomDialog) {
-        AlertDialog(
+        AdaptiveAlertDialog(
             onDismissRequest = { showCustomDialog = false },
             icon = { Icon(Icons.Rounded.Add, null) },
             title = { Text(stringResource(R.string.playlist_creation_ai_enter_custom_title)) },

@@ -1,5 +1,12 @@
 package com.theveloper.pixelplay.presentation.components.subcomps
 
+import com.theveloper.pixelplay.ui.glass.LocalGlassModeEnabled
+import com.theveloper.pixelplay.presentation.components.rememberGlassPressIndication
+import com.theveloper.pixelplay.presentation.components.glassNowPlayingRow
+import com.theveloper.pixelplay.presentation.components.glassClear
+import androidx.compose.foundation.interaction.PressInteraction
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.indication
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
@@ -235,12 +242,19 @@ fun EnhancedSongListItem(
     }
 
     val colors = MaterialTheme.colorScheme
-    val baseContainerColor = containerColorOverride ?: colors.surfaceContainerLow
-    val playbackContainerColor = lerpColor(baseContainerColor, colors.primaryContainer, highlightProgress)
+    // Liquid Glass (G3): rows are flat over the ambient (no tile fill); the playing row is one
+    // light glass panel instead of the primary-container tint, so its colours stay the base ones.
+    val glassMode = LocalGlassModeEnabled.current
+    val baseContainerColor = containerColorOverride ?: glassClear(colors.surfaceContainerLow)
+    val playbackContainerColor =
+        if (glassMode) baseContainerColor
+        else lerpColor(baseContainerColor, colors.primaryContainer, highlightProgress)
     val containerColor = lerpColor(playbackContainerColor, colors.secondaryContainer, selectionVisualProgress)
 
     val baseContentColor = colors.onSurface
-    val playbackContentColor = lerpColor(baseContentColor, colors.onPrimaryContainer, highlightProgress)
+    val playbackContentColor =
+        if (glassMode) baseContentColor
+        else lerpColor(baseContentColor, colors.onPrimaryContainer, highlightProgress)
     val contentColor = lerpColor(playbackContentColor, colors.onSecondaryContainer, selectionVisualProgress)
 
     val selectionBorderColor = lerpColor(colors.primary.copy(alpha = 0f), colors.primary, selectionVisualProgress)
@@ -318,11 +332,23 @@ fun EnhancedSongListItem(
         }
     } else {
         // Actual Song Item Layout
+        // Glass mode only: the tap gesture reports presses to the glass press indication (swell +
+        // dim glow); Material 3 mode keeps its gesture exactly as it was, with no indication.
+        val pressSource = if (glassMode) remember { MutableInteractionSource() } else null
+        val pressIndication = if (glassMode) rememberGlassPressIndication() else null
         Surface(
             modifier = modifier
                 .fillMaxWidth()
                 .scale(selectionScale)
+                .glassNowPlayingRow(isHighlighted)
                 .clip(surfaceShape)
+                .then(
+                    if (pressSource != null && pressIndication != null) {
+                        Modifier.indication(pressSource, pressIndication)
+                    } else {
+                        Modifier
+                    }
+                )
                 .then(
                     if (showSelectionDecoration) {
                         Modifier.border(
@@ -334,8 +360,19 @@ fun EnhancedSongListItem(
                         Modifier
                     }
                 )
-                .pointerInput(isSelectionMode) {
+                .pointerInput(isSelectionMode, pressSource) {
                     detectTapGestures(
+                        onPress = { offset ->
+                            if (pressSource != null) {
+                                val press = PressInteraction.Press(offset)
+                                pressSource.emit(press)
+                                val released = tryAwaitRelease()
+                                pressSource.emit(
+                                    if (released) PressInteraction.Release(press)
+                                    else PressInteraction.Cancel(press)
+                                )
+                            }
+                        },
                         onTap = { 
                             if (isSelectionMode) {
                                 // In selection mode, tap toggles selection

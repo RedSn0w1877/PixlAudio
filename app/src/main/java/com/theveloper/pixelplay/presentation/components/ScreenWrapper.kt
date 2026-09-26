@@ -212,9 +212,13 @@ fun ScreenWrapper(
                 this.shape = RectangleShape
                 this.clip = true
             }
-            .background(MaterialTheme.colorScheme.background)
+            // Glass mode: a copy of the baked ambient (the page reads as clear glass over it, and
+            // still covers the page beneath while it slides). Material 3: the theme background.
+            .glassScreenBackground(MaterialTheme.colorScheme.background)
     ) {
-        content()
+        // Glass mode: the page's Material content is drawn over glass (clear pages, flat tiles,
+        // glass press feedback). A pass-through in Material 3 mode.
+        GlassContentTheme(content)
 
         // Dim Layer Overlay
         Box(

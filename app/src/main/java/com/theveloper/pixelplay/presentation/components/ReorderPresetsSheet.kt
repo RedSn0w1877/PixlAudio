@@ -36,7 +36,6 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.DragIndicator
 import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material.icons.rounded.VisibilityOff
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -92,7 +91,7 @@ fun ReorderPresetsSheet(
     var showResetDialog by remember { mutableStateOf(false) }
 
     if (showResetDialog) {
-        AlertDialog(
+        AdaptiveAlertDialog(
             onDismissRequest = { showResetDialog = false },
             title = { Text(stringResource(R.string.equalizer_reset_presets_title)) },
             text = { Text(stringResource(R.string.equalizer_reset_presets_message)) },
@@ -155,7 +154,7 @@ fun ReorderPresetsSheet(
     transitionState.targetState = visible
 
     if (transitionState.currentState || transitionState.targetState) {
-        Dialog(
+        AdaptiveFullScreenDialog(
             onDismissRequest = onDismiss,
             properties = DialogProperties(
                 usePlatformDefaultWidth = false,

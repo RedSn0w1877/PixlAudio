@@ -1,5 +1,27 @@
 package com.theveloper.pixelplay.presentation.screens
 
+import androidx.compose.runtime.Stable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.AnimatedVisibility
+import com.theveloper.pixelplay.ui.glass.theme.LocalGlassPalette
+import com.theveloper.pixelplay.ui.glass.theme.GlassType
+import com.theveloper.pixelplay.ui.glass.controls.SegmentOption
+import com.theveloper.pixelplay.ui.glass.controls.LiquidSegmented
+import com.theveloper.pixelplay.ui.glass.controls.GlassSection
+import com.theveloper.pixelplay.ui.glass.components.LiquidToggle
+import com.theveloper.pixelplay.ui.glass.components.LiquidSlider
+import com.theveloper.pixelplay.ui.glass.components.GlassText
+import com.theveloper.pixelplay.ui.glass.LocalGlassModeEnabled
+import com.theveloper.pixelplay.presentation.components.glassClear
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.material3.LocalContentColor
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.PaddingValues
+import com.theveloper.pixelplay.presentation.components.AdaptiveModalBottomSheet
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -45,7 +67,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -109,6 +130,20 @@ fun SettingsItem(
         trailingIcon: @Composable () -> Unit = {},
         onClick: () -> Unit
 ) {
+    if (LocalGlassModeEnabled.current) {
+        GlassFlatSettingRow(
+            title = title,
+            subtitle = subtitle,
+            leadingIcon = leadingIcon,
+            onClick = onClick,
+            trailing = {
+                Box(modifier = Modifier.size(24.dp), contentAlignment = Alignment.Center) {
+                    trailingIcon()
+                }
+            }
+        )
+        return
+    }
     Surface(
             color = MaterialTheme.colorScheme.surfaceContainer,
             modifier =
@@ -159,6 +194,36 @@ fun SwitchSettingItem(
 ) {
     val view = LocalView.current
     val appHapticsConfig = LocalAppHapticsConfig.current
+
+    if (LocalGlassModeEnabled.current) {
+        val onToggle: (Boolean) -> Unit = { newValue ->
+            if (enabled) {
+                performAppCompatHapticFeedback(
+                    view,
+                    appHapticsConfig,
+                    HapticFeedbackConstantsCompat.GESTURE_START
+                )
+                onCheckedChange(newValue)
+            }
+        }
+        GlassFlatSettingRow(
+            title = title,
+            subtitle = subtitle,
+            leadingIcon = leadingIcon,
+            enabled = enabled,
+            // Like the Material row, only the toggle is the touch target (the kit toggle inspects
+            // pointers without consuming them, so a clickable row would fire a second time).
+            onClick = null,
+            trailing = {
+                LiquidToggle(
+                    selected = { checked },
+                    onSelect = onToggle,
+                    enabled = enabled
+                )
+            }
+        )
+        return
+    }
 
     Surface(
             color = MaterialTheme.colorScheme.surfaceContainer,
@@ -227,7 +292,18 @@ fun ThemeSelectorItem(
     var showSheet by remember { mutableStateOf(false) }
     val selectedOption = options[selectedKey] ?: selectedKey
 
-    Surface(
+    if (LocalGlassModeEnabled.current) {
+        GlassThemeSelectorRow(
+            label = label,
+            description = description,
+            options = options,
+            selectedKey = selectedKey,
+            selectedOption = selectedOption,
+            leadingIcon = leadingIcon,
+            onSelectionChanged = onSelectionChanged,
+            onOpenSheet = { showSheet = true }
+        )
+    } else Surface(
             color = MaterialTheme.colorScheme.surfaceContainer,
             modifier =
                     Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable {
@@ -279,7 +355,7 @@ fun ThemeSelectorItem(
     }
 
     if (showSheet) {
-        androidx.compose.material3.ModalBottomSheet(
+        AdaptiveModalBottomSheet(
             onDismissRequest = { showSheet = false },
             containerColor = MaterialTheme.colorScheme.surface,
             contentColor = MaterialTheme.colorScheme.onSurface
@@ -349,6 +425,10 @@ fun ExpressiveSettingsGroup(
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit
 ) {
+    if (LocalGlassModeEnabled.current) {
+        GlassSettingsGroup(modifier = modifier, content = content)
+        return
+    }
     Column(
         modifier = modifier
             .clip(RoundedCornerShape(24.dp))
@@ -373,7 +453,7 @@ fun SearchableModelSelector(
     val selectedDisplayName = models.find { it.name == selectedModelName }?.displayName ?: selectedModelName
 
     Surface(
-        color = MaterialTheme.colorScheme.surfaceContainer,
+        color = glassClear(MaterialTheme.colorScheme.surfaceContainer),
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(10.dp))
@@ -423,7 +503,7 @@ fun SearchableModelSelector(
     }
 
     if (showSheet) {
-        ModalBottomSheet(
+        AdaptiveModalBottomSheet(
             onDismissRequest = {
                 showSheet = false
                 searchQuery = ""
@@ -544,6 +624,18 @@ fun SliderSettingsItem(
         onValueChangeFinished: (() -> Unit)? = null,
         valueText: (Float) -> String
 ) {
+    if (LocalGlassModeEnabled.current) {
+        GlassSliderSettingRow(
+            label = label,
+            value = value,
+            valueRange = valueRange,
+            steps = steps,
+            onValueChange = onValueChange,
+            onValueChangeFinished = onValueChangeFinished,
+            valueText = valueText
+        )
+        return
+    }
     Surface(
             color = MaterialTheme.colorScheme.surfaceContainer,
             modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
@@ -589,7 +681,7 @@ fun RefreshLibraryItem(
         onRebuild: () -> Unit
 ) {
     Surface(
-            color = MaterialTheme.colorScheme.surfaceContainer,
+            color = glassClear(MaterialTheme.colorScheme.surfaceContainer),
             modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
@@ -754,7 +846,7 @@ fun ActionSettingsItem(
     enabled: Boolean = true
 ) {
     Surface(
-        color = MaterialTheme.colorScheme.surfaceContainer,
+        color = glassClear(MaterialTheme.colorScheme.surfaceContainer),
         modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
@@ -831,7 +923,7 @@ fun AiApiKeyItem(
     }
 
     Surface(
-        color = MaterialTheme.colorScheme.surfaceContainer,
+        color = glassClear(MaterialTheme.colorScheme.surfaceContainer),
         modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
@@ -918,7 +1010,7 @@ fun AiSystemPromptItem(
     }
 
     Surface(
-        color = MaterialTheme.colorScheme.surfaceContainer,
+        color = glassClear(MaterialTheme.colorScheme.surfaceContainer),
         modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
@@ -995,5 +1087,237 @@ fun AiSystemPromptItem(
                 }
             }
         }
+    }
+}
+
+// ------------------------------------------------------------------------------------------------
+// Liquid Glass mode (orchestrator decision G3): settings groups are NexHome GlassSections holding
+// flat rows (no lens per row: a settings page would otherwise stack two lenses per row). Rows use
+// the GlassSettingRow layout and type (min 60, padding 14/10, gap 12, BodyStrong + Caption) with a
+// tinted 36 dp icon disc; presses swell and glow through the glass press indication the page
+// provides. Toggles are LiquidToggles, sliders LiquidSliders, short choices LiquidSegmented.
+// ------------------------------------------------------------------------------------------------
+
+private val GlassFlatRowShape = RoundedCornerShape(20.dp)
+
+/** A settings group in glass mode: one heavy GlassSection around flat rows. */
+@Composable
+internal fun GlassSettingsGroup(
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit
+) {
+    GlassSection(
+        modifier = modifier,
+        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
+        spacing = 0.dp
+    ) {
+        content()
+    }
+}
+
+/** NexHome's section caption: UPPERCASE Caption in the secondary colour, above a glass group. */
+@Composable
+internal fun GlassSettingsCaption(title: String, modifier: Modifier = Modifier) {
+    GlassText(
+        text = title.uppercase(),
+        modifier = modifier.padding(start = 16.dp, top = 12.dp, bottom = 8.dp),
+        style = GlassType.Caption,
+        color = LocalGlassPalette.current.secondary,
+        maxLines = 1
+    )
+}
+
+/**
+ * A flat glass settings row: optional icon disc, title + subtitle, trailing slot, and optional
+ * [below] content (a slider, a segmented choice). Clickable rows answer with the page's glass press
+ * indication (swell + dim glow); a disabled row fades its text.
+ */
+@Composable
+private fun GlassFlatSettingRow(
+    title: String,
+    subtitle: String?,
+    leadingIcon: (@Composable () -> Unit)?,
+    onClick: (() -> Unit)?,
+    enabled: Boolean = true,
+    trailing: (@Composable RowScope.() -> Unit)? = null,
+    below: (@Composable ColumnScope.() -> Unit)? = null
+) {
+    val palette = LocalGlassPalette.current
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(GlassFlatRowShape)
+            .then(
+                if (onClick != null) Modifier.clickable(enabled = enabled, onClick = onClick)
+                else Modifier
+            )
+            .heightIn(min = 60.dp)
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            if (leadingIcon != null) {
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .background(palette.tintSubtle, CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CompositionLocalProvider(LocalContentColor provides palette.accent) {
+                        Box(modifier = Modifier.size(22.dp), contentAlignment = Alignment.Center) {
+                            leadingIcon()
+                        }
+                    }
+                }
+            }
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                GlassText(
+                    text = title,
+                    style = GlassType.BodyStrong,
+                    color = if (enabled) palette.primary else palette.tertiary,
+                    maxLines = 2
+                )
+                if (!subtitle.isNullOrEmpty()) {
+                    GlassText(
+                        text = subtitle,
+                        style = GlassType.Caption,
+                        color = if (enabled) palette.secondary else palette.quaternary,
+                        maxLines = 4
+                    )
+                }
+            }
+            trailing?.invoke(this)
+        }
+        below?.invoke(this)
+    }
+}
+
+/** A glass slider row: label and value on top, a LiquidSlider (steps and finish callback kept). */
+@Composable
+private fun GlassSliderSettingRow(
+    label: String,
+    value: Float,
+    valueRange: ClosedFloatingPointRange<Float>,
+    steps: Int,
+    onValueChange: (Float) -> Unit,
+    onValueChangeFinished: (() -> Unit)?,
+    valueText: (Float) -> String
+) {
+    val palette = LocalGlassPalette.current
+    GlassFlatSettingRow(
+        title = label,
+        subtitle = null,
+        leadingIcon = null,
+        onClick = null,
+        trailing = {
+            GlassText(
+                text = valueText(value),
+                style = GlassType.Label,
+                color = palette.accent,
+                maxLines = 1
+            )
+        },
+        below = {
+            LiquidSlider(
+                value = { value },
+                onValueChange = onValueChange,
+                valueRange = valueRange,
+                visibilityThreshold = (valueRange.endInclusive - valueRange.start) / 1000f,
+                modifier = Modifier.padding(vertical = 6.dp),
+                steps = steps,
+                onValueChangeFinished = onValueChangeFinished
+            )
+        }
+    )
+}
+
+/**
+ * A glass choice row: the title, description and current value. With two or three short options,
+ * tapping the row opens a NexHome LiquidSegmented under it (a tap or a drag selects); only one
+ * choice row is open at a time across the app's settings, so a page never stacks several
+ * three-layer segmented controls (layer budget). Longer lists open the (glass) option sheet.
+ */
+@Composable
+private fun GlassThemeSelectorRow(
+    label: String,
+    description: String,
+    options: Map<String, String>,
+    selectedKey: String,
+    selectedOption: String,
+    leadingIcon: @Composable () -> Unit,
+    onSelectionChanged: (String) -> Unit,
+    onOpenSheet: () -> Unit
+) {
+    val palette = LocalGlassPalette.current
+    val entries = remember(options) { options.entries.toList() }
+    val segmented = entries.size in 2..3 && entries.all { it.value.length <= GlassSegmentMaxLabel }
+    val expanded = segmented && GlassChoiceExpansion.openKey == label
+    if (segmented) {
+        DisposableEffect(label) {
+            onDispose { GlassChoiceExpansion.close(label) }
+        }
+    }
+    GlassFlatSettingRow(
+        title = label,
+        subtitle = description,
+        leadingIcon = leadingIcon,
+        onClick = if (segmented) {
+            { GlassChoiceExpansion.toggle(label) }
+        } else {
+            onOpenSheet
+        },
+        trailing = {
+            GlassText(
+                text = selectedOption,
+                modifier = Modifier.widthIn(max = 132.dp),
+                style = GlassType.Label,
+                color = palette.accent,
+                maxLines = 1
+            )
+        },
+        below = if (segmented) {
+            {
+                AnimatedVisibility(
+                    visible = expanded,
+                    enter = fadeIn(tween(180)) + expandVertically(tween(220)),
+                    exit = fadeOut(tween(120)) + shrinkVertically(tween(200))
+                ) {
+                    val segments = remember(entries) { entries.map { SegmentOption(it.value) } }
+                    val selectedIndex = entries.indexOfFirst { it.key == selectedKey }.coerceAtLeast(0)
+                    LiquidSegmented(
+                        options = segments,
+                        selectedIndex = selectedIndex,
+                        onSelect = { index -> entries.getOrNull(index)?.let { onSelectionChanged(it.key) } }
+                    )
+                }
+            }
+        } else {
+            null
+        }
+    )
+}
+
+/** Longest option label a segmented choice takes before the row falls back to the sheet. */
+private const val GlassSegmentMaxLabel = 14
+
+/** Which glass choice row has its segmented control open (one at a time). Main thread only. */
+@Stable
+private object GlassChoiceExpansion {
+    var openKey: String? by mutableStateOf(null)
+        private set
+
+    fun toggle(key: String) {
+        openKey = if (openKey == key) null else key
+    }
+
+    fun close(key: String) {
+        if (openKey == key) openKey = null
     }
 }

@@ -37,6 +37,10 @@ HSPLcom/theveloper/pixelplay/presentation/components/player/**->**(**)**
 HSPLcom/theveloper/pixelplay/presentation/components/PlayerInternalNavigationBar**->**(**)**
 HSPLcom/theveloper/pixelplay/presentation/components/GlassNavigationBar**->**(**)**
 HSPLcom/theveloper/pixelplay/presentation/components/ScreenChrome**->**(**)**
+HSPLcom/theveloper/pixelplay/presentation/components/GlassAdaptive**->**(**)**
+HSPLcom/theveloper/pixelplay/presentation/components/GlassScreens**->**(**)**
+HSPLcom/theveloper/pixelplay/presentation/screens/SettingsComponents**->**(**)**
+HSPLcom/theveloper/pixelplay/presentation/components/subcomps/EnhancedSongListItem**->**(**)**
 HSPLcom/theveloper/pixelplay/presentation/components/PlayerSchemeScopes**->**(**)**
 HSPLcom/theveloper/pixelplay/presentation/components/AlbumCarousel**->**(**)**
 HSPLcom/theveloper/pixelplay/presentation/components/RoundedParallaxCarousell**->**(**)**

@@ -2,9 +2,12 @@
 
 package com.theveloper.pixelplay.presentation.screens
 
+import com.theveloper.pixelplay.presentation.components.AdaptiveClickableCard
+import com.theveloper.pixelplay.presentation.components.AdaptiveDialogSurface
+import com.theveloper.pixelplay.presentation.components.AdaptiveAlertDialog
+import com.theveloper.pixelplay.presentation.components.AdaptiveModalBottomSheet
 import com.theveloper.pixelplay.presentation.components.rememberAppListState
 import com.theveloper.pixelplay.presentation.components.rememberPlaybackRowState
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Scaffold
 import com.theveloper.pixelplay.presentation.navigation.navigateSafely
 import com.theveloper.pixelplay.presentation.navigation.navigateSafelyReplacing
@@ -217,7 +220,6 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import racra.compose.smooth_corner_rect_library.AbsoluteSmoothCornerShape
 import androidx.compose.material3.FilledIconButton
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
@@ -302,7 +304,7 @@ private fun WatchTransferProgressDialog(
             dismissOnClickOutside = true
         )
     ) {
-        Surface(
+        AdaptiveDialogSurface(
             shape = RoundedCornerShape(28.dp),
             tonalElevation = 6.dp,
             color = MaterialTheme.colorScheme.surface
@@ -1987,7 +1989,7 @@ fun LibraryScreen(
     if (showMergePlaylistDialog && pendingMergePlaylistIds.isNotEmpty()) {
         var mergePlaylistName by remember { mutableStateOf("") }
 
-        AlertDialog(
+        AdaptiveAlertDialog(
             onDismissRequest = {
                 showMergePlaylistDialog = false
                 pendingMergePlaylistIds = emptyList()
@@ -2533,7 +2535,7 @@ private fun LibraryTabSwitcherSheet(
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
-    ModalBottomSheet(
+    AdaptiveModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
         containerColor = MaterialTheme.colorScheme.surface,
@@ -3041,7 +3043,7 @@ fun LibraryFoldersTab(
 fun FolderPlaylistItem(folder: MusicFolder, onClick: () -> Unit) {
     val previewSongs = remember(folder) { folder.collectAllSongs().take(9) }
 
-    Card(
+    AdaptiveClickableCard(
         onClick = onClick,
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
@@ -3079,7 +3081,7 @@ fun FolderPlaylistItem(folder: MusicFolder, onClick: () -> Unit) {
 
 @Composable
 fun FolderListItem(folder: MusicFolder, onClick: () -> Unit) {
-    Card(
+    AdaptiveClickableCard(
         onClick = onClick,
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
@@ -3378,7 +3380,7 @@ fun AlbumGridItemRedesigned(
 @androidx.annotation.OptIn(UnstableApi::class)
 @Composable
 fun ArtistListItem(artist: Artist, onClick: () -> Unit, isLoading: Boolean = false) {
-    Card(
+    AdaptiveClickableCard(
         onClick = onClick,
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(

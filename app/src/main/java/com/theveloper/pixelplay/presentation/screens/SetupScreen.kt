@@ -1,6 +1,7 @@
 
 package com.theveloper.pixelplay.presentation.screens
 
+import com.theveloper.pixelplay.presentation.components.AdaptiveFullScreenDialog
 import android.Manifest
 import android.content.Context
 import android.content.Intent
@@ -1802,7 +1803,7 @@ private fun SetupRestoreDialog(
         plan.availableModules.toList().sortedBy { it.ordinal }
     }
 
-    Dialog(
+    AdaptiveFullScreenDialog(
         onDismissRequest = {
             if (!inProgress) {
                 onDismiss()

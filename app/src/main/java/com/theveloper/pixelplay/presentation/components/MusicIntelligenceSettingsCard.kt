@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -104,7 +103,7 @@ fun MusicIntelligenceSettingsCard(viewModel: MusicIntelligenceViewModel = hiltVi
         }
     }
     if (resetDialog) {
-        AlertDialog(
+        AdaptiveAlertDialog(
             onDismissRequest = { resetDialog = false },
             title = { Text(stringResource(R.string.music_intelligence_reset)) },
             text = { Text(stringResource(R.string.music_intelligence_reset_description)) },

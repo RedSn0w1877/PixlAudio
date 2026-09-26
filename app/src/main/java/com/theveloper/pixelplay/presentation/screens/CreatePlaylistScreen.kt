@@ -6,6 +6,7 @@
 
 package com.theveloper.pixelplay.presentation.screens
 
+import com.theveloper.pixelplay.presentation.components.AdaptiveFullScreenDialog
 import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -216,7 +217,7 @@ fun CreatePlaylistDialog(
     transitionState.targetState = visible
 
     if (transitionState.currentState || transitionState.targetState) {
-        Dialog(
+        AdaptiveFullScreenDialog(
             onDismissRequest = onDismiss,
             properties = DialogProperties(
                 usePlatformDefaultWidth = false,
@@ -260,7 +261,7 @@ fun EditPlaylistDialog(
     transitionState.targetState = visible
 
     if (transitionState.currentState || transitionState.targetState) {
-        Dialog(
+        AdaptiveFullScreenDialog(
             onDismissRequest = onDismiss,
             properties = DialogProperties(
                 usePlatformDefaultWidth = false,

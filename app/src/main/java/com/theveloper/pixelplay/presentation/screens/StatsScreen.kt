@@ -2,6 +2,7 @@
 
 package com.theveloper.pixelplay.presentation.screens
 
+import com.theveloper.pixelplay.presentation.components.AdaptiveChip
 import com.theveloper.pixelplay.presentation.components.ScreenChrome
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
@@ -1080,30 +1081,36 @@ private fun ListeningTimelineSection(
         ) {
             TimelineMetric.entries.forEach { metric ->
                 val isSelected = metric == selectedMetric
-                FilterChip(
+                AdaptiveChip(
+                    label = stringResource(metric.displayNameRes),
                     selected = isSelected,
-                    onClick = { onMetricSelected(metric) },
-                    label = {
-                        Text(
-                            text = stringResource(metric.displayNameRes),
-                            style = MaterialTheme.typography.labelLarge,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                    onClick = { onMetricSelected(metric) }
+                ) {
+                    FilterChip(
+                        selected = isSelected,
+                        onClick = { onMetricSelected(metric) },
+                        label = {
+                            Text(
+                                text = stringResource(metric.displayNameRes),
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                            )
+                        },
+                        shape = CircleShape, // Fully rounded
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = MaterialTheme.colorScheme.primary,
+                            selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
+                            containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                            labelColor = MaterialTheme.colorScheme.onSurface
+                        ),
+                        border = FilterChipDefaults.filterChipBorder(
+                            borderColor = Color.Transparent,
+                            selectedBorderColor = Color.Transparent,
+                            enabled = true,
+                            selected = isSelected
                         )
-                    },
-                    shape = CircleShape, // Fully rounded
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = MaterialTheme.colorScheme.primary,
-                        selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
-                        containerColor = MaterialTheme.colorScheme.surfaceContainer,
-                        labelColor = MaterialTheme.colorScheme.onSurface
-                    ),
-                    border = FilterChipDefaults.filterChipBorder(
-                        borderColor = Color.Transparent,
-                        selectedBorderColor = Color.Transparent,
-                        enabled = true,
-                        selected = isSelected
                     )
-                )
+                }
             }
         }
 
@@ -1232,30 +1239,36 @@ private fun CategoryMetricsSection(
             CategoryDimension.entries.reversed().forEach { dimension ->
                 val isSelected = dimension == selectedDimension
                 val chipPalette = categoryPaletteFor(dimension)
-                FilterChip(
+                AdaptiveChip(
+                    label = stringResource(dimension.displayNameRes),
                     selected = isSelected,
-                    onClick = { onDimensionSelected(dimension) },
-                    label = {
-                        Text(
-                            text = stringResource(dimension.displayNameRes),
-                            style = MaterialTheme.typography.labelLarge,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                    onClick = { onDimensionSelected(dimension) }
+                ) {
+                    FilterChip(
+                        selected = isSelected,
+                        onClick = { onDimensionSelected(dimension) },
+                        label = {
+                            Text(
+                                text = stringResource(dimension.displayNameRes),
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                            )
+                        },
+                        shape = CircleShape,
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = chipPalette.accentColor,
+                            selectedLabelColor = chipPalette.accentOnColor,
+                            containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                            labelColor = MaterialTheme.colorScheme.onSurface
+                        ),
+                        border = FilterChipDefaults.filterChipBorder(
+                            borderColor = Color.Transparent,
+                            selectedBorderColor = Color.Transparent,
+                            enabled = true,
+                            selected = isSelected
                         )
-                    },
-                    shape = CircleShape,
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = chipPalette.accentColor,
-                        selectedLabelColor = chipPalette.accentOnColor,
-                        containerColor = MaterialTheme.colorScheme.surfaceContainer,
-                        labelColor = MaterialTheme.colorScheme.onSurface
-                    ),
-                    border = FilterChipDefaults.filterChipBorder(
-                        borderColor = Color.Transparent,
-                        selectedBorderColor = Color.Transparent,
-                        enabled = true,
-                        selected = isSelected
                     )
-                )
+                }
             }
         }
 

@@ -1,6 +1,5 @@
 package com.theveloper.pixelplay.presentation.components
 
-import androidx.compose.material3.AlertDialog
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -134,7 +133,7 @@ fun EditSongSheet(
     transitionState.targetState = visible
 
     if (transitionState.currentState || transitionState.targetState) {
-        Dialog(
+        AdaptiveFullScreenDialog(
             onDismissRequest = onDismiss,
             properties = DialogProperties(
                 usePlatformDefaultWidth = false,
@@ -299,7 +298,7 @@ private fun EditSongContent(
 
     // --- Diálogo de Información ---
     if (showInfoDialog) {
-        AlertDialog(
+        AdaptiveAlertDialog(
             onDismissRequest = { showInfoDialog = false },
             icon = { Icon(Icons.Rounded.Info, contentDescription = stringResource(R.string.edit_song_cd_info_icon)) },
             title = { Text(stringResource(R.string.edit_song_dialog_title)) },
@@ -966,7 +965,7 @@ fun CoverArtCropperDialog(
             if (!isSaving) onDismiss()
         }
     ) {
-        Surface(
+        AdaptiveDialogSurface(
             shape = RoundedCornerShape(32.dp),
             tonalElevation = 6.dp,
             color = MaterialTheme.colorScheme.surfaceContainerHigh

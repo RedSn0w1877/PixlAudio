@@ -1,5 +1,9 @@
 package com.theveloper.pixelplay.ui.glass.components
 
+import androidx.compose.ui.platform.LocalViewConfiguration
+import com.kyant.backdrop.backdrops.emptyBackdrop
+import androidx.compose.ui.draw.alpha
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
@@ -57,7 +61,12 @@ import kotlinx.coroutines.flow.collectLatest
  *
  * PixlAudio changes: colours default to the glass palette (accent = the album colour, track per
  * light/dark); [backdrop] defaults to [LocalGlassBackdrop]; [selected] / [onSelect] are read through
- * `rememberUpdatedState`, so an un-remembered lambda no longer restarts the sync effect.
+ * `rememberUpdatedState`, so an un-remembered lambda no longer restarts the sync effect; a disabled
+ * toggle ([enabled] false, Material `Switch` parity) ignores touches and draws at 38 % alpha.
+ *
+ * At rest the thumb is opaque white, so it samples an empty backdrop then (identical pixels, no
+ * offscreen backdrop draw); the real backdrop is swapped in while the thumb is held. A settings page
+ * full of toggles therefore costs no glass work until one is touched.
  */
 @Composable
 fun LiquidToggle(
@@ -68,6 +77,7 @@ fun LiquidToggle(
     accentColor: Color = LocalGlassPalette.current.accent,
     trackColor: Color = LocalGlassPalette.current.track,
     thumbColor: Color = LocalGlassPalette.current.thumb,
+    enabled: Boolean = true,
 ) {
     val density = LocalDensity.current
     val isLtr = LocalLayoutDirection.current == LayoutDirection.Ltr
@@ -77,6 +87,8 @@ fun LiquidToggle(
     val currentSelected by rememberUpdatedState(selected)
     val currentOnSelect by rememberUpdatedState(onSelect)
     var didDrag by remember { mutableStateOf(false) }
+    val slop = remember { floatArrayOf(0f) }
+    val touchSlop = LocalViewConfiguration.current.touchSlop
     var fraction by remember { mutableFloatStateOf(if (selected()) 1f else 0f) }
     val dampedDragAnimation = remember(animationScope) {
         DampedDragAnimation(
@@ -86,9 +98,13 @@ fun LiquidToggle(
             visibilityThreshold = 0.001f,
             initialScale = 1f,
             pressedScale = 1.8f,
-            onDragStarted = {},
+            onDragStarted = { slop[0] = 0f },
             onDragStopped = {
-                if (didDrag) {
+                if (wasCancelled) {
+                    // A scrolling page took the gesture: neither a tap nor a drag, keep the value.
+                    fraction = if (currentSelected()) 1f else 0f
+                    didDrag = false
+                } else if (didDrag) {
                     fraction = if (targetValue >= 0.5f) 1f else 0f
                     currentOnSelect(fraction == 1f)
                     didDrag = false
@@ -97,9 +113,13 @@ fun LiquidToggle(
                     currentOnSelect(fraction == 1f)
                 }
             },
-            onDrag = { _, dragAmount ->
+            onDrag = drag@{ _, dragAmount ->
                 if (!didDrag) {
-                    didDrag = dragAmount.x != 0f
+                    // Horizontal travel past the touch slop makes it a drag; finger jitter while
+                    // a list scrolls does not move the thumb.
+                    slop[0] += dragAmount.x
+                    if (kotlin.math.abs(slop[0]) <= touchSlop) return@drag
+                    didDrag = true
                 }
                 val delta = dragAmount.x / dragWidth
                 fraction =
@@ -128,8 +148,25 @@ fun LiquidToggle(
     val trackBackdrop = rememberLayerBackdrop()
     val receiver = rememberGlassLightReceiver()
 
+    val heldBackdrop = rememberCombinedBackdrop(
+        backdrop,
+        rememberBackdrop(trackBackdrop) { drawBackdrop ->
+            val progress = dampedDragAnimation.pressProgress
+            val scaleX = lerp(2f / 3f, 0.75f, progress)
+            val scaleY = lerp(0f, 0.75f, progress)
+            scale(scaleX, scaleY) {
+                drawBackdrop()
+            }
+        }
+    )
+    val restBackdrop = remember { emptyBackdrop() }
+    // Recomposes only when the thumb starts or stops being held, never per frame.
+    val thumbHeld by remember(dampedDragAnimation) {
+        derivedStateOf { dampedDragAnimation.pressProgress > 0f }
+    }
+
     Box(
-        modifier,
+        modifier.then(if (enabled) Modifier else Modifier.alpha(0.38f)),
         contentAlignment = Alignment.CenterStart
     ) {
         Box(
@@ -155,20 +192,10 @@ fun LiquidToggle(
                 .semantics {
                     role = Role.Switch
                 }
-                .then(dampedDragAnimation.modifier)
+                .then(if (enabled) dampedDragAnimation.modifier else Modifier)
                 .glassLightEmitter({ currentAccent })
                 .drawBackdrop(
-                    backdrop = rememberCombinedBackdrop(
-                        backdrop,
-                        rememberBackdrop(trackBackdrop) { drawBackdrop ->
-                            val progress = dampedDragAnimation.pressProgress
-                            val scaleX = lerp(2f / 3f, 0.75f, progress)
-                            val scaleY = lerp(0f, 0.75f, progress)
-                            scale(scaleX, scaleY) {
-                                drawBackdrop()
-                            }
-                        }
-                    ),
+                    backdrop = if (thumbHeld) heldBackdrop else restBackdrop,
                     shape = { Capsule() },
                     effects = {
                         val progress = dampedDragAnimation.pressProgress

@@ -620,7 +620,7 @@ fun CreatePlaylistDialogRedesigned(
     BasicAlertDialog(
         onDismissRequest = onDismiss,
     ) {
-        Surface(
+        AdaptiveDialogSurface(
             shape = RoundedCornerShape(32.dp),
             color = MaterialTheme.colorScheme.surfaceContainerHigh,
             tonalElevation = 6.dp,

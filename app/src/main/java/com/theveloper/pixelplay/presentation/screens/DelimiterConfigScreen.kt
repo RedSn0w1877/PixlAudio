@@ -1,3 +1,4 @@
+import com.theveloper.pixelplay.presentation.components.AdaptiveAlertDialog
 import android.widget.Toast
 import com.theveloper.pixelplay.presentation.components.rememberCollapsingHeaderContentPadding
 import com.theveloper.pixelplay.presentation.components.WithCollapsingHeader
@@ -391,7 +392,7 @@ fun DelimiterConfigScreen(
         }
 
         if (showResetDialog) {
-            androidx.compose.material3.AlertDialog(
+            AdaptiveAlertDialog(
                 onDismissRequest = { showResetDialog = false },
                 title = {
                     Text(

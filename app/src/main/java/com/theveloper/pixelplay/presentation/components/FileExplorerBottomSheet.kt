@@ -121,7 +121,7 @@ fun FileExplorerDialog(
     transitionState.targetState = visible
 
     if (transitionState.currentState || transitionState.targetState) {
-        Dialog(
+        AdaptiveFullScreenDialog(
             onDismissRequest = {
                 if (!isAtRoot) {
                     onNavigateUp()

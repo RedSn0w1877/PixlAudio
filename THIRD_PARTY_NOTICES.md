@@ -363,6 +363,8 @@ under the Apache License, Version 2.0:
 - `components/LiquidButton.kt`, `components/LiquidToggle.kt`, `components/LiquidSlider.kt`,
   `components/LiquidBottomTabs.kt`, `components/LiquidBottomTab.kt`
 - `GlassDraw.kt` (its inverse-layer transform mirrors the library's internal `InverseLayerScope`)
+- `GlassPressIndication.kt` (its press glow reuses `InteractiveHighlight`'s flat and spot glow
+  levels and radial fallback)
 
 Modifications: renamed packages, the app's colour palette and motion tokens, lifecycle-aware sensor
 registration, coalesced gesture animation updates, cached brushes, and API-level tiers.

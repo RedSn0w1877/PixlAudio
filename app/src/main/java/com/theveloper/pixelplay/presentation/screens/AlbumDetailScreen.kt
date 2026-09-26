@@ -2,6 +2,10 @@
 
 package com.theveloper.pixelplay.presentation.screens
 
+import com.theveloper.pixelplay.presentation.components.glassAwareHeaderFill
+import com.theveloper.pixelplay.presentation.components.glassArtFade
+import com.theveloper.pixelplay.presentation.components.glassAwareOverlay
+import com.theveloper.pixelplay.presentation.components.GlassAwareMaterialTheme
 import com.theveloper.pixelplay.presentation.components.rememberAppListState
 import com.theveloper.pixelplay.presentation.components.rememberIsSongPlaying
 import com.theveloper.pixelplay.presentation.components.rememberIsCurrentSong
@@ -164,7 +168,7 @@ fun AlbumDetailScreen(
     val density = LocalDensity.current
     val coroutineScope = rememberCoroutineScope()
 
-    MaterialTheme(
+    GlassAwareMaterialTheme(
         colorScheme = albumColorScheme,
         typography = MaterialTheme.typography,
         shapes = MaterialTheme.shapes
@@ -579,11 +583,12 @@ private fun SharedAlbumTopBarProbe(
                 modifier = Modifier
                     .fillMaxSize()
                     .graphicsLayer { alpha = expandedContentAlphaState.value }
+                    .glassArtFade()
             )
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(headerOverlayBrush)
+                    .glassAwareOverlay(headerOverlayBrush)
             )
         }
 
@@ -712,7 +717,7 @@ private fun CollapsingAlbumTopBar(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(headerHeight)
-                .background(surfaceColor.copy(alpha = backgroundAlpha))
+                .glassAwareHeaderFill(surfaceColor, backgroundAlpha)
         ) {
             if (showExpandedArtwork) {
                 SmartImage(
@@ -724,12 +729,12 @@ private fun CollapsingAlbumTopBar(
                     crossfadeDurationMillis = 0,
                     alpha = headerContentAlpha,
                     onState = onHeaderArtworkState,
-                    modifier = Modifier.fillMaxSize()
+                    modifier = Modifier.fillMaxSize().glassArtFade()
                 )
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(headerOverlayBrush)
+                        .glassAwareOverlay(headerOverlayBrush)
                 )
             }
             Box(

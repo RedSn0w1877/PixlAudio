@@ -1,5 +1,6 @@
 package com.theveloper.pixelplay.presentation.components.subcomps
 
+import com.theveloper.pixelplay.presentation.components.AdaptiveDialogSurface
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -77,7 +78,7 @@ fun FetchLyricsDialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
-        Surface(
+        AdaptiveDialogSurface(
             modifier = Modifier
                 .padding(24.dp)
                 .fillMaxWidth(),

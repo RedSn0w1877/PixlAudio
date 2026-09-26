@@ -85,6 +85,14 @@ class DampedDragAnimation(
     val scaleY: Float get() = scaleYAnimation.value
     val velocity: Float get() = velocityAnimation.value
 
+    /**
+     * True while [onDragStopped] runs for a gesture that was cancelled (another handler — a
+     * scrolling list — consumed it) rather than released. Controls inside scrolling pages use it to
+     * restore their value instead of committing a tap or a partial drag.
+     */
+    var wasCancelled: Boolean = false
+        private set
+
     val modifier: Modifier = Modifier.pointerInput(Unit) {
         inspectDragGestures(
             onDragStart = { down ->
@@ -92,11 +100,14 @@ class DampedDragAnimation(
                 press()
             },
             onDragEnd = {
+                wasCancelled = false
                 onDragStopped()
                 release()
             },
             onDragCancel = {
+                wasCancelled = true
                 onDragStopped()
+                wasCancelled = false
                 release()
             }
         ) { _, dragAmount ->

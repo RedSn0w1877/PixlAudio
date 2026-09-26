@@ -2,6 +2,11 @@
 
 package com.theveloper.pixelplay.presentation.screens
 
+import com.theveloper.pixelplay.presentation.components.glassAwareHeaderFill
+import com.theveloper.pixelplay.presentation.components.glassArtFade
+import com.theveloper.pixelplay.presentation.components.glassAwareOverlay
+import com.theveloper.pixelplay.presentation.components.GlassAwareMaterialTheme
+import com.theveloper.pixelplay.presentation.components.RestoreMaterialColors
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
@@ -275,7 +280,7 @@ fun ArtistDetailScreen(
     // --- Fin de la lógica del Header ---
 
     // Wrap in dynamic theme derived from the artist's image
-    MaterialTheme(
+    GlassAwareMaterialTheme(
         colorScheme = artistColorScheme,
         typography = MaterialTheme.typography,
         shapes = MaterialTheme.shapes
@@ -1030,6 +1035,7 @@ private fun SharedArtistTopBarProbe(
                     modifier = Modifier
                         .fillMaxSize()
                         .graphicsLayer { alpha = expandedContentAlphaState.value }
+                        .glassArtFade()
                 )
             } else {
                 MusicIconPattern(
@@ -1042,7 +1048,7 @@ private fun SharedArtistTopBarProbe(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(headerOverlayBrush)
+                    .glassAwareOverlay(headerOverlayBrush)
             )
         }
 
@@ -1096,31 +1102,33 @@ private fun SharedArtistTopBarProbe(
                         )
                     }
 
-                    DropdownMenu(
-                        expanded = showImageMenu,
-                        onDismissRequest = { showImageMenu = false }
-                    ) {
-                        DropdownMenuItem(
-                            text = { Text(stringResource(R.string.artist_action_change_photo)) },
-                            leadingIcon = {
-                                Icon(Icons.Rounded.AddAPhoto, contentDescription = null)
-                            },
-                            onClick = {
-                                showImageMenu = false
-                                onChangeImage()
-                            }
-                        )
-                        if (hasCustomImage) {
+                    RestoreMaterialColors {
+                        DropdownMenu(
+                            expanded = showImageMenu,
+                            onDismissRequest = { showImageMenu = false }
+                        ) {
                             DropdownMenuItem(
-                                text = { Text(stringResource(R.string.artist_action_reset_to_default)) },
+                                text = { Text(stringResource(R.string.artist_action_change_photo)) },
                                 leadingIcon = {
-                                    Icon(Icons.Rounded.Delete, contentDescription = null)
+                                    Icon(Icons.Rounded.AddAPhoto, contentDescription = null)
                                 },
                                 onClick = {
                                     showImageMenu = false
-                                    onClearCustomImage()
+                                    onChangeImage()
                                 }
                             )
+                            if (hasCustomImage) {
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.artist_action_reset_to_default)) },
+                                    leadingIcon = {
+                                        Icon(Icons.Rounded.Delete, contentDescription = null)
+                                    },
+                                    onClick = {
+                                        showImageMenu = false
+                                        onClearCustomImage()
+                                    }
+                                )
+                            }
                         }
                     }
                 }
@@ -1227,7 +1235,7 @@ private fun CustomCollapsingTopBar(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(headerHeight)
-                .background(surfaceColor.copy(alpha = backgroundAlpha))
+                .glassAwareHeaderFill(surfaceColor, backgroundAlpha)
         ) {
             if (showExpandedArtwork) {
                 val displayUrl = effectiveImageUrl?.takeIf { it.isNotBlank() }
@@ -1242,7 +1250,7 @@ private fun CustomCollapsingTopBar(
                         contentDescription = artist.name,
                         contentScale = ContentScale.Crop,
                         alpha = headerContentAlpha,
-                        modifier = Modifier.fillMaxSize()
+                        modifier = Modifier.fillMaxSize().glassArtFade()
                     )
                 } else {
                     MusicIconPattern(
@@ -1254,7 +1262,7 @@ private fun CustomCollapsingTopBar(
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(headerOverlayBrush)
+                        .glassAwareOverlay(headerOverlayBrush)
                 )
             }
             Box(
@@ -1293,27 +1301,29 @@ private fun CustomCollapsingTopBar(
                         ) {
                             Icon(Icons.Rounded.Edit, contentDescription = stringResource(R.string.artist_cd_edit_image))
                         }
-                        DropdownMenu(
-                            expanded = showImageMenu,
-                            onDismissRequest = { showImageMenu = false }
-                        ) {
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.artist_action_change_photo)) },
-                                leadingIcon = { Icon(Icons.Rounded.AddAPhoto, contentDescription = null) },
-                                onClick = {
-                                    showImageMenu = false
-                                    onChangeImage()
-                                }
-                            )
-                            if (hasCustomImage) {
+                        RestoreMaterialColors {
+                            DropdownMenu(
+                                expanded = showImageMenu,
+                                onDismissRequest = { showImageMenu = false }
+                            ) {
                                 DropdownMenuItem(
-                                    text = { Text(stringResource(R.string.artist_action_reset_to_default)) },
-                                    leadingIcon = { Icon(Icons.Rounded.Delete, contentDescription = null) },
+                                    text = { Text(stringResource(R.string.artist_action_change_photo)) },
+                                    leadingIcon = { Icon(Icons.Rounded.AddAPhoto, contentDescription = null) },
                                     onClick = {
                                         showImageMenu = false
-                                        onClearCustomImage()
+                                        onChangeImage()
                                     }
                                 )
+                                if (hasCustomImage) {
+                                    DropdownMenuItem(
+                                        text = { Text(stringResource(R.string.artist_action_reset_to_default)) },
+                                        leadingIcon = { Icon(Icons.Rounded.Delete, contentDescription = null) },
+                                        onClick = {
+                                            showImageMenu = false
+                                            onClearCustomImage()
+                                        }
+                                    )
+                                }
                             }
                         }
                     }

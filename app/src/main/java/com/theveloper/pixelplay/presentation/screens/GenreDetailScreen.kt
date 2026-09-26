@@ -1,5 +1,6 @@
 package com.theveloper.pixelplay.presentation.screens
 
+import com.theveloper.pixelplay.presentation.components.GlassAwareMaterialTheme
 import com.theveloper.pixelplay.presentation.components.rememberAppListState
 import com.theveloper.pixelplay.presentation.components.PlaybackRowState
 import androidx.compose.runtime.State
@@ -306,7 +307,7 @@ fun GenreDetailScreen(
         )
     }
 
-    MaterialTheme(colorScheme = genreColorScheme) {
+    GlassAwareMaterialTheme(colorScheme = genreColorScheme) {
         Box(
             modifier = Modifier
                 .fillMaxSize()

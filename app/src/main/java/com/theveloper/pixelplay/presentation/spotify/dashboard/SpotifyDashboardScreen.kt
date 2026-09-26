@@ -1,5 +1,6 @@
 package com.theveloper.pixelplay.presentation.spotify.dashboard
 
+import com.theveloper.pixelplay.presentation.components.AdaptiveAlertDialog
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -31,7 +32,6 @@ import androidx.compose.material.icons.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.PlayCircle
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Sync
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -203,7 +203,7 @@ fun SpotifyDashboardScreen(
     }
 
     uiState.youTubeSignInError?.let { error ->
-        AlertDialog(
+        AdaptiveAlertDialog(
             onDismissRequest = viewModel::dismissYouTubeError,
             confirmButton = {
                 Button(onClick = viewModel::dismissYouTubeError) { Text("OK") }
@@ -289,7 +289,7 @@ private fun YouTubeSignInDialog(
 ) {
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
-    AlertDialog(
+    AdaptiveAlertDialog(
         onDismissRequest = onDismiss,
         confirmButton = {
             Button(onClick = {

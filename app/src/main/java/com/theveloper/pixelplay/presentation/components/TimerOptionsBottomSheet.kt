@@ -1,6 +1,5 @@
 package com.theveloper.pixelplay.presentation.components
 
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Slider
 import androidx.compose.animation.animateColorAsState
@@ -27,7 +26,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
@@ -111,7 +109,7 @@ fun TimerOptionsBottomSheet(
         }
     }
 
-    ModalBottomSheet(
+    AdaptiveModalBottomSheet(
         containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
         onDismissRequest = onDismiss,
         sheetState = sheetState
@@ -413,7 +411,7 @@ fun TimerOptionsBottomSheet(
             is24Hour = true // Consistent with your previous setting (24-hour format)
         )
 
-        AlertDialog(
+        AdaptiveAlertDialog(
             onDismissRequest = {
                 showCustomTimePicker = false // Dismiss the M3 dialog
                 // No need to call onDismiss() for the bottom sheet here,

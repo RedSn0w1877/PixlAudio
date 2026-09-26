@@ -1,5 +1,7 @@
 package com.theveloper.pixelplay.presentation.components.subcomps
 
+import com.theveloper.pixelplay.presentation.components.AdaptiveAlertDialog
+import com.theveloper.pixelplay.presentation.components.AdaptiveModalBottomSheet
 import androidx.compose.material3.Switch
 import androidx.compose.foundation.background
 import androidx.compose.material.icons.rounded.TouchApp
@@ -39,7 +41,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.SheetState
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
@@ -113,7 +114,7 @@ fun LyricsMoreBottomSheet(
     var showResetDialog by remember { mutableStateOf(false) }
     var showDebugDialog by remember { mutableStateOf(false) }
 
-    ModalBottomSheet(
+    AdaptiveModalBottomSheet(
         onDismissRequest = onDismissRequest,
         sheetState = sheetState,
         containerColor = containerColor,
@@ -299,7 +300,7 @@ fun LyricsMoreBottomSheet(
             }
 
             if (showResetDialog) {
-                androidx.compose.material3.AlertDialog(
+                AdaptiveAlertDialog(
                     onDismissRequest = { showResetDialog = false },
                     title = { Text(stringResource(R.string.lyrics_reset_dialog_title)) },
                     text = {
@@ -367,7 +368,7 @@ fun LyricsMoreBottomSheet(
                         }
                     }
                 }
-                androidx.compose.material3.AlertDialog(
+                AdaptiveAlertDialog(
                     onDismissRequest = { showDebugDialog = false },
                     title = { Text(stringResource(R.string.lyrics_debug_dialog_title)) },
                     text = { Text(debugMessage) },

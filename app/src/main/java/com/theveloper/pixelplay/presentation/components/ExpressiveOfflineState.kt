@@ -179,7 +179,7 @@ fun ExpressiveOfflineDialog(
     BasicAlertDialog(
         onDismissRequest = onDismiss
     ) {
-        Surface(
+        AdaptiveDialogSurface(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(16.dp),

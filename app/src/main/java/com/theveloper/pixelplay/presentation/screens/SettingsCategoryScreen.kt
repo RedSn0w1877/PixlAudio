@@ -1,6 +1,11 @@
 package com.theveloper.pixelplay.presentation.screens
 
-import androidx.compose.material3.AlertDialog
+import com.theveloper.pixelplay.ui.glass.LocalGlassModeEnabled
+import com.theveloper.pixelplay.presentation.components.RestoreMaterialColors
+import com.theveloper.pixelplay.presentation.components.AdaptiveFullScreenDialog
+import com.theveloper.pixelplay.presentation.components.AdaptiveDialogSurface
+import com.theveloper.pixelplay.presentation.components.AdaptiveAlertDialog
+import com.theveloper.pixelplay.presentation.components.AdaptiveModalBottomSheet
 import androidx.compose.material3.Switch
 import com.theveloper.pixelplay.presentation.components.ScreenChrome
 import com.theveloper.pixelplay.presentation.navigation.navigateSafely
@@ -107,7 +112,6 @@ import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -1739,7 +1743,7 @@ fun SettingsCategoryScreen(
     )
 
     if (showPaletteRegenerateSheet) {
-        ModalBottomSheet(
+        AdaptiveModalBottomSheet(
             containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
             onDismissRequest = {
                 if (!isAnyPaletteRegenerateRunning) {
@@ -1785,7 +1789,7 @@ fun SettingsCategoryScreen(
     }
 
     if (showRegenerateAllPalettesDialog) {
-        AlertDialog(
+        AdaptiveAlertDialog(
             icon = {
                 Icon(
                     Icons.Outlined.Style,
@@ -1906,11 +1910,13 @@ fun SettingsCategoryScreen(
     
      // Dialogs logic (copied)
     if (showTapTimingDialog) {
-        LyricsTapTimingDialog(settingsViewModel = settingsViewModel, onDismiss = { showTapTimingDialog = false })
+        RestoreMaterialColors {
+            LyricsTapTimingDialog(settingsViewModel = settingsViewModel, onDismiss = { showTapTimingDialog = false })
+        }
     }
 
     if (showClearLyricsDialog) {
-        AlertDialog(
+        AdaptiveAlertDialog(
             icon = { Icon(Icons.Outlined.Warning, null) },
             title = { Text(stringResource(R.string.settings_dialog_reset_imported_lyrics_title)) },
             text = { Text(stringResource(R.string.settings_dialog_reset_imported_lyrics_body)) },
@@ -1924,7 +1930,7 @@ fun SettingsCategoryScreen(
     if (showRebuildDatabaseWarning) {
         val syncIndicatorRebuilding = stringResource(R.string.settings_label_sync_rebuilding)
         val toastRebuildingDatabase = stringResource(R.string.settings_toast_rebuilding_database)
-        AlertDialog(
+        AdaptiveAlertDialog(
             icon = { Icon(Icons.Outlined.Warning, null, tint = MaterialTheme.colorScheme.error) },
             title = { Text(stringResource(R.string.settings_dialog_rebuild_database_title)) },
             text = { Text(stringResource(R.string.settings_dialog_rebuild_database_body)) },
@@ -1950,7 +1956,7 @@ fun SettingsCategoryScreen(
 
     if (showRegenerateDailyMixDialog) {
         val toastDailyMixRegenerationStarted = stringResource(R.string.settings_toast_daily_mix_regeneration_started)
-        AlertDialog(
+        AdaptiveAlertDialog(
             icon = { Icon(painterResource(R.drawable.rounded_instant_mix_24), null, tint = MaterialTheme.colorScheme.primary) },
             title = { Text(stringResource(R.string.settings_dialog_regenerate_daily_mix_title)) },
             text = { Text(stringResource(R.string.settings_dialog_regenerate_daily_mix_body)) },
@@ -1972,7 +1978,7 @@ fun SettingsCategoryScreen(
 
     if (showRegenerateStatsDialog) {
         val toastStatsRegenerationStarted = stringResource(R.string.settings_toast_stats_regeneration_started)
-        AlertDialog(
+        AdaptiveAlertDialog(
             icon = { Icon(painterResource(R.drawable.rounded_monitoring_24), null, tint = MaterialTheme.colorScheme.primary) },
             title = { Text(stringResource(R.string.settings_dialog_regenerate_stats_title)) },
             text = { Text(stringResource(R.string.settings_dialog_regenerate_stats_body)) },
@@ -2166,7 +2172,7 @@ private fun BackupSectionSelectionDialog(
     }
 
     if (transitionState.currentState || transitionState.targetState) {
-        Dialog(
+        AdaptiveFullScreenDialog(
             onDismissRequest = { closeDialog(onDismiss) },
             properties = DialogProperties(
                 usePlatformDefaultWidth = false,
@@ -2589,7 +2595,7 @@ private fun BackupTransferProgressDialog(progress: BackupTransferProgressUpdate)
             dismissOnClickOutside = false
         )
     ) {
-        Surface(
+        AdaptiveDialogSurface(
             shape = RoundedCornerShape(28.dp),
             tonalElevation = 6.dp,
             color = MaterialTheme.colorScheme.surface
@@ -2718,7 +2724,7 @@ private fun ImportFileSelectionDialog(
     }
 
     if (transitionState.currentState || transitionState.targetState) {
-        Dialog(
+        AdaptiveFullScreenDialog(
             onDismissRequest = { closeDialog(onDismiss) },
             properties = DialogProperties(
                 usePlatformDefaultWidth = false,
@@ -3187,6 +3193,15 @@ private fun SettingsSubsection(
     addBottomSpace: Boolean = true,
     content: @Composable () -> Unit
 ) {
+    if (LocalGlassModeEnabled.current) {
+        // Liquid Glass: NexHome's section caption over one GlassSection of flat rows.
+        GlassSettingsCaption(title)
+        GlassSettingsGroup(modifier = Modifier.fillMaxWidth(), content = content)
+        if (addBottomSpace) {
+            Spacer(modifier = Modifier.height(10.dp))
+        }
+        return
+    }
     SettingsSubsectionHeader(title)
     Column(
         modifier = Modifier

@@ -1,5 +1,6 @@
 package com.theveloper.pixelplay.presentation.screens
 
+import com.theveloper.pixelplay.presentation.components.AdaptiveDialogSurface
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -101,7 +102,7 @@ private fun ThirdPartyNoticesDialog(
         onDismissRequest = onDismissRequest,
         properties = DialogProperties(usePlatformDefaultWidth = false),
     ) {
-        Surface(
+        AdaptiveDialogSurface(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(20.dp),

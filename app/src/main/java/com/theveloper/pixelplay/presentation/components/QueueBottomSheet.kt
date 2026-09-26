@@ -1,6 +1,5 @@
 package com.theveloper.pixelplay.presentation.components
 
-import androidx.compose.material3.AlertDialog
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
@@ -1222,7 +1221,7 @@ fun QueueBottomSheet(
         }
 
         if (showClearQueueDialog) {
-            AlertDialog(
+            AdaptiveAlertDialog(
                 onDismissRequest = { showClearQueueDialog = false },
                 title = { Text(stringResource(R.string.queue_dialog_clear_queue_title)) },
                 text = { Text(stringResource(R.string.queue_dialog_clear_queue_message)) },
@@ -1700,7 +1699,7 @@ fun SaveQueueAsPlaylistSheet(
 
     BackHandler(onBack = { onDismiss() })
 
-    Dialog(
+    AdaptiveFullScreenDialog(
         onDismissRequest = { onDismiss() },
         properties = DialogProperties(
             usePlatformDefaultWidth = false,

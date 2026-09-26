@@ -62,7 +62,7 @@ fun HomeDiscoveryMixes(
                 val colors = MaterialTheme.colorScheme
                 val container = when (index % 3) { 0 -> colors.primaryContainer; 1 -> colors.secondaryContainer; else -> colors.tertiaryContainer }
                 val content = when (index % 3) { 0 -> colors.onPrimaryContainer; 1 -> colors.onSecondaryContainer; else -> colors.onTertiaryContainer }
-                Card(
+                AdaptiveClickableCard(
                     onClick = { mix.songs.firstOrNull()?.let { onPlay(mix, it) } },
                     enabled = preparingSection == null,
                     modifier = Modifier.width(236.dp),
@@ -118,7 +118,7 @@ fun HomeDiscoveryShelf(
                     targetValue = if (isCurrent) 8.dp else 1.dp,
                     label = "homeSongCardElevation"
                 )
-                Card(
+                AdaptiveClickableCard(
                     onClick = { onPlay(section, song) },
                     enabled = preparingSection == null,
                     modifier = Modifier.width(156.dp),

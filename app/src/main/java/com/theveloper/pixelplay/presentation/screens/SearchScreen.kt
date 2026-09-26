@@ -1,5 +1,8 @@
 package com.theveloper.pixelplay.presentation.screens
 
+import com.theveloper.pixelplay.ui.glass.controls.SegmentOption
+import com.theveloper.pixelplay.ui.glass.controls.LiquidSegmented
+import com.theveloper.pixelplay.presentation.components.AdaptiveClickableCard
 import com.theveloper.pixelplay.ui.glass.GlassCircleAction
 import com.theveloper.pixelplay.ui.glass.GlassSearchField
 import com.theveloper.pixelplay.ui.glass.LocalGlassModeEnabled
@@ -622,6 +625,16 @@ fun SearchScreen(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(vertical = 8.dp, horizontal = 8.dp)
+                            )
+                        } else if (LocalGlassModeEnabled.current) {
+                            // Liquid Glass: one LiquidSegmented (3 glass layers) instead of five
+                            // chips (5 layers), keeping Search inside the layer budget.
+                            GlassSearchFilterSegmented(
+                                currentFilter = currentFilter,
+                                playerViewModel = playerViewModel,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 8.dp, horizontal = 16.dp)
                             )
                         } else {
                             FlowRow(
@@ -1772,7 +1785,7 @@ fun SearchResultArtistItem(
         )
     }
 
-    Card(
+    AdaptiveClickableCard(
         onClick = onOpenClick,
         shape = itemShape,
         colors = CardDefaults.cardColors(
@@ -2017,5 +2030,37 @@ fun SearchFilterChip(
          } else {
              null
          }
+    )
+}
+
+/** The filters Search offers as choices, in chip order. */
+private val GlassSearchFilters = listOf(
+    SearchFilterType.ALL to R.string.common_all,
+    SearchFilterType.SONGS to R.string.library_tab_songs,
+    SearchFilterType.ALBUMS to R.string.library_tab_albums,
+    SearchFilterType.ARTISTS to R.string.library_tab_artists,
+    SearchFilterType.PLAYLISTS to R.string.library_tab_playlists,
+)
+
+/**
+ * Glass mode's search filter: NexHome's LiquidSegmented over the same five filters the Material
+ * chips offer (a tap or a drag selects; the choice goes through the same view-model call).
+ */
+@Composable
+private fun GlassSearchFilterSegmented(
+    currentFilter: SearchFilterType,
+    playerViewModel: PlayerViewModel,
+    modifier: Modifier = Modifier
+) {
+    val labels = GlassSearchFilters.map { stringResource(it.second) }
+    val options = remember(labels) { labels.map { SegmentOption(it) } }
+    val selectedIndex = GlassSearchFilters.indexOfFirst { it.first == currentFilter }.coerceAtLeast(0)
+    LiquidSegmented(
+        options = options,
+        selectedIndex = selectedIndex,
+        onSelect = { index ->
+            GlassSearchFilters.getOrNull(index)?.let { playerViewModel.updateSearchFilter(it.first) }
+        },
+        modifier = modifier
     )
 }

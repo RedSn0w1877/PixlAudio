@@ -64,7 +64,7 @@ fun StatsOverviewCard(
         smoothnessAsPercentBL = 60,
     )
 
-    Card(
+    AdaptiveGlassCard(
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp),
