@@ -22,7 +22,7 @@ import kotlin.coroutines.cancellation.CancellationException
 internal fun PlayerSheetPredictiveBackHandler(
     enabled: Boolean,
     playerViewModel: PlayerViewModel,
-    sheetCollapsedTargetY: Float,
+    sheetCollapsedTargetYProvider: () -> Float,
     sheetExpandedTargetY: Float,
     sheetMotionController: SheetMotionController,
     animationDurationMs: Int,
@@ -40,7 +40,7 @@ internal fun PlayerSheetPredictiveBackHandler(
                     }
                     scope.launch {
                         val progressAtRelease = playerViewModel.predictiveBackCollapseFraction.value
-                        val currentVisualY = lerp(sheetExpandedTargetY, sheetCollapsedTargetY, progressAtRelease)
+                        val currentVisualY = lerp(sheetExpandedTargetY, sheetCollapsedTargetYProvider(), progressAtRelease)
                         val currentVisualExpansionFraction = (1f - progressAtRelease).coerceIn(0f, 1f)
                         sheetMotionController.snapTo(
                             translationYValue = currentVisualY,

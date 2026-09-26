@@ -1,5 +1,7 @@
 package com.theveloper.pixelplay.ui.glass
 
+import androidx.collection.MutableIntObjectMap
+import androidx.collection.MutableLongObjectMap
 import androidx.compose.foundation.shape.CornerBasedShape
 import androidx.compose.foundation.shape.CornerSize
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -64,9 +66,11 @@ class ProviderCornerSize(private val provider: () -> Dp) : CornerSize {
  * step has been seen) while the outline still updates whenever the step changes.
  */
 class QuantizedCornerShapeCache(private val stepDp: Float = 0.5f) {
-    private val cache = HashMap<Int, RoundedCornerShape>()
+    // Primitive-keyed maps: a HashMap<Long, …> lookup boxes its key, and the mini player looks
+    // up its shape several times per frame while the sheet is dragged.
+    private val cache = MutableIntObjectMap<RoundedCornerShape>()
 
-    private val unevenCache = HashMap<Long, RoundedCornerShape>()
+    private val unevenCache = MutableLongObjectMap<RoundedCornerShape>()
 
     fun get(radius: Dp): RoundedCornerShape {
         val key = step(radius)

@@ -36,7 +36,7 @@ internal fun rememberSheetInteractionState(
     playerContentExpansionFraction: Animatable<Float, AnimationVector1D>,
     currentSheetTranslationY: Animatable<Float, AnimationVector1D>,
     visualOvershootScaleY: Animatable<Float, AnimationVector1D>,
-    sheetCollapsedTargetY: Float,
+    sheetCollapsedTargetYProvider: () -> Float,
     sheetExpandedTargetY: Float,
     miniPlayerContentHeightPx: Float,
     currentSheetContentState: PlayerSheetState,
@@ -73,7 +73,7 @@ internal fun rememberSheetInteractionState(
         )
     }
 
-    val collapsedYState = rememberUpdatedState(sheetCollapsedTargetY)
+    val collapsedYState = rememberUpdatedState(sheetCollapsedTargetYProvider)
     val expandedYState = rememberUpdatedState(sheetExpandedTargetY)
     val miniHeightState = rememberUpdatedState(miniPlayerContentHeightPx)
     val densityState = rememberUpdatedState(LocalDensity.current)
@@ -100,7 +100,7 @@ internal fun rememberSheetInteractionState(
             playerContentExpansionFraction = playerContentExpansionFraction,
             currentSheetTranslationY = currentSheetTranslationY,
             expandedYProvider = { expandedYState.value },
-            collapsedYProvider = { collapsedYState.value },
+            collapsedYProvider = { collapsedYState.value() },
             miniHeightPxProvider = { miniHeightState.value },
             currentSheetStateProvider = { currentSheetState.value },
             visualOvershootScaleY = visualOvershootScaleY,

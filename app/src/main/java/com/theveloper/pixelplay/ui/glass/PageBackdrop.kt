@@ -13,7 +13,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
@@ -39,7 +38,6 @@ import androidx.compose.ui.graphics.layer.GraphicsLayer
 import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.layout.LayoutCoordinates
-import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.layout.positionOnScreen
 import androidx.compose.ui.node.DrawModifierNode
@@ -245,27 +243,72 @@ fun RegisterGlassSnapshot(backdrop: Backdrop = LocalPageBackdrop.current) {
 }
 
 /**
- * Marks the element this is applied to as the source of [PageBackdrop.snapshotBitmap]: while
- * [enabled], its content (the page plus the app chrome) is recorded into [windowLayer] and drawn
- * from it, so [captureWindowSnapshot] has something to rasterise. Nothing samples [windowLayer]
- * live, so this cannot form a cycle; it is only attached while a sheet has asked for a snapshot.
+ * Marks the element this is applied to as the source of [PageBackdrop.snapshotBitmap]: while a
+ * sheet has asked for a snapshot ([PageBackdrop.snapshotRequests] > 0), its content (the page plus
+ * the app chrome) is recorded into [windowLayer] and drawn from it, so [captureWindowSnapshot] has
+ * something to rasterise; otherwise it just draws its content. Nothing samples [windowLayer] live,
+ * so this cannot form a cycle.
+ *
+ * The request count is read in the draw phase, so a sheet opening or closing only redraws this
+ * element instead of recomposing the screen that applies it. Apply it only in glass mode.
  */
 fun Modifier.glassSnapshotSource(
     backdrop: PageBackdrop,
-    windowLayer: GraphicsLayer,
-    enabled: Boolean
-): Modifier {
-    if (!enabled) return this
-    return this
-        .onGloballyPositioned { backdrop.snapshotOrigin = it.positionOnScreen() }
-        .drawWithContent {
-            if (size.width < 1f || size.height < 1f) {
-                drawContent()
-                return@drawWithContent
-            }
-            windowLayer.record { this@drawWithContent.drawContent() }
-            drawLayer(windowLayer)
+    windowLayer: GraphicsLayer
+): Modifier = this then GlassSnapshotSourceElement(backdrop, windowLayer)
+
+private class GlassSnapshotSourceElement(
+    val backdrop: PageBackdrop,
+    val windowLayer: GraphicsLayer
+) : ModifierNodeElement<GlassSnapshotSourceNode>() {
+
+    override fun create(): GlassSnapshotSourceNode = GlassSnapshotSourceNode(backdrop, windowLayer)
+
+    override fun update(node: GlassSnapshotSourceNode) {
+        node.backdrop = backdrop
+        node.windowLayer = windowLayer
+        node.invalidateDraw()
+    }
+
+    override fun InspectorInfo.inspectableProperties() {
+        name = "glassSnapshotSource"
+        properties["backdrop"] = backdrop
+        properties["windowLayer"] = windowLayer
+    }
+
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other !is GlassSnapshotSourceElement) return false
+        return backdrop == other.backdrop && windowLayer == other.windowLayer
+    }
+
+    override fun hashCode(): Int = 31 * backdrop.hashCode() + windowLayer.hashCode()
+}
+
+private class GlassSnapshotSourceNode(
+    var backdrop: PageBackdrop,
+    var windowLayer: GraphicsLayer
+) : DrawModifierNode, GlobalPositionAwareModifierNode, Modifier.Node() {
+
+    override fun ContentDrawScope.draw() {
+        val drawSize = size
+        if (backdrop.snapshotRequests <= 0 || drawSize.width < 1f || drawSize.height < 1f) {
+            drawContent()
+            return
         }
+        windowLayer.record(
+            density = requireDensity(),
+            layoutDirection = requireLayoutDirection(),
+            size = drawSize.toIntSize()
+        ) {
+            this@draw.drawContent()
+        }
+        drawLayer(windowLayer)
+    }
+
+    override fun onGloballyPositioned(coordinates: LayoutCoordinates) {
+        if (coordinates.isAttached) backdrop.snapshotOrigin = coordinates.positionOnScreen()
+    }
 }
 
 /**

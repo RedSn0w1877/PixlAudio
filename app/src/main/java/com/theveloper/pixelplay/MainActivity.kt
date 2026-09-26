@@ -178,6 +178,13 @@ import com.theveloper.pixelplay.utils.LogUtils
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.coroutines.delay
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.flow.collectLatest
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.graphics.layer.GraphicsLayer
+import com.theveloper.pixelplay.ui.glass.PageBackdrop
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.LayoutDirection
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 import kotlin.math.roundToInt
@@ -768,41 +775,24 @@ class MainActivity : ComponentActivity() {
         // composition, because it is the window that owns the layer.
         val glassWindowLayer = rememberGraphicsLayer()
         val glassSnapshotScratch = rememberGraphicsLayer()
-        val glassSnapshotWanted by remember(glassBackdrop) {
-            derivedStateOf { glassBackdrop.snapshotRequests > 0 }
-        }
-        val captureWindowSnapshot = glassEnabled && glassSnapshotWanted
+        // The request count is observed here and in glassSnapshotSource's draw, never in this
+        // composition, so opening or closing a sheet doesn't recompose the whole main UI.
+        val glassEnabledState = rememberUpdatedState(glassEnabled)
         val snapshotDensity = LocalDensity.current
         val snapshotLayoutDirection = LocalLayoutDirection.current
-        LaunchedEffect(glassBackdrop, captureWindowSnapshot) {
-            if (!captureWindowSnapshot) {
-                // Keep the last capture briefly: a sheet opened right after another one closed
-                // (common) reuses it instead of stalling its enter animation on a new capture.
-                if (glassEnabled) delay(GLASS_SNAPSHOT_REUSE_MS)
-                glassBackdrop.clearWindowSnapshot()
-                return@LaunchedEffect
-            }
-            suspend fun captureOnce() {
-                // The window layer is attached this frame; give it up to a few frames to record.
-                repeat(4) {
-                    withFrameNanos { }
-                    val captured = runCatching {
-                        glassBackdrop.captureWindowSnapshot(
-                            windowLayer = glassWindowLayer,
-                            scratchLayer = glassSnapshotScratch,
-                            density = snapshotDensity,
-                            layoutDirection = snapshotLayoutDirection
-                        )
-                    }.getOrDefault(false)
-                    if (captured) return
+        LaunchedEffect(glassBackdrop) {
+            snapshotFlow { glassEnabledState.value && glassBackdrop.snapshotRequests > 0 }
+                .collectLatest { captureWindowSnapshot ->
+                    syncGlassWindowSnapshot(
+                        captureWindowSnapshot = captureWindowSnapshot,
+                        glassEnabled = glassEnabledState.value,
+                        glassBackdrop = glassBackdrop,
+                        glassWindowLayer = glassWindowLayer,
+                        glassSnapshotScratch = glassSnapshotScratch,
+                        snapshotDensity = snapshotDensity,
+                        snapshotLayoutDirection = snapshotLayoutDirection
+                    )
                 }
-            }
-            // Each capture blocks the main thread while RenderThread rasterises the window, so
-            // never during the sheet's enter motion when avoidable: the first one only if there
-            // is no fresh snapshot to show, the refresh only once the sheet has settled.
-            if (!glassBackdrop.hasFreshWindowSnapshot(GLASS_SNAPSHOT_REUSE_MS)) captureOnce()
-            delay(GLASS_SHEET_SETTLE_MS)
-            captureOnce()
         }
 
         val rootView = LocalView.current
@@ -855,12 +845,14 @@ class MainActivity : ComponentActivity() {
             ),
             label = "NavBarVisibilityProgress"
         )
-        val navBarVisibilityProgress by navBarVisibilityProgressState
-        val visibleNavBarOccupiedHeight by remember(navBarOccupiedHeight, navBarVisibilityProgress) {
-            derivedStateOf { navBarOccupiedHeight * navBarVisibilityProgress }
-        }
-        val miniPlayerBottomMargin by remember(systemNavBarInset, visibleNavBarOccupiedHeight) {
+        // The visibility progress animates for 220 ms on every route that hides or shows the bar.
+        // It is read only inside these derived states (and the bar's graphicsLayer), never in
+        // composition: the flags below flip once per transition, and the mini player's bottom
+        // margin reaches the player sheet as a state it reads outside composition.
+        val miniPlayerBottomMarginState = remember(systemNavBarInset, navBarOccupiedHeight) {
             derivedStateOf {
+                val visibleNavBarOccupiedHeight =
+                    navBarOccupiedHeight * navBarVisibilityProgressState.value
                 if (visibleNavBarOccupiedHeight > systemNavBarInset) {
                     visibleNavBarOccupiedHeight
                 } else {
@@ -868,14 +860,14 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
-        val shouldRenderNavigationBar by remember(shouldHideNavigationBar, navBarVisibilityProgress) {
+        val shouldRenderNavigationBar by remember(shouldHideNavigationBar) {
             derivedStateOf {
-                !shouldHideNavigationBar || navBarVisibilityProgress > 0.01f
+                !shouldHideNavigationBar || navBarVisibilityProgressState.value > 0.01f
             }
         }
-        val isNavBarEffectivelyHidden by remember(shouldHideNavigationBar, navBarVisibilityProgress) {
+        val isNavBarEffectivelyHidden by remember(shouldHideNavigationBar) {
             derivedStateOf {
-                shouldHideNavigationBar && navBarVisibilityProgress <= 0.01f
+                shouldHideNavigationBar && navBarVisibilityProgressState.value <= 0.01f
             }
         }
 
@@ -946,10 +938,15 @@ class MainActivity : ComponentActivity() {
                 Scaffold(
                 modifier = Modifier
                     .fillMaxSize()
-                    .glassSnapshotSource(
-                        backdrop = glassBackdrop,
-                        windowLayer = glassWindowLayer,
-                        enabled = captureWindowSnapshot
+                    .then(
+                        if (glassEnabled) {
+                            Modifier.glassSnapshotSource(
+                                backdrop = glassBackdrop,
+                                windowLayer = glassWindowLayer
+                            )
+                        } else {
+                            Modifier
+                        }
                     ),
                 bottomBar = {
                     if (shouldRenderNavigationBar) {
@@ -1174,16 +1171,29 @@ class MainActivity : ComponentActivity() {
                         val miniPlayerH = with(density) { MiniPlayerHeight.toPx() }
                         val totalSheetHeightWhenContentCollapsedPx = if (showPlayerContentInitially && !shouldHideMiniPlayer) miniPlayerH else 0f
 
-                        val bottomMargin = miniPlayerBottomMargin
-
                         val spacerPx = with(density) { MiniPlayerBottomSpacer.toPx() }
-                        val bottomMarginPx = with(density) { bottomMargin.toPx() }
-                        val sheetCollapsedTargetY = calculatePlayerSheetCollapsedTargetY(
-                            containerHeightPx = screenHeightPx,
-                            collapsedContentHeightPx = totalSheetHeightWhenContentCollapsedPx,
-                            bottomMarginPx = bottomMarginPx,
-                            bottomSpacerPx = spacerPx
-                        )
+                        // Follows the nav bar's show/hide animation frame by frame, so it is
+                        // handed to the sheet as a provider rather than recomposing it per frame.
+                        val sheetCollapsedTargetYState = remember(
+                            screenHeightPx,
+                            totalSheetHeightWhenContentCollapsedPx,
+                            spacerPx,
+                            density
+                        ) {
+                            derivedStateOf {
+                                calculatePlayerSheetCollapsedTargetY(
+                                    containerHeightPx = screenHeightPx,
+                                    collapsedContentHeightPx = totalSheetHeightWhenContentCollapsedPx,
+                                    bottomMarginPx = with(density) {
+                                        miniPlayerBottomMarginState.value.toPx()
+                                    },
+                                    bottomSpacerPx = spacerPx
+                                )
+                            }
+                        }
+                        val sheetCollapsedTargetYProvider = remember(sheetCollapsedTargetYState) {
+                            { sheetCollapsedTargetYState.value }
+                        }
 
                         val expansionFractionProvider = remember(playerViewModel.playerContentExpansionFraction) {
                             { playerViewModel.playerContentExpansionFraction.value }
@@ -1281,7 +1291,7 @@ class MainActivity : ComponentActivity() {
 
                         UnifiedPlayerSheetV2(
                             playerViewModel = playerViewModel,
-                            sheetCollapsedTargetY = sheetCollapsedTargetY,
+                            sheetCollapsedTargetYProvider = sheetCollapsedTargetYProvider,
                             collapsedStateHorizontalPadding = horizontalPadding,
                             hideMiniPlayer = shouldHideMiniPlayer,
                             containerHeight = containerHeight,
@@ -1549,3 +1559,48 @@ private const val GLASS_SNAPSHOT_REUSE_MS = 1_500L
 
 /** Past a bottom sheet's enter animation: the refresh capture waits this long. */
 private const val GLASS_SHEET_SETTLE_MS = 600L
+
+/**
+ * One step of the glass sheet snapshot lifecycle, run for each change of "a glass sheet wants a
+ * window snapshot" (a newer change cancels it). Wanted: the whole window is rasterised at half size
+ * once as soon as the recording exists (unless a fresh snapshot is on hand), and once more after the
+ * sheet's enter animation has settled. Not wanted: the last capture is kept briefly so a sheet
+ * opened right after another one closed (common) reuses it instead of stalling its enter animation
+ * on a new capture, then dropped. Nothing runs on a timer.
+ */
+private suspend fun syncGlassWindowSnapshot(
+    captureWindowSnapshot: Boolean,
+    glassEnabled: Boolean,
+    glassBackdrop: PageBackdrop,
+    glassWindowLayer: GraphicsLayer,
+    glassSnapshotScratch: GraphicsLayer,
+    snapshotDensity: Density,
+    snapshotLayoutDirection: LayoutDirection
+) {
+    if (!captureWindowSnapshot) {
+        if (glassEnabled) delay(GLASS_SNAPSHOT_REUSE_MS)
+        glassBackdrop.clearWindowSnapshot()
+        return
+    }
+    suspend fun captureOnce() {
+        // The window layer is attached this frame; give it up to a few frames to record.
+        repeat(4) {
+            withFrameNanos { }
+            val captured = runCatching {
+                glassBackdrop.captureWindowSnapshot(
+                    windowLayer = glassWindowLayer,
+                    scratchLayer = glassSnapshotScratch,
+                    density = snapshotDensity,
+                    layoutDirection = snapshotLayoutDirection
+                )
+            }.getOrDefault(false)
+            if (captured) return
+        }
+    }
+    // Each capture blocks the main thread while RenderThread rasterises the window, so never
+    // during the sheet's enter motion when avoidable: the first one only if there is no fresh
+    // snapshot to show, the refresh only once the sheet has settled.
+    if (!glassBackdrop.hasFreshWindowSnapshot(GLASS_SNAPSHOT_REUSE_MS)) captureOnce()
+    delay(GLASS_SHEET_SETTLE_MS)
+    captureOnce()
+}

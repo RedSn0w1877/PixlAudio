@@ -20,7 +20,6 @@ private const val PREDICTIVE_BACK_SWIPE_EDGE_RIGHT = 1
 
 internal data class SheetVisualState(
     val currentBottomPadding: Dp,
-    val baseBottomPadding: Dp,
     /** Draw-phase provider: read this inside graphicsLayer to avoid layout relayout per frame. */
     val playerContentAreaHeightPxProvider: () -> Float,
     /** Layout-phase provider: read inside .offset { } to avoid recomposition per drag frame. */
@@ -42,7 +41,7 @@ internal fun rememberSheetVisualState(
     playerContentExpansionFraction: Animatable<Float, AnimationVector1D>,
     containerHeight: Dp,
     currentSheetTranslationY: Animatable<Float, AnimationVector1D>,
-    sheetCollapsedTargetY: Float,
+    sheetCollapsedTargetYProvider: () -> Float,
     navBarStyle: String,
     navBarCornerRadiusDp: Dp,
     isNavBarHidden: Boolean,
@@ -52,26 +51,19 @@ internal fun rememberSheetVisualState(
 ): SheetVisualState {
     // Compute in px to be read inside graphicsLayer (draw phase) — zero relayout per drag frame.
     val density = LocalDensity.current
-    val baseBottomPadding = remember(containerHeight, sheetCollapsedTargetY, density) {
-        val targetYDp = with(density) { sheetCollapsedTargetY.toDp() }
-        (containerHeight - com.theveloper.pixelplay.presentation.components.MiniPlayerHeight - targetYDp)
-            .coerceAtLeast(0.dp)
-    }
-
     val currentBottomPadding = 0.dp
 
     val miniHeightPx = remember(density) { with(density) { com.theveloper.pixelplay.presentation.components.MiniPlayerHeight.toPx() } }
     val containerHeightPx = remember(containerHeight, density) { with(density) { containerHeight.toPx() } }
-    val baseBottomPaddingPx = remember(baseBottomPadding, density) { with(density) { baseBottomPadding.toPx() } }
     val predictiveBackCollapseProgressState = rememberUpdatedState(predictiveBackCollapseProgress)
     val visualSheetTranslationYProvider: () -> Float = remember(
         currentSheetTranslationY,
-        sheetCollapsedTargetY
+        sheetCollapsedTargetYProvider
     ) {
         {
             val progress = predictiveBackCollapseProgressState.value
             currentSheetTranslationY.value * (1f - progress) +
-                (sheetCollapsedTargetY * progress)
+                (sheetCollapsedTargetYProvider() * progress)
         }
     }
 
@@ -82,10 +74,11 @@ internal fun rememberSheetVisualState(
         miniHeightPx,
         containerHeightPx,
         visualSheetTranslationYProvider,
-        sheetCollapsedTargetY
+        sheetCollapsedTargetYProvider
     ) {
         {
             if (showPlayerContentArea) {
+                val sheetCollapsedTargetY = sheetCollapsedTargetYProvider()
                 val effectiveFraction = playerContentExpansionFraction.value * (1f - predictiveBackCollapseProgress)
                 val safeFraction = effectiveFraction.coerceIn(0f, 1f)
                 val translationY = visualSheetTranslationYProvider()
@@ -265,7 +258,6 @@ internal fun rememberSheetVisualState(
 
     return SheetVisualState(
         currentBottomPadding = currentBottomPadding,
-        baseBottomPadding = baseBottomPadding,
         playerContentAreaHeightPxProvider = playerContentAreaHeightPxProvider,
         visualSheetTranslationYProvider = visualSheetTranslationYProvider,
         overallSheetTopCornerRadiusProvider = overallSheetTopCornerRadiusProvider,

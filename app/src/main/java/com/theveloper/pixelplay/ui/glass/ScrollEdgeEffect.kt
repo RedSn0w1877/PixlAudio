@@ -2,6 +2,7 @@ package com.theveloper.pixelplay.ui.glass
 
 import android.os.Build
 import androidx.annotation.RequiresApi
+import androidx.collection.MutableLongObjectMap
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
@@ -53,23 +54,28 @@ fun ScrollEdgeEffect(
     val surface = recipe.tint
     val mask = remember { EdgeFalloff.create(Color.Black) }
     val wash = remember(surface) { EdgeFalloff.create(surface) }
+    // Same modifier instance until an input changes: the library's elements never compare equal,
+    // so rebuilding it on every recomposition of the top chrome would rebuild the blur each time.
+    val edge = remember(backdrop, blurPx, mask, wash) {
+        Modifier.drawBackdrop(
+            backdrop = backdrop,
+            shape = { RectangleShape },
+            effects = { if (blurPx > 0f) blur(blurPx) },
+            highlight = null,
+            shadow = null,
+            onDrawBackdrop = { drawBackdrop ->
+                drawBackdrop()
+                mask.draw(this, BlendMode.DstIn)
+            },
+            onDrawSurface = { wash.draw(this, BlendMode.SrcOver) }
+        )
+    }
 
     Box(
         modifier
             .fillMaxWidth()
             .height(height)
-            .drawBackdrop(
-                backdrop = backdrop,
-                shape = { RectangleShape },
-                effects = { if (blurPx > 0f) blur(blurPx) },
-                highlight = null,
-                shadow = null,
-                onDrawBackdrop = { drawBackdrop ->
-                    drawBackdrop()
-                    mask.draw(this, BlendMode.DstIn)
-                },
-                onDrawSurface = { wash.draw(this, BlendMode.SrcOver) }
-            )
+            .then(edge)
     )
 }
 
@@ -80,7 +86,12 @@ fun ScrollEdgeEffect(
 private sealed class EdgeFalloff {
     abstract fun draw(scope: DrawScope, blendMode: BlendMode)
 
-    /** AGSL: exact curve, height set per draw (no allocation). */
+    /**
+     * AGSL: exact curve, height set per draw (no allocation). Instances are shared process-wide
+     * per colour ([create]), so the shader source is compiled once rather than twice per screen.
+     * Sharing is safe: uniforms are set right before each draw, and a recorded draw keeps the
+     * shader state it was recorded with.
+     */
     @RequiresApi(Build.VERSION_CODES.TIRAMISU)
     private class Shader(color: Color) : EdgeFalloff() {
         private val shader = android.graphics.RuntimeShader(Source).apply {
@@ -129,7 +140,24 @@ half4 main(float2 coord) {
     return half4(tint.rgb * tint.a, tint.a) * a;
 }"""
 
+        /**
+         * Compiled falloffs by colour (main thread only). Tints only change with the theme and
+         * the glass intensity, so this stays tiny; it is dropped wholesale if a slider drag ever
+         * walks it past a handful of entries.
+         */
+        private val shared = MutableLongObjectMap<EdgeFalloff>()
+        private const val MaxShared = 8
+
         fun create(color: Color): EdgeFalloff {
+            val key = color.value.toLong()
+            shared[key]?.let { return it }
+            val falloff = build(color)
+            if (shared.size >= MaxShared) shared.clear()
+            shared[key] = falloff
+            return falloff
+        }
+
+        private fun build(color: Color): EdgeFalloff {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 runCatching { return Shader(color) }
                     .onFailure { Timber.w(it, "Scroll-edge AGSL shader failed; using gradient") }

@@ -1,6 +1,6 @@
 package com.theveloper.pixelplay.ui.glass
 
-import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.EaseOut
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
@@ -23,6 +23,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -31,6 +32,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.GraphicsLayerScope
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
@@ -52,6 +54,8 @@ import androidx.compose.ui.util.fastCoerceIn
 import androidx.compose.ui.util.fastRoundToInt
 import androidx.compose.ui.util.lerp
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.sign
@@ -112,10 +116,10 @@ fun LiquidGlassNavBar(
         val tabWidth = (totalWidth - with(density) { 8.dp.toPx() }) / items.size.toFloat()
         val lastIndex = (items.size - 1).toFloat()
 
-        val offsetAnimation = remember { Animatable(0f) }
+        val panelDrag = remember { PanelDrag() }
         val panelOffset by remember(density, totalWidth) {
             derivedStateOf {
-                val fraction = (offsetAnimation.value / totalWidth).fastCoerceIn(-1f, 1f)
+                val fraction = (panelDrag.offset / totalWidth).fastCoerceIn(-1f, 1f)
                 with(density) { 4.dp.toPx() * fraction.sign * EaseOut.transform(abs(fraction)) }
             }
         }
@@ -233,9 +237,14 @@ fun LiquidGlassNavBar(
                         selected = false,
                         showLabel = showLabels,
                         color = restingContentColor,
+                        // Icon and label never overlap, so per-draw alpha gives the same pixels
+                        // as group alpha without an offscreen buffer per tab while the pill slides.
                         modifier = Modifier
                             .fillMaxSize()
-                            .graphicsLayer { alpha = 1f - closeness() }
+                            .graphicsLayer {
+                                alpha = 1f - closeness()
+                                compositingStrategy = CompositingStrategy.ModulateAlpha
+                            }
                     )
                     NavTabContent(
                         item = item,
@@ -244,7 +253,10 @@ fun LiquidGlassNavBar(
                         color = accentColor,
                         modifier = Modifier
                             .fillMaxSize()
-                            .graphicsLayer { alpha = closeness() }
+                            .graphicsLayer {
+                                alpha = closeness()
+                                compositingStrategy = CompositingStrategy.ModulateAlpha
+                            }
                     )
                 }
             }
@@ -271,16 +283,12 @@ fun LiquidGlassNavBar(
                                 .coerceIn(0, items.size - 1)
                             dampedDragAnimation.release()
                             select(target)
-                            animationScope.launch {
-                                offsetAnimation.animateTo(0f, spring(1f, 300f, 0.5f))
-                            }
+                            panelDrag.settle(animationScope)
                         },
                         onDragCancel = {
                             dampedDragAnimation.release()
                             dampedDragAnimation.animateToValue(currentIndex.toFloat())
-                            animationScope.launch {
-                                offsetAnimation.animateTo(0f, spring(1f, 300f, 0.5f))
-                            }
+                            panelDrag.settle(animationScope)
                         },
                         onHorizontalDrag = { change, dragAmount ->
                             change.consume()
@@ -289,13 +297,39 @@ fun LiquidGlassNavBar(
                             dampedDragAnimation.updateValue(
                                 (dampedDragAnimation.targetValue + deltaIndex).fastCoerceIn(0f, lastIndex)
                             )
-                            animationScope.launch {
-                                offsetAnimation.snapTo(offsetAnimation.value + dragAmount)
-                            }
+                            panelDrag.dragBy(dragAmount)
                         }
                     )
                 }
         )
+    }
+}
+
+/**
+ * The bar's sideways give while the pill is dragged. The finger's offset is written straight from
+ * the pointer handler (no coroutine or animation per move event); only the release springs it back
+ * to 0, and the next drag takes over from wherever that spring has got to.
+ */
+private class PanelDrag {
+    var offset by mutableFloatStateOf(0f)
+        private set
+    private var settleJob: Job? = null
+
+    fun dragBy(amount: Float) {
+        settleJob?.cancel()
+        settleJob = null
+        offset += amount
+    }
+
+    fun settle(scope: CoroutineScope) {
+        settleJob?.cancel()
+        settleJob = scope.launch {
+            animate(
+                initialValue = offset,
+                targetValue = 0f,
+                animationSpec = spring(1f, 300f, 0.5f)
+            ) { value, _ -> offset = value }
+        }
     }
 }
 

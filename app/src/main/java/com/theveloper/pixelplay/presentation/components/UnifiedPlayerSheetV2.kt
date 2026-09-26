@@ -1,5 +1,8 @@
 package com.theveloper.pixelplay.presentation.components
 
+import kotlinx.coroutines.flow.collectLatest
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.snapshots.Snapshot
 import android.widget.Toast
 import com.theveloper.pixelplay.presentation.components.ExpressiveOfflineDialog
 import androidx.activity.compose.BackHandler
@@ -119,7 +122,12 @@ private data class PlayerUiSheetSliceV2(
 @Composable
 fun UnifiedPlayerSheetV2(
     playerViewModel: PlayerViewModel,
-    sheetCollapsedTargetY: Float,
+    /**
+     * The mini player's resting Y. It follows the nav bar's show/hide animation frame by frame,
+     * so it is only ever read in effects, gesture handlers and layout/draw lambdas, never in
+     * composition — reading it here would recompose the whole sheet for every frame of it.
+     */
+    sheetCollapsedTargetYProvider: () -> Float,
     containerHeight: Dp,
     collapsedStateHorizontalPadding: Dp = 12.dp,
     navController: NavHostController,
@@ -266,10 +274,16 @@ fun UnifiedPlayerSheetV2(
     val sheetAnimationSpec = remember { motionScheme.defaultSpatialSpec<Float>() }
     val sheetAnimationMutex = remember { MutatorMutex() }
     val sheetExpandedTargetY = 0f
-    val initialY =
-        if (currentSheetContentState == PlayerSheetState.COLLAPSED) sheetCollapsedTargetY
-        else sheetExpandedTargetY
-    val currentSheetTranslationY = remember { Animatable(initialY) }
+    val currentSheetTranslationY = remember {
+        // Only the first value matters; read without subscribing this composition to it.
+        val initialY =
+            if (currentSheetContentState == PlayerSheetState.COLLAPSED) {
+                Snapshot.withoutReadObservation { sheetCollapsedTargetYProvider() }
+            } else {
+                sheetExpandedTargetY
+            }
+        Animatable(initialY)
+    }
     val sheetMotionController = remember(
         currentSheetTranslationY,
         playerContentExpansionFraction,
@@ -287,13 +301,13 @@ fun UnifiedPlayerSheetV2(
 
     PlayerArtistNavigationEffect(
         navController = navController,
-        sheetCollapsedTargetY = sheetCollapsedTargetY,
+        sheetCollapsedTargetYProvider = sheetCollapsedTargetYProvider,
         sheetMotionController = sheetMotionController,
         playerViewModel = playerViewModel
     )
     PlayerAlbumNavigationEffect(
         navController = navController,
-        sheetCollapsedTargetY = sheetCollapsedTargetY,
+        sheetCollapsedTargetYProvider = sheetCollapsedTargetYProvider,
         sheetMotionController = sheetMotionController,
         playerViewModel = playerViewModel
     )
@@ -327,16 +341,19 @@ fun UnifiedPlayerSheetV2(
         sheetMotionController.animateTo(
             targetExpanded = targetExpanded,
             canExpand = showPlayerContentArea,
-            collapsedY = sheetCollapsedTargetY,
+            collapsedY = sheetCollapsedTargetYProvider(),
             animationSpec = animationSpec,
             initialVelocity = initialVelocity
         )
     }
 
-    LaunchedEffect(sheetCollapsedTargetY, sheetMotionController) {
+    LaunchedEffect(sheetCollapsedTargetYProvider, sheetMotionController) {
         // Keep the mini player anchored to the latest collapsed target whenever
-        // the navbar height/visibility changes under it.
-        sheetMotionController.syncToExpansion(sheetCollapsedTargetY)
+        // the navbar height/visibility changes under it. collectLatest keeps the old
+        // restart-per-value semantics: a newer target cancels a sync still in flight.
+        snapshotFlow { sheetCollapsedTargetYProvider() }.collectLatest { collapsedY ->
+            sheetMotionController.syncToExpansion(collapsedY)
+        }
     }
 
     var previousSheetState by remember { mutableStateOf(currentSheetContentState) }
@@ -405,7 +422,7 @@ fun UnifiedPlayerSheetV2(
         playerContentExpansionFraction = playerContentExpansionFraction,
         containerHeight = containerHeight,
         currentSheetTranslationY = currentSheetTranslationY,
-        sheetCollapsedTargetY = sheetCollapsedTargetY,
+        sheetCollapsedTargetYProvider = sheetCollapsedTargetYProvider,
         navBarStyle = navBarStyle,
         navBarCornerRadiusDp = navBarCornerRadius.dp,
         isNavBarHidden = isNavBarHidden,
@@ -414,7 +431,6 @@ fun UnifiedPlayerSheetV2(
         swipeDismissProgress = swipeDismissProgress
     )
     val currentBottomPadding = sheetVisualState.currentBottomPadding
-    val baseBottomPadding = sheetVisualState.baseBottomPadding
     val playerContentAreaHeightPxProvider = sheetVisualState.playerContentAreaHeightPxProvider
     val visualSheetTranslationYProvider = sheetVisualState.visualSheetTranslationYProvider
     val overallSheetTopCornerRadiusProvider = sheetVisualState.overallSheetTopCornerRadiusProvider
@@ -470,7 +486,7 @@ fun UnifiedPlayerSheetV2(
         sheetMotionController = sheetMotionController,
         queueSheetController = queueSheetController,
         sheetModalOverlayController = sheetModalOverlayController,
-        sheetCollapsedTargetY = sheetCollapsedTargetY
+        sheetCollapsedTargetYProvider = sheetCollapsedTargetYProvider
     )
 
     val hapticFeedback = LocalHapticFeedback.current
@@ -498,7 +514,7 @@ fun UnifiedPlayerSheetV2(
     PlayerSheetPredictiveBackHandler(
         enabled = canHandlePlayerBack,
         playerViewModel = playerViewModel,
-        sheetCollapsedTargetY = sheetCollapsedTargetY,
+        sheetCollapsedTargetYProvider = sheetCollapsedTargetYProvider,
         sheetExpandedTargetY = sheetExpandedTargetY,
         sheetMotionController = sheetMotionController,
         animationDurationMs = ANIMATION_DURATION_MS,
@@ -606,16 +622,21 @@ fun UnifiedPlayerSheetV2(
     val miniGlassMaterialRecipe = remember(miniGlassRecipe) { miniGlassRecipe.copy(materializes = true) }
     val miniGlassWash = miniPlayerScheme.primary
     val miniGlassTintAlpha = miniGlassRecipe.tintAlpha
-    val miniGlassSurface: DrawScope.(Float) -> Unit = remember(
-        playerAreaBackground,
-        miniGlassWash,
-        miniGlassTintAlpha
-    ) {
+    // Colours are read in the draw phase, so the per-frame colour lerp of a song change only
+    // redraws the card rather than handing liquidGlass a new surface (and a new glass modifier).
+    val miniGlassBackgroundState = rememberUpdatedState(playerAreaBackground)
+    val miniGlassWashState = rememberUpdatedState(miniGlassWash)
+    val miniGlassTintAlphaState = rememberUpdatedState(miniGlassTintAlpha)
+    val miniGlassSurface: DrawScope.(Float) -> Unit = remember {
         { collapsed ->
             // The card's own colour at the recipe's tint while collapsed, climbing to opaque by
             // half expansion so the hand-off to the solid full player is invisible.
-            drawRect(playerAreaBackground.copy(alpha = lerp(1f, miniGlassTintAlpha, collapsed)))
-            if (collapsed > 0f) drawRect(miniGlassWash.copy(alpha = 0.08f * collapsed))
+            drawRect(
+                miniGlassBackgroundState.value.copy(
+                    alpha = lerp(1f, miniGlassTintAlphaState.value, collapsed)
+                )
+            )
+            if (collapsed > 0f) drawRect(miniGlassWashState.value.copy(alpha = 0.08f * collapsed))
         }
     }
     // Elevation is only visible in the mini/collapsed state (expansion < 0.18).
@@ -643,7 +664,7 @@ fun UnifiedPlayerSheetV2(
         playerContentExpansionFraction = playerContentExpansionFraction,
         currentSheetTranslationY = currentSheetTranslationY,
         visualOvershootScaleY = visualOvershootScaleY,
-        sheetCollapsedTargetY = sheetCollapsedTargetY,
+        sheetCollapsedTargetYProvider = sheetCollapsedTargetYProvider,
         sheetExpandedTargetY = sheetExpandedTargetY,
         miniPlayerContentHeightPx = miniPlayerContentHeightPx,
         currentSheetContentState = currentSheetContentState,

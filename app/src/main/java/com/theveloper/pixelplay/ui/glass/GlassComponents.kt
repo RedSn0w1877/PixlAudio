@@ -24,6 +24,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -43,6 +44,7 @@ import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.BackdropEffectScope
 import com.kyant.backdrop.backdrops.LayerBackdrop
 import com.kyant.backdrop.backdrops.emptyBackdrop
+import com.kyant.backdrop.backdrops.rememberBackdrop
 import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.effects.colorControls
@@ -148,6 +150,10 @@ object GlassBudget {
  *   "Clear" dimming, for glass sitting over a bright background.
  * @param surface replaces the tint drawing entirely; receives the quantised materialise progress
  *   (1 for glass that doesn't materialise). For surfaces whose tint follows their own state.
+ * @param drawWhile read in the draw phase; while it returns false the glass draws nothing of its
+ *   own (no backdrop, tint or border). Lets glass that only exists during a press keep its node
+ *   attached, so a press never attaches a node or recompiles its shaders, while drawing exactly
+ *   what a detached node would at rest.
  */
 @Composable
 fun Modifier.liquidGlass(
@@ -164,9 +170,18 @@ fun Modifier.liquidGlass(
     shadowEnabled: Boolean = true,
     dynamicShape: (() -> Shape)? = null,
     backdropDim: Float = 0f,
-    surface: (DrawScope.(progress: Float) -> Unit)? = null
+    surface: (DrawScope.(progress: Float) -> Unit)? = null,
+    drawWhile: (() -> Boolean)? = null
 ): Modifier {
-    val safeBackdrop = guardRecordingBackdrop(backdrop)
+    val guardedBackdrop = guardRecordingBackdrop(backdrop)
+    val safeBackdrop = if (drawWhile == null) {
+        guardedBackdrop
+    } else {
+        rememberBackdrop(
+            guardedBackdrop,
+            remember(drawWhile) { { drawBackdrop -> if (drawWhile()) drawBackdrop() } }
+        )
+    }
 
     if (BuildConfig.DEBUG) {
         DisposableEffect(recipe.role) {
@@ -231,13 +246,21 @@ fun Modifier.liquidGlass(
         GlassLights(recipe, progress, materializes, shadowEnabled)
     }
 
+    // Colours are read in the draw phase: a caller whose accent lerps every frame (play/pause
+    // during a song change) then only redraws the surface, instead of handing the library a new
+    // modifier that rebuilds the whole effect chain.
+    val accentState = rememberUpdatedState(accent)
+    val tintState = rememberUpdatedState(tint)
     val onDrawSurface: DrawScope.() -> Unit =
-        remember(recipe, prominent, accent, tint, progress, px, shape, dynamicShape, backdropDim, surface) {
-            {
+        remember(recipe, prominent, progress, px, shape, dynamicShape, backdropDim, surface, drawWhile) {
+            onDrawSurface@{
+                if (drawWhile != null && !drawWhile()) return@onDrawSurface
                 if (backdropDim > 0f) drawRect(Color.Black.copy(alpha = backdropDim.coerceIn(0f, 1f)))
+                val tint = tintState.value
                 when {
                     surface != null -> surface(if (materializes) progress() else 1f)
                     prominent -> {
+                        val accent = accentState.value
                         drawRect(accent, blendMode = BlendMode.Hue)
                         drawRect(accent.copy(alpha = 0.75f))
                     }
@@ -256,22 +279,42 @@ fun Modifier.liquidGlass(
             }
         }
 
-    return this.drawBackdrop(
-        backdrop = safeBackdrop,
-        shape = dynamicShape ?: { shape },
-        effects = effects,
-        highlight = lights.highlight,
-        shadow = lights.shadow,
-        innerShadow = lights.innerShadow,
-        layerBlock = layerBlock,
-        exportedBackdrop = exportedBackdrop,
-        onDrawSurface = onDrawSurface
-    )
+    // The library builds fresh (never-equal) elements on every call, so a caller recomposing for
+    // any reason would make every node rebuild its RenderEffect chain and re-record its lights.
+    // Reusing the same modifier instance until an input really changes skips all of that.
+    val shapeProvider: () -> Shape = dynamicShape ?: remember(shape) { { shape } }
+    val glass = remember(
+        safeBackdrop,
+        shapeProvider,
+        effects,
+        lights,
+        layerBlock,
+        exportedBackdrop,
+        onDrawSurface
+    ) {
+        Modifier.drawBackdrop(
+            backdrop = safeBackdrop,
+            shape = shapeProvider,
+            effects = effects,
+            highlight = lights.highlight,
+            shadow = lights.shadow,
+            innerShadow = lights.innerShadow,
+            layerBlock = layerBlock,
+            exportedBackdrop = exportedBackdrop,
+            onDrawSurface = onDrawSurface
+        )
+    }
+    return this.then(glass)
 }
 
 /**
  * The highlight/shadow/inner-shadow lambdas for one recipe, built once. Materialising roles scale
  * each one's alpha by the progress, read inside the lambda (draw phase), never in composition.
+ *
+ * At progress 0 they return null rather than an alpha-0 copy: the library's null path skips the
+ * light entirely, where an invisible one still compiles its shader, allocates a mask filter and
+ * records a layer on every draw. The progress is quantised to 1/32, so each step's copy is built
+ * once and reused instead of allocated per draw.
  */
 private class GlassLights(
     recipe: GlassRecipe,
@@ -281,24 +324,61 @@ private class GlassLights(
 ) {
     val highlight: (() -> Highlight?)? = recipe.highlight?.let { base ->
         if (materializes) {
-            { base.copy(alpha = base.alpha * progress()) }
+            val steps = arrayOfNulls<Highlight>(LightSteps + 1)
+            val scaled: () -> Highlight? = {
+                val p = progress()
+                if (p <= 0f) {
+                    null
+                } else {
+                    val i = lightStep(p)
+                    steps[i] ?: base.copy(alpha = base.alpha * p).also { steps[i] = it }
+                }
+            }
+            scaled
         } else {
             { base }
         }
     }
     val shadow: (() -> Shadow?)? = recipe.shadow?.takeIf { shadowEnabled }?.let { base ->
         if (materializes) {
-            { base.copy(alpha = base.alpha * progress()) }
+            val steps = arrayOfNulls<Shadow>(LightSteps + 1)
+            val scaled: () -> Shadow? = {
+                val p = progress()
+                if (p <= 0f) {
+                    null
+                } else {
+                    val i = lightStep(p)
+                    steps[i] ?: base.copy(alpha = base.alpha * p).also { steps[i] = it }
+                }
+            }
+            scaled
         } else {
             { base }
         }
     }
     val innerShadow: (() -> InnerShadow?)? = recipe.innerShadow?.let { base ->
         if (materializes) {
-            { base.copy(alpha = base.alpha * progress()) }
+            val steps = arrayOfNulls<InnerShadow>(LightSteps + 1)
+            val scaled: () -> InnerShadow? = {
+                val p = progress()
+                if (p <= 0f) {
+                    null
+                } else {
+                    val i = lightStep(p)
+                    steps[i] ?: base.copy(alpha = base.alpha * p).also { steps[i] = it }
+                }
+            }
+            scaled
         } else {
             { base }
         }
+    }
+
+    private companion object {
+        /** Matches the 1/32 quantisation of the materialise progress in [liquidGlass]. */
+        const val LightSteps = 32
+
+        fun lightStep(p: Float): Int = (p * LightSteps).roundToInt().coerceIn(0, LightSteps)
     }
 }
 

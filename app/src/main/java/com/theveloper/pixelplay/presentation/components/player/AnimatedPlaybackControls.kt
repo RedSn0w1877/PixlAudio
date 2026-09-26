@@ -8,9 +8,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -32,7 +30,6 @@ import com.theveloper.pixelplay.ui.glass.liquidGlass
 import com.theveloper.pixelplay.ui.glass.resolveRecipe
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.BoxScope
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.ui.graphics.GraphicsLayerScope
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.semantics.Role
@@ -64,6 +61,16 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.theveloper.pixelplay.presentation.components.LocalMaterialTheme
 import kotlinx.coroutines.delay
+import androidx.compose.runtime.State
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.layout.MeasurePolicy
+import androidx.compose.ui.layout.Placeable
+import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.unit.constrainHeight
+import androidx.compose.ui.unit.constrainWidth
+import kotlin.math.roundToInt
+import kotlin.math.sign
 import racra.compose.smooth_corner_rect_library.AbsoluteSmoothCornerShape
 
 private enum class PlaybackButtonType { NONE, PREVIOUS, PLAY_PAUSE, NEXT }
@@ -149,195 +156,284 @@ fun AnimatedPlaybackControls(
         }
     }
 
+    fun weightFor(button: PlaybackButtonType): Float = when (lastClicked) {
+        button -> expansionWeight
+        null -> baseWeight
+        else -> compressionWeight
+    }
+
+    // The press weights animate for up to ~0.8 s per press. They are read only in the measure
+    // policy below, so a press relays out the row each frame instead of recomposing it.
+    val prevWeight = animateFloatAsState(
+        targetValue = weightFor(PlaybackButtonType.PREVIOUS),
+        animationSpec = pressAnimationSpec,
+        label = "prevWeight"
+    )
+    val playWeight = animateFloatAsState(
+        targetValue = weightFor(PlaybackButtonType.PLAY_PAUSE),
+        animationSpec = pressAnimationSpec,
+        label = "playWeight"
+    )
+    val nextWeight = animateFloatAsState(
+        targetValue = weightFor(PlaybackButtonType.NEXT),
+        animationSpec = pressAnimationSpec,
+        label = "nextWeight"
+    )
+    val rowMeasurePolicy = remember(prevWeight, playWeight, nextWeight) {
+        weightedControlsMeasurePolicy(prevWeight, playWeight, nextWeight)
+    }
+
     Box(
         modifier = modifier
             .fillMaxWidth()
             .height(height)
     ) {
-        Row(
+        Layout(
             modifier = Modifier.fillMaxSize(),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            fun weightFor(button: PlaybackButtonType): Float = when (lastClicked) {
-                button -> expansionWeight
-                null -> baseWeight
-                else -> compressionWeight
-            }
-
-            val prevWeight by animateFloatAsState(
-                targetValue = weightFor(PlaybackButtonType.PREVIOUS),
-                animationSpec = pressAnimationSpec,
-                label = "prevWeight"
-            )
-            val onPreviousClick = {
-                lastClicked = PlaybackButtonType.PREVIOUS
-                clickTrigger++
-                coroutineScope.launch {
-                    delay(180)
-                    onPrevious()
+            measurePolicy = rowMeasurePolicy,
+            content = {
+                val onPreviousClick = {
+                    lastClicked = PlaybackButtonType.PREVIOUS
+                    clickTrigger++
+                    coroutineScope.launch {
+                        delay(180)
+                        onPrevious()
+                    }
+                    Unit
                 }
-                Unit
-            }
-            if (glass) {
-                TransientGlassButton(
-                    onClick = onPreviousClick,
-                    modifier = Modifier
-                        .weight(prevWeight)
-                        .fillMaxHeight()
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.SkipPrevious,
-                        contentDescription = "Anterior",
-                        tint = glassGlyphTint,
-                        modifier = Modifier.size(iconSize)
-                    )
-                }
-            } else {
-                Box(
-                    modifier = Modifier
-                        .weight(prevWeight)
-                        .fillMaxHeight()
-                        .glassPanel(CircleShape, colorPreviousButton, effectScale = 0.35f)
-                        .clickable(onClick = onPreviousClick),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.SkipPrevious,
-                        contentDescription = "Anterior",
-                        tint = tintPreviousIcon,
-                        modifier = Modifier.size(iconSize)
-                    )
-                }
-            }
-
-            val playWeight by animateFloatAsState(
-                targetValue = weightFor(PlaybackButtonType.PLAY_PAUSE),
-                animationSpec = pressAnimationSpec,
-                label = "playWeight"
-            )
-            val playCornerState = animateDpAsState(
-                targetValue = if (!playPauseVisualState) playPauseCornerPlaying else playPauseCornerPaused,
-                animationSpec = defaultSpatialDpSpec,
-                label = "playCorner"
-            )
-            val onPlayPauseClick = {
-                lastClicked = PlaybackButtonType.PLAY_PAUSE
-                clickTrigger++
-                hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                onPlayPause()
-            }
-            if (glass) {
-                // Persistent, prominent glass. Its corner morph is read in the draw phase through
-                // playCornerState, so the morph never recomposes this row.
-                PlayPauseGlassButton(
-                    onClick = onPlayPauseClick,
-                    cornerRadius = { playCornerState.value },
-                    accent = colorPlayPause,
-                    modifier = Modifier
-                        .weight(playWeight)
-                        .fillMaxHeight()
-                ) {
-                    MorphingPlayPauseIcon(
-                        isPlaying = playPauseVisualState,
-                        tint = tintPlayPauseIcon,
-                        size = playPauseIconSize,
-                        motionScheme = motionScheme
-                    )
-                }
-            } else {
-                val playCorner = playCornerState.value
-                Box(
-                    modifier = Modifier
-                        .weight(playWeight)
-                        .fillMaxHeight()
-                        .graphicsLayer {
-                            clip = true
-                            shape = AbsoluteSmoothCornerShape(
-                                cornerRadiusTL = playCorner,
-                                smoothnessAsPercentTR = 60,
-                                cornerRadiusBL = playCorner,
-                                smoothnessAsPercentTL = 60,
-                                cornerRadiusTR = playCorner,
-                                smoothnessAsPercentBL = 60,
-                                cornerRadiusBR = playCorner,
-                                smoothnessAsPercentBR = 60
-                            )
-                        }
-                        // In Material 3 this is exactly `clip + background` inside the squircle
-                        // clip above; the glass path is PlayPauseGlassButton.
-                        .glassPanel(
-                            shape = RoundedCornerShape(playCorner),
-                            color = colorPlayPause,
-                            effectScale = 0.4f,
-                            tintAlpha = 0.55f
+                if (glass) {
+                    TransientGlassButton(
+                        onClick = onPreviousClick,
+                        modifier = Modifier
+                            .fillMaxHeight()
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.SkipPrevious,
+                            contentDescription = "Anterior",
+                            tint = glassGlyphTint,
+                            modifier = Modifier.size(iconSize)
                         )
-                        .clickable(onClick = onPlayPauseClick),
-                    contentAlignment = Alignment.Center
-                ) {
-                    MorphingPlayPauseIcon(
-                        isPlaying = playPauseVisualState,
-                        tint = tintPlayPauseIcon,
-                        size = playPauseIconSize,
-                        motionScheme = motionScheme
-                    )
+                    }
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .glassPanel(CircleShape, colorPreviousButton, effectScale = 0.35f)
+                            .clickable(onClick = onPreviousClick),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.SkipPrevious,
+                            contentDescription = "Anterior",
+                            tint = tintPreviousIcon,
+                            modifier = Modifier.size(iconSize)
+                        )
+                    }
                 }
-            }
 
-            val nextWeight by animateFloatAsState(
-                targetValue = weightFor(PlaybackButtonType.NEXT),
-                animationSpec = pressAnimationSpec,
-                label = "nextWeight"
-            )
-            val onNextClick = {
-                lastClicked = PlaybackButtonType.NEXT
-                clickTrigger++
-                coroutineScope.launch {
-                    delay(180)
-                    onNext()
+                val playCornerState = animateDpAsState(
+                    targetValue = if (!playPauseVisualState) playPauseCornerPlaying else playPauseCornerPaused,
+                    animationSpec = defaultSpatialDpSpec,
+                    label = "playCorner"
+                )
+                val onPlayPauseClick = {
+                    lastClicked = PlaybackButtonType.PLAY_PAUSE
+                    clickTrigger++
+                    hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    onPlayPause()
                 }
-                Unit
+                if (glass) {
+                    // Persistent, prominent glass. Its corner morph is read in the draw phase through
+                    // playCornerState, so the morph never recomposes this row.
+                    PlayPauseGlassButton(
+                        onClick = onPlayPauseClick,
+                        cornerRadius = { playCornerState.value },
+                        accent = colorPlayPause,
+                        modifier = Modifier
+                            .fillMaxHeight()
+                    ) {
+                        MorphingPlayPauseIcon(
+                            isPlaying = playPauseVisualState,
+                            tint = tintPlayPauseIcon,
+                            size = playPauseIconSize,
+                            motionScheme = motionScheme
+                        )
+                    }
+                } else {
+                    // The corner morph is read in the layer blocks below, never in composition.
+                    val material = glassPlacement() == GlassPlacement.Material
+                    Box(
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .graphicsLayer {
+                                val playCorner = playCornerState.value
+                                clip = true
+                                shape = AbsoluteSmoothCornerShape(
+                                    cornerRadiusTL = playCorner,
+                                    smoothnessAsPercentTR = 60,
+                                    cornerRadiusBL = playCorner,
+                                    smoothnessAsPercentTL = 60,
+                                    cornerRadiusTR = playCorner,
+                                    smoothnessAsPercentBL = 60,
+                                    cornerRadiusBR = playCorner,
+                                    smoothnessAsPercentBR = 60
+                                )
+                            }
+                            // In Material 3 this is exactly glassPanel's `clip + background` inside
+                            // the squircle clip above (`clip` is a graphicsLayer with shape + clip),
+                            // with the radius read in the layer block. The tonal/fill fallbacks of
+                            // glass mode keep glassPanel; the real glass path is PlayPauseGlassButton.
+                            .then(
+                                if (material) {
+                                    Modifier
+                                        .graphicsLayer {
+                                            clip = true
+                                            shape = RoundedCornerShape(playCornerState.value)
+                                        }
+                                        .background(colorPlayPause)
+                                } else {
+                                    Modifier.glassPanel(
+                                        shape = RoundedCornerShape(playCornerState.value),
+                                        color = colorPlayPause,
+                                        effectScale = 0.4f,
+                                        tintAlpha = 0.55f
+                                    )
+                                }
+                            )
+                            .clickable(onClick = onPlayPauseClick),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        MorphingPlayPauseIcon(
+                            isPlaying = playPauseVisualState,
+                            tint = tintPlayPauseIcon,
+                            size = playPauseIconSize,
+                            motionScheme = motionScheme
+                        )
+                    }
+                }
+
+                val onNextClick = {
+                    lastClicked = PlaybackButtonType.NEXT
+                    clickTrigger++
+                    coroutineScope.launch {
+                        delay(180)
+                        onNext()
+                    }
+                    Unit
+                }
+                if (glass) {
+                    TransientGlassButton(
+                        onClick = onNextClick,
+                        modifier = Modifier
+                            .fillMaxHeight()
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.SkipNext,
+                            contentDescription = "Siguiente",
+                            tint = glassGlyphTint,
+                            modifier = Modifier.size(iconSize)
+                        )
+                    }
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .glassPanel(CircleShape, colorNextButton, effectScale = 0.35f)
+                            .clickable(onClick = onNextClick),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.SkipNext,
+                            contentDescription = "Siguiente",
+                            tint = tintNextIcon,
+                            modifier = Modifier.size(iconSize)
+                        )
+                    }
+                }
             }
-            if (glass) {
-                TransientGlassButton(
-                    onClick = onNextClick,
-                    modifier = Modifier
-                        .weight(nextWeight)
-                        .fillMaxHeight()
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.SkipNext,
-                        contentDescription = "Siguiente",
-                        tint = glassGlyphTint,
-                        modifier = Modifier.size(iconSize)
-                    )
-                }
-            } else {
-                Box(
-                    modifier = Modifier
-                        .weight(nextWeight)
-                        .fillMaxHeight()
-                        .glassPanel(CircleShape, colorNextButton, effectScale = 0.35f)
-                        .clickable(onClick = onNextClick),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.SkipNext,
-                        contentDescription = "Siguiente",
-                        tint = tintNextIcon,
-                        modifier = Modifier.size(iconSize)
-                    )
-                }
-            }
-        }
+        )
     }
 }
 
 /**
+ * `Row(horizontalArrangement = spacedBy(6.dp))` over three `weight(fill = true)` children,
+ * measured exactly as Row does it (same rounding and remainder distribution, same spacedBy
+ * placement in both layout directions), but with the weights read from their animation states
+ * here in the measure pass.
+ */
+private fun weightedControlsMeasurePolicy(
+    prevWeight: State<Float>,
+    playWeight: State<Float>,
+    nextWeight: State<Float>
+): MeasurePolicy = MeasurePolicy { measurables, constraints ->
+    val spacingPx = ControlsSpacing.roundToPx()
+    val w0 = prevWeight.value
+    val w1 = playWeight.value
+    val w2 = nextWeight.value
+    val totalWeight = w0 + w1 + w2
+    val targetSpace = if (constraints.hasBoundedWidth) constraints.maxWidth else constraints.minWidth
+    val arrangementSpacingTotal = spacingPx * (measurables.size - 1)
+    val remaining = (targetSpace - arrangementSpacingTotal).coerceAtLeast(0)
+    val unit = if (totalWeight > 0f) remaining / totalWeight else 0f
+    var remainder = remaining -
+        (unit * w0).roundToInt() - (unit * w1).roundToInt() - (unit * w2).roundToInt()
+
+    var weightedSpace = 0
+    var crossAxisSize = 0
+    val placeables = arrayOfNulls<Placeable>(measurables.size)
+    for (i in measurables.indices) {
+        val weight = when (i) {
+            0 -> w0
+            1 -> w1
+            else -> w2
+        }
+        val sign = remainder.sign
+        remainder -= sign
+        val size = ((unit * weight).roundToInt() + sign).coerceAtLeast(0)
+        val placeable = measurables[i].measure(
+            Constraints(
+                minWidth = size,
+                maxWidth = size,
+                minHeight = 0,
+                maxHeight = constraints.maxHeight
+            )
+        )
+        placeables[i] = placeable
+        weightedSpace += placeable.width
+        crossAxisSize = maxOf(crossAxisSize, placeable.height)
+    }
+
+    val width = constraints.constrainWidth(
+        maxOf(weightedSpace + arrangementSpacingTotal, constraints.minWidth)
+    )
+    val height = constraints.constrainHeight(maxOf(crossAxisSize, constraints.minHeight))
+    val ltr = layoutDirection == LayoutDirection.Ltr
+    layout(width, height) {
+        // Arrangement.spacedBy: in RTL it walks the children from the last one.
+        var occupied = 0
+        for (k in placeables.indices) {
+            val i = if (ltr) k else placeables.lastIndex - k
+            val placeable = placeables[i]!!
+            val x = minOf(occupied, width - placeable.width)
+            val lastSpace = minOf(spacingPx, width - x - placeable.width)
+            occupied = x + placeable.width + lastSpace
+            // Alignment.CenterVertically
+            placeable.place(x, ((height - placeable.height) / 2f).roundToInt())
+        }
+    }
+}
+
+private val ControlsSpacing = 6.dp
+
+/**
  * Prev/next in glass mode (spec §2, "Prev/next"): only the glyph at rest; the glass *materialises*
- * under the finger — lens, highlight and a faint white body grow in with the press, and the
- * drawBackdrop node is attached only while the press is in progress. Apple's rule: glass appears
- * by adding lensing, not by fading a panel in.
+ * under the finger — lens, highlight and a faint white body grow in with the press. Apple's rule:
+ * glass appears by adding lensing, not by fading a panel in.
+ *
+ * The drawBackdrop node stays attached but draws nothing of its own while no press is in progress
+ * (`drawWhile`), and the press transform is identity then too — exactly what a detached node shows.
+ * Attaching it per press instead cost a recomposition, a node attach and two AGSL compiles (lens
+ * and highlight, cleared again on detach) in the first frames of every press.
  */
 @Composable
 private fun TransientGlassButton(
@@ -350,14 +446,14 @@ private fun TransientGlassButton(
     val reduceMotion = LocalGlassReduceMotion.current
     val recipe = resolveRecipe(GlassRole.TransientControl)
     val pressProgress = remember(highlight) { { highlight.pressProgress } }
-    // Composition only hears about the press starting and ending, never its progress.
-    val materialized by remember(highlight) { derivedStateOf { highlight.pressProgress > 0f } }
+    // Read in the draw phase only: composition never hears about the press.
+    val pressed = remember(highlight) { { highlight.pressProgress > 0f } }
     val layerBlock: GraphicsLayerScope.() -> Unit = remember(highlight, reduceMotion) {
-        { applyGlassPress(highlight, reduceMotion) }
+        { if (highlight.pressProgress > 0f) applyGlassPress(highlight, reduceMotion) }
     }
     Box(
         modifier = modifier
-            // Gesture + click first, so attaching the glass below never disturbs a live press.
+            // Gesture + click first, outside the glass's clip and press transform.
             .then(highlight.gestureModifier)
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
@@ -365,17 +461,12 @@ private fun TransientGlassButton(
                 role = Role.Button,
                 onClick = onClick
             )
-            .then(
-                if (materialized) {
-                    Modifier.liquidGlass(
-                        recipe = recipe,
-                        shape = GlassShapes.Capsule,
-                        materialize = pressProgress,
-                        layerBlock = layerBlock
-                    )
-                } else {
-                    Modifier
-                }
+            .liquidGlass(
+                recipe = recipe,
+                shape = GlassShapes.Capsule,
+                materialize = pressProgress,
+                layerBlock = layerBlock,
+                drawWhile = pressed
             )
             .then(highlight.modifier),
         contentAlignment = Alignment.Center,

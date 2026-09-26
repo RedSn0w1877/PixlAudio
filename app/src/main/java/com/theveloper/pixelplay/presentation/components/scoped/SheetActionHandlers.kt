@@ -37,12 +37,12 @@ internal fun rememberSheetActionHandlers(
     sheetMotionController: SheetMotionController,
     queueSheetController: QueueSheetController,
     sheetModalOverlayController: SheetModalOverlayController,
-    sheetCollapsedTargetY: Float
+    sheetCollapsedTargetYProvider: () -> Float
 ): SheetActionHandlers {
     val queueSheetControllerState = rememberUpdatedState(queueSheetController)
     val sheetModalOverlayControllerState = rememberUpdatedState(sheetModalOverlayController)
     val sheetMotionControllerState = rememberUpdatedState(sheetMotionController)
-    val sheetCollapsedTargetYState = rememberUpdatedState(sheetCollapsedTargetY)
+    val sheetCollapsedTargetYState = rememberUpdatedState(sheetCollapsedTargetYProvider)
     val playerViewModelState = rememberUpdatedState(playerViewModel)
 
     val openQueueSheet = remember {
@@ -77,7 +77,7 @@ internal fun rememberSheetActionHandlers(
     val onNavigateToAlbum = remember(scope, navController) {
         { song: Song ->
             scope.launch {
-                sheetMotionControllerState.value.snapCollapsed(sheetCollapsedTargetYState.value)
+                sheetMotionControllerState.value.snapCollapsed(sheetCollapsedTargetYState.value())
             }
             playerViewModelState.value.collapsePlayerSheet()
             queueSheetControllerState.value.animate(false)
@@ -93,7 +93,7 @@ internal fun rememberSheetActionHandlers(
     val onNavigateToArtist = remember(scope, navController) {
         { song: Song ->
             scope.launch {
-                sheetMotionControllerState.value.snapCollapsed(sheetCollapsedTargetYState.value)
+                sheetMotionControllerState.value.snapCollapsed(sheetCollapsedTargetYState.value())
             }
             playerViewModelState.value.collapsePlayerSheet()
             queueSheetControllerState.value.animate(false)
@@ -109,7 +109,7 @@ internal fun rememberSheetActionHandlers(
     val onNavigateToGenre = remember(scope, navController) {
         { song: Song ->
             scope.launch {
-                sheetMotionControllerState.value.snapCollapsed(sheetCollapsedTargetYState.value)
+                sheetMotionControllerState.value.snapCollapsed(sheetCollapsedTargetYState.value())
             }
             playerViewModelState.value.collapsePlayerSheet()
             queueSheetControllerState.value.animate(false)

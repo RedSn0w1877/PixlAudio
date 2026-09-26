@@ -1500,8 +1500,13 @@ private fun rememberPlayerBackgroundBackdrop(): Backdrop {
     val brush = remember(top, base, bottom) {
         Brush.verticalGradient(0f to top, 0.55f to base, 1f to bottom)
     }
-    val onDraw: androidx.compose.ui.graphics.drawscope.DrawScope.() -> Unit = remember(brush) {
-        { drawRect(brush) }
+    // One Backdrop for the scope's lifetime; the gradient is read in the draw phase. The album
+    // colours lerp every frame on a song change, and a new Backdrop per frame would change the
+    // static LocalAppBackdrop and recompose the whole full player (carousel, metadata, controls)
+    // for every frame of the transition. Now only the glass surfaces redraw, as they did anyway.
+    val brushState = rememberUpdatedState(brush)
+    val onDraw: androidx.compose.ui.graphics.drawscope.DrawScope.() -> Unit = remember(brushState) {
+        { drawRect(brushState.value) }
     }
     return rememberCanvasBackdrop(onDraw)
 }

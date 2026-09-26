@@ -7,6 +7,10 @@ import androidx.compose.animation.core.spring
 import androidx.compose.foundation.MutatorMutex
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
@@ -39,6 +43,7 @@ import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.math.tanh
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -249,11 +254,20 @@ class InteractiveHighlight(
         Animatable(Offset.Zero, Offset.VectorConverter, Offset.VisibilityThreshold)
 
     private var startPosition = Offset.Zero
-    val pressProgress: Float get() = pressProgressAnimation.value
-    val offset: Offset get() = positionAnimation.value - startPosition
 
-    private var spotShader: android.graphics.RuntimeShader? = null
-    private var spotBrush: ShaderBrush? = null
+    // While the finger is down the light follows it through these plain states, written straight
+    // from the pointer handler (no coroutine or animation per move event). The Animatable only
+    // runs the settle back to the start on release.
+    private var trackingFinger by mutableStateOf(false)
+    private var fingerX by mutableFloatStateOf(0f)
+    private var fingerY by mutableFloatStateOf(0f)
+    private var settleJob: Job? = null
+
+    private val lightPosition: Offset
+        get() = if (trackingFinger) Offset(fingerX, fingerY) else positionAnimation.value
+
+    val pressProgress: Float get() = pressProgressAnimation.value
+    val offset: Offset get() = lightPosition - startPosition
 
     val modifier: Modifier = Modifier.drawWithContent {
         val progress = pressProgressAnimation.value
@@ -264,10 +278,11 @@ class InteractiveHighlight(
     private fun DrawScope.drawLight(progress: Float) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             drawRect(Color.White.copy(alpha = 0.08f * progress), blendMode = BlendMode.Plus)
-            val brush = obtainSpotBrush()
-            val shader = spotShader
-            if (brush != null && shader != null) {
-                val p = position(size, positionAnimation.value)
+            val spot = SpotLight.obtain()
+            if (spot != null) {
+                val shader = spot.shader
+                val brush = spot.brush
+                val p = position(size, lightPosition)
                 shader.setFloatUniform("size", size.width, size.height)
                 shader.setColorUniform(
                     "color",
@@ -289,37 +304,61 @@ class InteractiveHighlight(
     val gestureModifier: Modifier = Modifier.pointerInput(animationScope) {
         inspectDragGestures(
             onDragStart = { down ->
+                settleJob?.cancel()
+                settleJob = null
                 startPosition = down.position
+                fingerX = down.position.x
+                fingerY = down.position.y
+                trackingFinger = true
                 animationScope.launch {
                     launch { pressProgressAnimation.animateTo(1f, pressProgressAnimationSpec) }
-                    launch { positionAnimation.snapTo(startPosition) }
                 }
             },
             onDragEnd = { settle() },
             onDragCancel = { settle() }
         ) { change, _ ->
-            animationScope.launch { positionAnimation.snapTo(change.position) }
+            fingerX = change.position.x
+            fingerY = change.position.y
         }
     }
 
     private fun settle() {
-        animationScope.launch {
+        settleJob = animationScope.launch {
             launch { pressProgressAnimation.animateTo(0f, pressProgressAnimationSpec) }
-            launch { positionAnimation.animateTo(startPosition, positionAnimationSpec) }
+            launch {
+                // Hand the finger's last position to the Animatable, then spring home from it.
+                positionAnimation.snapTo(Offset(fingerX, fingerY))
+                trackingFinger = false
+                positionAnimation.animateTo(startPosition, positionAnimationSpec)
+            }
         }
     }
+}
 
-    private fun obtainSpotBrush(): ShaderBrush? {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return null
-        spotBrush?.let { return it }
-        return runCatching {
-            val shader = android.graphics.RuntimeShader(SpotShaderSource)
-            spotShader = shader
-            ShaderBrush(shader).also { spotBrush = it }
-        }.getOrNull()
-    }
+/**
+ * The press-light spot shader, compiled once per process on the first press of any glass control
+ * rather than once per control. Sharing one instance is safe: every draw sets all four uniforms
+ * right before drawing, and a recorded draw keeps the shader state it was recorded with. Main
+ * thread only, like the draws that use it.
+ */
+private class SpotLight private constructor(
+    val shader: android.graphics.RuntimeShader,
+    val brush: ShaderBrush
+) {
+    companion object {
+        private var instance: SpotLight? = null
+        private var failed = false
 
-    private companion object {
+        fun obtain(): SpotLight? {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return null
+            instance?.let { return it }
+            if (failed) return null
+            return runCatching {
+                val shader = android.graphics.RuntimeShader(SpotShaderSource)
+                SpotLight(shader, ShaderBrush(shader)).also { instance = it }
+            }.onFailure { failed = true }.getOrNull()
+        }
+
         const val SpotShaderSource = """
 uniform float2 size;
 layout(color) uniform half4 color;

@@ -13,14 +13,14 @@ import kotlinx.coroutines.flow.collectLatest
 @Composable
 internal fun PlayerAlbumNavigationEffect(
     navController: NavHostController,
-    sheetCollapsedTargetY: Float,
+    sheetCollapsedTargetYProvider: () -> Float,
     sheetMotionController: SheetMotionController,
     playerViewModel: PlayerViewModel
 ) {
-    val latestSheetCollapsedTargetY by rememberUpdatedState(sheetCollapsedTargetY)
+    val latestSheetCollapsedTargetY by rememberUpdatedState(sheetCollapsedTargetYProvider)
     LaunchedEffect(navController) {
         playerViewModel.albumNavigationRequests.collectLatest { albumId ->
-            sheetMotionController.snapCollapsed(latestSheetCollapsedTargetY)
+            sheetMotionController.snapCollapsed(latestSheetCollapsedTargetY())
             playerViewModel.collapsePlayerSheet()
 
             navController.navigateSafelyReplacing(
