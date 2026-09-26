@@ -1,6 +1,6 @@
 package com.theveloper.pixelplay.presentation.components
 
-import com.theveloper.pixelplay.ui.glass.GlassSwitch
+import androidx.compose.material3.Switch
 import androidx.compose.animation.animateColor
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
@@ -41,8 +41,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import com.theveloper.pixelplay.ui.glass.glassSheetContainerColor
-import com.theveloper.pixelplay.ui.glass.glassSheetSurface
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
@@ -100,10 +98,10 @@ fun LibrarySortBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
         dragHandle = { BottomSheetDefaults.DragHandle() },
-        containerColor = glassSheetContainerColor(MaterialTheme.colorScheme.surfaceContainerHigh),
+        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
         tonalElevation = 8.dp
     ) {
-        com.theveloper.pixelplay.ui.glass.GlassSheetContainer(modifier = Modifier.fillMaxWidth()) {
+        Box(modifier = Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -440,7 +438,7 @@ internal fun LibrarySheetToggleCard(
                 style = MaterialTheme.typography.bodyLarge,
                 color = if (checked) MaterialTheme.colorScheme.onTertiary else MaterialTheme.colorScheme.onSurface
             )
-            GlassSwitch(
+            Switch(
                 checked = checked,
                 onCheckedChange = onCheckedChange,
                 colors = SwitchDefaults.colors(

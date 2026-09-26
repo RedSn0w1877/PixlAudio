@@ -62,10 +62,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import com.theveloper.pixelplay.ui.glass.GlassSlider
-import com.theveloper.pixelplay.ui.glass.GlassSwitch
-import com.theveloper.pixelplay.ui.glass.glassSheetContainerColor
-import com.theveloper.pixelplay.ui.glass.glassSheetSurface
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalView
@@ -200,7 +196,7 @@ fun SwitchSettingItem(
                 )
             }
 
-            GlassSwitch(
+            Switch(
                 checked = checked,
                 onCheckedChange = { newValue ->
                     if (enabled) {
@@ -285,10 +281,10 @@ fun ThemeSelectorItem(
     if (showSheet) {
         androidx.compose.material3.ModalBottomSheet(
             onDismissRequest = { showSheet = false },
-            containerColor = glassSheetContainerColor(MaterialTheme.colorScheme.surface),
+            containerColor = MaterialTheme.colorScheme.surface,
             contentColor = MaterialTheme.colorScheme.onSurface
         ) {
-            com.theveloper.pixelplay.ui.glass.GlassSheetContainer(modifier = Modifier.fillMaxWidth()) {
+            Box(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(bottom = 24.dp)) {
                 Text(
                     text = label,
@@ -432,10 +428,10 @@ fun SearchableModelSelector(
                 showSheet = false
                 searchQuery = ""
             },
-            containerColor = glassSheetContainerColor(MaterialTheme.colorScheme.surface),
+            containerColor = MaterialTheme.colorScheme.surface,
             contentColor = MaterialTheme.colorScheme.onSurface
         ) {
-            com.theveloper.pixelplay.ui.glass.GlassSheetContainer(modifier = Modifier.fillMaxWidth()) {
+            Box(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(bottom = 24.dp)) {
                 Text(
                     text = label,
@@ -573,7 +569,7 @@ fun SliderSettingsItem(
                         softWrap = false
                 )
             }
-            GlassSlider(
+            Slider(
                 value = value,
                 onValueChange = onValueChange,
                 onValueChangeFinished = onValueChangeFinished,

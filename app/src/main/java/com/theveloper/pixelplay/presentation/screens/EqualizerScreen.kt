@@ -1,6 +1,6 @@
 package com.theveloper.pixelplay.presentation.screens
 
-import com.theveloper.pixelplay.ui.glass.GlassSlider
+import androidx.compose.material3.Slider
 import android.annotation.SuppressLint
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -106,7 +106,7 @@ import com.theveloper.pixelplay.presentation.viewmodel.EqualizerViewModel
 import com.theveloper.pixelplay.presentation.viewmodel.PlayerViewModel
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
-import com.theveloper.pixelplay.ui.glass.GlassSwitch
+import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material.icons.rounded.VolumeUp
 import androidx.compose.material.icons.rounded.GraphicEq
@@ -1303,7 +1303,7 @@ private fun EffectCard(
                 }
             }
             
-            GlassSwitch(
+            Switch(
                 checked = isEnabled,
                 onCheckedChange = onEnabledChange,
                 modifier = Modifier.scale(0.8f) 
@@ -1457,7 +1457,7 @@ private fun IndividualEffectRow(
                     color = MaterialTheme.colorScheme.onSurface
                 )
             }
-            GlassSwitch(
+            Switch(
                 checked = isEnabled,
                 onCheckedChange = onEnabledChange,
                 thumbContent = if (isEnabled) {
@@ -1474,7 +1474,7 @@ private fun IndividualEffectRow(
         
         Spacer(modifier = Modifier.height(8.dp))
         
-        GlassSlider(
+        Slider(
             value = strength.toFloat(),
             onValueChange = { onStrengthChange(it.roundToInt()) },
             valueRange = 0f..maxStrength.toFloat(),
@@ -1530,7 +1530,7 @@ private fun VolumeControlCard(
                 )
                 
                 Column(modifier = Modifier.weight(1f)) {
-                    GlassSlider(
+                    Slider(
                         value = volume,
                         onValueChange = { newValue ->
                             // Subtle haptic feedback on each 5% change

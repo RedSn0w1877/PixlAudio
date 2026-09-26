@@ -1,9 +1,5 @@
 package com.theveloper.pixelplay.presentation.spotify.browse
 
-import com.theveloper.pixelplay.ui.glass.GlassIconButton
-import com.theveloper.pixelplay.ui.glass.GlassScaffold
-import com.theveloper.pixelplay.ui.glass.isGlassEnabled
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -40,6 +36,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
@@ -101,41 +98,18 @@ fun SpotifyBrowseScreen(
         if (!viewModel.goBack()) onBackClick()
     }
 
-    // Glass mode: the body is recorded and the bar is transparent chrome with a glass back
-    // button. The search field and list start below it, so there is no scroll edge.
-    // Material 3: the same Scaffold and bar as always.
-    val glassBar = isGlassEnabled
-    GlassScaffold(
-        topChrome = {
+    Scaffold(
+        topBar = {
             TopAppBar(
                 title = { Text(titleFor(uiState.level)) },
                 navigationIcon = {
-                    if (glassBar) {
-                        GlassIconButton(
-                            onClick = { if (!viewModel.goBack()) onBackClick() },
-                            modifier = Modifier.padding(start = 4.dp),
-                            size = 40.dp
-                        ) {
-                            Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
-                        }
-                    } else {
-                        IconButton(onClick = { if (!viewModel.goBack()) onBackClick() }) {
-                            Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
-                        }
+                    IconButton(onClick = { if (!viewModel.goBack()) onBackClick() }) {
+                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
                     }
-                },
-                colors = if (glassBar) {
-                    TopAppBarDefaults.topAppBarColors(
-                        containerColor = Color.Transparent,
-                        scrolledContainerColor = Color.Transparent
-                    )
-                } else {
-                    TopAppBarDefaults.topAppBarColors()
                 }
             )
         },
-        snackbarHost = { SnackbarHost(snackbarHostState) },
-        scrollEdge = false
+        snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { innerPadding ->
         Column(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
             if (uiState.isLoading) {

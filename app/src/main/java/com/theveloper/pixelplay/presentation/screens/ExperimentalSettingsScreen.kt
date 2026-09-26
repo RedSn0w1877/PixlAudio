@@ -3,7 +3,7 @@ package com.theveloper.pixelplay.presentation.screens
 import com.theveloper.pixelplay.ui.glass.GlassCapability
 import com.theveloper.pixelplay.ui.glass.LocalGlassCapability
 import androidx.compose.runtime.mutableFloatStateOf
-import com.theveloper.pixelplay.ui.glass.GlassSlider
+import androidx.compose.material3.Slider
 import androidx.annotation.OptIn
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
@@ -328,7 +328,7 @@ fun ExperimentalSettingsScreen(
                                                     }
                                                 }
 
-                                                GlassSlider(
+                                                Slider(
                                                     value = lyricsBlurLive.display(uiState.animatedLyricsBlurStrength),
                                                     onValueChange = {
                                                         lyricsBlurLive.onChange(it)
@@ -467,7 +467,7 @@ fun ExperimentalSettingsScreen(
                                     // release. The dial feeds a static composition local, so
                                     // committing every drag frame would recompose the whole app
                                     // and write DataStore 60+ times a second.
-                                    GlassSlider(
+                                    Slider(
                                         value = glassIntensityDraft,
                                         onValueChange = { glassIntensityDraft = it },
                                         onValueChangeFinished = {
@@ -541,7 +541,7 @@ fun ExperimentalSettingsScreen(
                                         }
                                     }
 
-                                    GlassSlider(
+                                    Slider(
                                         value = vocalAttenuationLive.display(taisVocalAttenuation),
                                         onValueChange = {
                                             vocalAttenuationLive.onChange(it)
@@ -958,7 +958,7 @@ fun ExperimentalSettingsScreen(
                                                         }
                                                     }
 
-                                                    GlassSlider(
+                                                    Slider(
                                                         value = appearThresholdLive.display(appearThresholdPercent.toFloat()),
                                                         onValueChange = {
                                                             appearThresholdLive.onChange(it)
@@ -1037,7 +1037,7 @@ fun ExperimentalSettingsScreen(
                                                             }
                                                         }
 
-                                                        GlassSlider(
+                                                        Slider(
                                                             value = closeThresholdLive.display(closeThresholdPercent.toFloat()),
                                                             onValueChange = {
                                                                 closeThresholdLive.onChange(it)

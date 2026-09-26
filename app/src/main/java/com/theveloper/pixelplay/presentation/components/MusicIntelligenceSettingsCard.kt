@@ -1,8 +1,5 @@
 package com.theveloper.pixelplay.presentation.components
 
-import com.theveloper.pixelplay.ui.glass.GlassAlertDialog
-import com.theveloper.pixelplay.ui.glass.GlassSwitch
-import com.theveloper.pixelplay.ui.glass.GlassSlider
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -11,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -19,6 +17,8 @@ import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -62,7 +62,7 @@ fun MusicIntelligenceSettingsCard(viewModel: MusicIntelligenceViewModel = hiltVi
             IntelligenceToggle(stringResource(R.string.music_intelligence_learning), state.learningEnabled, viewModel::setLearning)
             IntelligenceToggle(stringResource(R.string.music_intelligence_discovery), state.discoveryEnabled, viewModel::setDiscovery)
             Text(stringResource(R.string.music_intelligence_exploration, (exploration * 100).toInt()), style = MaterialTheme.typography.titleSmall)
-            GlassSlider(
+            Slider(
                 value = exploration, onValueChange = { exploration = it }, valueRange = 0f..0.6f,
                 steps = 11, onValueChangeFinished = { viewModel.setExploration(exploration) }
             )
@@ -104,7 +104,7 @@ fun MusicIntelligenceSettingsCard(viewModel: MusicIntelligenceViewModel = hiltVi
         }
     }
     if (resetDialog) {
-        GlassAlertDialog(
+        AlertDialog(
             onDismissRequest = { resetDialog = false },
             title = { Text(stringResource(R.string.music_intelligence_reset)) },
             text = { Text(stringResource(R.string.music_intelligence_reset_description)) },
@@ -118,6 +118,6 @@ fun MusicIntelligenceSettingsCard(viewModel: MusicIntelligenceViewModel = hiltVi
 private fun IntelligenceToggle(title: String, checked: Boolean, onChanged: (Boolean) -> Unit) {
     Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(title, modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
-        GlassSwitch(checked = checked, onCheckedChange = onChanged, modifier = Modifier.semantics { contentDescription = title })
+        Switch(checked = checked, onCheckedChange = onChanged, modifier = Modifier.semantics { contentDescription = title })
     }
 }

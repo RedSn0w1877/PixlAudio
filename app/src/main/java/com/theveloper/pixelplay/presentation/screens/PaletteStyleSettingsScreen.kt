@@ -1,6 +1,5 @@
 package com.theveloper.pixelplay.presentation.screens
 
-import com.theveloper.pixelplay.ui.glass.GlassSlider
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -38,6 +37,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -682,11 +682,11 @@ private fun PaletteAccuracySlider(
             }
         }
 
-        GlassSlider(
+        Slider(
             value = clampedValue.toFloat(),
             onValueChange = {
                 val nextValue = AlbumArtColorAccuracy.clamp(it.roundToInt())
-                if (nextValue == lastDispatchedValue) return@GlassSlider
+                if (nextValue == lastDispatchedValue) return@Slider
 
                 if (hapticsEnabled) {
                     hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)

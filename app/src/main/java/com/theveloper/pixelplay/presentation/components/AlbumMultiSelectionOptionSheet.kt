@@ -37,8 +37,6 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import com.theveloper.pixelplay.ui.glass.glassSheetContainerColor
-import com.theveloper.pixelplay.ui.glass.glassSheetSurface
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
@@ -68,11 +66,11 @@ fun AlbumMultiSelectionOptionSheet(
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     ModalBottomSheet(
-        containerColor = com.theveloper.pixelplay.ui.glass.glassSheetContainerColor(),
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
         onDismissRequest = onDismiss,
         sheetState = sheetState
     ) {
-        com.theveloper.pixelplay.ui.glass.GlassSheetContainer(modifier = Modifier.fillMaxWidth()) {
+        Box(modifier = Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()

@@ -1,6 +1,5 @@
 package com.theveloper.pixelplay.presentation.screens
 
-import com.theveloper.pixelplay.ui.glass.GlassSwitch
 import android.content.Intent
 import android.text.format.Formatter
 import android.widget.Toast
@@ -57,6 +56,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -466,7 +466,7 @@ private fun AdvancedDiagnosticsToggleRow(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            GlassSwitch(
+            Switch(
                 checked = enabled,
                 onCheckedChange = onEnabledChange
             )

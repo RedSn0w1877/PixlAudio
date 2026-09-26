@@ -48,7 +48,7 @@ import androidx.compose.ui.unit.sp
 import com.theveloper.pixelplay.R
 import com.theveloper.pixelplay.presentation.viewmodel.LyricsSyncEditorStateHolder
 import com.theveloper.pixelplay.presentation.viewmodel.SyncUiState
-import com.theveloper.pixelplay.ui.glass.GlassAlertDialog
+import androidx.compose.material3.AlertDialog
 
 /** "Paste the lyrics" (spec §2.3). */
 @Composable
@@ -151,7 +151,7 @@ internal fun SyncWordsEntryScreen(
     }
 
     ui.searchHits?.let { hits ->
-        GlassAlertDialog(
+        AlertDialog(
             onDismissRequest = holder::clearSearchHits,
             title = { Text(stringResource(R.string.lyrics_sync_pick_result)) },
             text = {
@@ -189,7 +189,7 @@ internal fun SyncWordsEntryScreen(
     }
 
     if (confirmTooLong) {
-        GlassAlertDialog(
+        AlertDialog(
             onDismissRequest = { confirmTooLong = false },
             text = { Text(stringResource(R.string.lyrics_sync_too_long)) },
             confirmButton = {

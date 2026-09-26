@@ -1,6 +1,6 @@
 package com.theveloper.pixelplay.presentation.components
 
-import com.theveloper.pixelplay.ui.glass.GlassSlider
+import androidx.compose.material3.Slider
 import android.Manifest
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
@@ -99,8 +99,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import com.theveloper.pixelplay.ui.glass.glassSheetContainerColor
-import com.theveloper.pixelplay.ui.glass.glassSheetSurface
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
@@ -346,19 +344,14 @@ fun CastBottomSheet(
     }
 
     ModalBottomSheet(
-        // NOT Modifier.glassSheetSurface() — applied to ModalBottomSheet's own `modifier`,
-        // that helper breaks the sheet's content-driven height (confirmed via A/B test on
-        // SongInfoBottomSheet: with it, the sheet freezes at an undersized measurement and
-        // silently truncates everything past the first row). GlassSheetContainer below
-        // draws the same glass from inside an already-correctly-sized Surface instead.
         onDismissRequest = onDismiss,
         sheetState = sheetState,
         dragHandle = { BottomSheetDefaults.DragHandle() },
         shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
-        containerColor = glassSheetContainerColor(MaterialTheme.colorScheme.surfaceContainerLow),
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
         tonalElevation = 12.dp
     ) {
-        com.theveloper.pixelplay.ui.glass.GlassSheetContainer(modifier = Modifier.fillMaxWidth()) {
+        Box(modifier = Modifier.fillMaxWidth()) {
         // AQUÍ APLICAMOS EL FIX: Anulamos la fábrica de overscroll para todo lo que esté aquí adentro
         CompositionLocalProvider(
             LocalOverscrollFactory provides null
@@ -1438,7 +1431,7 @@ private fun ActiveDeviceHero(
                     )
                 }
                 val interactionSource = remember { MutableInteractionSource() }
-                GlassSlider(
+                Slider(
                     value = sliderValue.coerceIn(device.volumeRange.start, device.volumeRange.endInclusive),
                     onValueChange = { newValue ->
                         sliderValue = newValue

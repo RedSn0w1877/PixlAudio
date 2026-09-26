@@ -1,6 +1,6 @@
 package com.theveloper.pixelplay.presentation.screens
 
-import com.theveloper.pixelplay.ui.glass.GlassSlider
+import androidx.compose.material3.Slider
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -54,7 +54,7 @@ import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
-import com.theveloper.pixelplay.ui.glass.GlassSwitch
+import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
@@ -326,7 +326,7 @@ private fun TransitionSummaryCard(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
-                        GlassSwitch(
+                        Switch(
                             checked = !followingGlobal,
                             onCheckedChange = { isEnabled -> if (isEnabled) onEnableOverride() else onResetToGlobal() },
                             enabled = enabled
@@ -477,7 +477,7 @@ private fun TransitionDurationSection(
         // Visualizador contextual de canciones
         CrossfadeVisualizer(durationMs = settings.durationMs)
 
-        GlassSlider(
+        Slider(
             value = settings.durationMs.toFloat(),
             onValueChange = { onDurationChange(it.toInt()) },
             valueRange = 0f..12000f,

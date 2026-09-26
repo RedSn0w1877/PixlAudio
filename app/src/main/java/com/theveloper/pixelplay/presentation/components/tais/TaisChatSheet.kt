@@ -1,7 +1,5 @@
 package com.theveloper.pixelplay.presentation.components.tais
 
-import com.theveloper.pixelplay.ui.glass.GlassSheetContainer
-import com.theveloper.pixelplay.ui.glass.glassSheetContainerColor
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -106,14 +104,12 @@ fun TaisChatSheet(
         Brush.linearGradient(listOf(sparklePrimary, sparkleTertiary))
     }
 
-    // Liquid Glass: the sheet itself is glass (GlassSheetContainer on a transparent container) and
-    // everything on it sits on glass. Material 3: the default container, exactly as before.
     ModalBottomSheet(
         onDismissRequest = onDismissRequest,
         sheetState = sheetState,
-        containerColor = glassSheetContainerColor()
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow
     ) {
-        GlassSheetContainer(modifier = Modifier.fillMaxWidth()) {
+        Box(modifier = Modifier.fillMaxWidth()) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()

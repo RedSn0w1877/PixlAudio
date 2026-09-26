@@ -1,7 +1,6 @@
 
 package com.theveloper.pixelplay.presentation.screens
 
-import com.theveloper.pixelplay.ui.glass.GlassSwitch
 import android.Manifest
 import android.content.Context
 import android.content.Intent
@@ -96,6 +95,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MediumExtendedFloatingActionButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.ripple
@@ -1262,7 +1262,7 @@ fun LibraryLayoutPage(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
-                    GlassSwitch(
+                    Switch(
                         checked = isCompact,
                         onCheckedChange = { checked ->
                             onModeSelected(if (checked) "compact_pill" else "tab_row")
@@ -2448,7 +2448,7 @@ fun NavBarLayoutPage(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
-                        GlassSwitch(
+                        Switch(
                             checked = isDefault,
                             onCheckedChange = { checked ->
                                 onModeSelected(if (checked) "default" else "full_width")

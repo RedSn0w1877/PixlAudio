@@ -1,6 +1,5 @@
 package com.theveloper.pixelplay.presentation.components.subcomps
 
-import com.theveloper.pixelplay.ui.glass.GlassSwitch
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -33,6 +32,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -230,7 +230,7 @@ private fun IdleContent(
                     color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.75f)
                 )
             }
-            GlassSwitch(
+            Switch(
                 checked = forcePickResults,
                 onCheckedChange = onToggleForcePickResults,
                 colors = SwitchDefaults.colors(

@@ -6,8 +6,6 @@
 
 package com.theveloper.pixelplay.presentation.components
 
-import com.theveloper.pixelplay.ui.glass.GlassAlertDialog
-import com.theveloper.pixelplay.ui.glass.GlassSwitch
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.MutableTransitionState
@@ -46,6 +44,7 @@ import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Key
 import androidx.compose.material.icons.automirrored.rounded.PlaylistAdd
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.BottomAppBar
@@ -74,6 +73,7 @@ import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -940,7 +940,7 @@ private fun ChipsSingleSelect(
     
     // Custom input dialog
     if (showCustomDialog) {
-        GlassAlertDialog(
+        AlertDialog(
             onDismissRequest = { showCustomDialog = false },
             icon = { Icon(Icons.Rounded.Add, null) },
             title = { Text(stringResource(R.string.playlist_creation_ai_enter_custom_title)) },
@@ -1067,7 +1067,7 @@ private fun ToggleRow(
             style = MaterialTheme.typography.bodyMedium,
             modifier = Modifier.weight(1f)
         )
-        GlassSwitch(
+        Switch(
             checked = checked,
             enabled = enabled,
             onCheckedChange = onCheckedChange

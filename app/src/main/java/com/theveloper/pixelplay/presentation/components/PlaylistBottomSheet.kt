@@ -35,8 +35,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import com.theveloper.pixelplay.ui.glass.glassSheetContainerColor
-import com.theveloper.pixelplay.ui.glass.glassSheetSurface
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.stringResource
@@ -110,12 +108,12 @@ fun PlaylistBottomSheet(
     )
 
     ModalBottomSheet(
-        containerColor = com.theveloper.pixelplay.ui.glass.glassSheetContainerColor(),
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
         onDismissRequest = onDismiss,
         sheetState = sheetState,
         contentWindowInsets = { BottomSheetDefaults.modalWindowInsets } // Manejo de insets como el teclado
     ) {
-        com.theveloper.pixelplay.ui.glass.GlassSheetContainer {
+        Box(modifier = Modifier.fillMaxWidth()) {
         Box(modifier = Modifier.fillMaxSize()) {
 
             Column {

@@ -1,6 +1,6 @@
 package com.theveloper.pixelplay.presentation.screens
 
-import com.theveloper.pixelplay.ui.glass.GlassAlertDialog
+import androidx.compose.material3.AlertDialog
 import com.theveloper.pixelplay.ui.glass.GlassGroup
 import com.theveloper.pixelplay.ui.glass.GlassIconButton
 import com.theveloper.pixelplay.ui.glass.GlassScaffold
@@ -93,8 +93,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import com.theveloper.pixelplay.ui.glass.glassSheetContainerColor
-import com.theveloper.pixelplay.ui.glass.glassSheetSurface
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.BlendMode
@@ -869,7 +867,7 @@ fun PlaylistDetailScreen(
         ModalBottomSheet(
             onDismissRequest = { showPlaylistOptionsSheet = false },
             sheetState = sheetState,
-            containerColor = glassSheetContainerColor(MaterialTheme.colorScheme.surfaceContainerLow),
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
             tonalElevation = 4.dp,
 //            dragHandle = {
 //                SheetDefaults.DragHandle(
@@ -877,7 +875,7 @@ fun PlaylistDetailScreen(
 //                )
 //            }
         ) {
-            com.theveloper.pixelplay.ui.glass.GlassSheetContainer(modifier = Modifier.fillMaxWidth()) {
+            Box(modifier = Modifier.fillMaxWidth()) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1004,7 +1002,7 @@ fun PlaylistDetailScreen(
         )
     }
     if (showDeleteConfirmation && currentPlaylist != null) {
-        GlassAlertDialog(
+        AlertDialog(
             onDismissRequest = { showDeleteConfirmation = false },
             title = { Text(deletePlaylistConfirmTitle) },
             text = {

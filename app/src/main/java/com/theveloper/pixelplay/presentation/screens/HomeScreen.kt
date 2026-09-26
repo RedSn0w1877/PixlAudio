@@ -60,8 +60,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import com.theveloper.pixelplay.ui.glass.glassSheetContainerColor
-import com.theveloper.pixelplay.ui.glass.glassSheetSurface
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -586,34 +584,34 @@ fun HomeScreen(
     }
     if (showChangelogBottomSheet) {
         ModalBottomSheet(
-            containerColor = com.theveloper.pixelplay.ui.glass.glassSheetContainerColor(),
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
             onDismissRequest = { showChangelogBottomSheet = false },
             sheetState = sheetState
         ) {
-            com.theveloper.pixelplay.ui.glass.GlassSheetContainer(modifier = Modifier.fillMaxWidth()) {
+            Box(modifier = Modifier.fillMaxWidth()) {
             ChangelogBottomSheet()
             }
         }
     }
     if (showJobsBottomSheet) {
         ModalBottomSheet(
-            containerColor = com.theveloper.pixelplay.ui.glass.glassSheetContainerColor(),
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
             onDismissRequest = { showJobsBottomSheet = false },
             sheetState = jobsSheetState
         ) {
-            com.theveloper.pixelplay.ui.glass.GlassSheetContainer(modifier = Modifier.fillMaxWidth()) {
+            Box(modifier = Modifier.fillMaxWidth()) {
                 com.theveloper.pixelplay.presentation.components.JobsBottomSheet(jobs = activeJobs)
             }
         }
     }
     if (showBetaInfoBottomSheet) {
         ModalBottomSheet(
-            containerColor = com.theveloper.pixelplay.ui.glass.glassSheetContainerColor(),
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
             onDismissRequest = { showBetaInfoBottomSheet = false },
             sheetState = betaSheetState,
             //contentWindowInsets = { WindowInsets.statusBars.only(WindowInsets.statusBars) }
         ) {
-            com.theveloper.pixelplay.ui.glass.GlassSheetContainer(modifier = Modifier.fillMaxWidth()) {
+            Box(modifier = Modifier.fillMaxWidth()) {
             BetaInfoBottomSheet()
             }
         }

@@ -2,10 +2,8 @@
 
 package com.theveloper.pixelplay.presentation.screens
 
-import com.theveloper.pixelplay.ui.glass.GlassChrome
 import com.theveloper.pixelplay.ui.glass.GlassScreenLayer
 import com.theveloper.pixelplay.ui.glass.rememberGlassScreenBackdrop
-import com.theveloper.pixelplay.presentation.components.GlassDetailBackButton
 import com.theveloper.pixelplay.presentation.navigation.navigateSafely
 import com.theveloper.pixelplay.presentation.navigation.navigateSafelyReplacing
 
@@ -387,7 +385,6 @@ fun AlbumDetailScreen(
                                         }
                                     },
                                     onBackPressed = { navController.popBackStack() },
-                                    showNavigationControls = screenGlass == null,
                                     onPlayClick = {
                                         if (songs.isNotEmpty()) {
                                             val randomSong = songs.random()
@@ -416,14 +413,6 @@ fun AlbumDetailScreen(
                                     }
                                 )
                             }
-                        }
-                    }
-                    if (screenGlass != null) {
-                        GlassChrome(screenGlass, scrollEdge = false) {
-                            GlassDetailBackButton(
-                                onClick = { navController.popBackStack() },
-                                modifier = Modifier.align(Alignment.TopStart)
-                            )
                         }
                     }
                 }
@@ -535,7 +524,6 @@ private fun SharedAlbumTopBarProbe(
     headerImageRequestSize: Size,
     onHeaderArtworkState: ((AsyncImagePainter.State) -> Unit)? = null,
     onBackPressed: () -> Unit,
-    showNavigationControls: Boolean = true,
     onPlayClick: () -> Unit
 ) {
     val surfaceColor = MaterialTheme.colorScheme.surface
@@ -630,8 +618,7 @@ private fun SharedAlbumTopBarProbe(
             contentColor = MaterialTheme.colorScheme.onSurface,
             subtitleColor = MaterialTheme.colorScheme.onSurfaceVariant,
             fadeSubtitleOnCollapse = false,
-            syncStatusBarWithContainer = false,
-            showNavigationControls = showNavigationControls
+            syncStatusBarWithContainer = false
         )
 
         LargeExtendedFloatingActionButton(

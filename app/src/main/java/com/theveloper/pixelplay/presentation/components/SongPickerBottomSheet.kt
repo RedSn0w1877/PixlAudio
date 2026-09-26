@@ -65,8 +65,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import com.theveloper.pixelplay.ui.glass.glassSheetContainerColor
-import com.theveloper.pixelplay.ui.glass.glassSheetSurface
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -116,8 +114,8 @@ fun SongPickerBottomSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        containerColor = glassSheetContainerColor(MaterialTheme.colorScheme.surface),
-        modifier = Modifier.fillMaxSize().glassSheetSurface()
+        containerColor = MaterialTheme.colorScheme.surface,
+        modifier = Modifier.fillMaxSize()
     ) {
         SongPickerContent(
             selectedSongIds = selectedSongIds,

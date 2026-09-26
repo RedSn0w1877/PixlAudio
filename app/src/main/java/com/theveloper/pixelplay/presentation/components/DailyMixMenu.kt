@@ -1,5 +1,7 @@
 package com.theveloper.pixelplay.presentation.components
 
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -18,8 +20,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import com.theveloper.pixelplay.ui.glass.glassSheetContainerColor
-import com.theveloper.pixelplay.ui.glass.glassSheetSurface
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.theveloper.pixelplay.R
@@ -37,11 +37,11 @@ fun DailyMixMenu(
     var prompt by remember { mutableStateOf("") }
 
     ModalBottomSheet(
-        containerColor = com.theveloper.pixelplay.ui.glass.glassSheetContainerColor(),
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
         onDismissRequest = onDismiss,
         sheetState = sheetState
     ) {
-        com.theveloper.pixelplay.ui.glass.GlassSheetContainer(modifier = Modifier.fillMaxWidth()) {
+        Box(modifier = Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()

@@ -2,7 +2,7 @@
 
 package com.theveloper.pixelplay.presentation.screens
 
-import com.theveloper.pixelplay.ui.glass.GlassAlertDialog
+import androidx.compose.material3.AlertDialog
 import com.theveloper.pixelplay.ui.glass.GlassIconButton
 import com.theveloper.pixelplay.ui.glass.GlassScaffold
 import com.theveloper.pixelplay.ui.glass.isGlassEnabled
@@ -97,8 +97,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import com.theveloper.pixelplay.ui.glass.glassSheetContainerColor
-import com.theveloper.pixelplay.ui.glass.glassSheetSurface
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.scale
@@ -2007,7 +2005,7 @@ fun LibraryScreen(
     if (showMergePlaylistDialog && pendingMergePlaylistIds.isNotEmpty()) {
         var mergePlaylistName by remember { mutableStateOf("") }
 
-        GlassAlertDialog(
+        AlertDialog(
             onDismissRequest = {
                 showMergePlaylistDialog = false
                 pendingMergePlaylistIds = emptyList()
@@ -2556,9 +2554,9 @@ private fun LibraryTabSwitcherSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        containerColor = glassSheetContainerColor(MaterialTheme.colorScheme.surface),
+        containerColor = MaterialTheme.colorScheme.surface,
     ) {
-        com.theveloper.pixelplay.ui.glass.GlassSheetContainer(modifier = Modifier.fillMaxWidth()) {
+        Box(modifier = Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()

@@ -1,6 +1,5 @@
 package com.theveloper.pixelplay.presentation.screens
 
-import com.theveloper.pixelplay.ui.glass.GlassAlertDialog
 import android.widget.Toast
 import androidx.compose.ui.res.stringResource
 import com.theveloper.pixelplay.R
@@ -35,6 +34,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.RestartAlt
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -384,7 +384,7 @@ fun WordDelimiterConfigScreen(
         )
 
         if (showResetDialog) {
-            GlassAlertDialog(
+            AlertDialog(
                 onDismissRequest = { showResetDialog = false },
                 title = {
                     Text(

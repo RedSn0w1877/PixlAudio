@@ -2,7 +2,7 @@
 
 package com.theveloper.pixelplay.presentation.components
 
-import com.theveloper.pixelplay.ui.glass.GlassAlertDialog
+import androidx.compose.material3.AlertDialog
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -45,8 +45,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import com.theveloper.pixelplay.ui.glass.glassSheetContainerColor
-import com.theveloper.pixelplay.ui.glass.glassSheetSurface
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalView
@@ -83,7 +81,7 @@ fun ReorderTabsSheet(
     }
 
     if (showResetDialog) {
-        GlassAlertDialog(
+        AlertDialog(
             onDismissRequest = { showResetDialog = false },
             title = { Text(stringResource(R.string.reorder_tabs_reset_dialog_title)) },
             text = { Text(stringResource(R.string.reorder_tabs_reset_dialog_body)) },
@@ -133,9 +131,9 @@ fun ReorderTabsSheet(
     ModalBottomSheet(
         onDismissRequest = { onDismiss() },
         sheetState = sheetState,
-        containerColor = glassSheetContainerColor(MaterialTheme.colorScheme.surface)
+        containerColor = MaterialTheme.colorScheme.surface
     ) {
-        com.theveloper.pixelplay.ui.glass.GlassSheetContainer {
+        Box(modifier = Modifier.fillMaxWidth()) {
         Scaffold(
             topBar = {
                 Row(
@@ -169,9 +167,7 @@ fun ReorderTabsSheet(
                 )
             },
             floatingActionButtonPosition = FabPosition.Center,
-            // Scaffold's own background is opaque by default and would paint over the glass
-            // GlassSheetContainer just drew behind it.
-            containerColor = com.theveloper.pixelplay.ui.glass.glassSheetContainerColor(MaterialTheme.colorScheme.surface)
+            containerColor = MaterialTheme.colorScheme.surface
         ) { paddingValues ->
             Box(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
                 if (isLoading) {

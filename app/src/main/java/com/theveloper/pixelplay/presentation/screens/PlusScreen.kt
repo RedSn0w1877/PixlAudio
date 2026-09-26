@@ -1,6 +1,5 @@
 package com.theveloper.pixelplay.presentation.screens
 
-import com.theveloper.pixelplay.ui.glass.GlassAlertDialog
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -40,6 +39,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CenterAlignedTopAppBar
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -173,7 +173,7 @@ fun PlusScreen(
         }
     }
     if (showCheckoutPreview) {
-        GlassAlertDialog(
+        AlertDialog(
             onDismissRequest = { showCheckoutPreview = false },
             title = { Text("Plus checkout preview") },
             text = { Text("The secure supporter checkout is not connected in this build yet. It will open here after the hosted checkout URL and receipt verification are deployed. Nothing was charged.") },
@@ -183,7 +183,7 @@ fun PlusScreen(
         )
     }
     if (showAmountPicker) {
-        GlassAlertDialog(
+        AlertDialog(
             onDismissRequest = { showAmountPicker = false },
             title = { Text("Choose your support") },
             text = {

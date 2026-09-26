@@ -1,8 +1,8 @@
 package com.theveloper.pixelplay.presentation.components
 
-import com.theveloper.pixelplay.ui.glass.GlassAlertDialog
-import com.theveloper.pixelplay.ui.glass.GlassSwitch
-import com.theveloper.pixelplay.ui.glass.GlassSlider
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Slider
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
@@ -44,8 +44,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import com.theveloper.pixelplay.ui.glass.glassSheetContainerColor
-import com.theveloper.pixelplay.ui.glass.glassSheetSurface
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -114,11 +112,11 @@ fun TimerOptionsBottomSheet(
     }
 
     ModalBottomSheet(
-        containerColor = com.theveloper.pixelplay.ui.glass.glassSheetContainerColor(),
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
         onDismissRequest = onDismiss,
         sheetState = sheetState
     ) {
-        com.theveloper.pixelplay.ui.glass.GlassSheetContainer(modifier = Modifier.fillMaxWidth()) {
+        Box(modifier = Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier
                 .padding(horizontal = 18.dp, vertical = 4.dp)
@@ -174,7 +172,7 @@ fun TimerOptionsBottomSheet(
                             )
                         )
                 ) {
-                    GlassSlider(
+                    Slider(
                         value = timerSliderPosition,
                         onValueChange = {
                             timerSliderPosition = it
@@ -255,7 +253,7 @@ fun TimerOptionsBottomSheet(
                             shape = RoundedCornerShape(18.dp)
                         )
                 ) {
-                    GlassSlider(
+                    Slider(
                         value = counterSliderPosition,
                         onValueChange = {
                             counterSliderPosition = it
@@ -323,7 +321,7 @@ fun TimerOptionsBottomSheet(
                             .padding(end = 8.dp),
                         color = if (isSwitchEnabled) MaterialTheme.colorScheme.onTertiary else MaterialTheme.colorScheme.onSurface // Adjust text color for contrast
                     )
-                    GlassSwitch(
+                    Switch(
                         checked = isSwitchEnabled,
                         enabled = isTimerMode || counterSliderPosition == 1f,
                         onCheckedChange = {
@@ -415,7 +413,7 @@ fun TimerOptionsBottomSheet(
             is24Hour = true // Consistent with your previous setting (24-hour format)
         )
 
-        GlassAlertDialog(
+        AlertDialog(
             onDismissRequest = {
                 showCustomTimePicker = false // Dismiss the M3 dialog
                 // No need to call onDismiss() for the bottom sheet here,

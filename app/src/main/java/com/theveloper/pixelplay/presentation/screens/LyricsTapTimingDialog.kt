@@ -25,15 +25,15 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.theveloper.pixelplay.R
 import com.theveloper.pixelplay.data.preferences.UserPreferencesRepository
 import com.theveloper.pixelplay.presentation.viewmodel.SettingsViewModel
-import com.theveloper.pixelplay.ui.glass.GlassAlertDialog
-import com.theveloper.pixelplay.ui.glass.GlassSwitch
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Switch
 
 /** Settings -> Lyrics -> "Tap timing": the reaction time taken off every tap, plus haptics. */
 @Composable
 internal fun LyricsTapTimingDialog(settingsViewModel: SettingsViewModel, onDismiss: () -> Unit) {
     val offsetMs by settingsViewModel.lyricsTapOffsetMs.collectAsStateWithLifecycle()
     val haptics by settingsViewModel.lyricsSyncHaptics.collectAsStateWithLifecycle()
-    GlassAlertDialog(
+    AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.settings_lyrics_tap_timing)) },
         text = {
@@ -74,7 +74,7 @@ internal fun LyricsTapTimingDialog(settingsViewModel: SettingsViewModel, onDismi
                         text = stringResource(R.string.settings_lyrics_tap_haptics),
                         modifier = Modifier.weight(1f)
                     )
-                    GlassSwitch(checked = haptics, onCheckedChange = settingsViewModel::setLyricsSyncHaptics)
+                    Switch(checked = haptics, onCheckedChange = settingsViewModel::setLyricsSyncHaptics)
                 }
             }
         },

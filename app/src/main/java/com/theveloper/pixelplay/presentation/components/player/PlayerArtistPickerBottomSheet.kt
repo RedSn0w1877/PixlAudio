@@ -29,8 +29,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import com.theveloper.pixelplay.ui.glass.glassSheetContainerColor
-import com.theveloper.pixelplay.ui.glass.glassSheetSurface
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -99,10 +97,10 @@ internal fun PlayerArtistPickerBottomSheet(
                 color = colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
             )
         },
-        containerColor = com.theveloper.pixelplay.ui.glass.glassSheetContainerColor(colorScheme.surfaceContainerHigh),
+        containerColor = colorScheme.surfaceContainerHigh,
         tonalElevation = 8.dp
     ) {
-        com.theveloper.pixelplay.ui.glass.GlassSheetContainer(modifier = Modifier.fillMaxWidth()) {
+        Box(modifier = Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()

@@ -68,8 +68,6 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import com.theveloper.pixelplay.ui.glass.glassSheetContainerColor
-import com.theveloper.pixelplay.ui.glass.glassSheetSurface
 import com.theveloper.pixelplay.ui.glass.glassClickable
 import com.theveloper.pixelplay.ui.glass.glassFill
 import androidx.compose.ui.draw.clip
@@ -377,14 +375,7 @@ fun SongInfoBottomSheet(
         ).coerceAtLeast(280.dp)
 
     ModalBottomSheet(
-        // NOT Modifier.glassSheetSurface() here. Applied directly to ModalBottomSheet's own
-        // `modifier`, that helper's drawBackdrop() call breaks the sheet's own content-driven
-        // height: the Surface freezes at whatever undersized measurement drawBackdrop first
-        // reports and never grows to fit real content, silently truncating everything past
-        // roughly the first row of actions — confirmed by A/B testing this exact sheet with
-        // and without it. GlassSheetContainer below draws the same glass but from *inside*
-        // an already-correctly-sized Surface, which doesn't have this failure mode.
-        containerColor = glassSheetContainerColor(),
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
         onDismissRequest = {
             android.util.Log.d("PixelPlayerDebug", "ModalBottomSheet: onDismissRequest called, showEditSheet=$showEditSheet")
             if (!showEditSheet) {
@@ -393,7 +384,7 @@ fun SongInfoBottomSheet(
         },
         sheetState = sheetState,
     ) {
-        com.theveloper.pixelplay.ui.glass.GlassSheetContainer(modifier = Modifier.fillMaxWidth()) {
+        Box(modifier = Modifier.fillMaxWidth()) {
         Box(
             modifier = Modifier
                 .fillMaxWidth(),

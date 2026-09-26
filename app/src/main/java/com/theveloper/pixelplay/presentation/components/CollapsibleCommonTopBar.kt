@@ -1,7 +1,6 @@
 package com.theveloper.pixelplay.presentation.components
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxSize
@@ -28,13 +27,6 @@ import androidx.compose.ui.zIndex
 import com.theveloper.pixelplay.ui.theme.PixelPlayStatusBarStyle
 import androidx.compose.ui.res.stringResource
 import com.theveloper.pixelplay.R
-import com.theveloper.pixelplay.ui.glass.GlassGroup
-import com.theveloper.pixelplay.ui.glass.GlassIconButton
-import com.theveloper.pixelplay.ui.glass.GlassPlacement
-import com.theveloper.pixelplay.ui.glass.glassPlacement
-
-/** Default for [CollapsibleCommonTopBar]'s `actions`: lets glass mode skip an empty action group. */
-private val NoTopBarActions: @Composable RowScope.() -> Unit = {}
 
 @Composable
 fun CollapsibleCommonTopBar(
@@ -65,23 +57,14 @@ fun CollapsibleCommonTopBar(
     titleMinWidthAxis: Float = 78f,
     syncStatusBarWithContainer: Boolean = true,
     supportingContent: (@Composable () -> Unit)? = null,
-    showNavigationControls: Boolean = true,
-    actions: @Composable RowScope.() -> Unit = NoTopBarActions
+    actions: @Composable RowScope.() -> Unit = {}
 ) {
     // Logic from GenreDetailScreen:
     // solidAlpha goes from 0 to 1 as collapseFraction goes from 0 to 0.5 (approx).
     // Actually GenreDetailScreen uses: (collapseFraction * 2f).coerceIn(0f, 1f)
     val solidAlpha = (collapseFraction * 2f).coerceIn(0f, 1f)
-
-    // Liquid Glass chrome (the bar sits in a GlassChrome/GlassScaffold slot over a recorded list):
-    // no solid fill fading in — the screen's ScrollEdgeEffect frosts the content under the bar —
-    // the back button is glass, and the actions share one GlassGroup. Anywhere else, including
-    // every screen in Material 3 mode, the bar is exactly as before.
-    val glassChrome = glassPlacement() == GlassPlacement.Glass
-
-    val backgroundColor = containerColor
-        ?: if (glassChrome) Color.Transparent
-        else MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = solidAlpha)
+    
+    val backgroundColor = containerColor ?: MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = solidAlpha)
     val statusBarFallbackColor = backgroundColor.compositeOver(MaterialTheme.colorScheme.surface)
 
     if (syncStatusBarWithContainer) {
@@ -129,88 +112,33 @@ fun CollapsibleCommonTopBar(
                 supportingContent = supportingContent
             )
 
-            if (!showNavigationControls) {
-                // The screen draws the back button and actions itself (as glass chrome).
-            } else if (glassChrome) {
-                GlassIconButton(
-                    onClick = onBackClick,
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .padding(start = 12.dp, top = 4.dp)
-                        .zIndex(1f),
-                    size = 40.dp
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
-                        contentDescription = stringResource(R.string.common_back)
-                    )
-                }
-            } else {
-                FilledIconButton(
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .padding(start = 12.dp, top = 4.dp)
-                        .zIndex(1f),
-                    onClick = onBackClick,
-                    colors = IconButtonDefaults.filledIconButtonColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-                        contentColor = MaterialTheme.colorScheme.onSurface 
-                    )
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
-                        contentDescription = stringResource(R.string.common_back)
-                    )
-                }
+            FilledIconButton(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(start = 12.dp, top = 4.dp)
+                    .zIndex(1f),
+                onClick = onBackClick,
+                colors = IconButtonDefaults.filledIconButtonColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                    contentColor = MaterialTheme.colorScheme.onSurface 
+                )
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
+                    contentDescription = stringResource(R.string.common_back)
+                )
             }
 
             // Actions (e.g. Equalizer toggle)
-            if (!showNavigationControls) {
-                // See above.
-            } else if (glassChrome && actions !== NoTopBarActions) {
-                // 40dp buttons + 4dp group padding: top 0 centres it on the back button.
-                GlassGroup(
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(end = 12.dp)
-                        .zIndex(1f),
-                    horizontalArrangement = Arrangement.spacedBy(2.dp),
-                    content = actions
-                )
-            } else if (!glassChrome) {
-                androidx.compose.foundation.layout.Row(
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(top = 4.dp) // Align with back button
-                        .zIndex(1f),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    actions()
-                }
+            androidx.compose.foundation.layout.Row(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 4.dp) // Align with back button
+                    .zIndex(1f),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                actions()
             }
         }
-    }
-}
-
-/**
- * The back button a collapsing-header screen floats over its recorded header and list in Liquid
- * Glass mode (see `GlassScreenLayer`), placed exactly where [CollapsibleCommonTopBar] puts its own.
- */
-@Composable
-fun GlassDetailBackButton(
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    GlassIconButton(
-        onClick = onClick,
-        modifier = modifier
-            .statusBarsPadding()
-            .padding(start = 12.dp, top = 4.dp),
-        size = 40.dp
-    ) {
-        Icon(
-            imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
-            contentDescription = stringResource(R.string.common_back)
-        )
     }
 }

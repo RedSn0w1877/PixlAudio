@@ -1,6 +1,6 @@
 package com.theveloper.pixelplay.presentation.components
 
-import com.theveloper.pixelplay.ui.glass.GlassAlertDialog
+import androidx.compose.material3.AlertDialog
 import android.widget.Toast
 import com.theveloper.pixelplay.data.model.Song
 import com.theveloper.pixelplay.data.model.Lyrics
@@ -632,7 +632,7 @@ fun LyricsSheet(
         val hasSynced = !lyrics?.synced.isNullOrEmpty()
         val hasPlain = !lyrics?.plain.isNullOrEmpty()
         
-        GlassAlertDialog(
+        AlertDialog(
             onDismissRequest = { showSaveLyricsDialog = false },
             title = { Text(stringResource(R.string.lyrics_save_dialog_title)) },
             text = {

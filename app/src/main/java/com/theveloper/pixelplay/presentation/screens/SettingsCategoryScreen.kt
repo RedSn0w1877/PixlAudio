@@ -1,7 +1,7 @@
 package com.theveloper.pixelplay.presentation.screens
 
-import com.theveloper.pixelplay.ui.glass.GlassAlertDialog
-import com.theveloper.pixelplay.ui.glass.GlassSwitch
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Switch
 import com.theveloper.pixelplay.ui.glass.GlassChrome
 import com.theveloper.pixelplay.ui.glass.glassScreenContent
 import com.theveloper.pixelplay.ui.glass.rememberGlassScreenBackdrop
@@ -129,8 +129,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import com.theveloper.pixelplay.ui.glass.glassSheetContainerColor
-import com.theveloper.pixelplay.ui.glass.glassSheetSurface
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
@@ -1758,7 +1756,7 @@ fun SettingsCategoryScreen(
 
     if (showPaletteRegenerateSheet) {
         ModalBottomSheet(
-            containerColor = com.theveloper.pixelplay.ui.glass.glassSheetContainerColor(),
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
             onDismissRequest = {
                 if (!isAnyPaletteRegenerateRunning) {
                     showPaletteRegenerateSheet = false
@@ -1767,7 +1765,7 @@ fun SettingsCategoryScreen(
             },
             sheetState = paletteRegenerateSheetState
         ) {
-            com.theveloper.pixelplay.ui.glass.GlassSheetContainer(modifier = Modifier.fillMaxWidth()) {
+            Box(modifier = Modifier.fillMaxWidth()) {
             PaletteRegenerateSongSheetContent(
                 songs = filteredPaletteSongs,
                 isRunning = isPaletteRegenerateRunning,
@@ -1803,7 +1801,7 @@ fun SettingsCategoryScreen(
     }
 
     if (showRegenerateAllPalettesDialog) {
-        GlassAlertDialog(
+        AlertDialog(
             icon = {
                 Icon(
                     Icons.Outlined.Style,
@@ -1928,7 +1926,7 @@ fun SettingsCategoryScreen(
     }
 
     if (showClearLyricsDialog) {
-        GlassAlertDialog(
+        AlertDialog(
             icon = { Icon(Icons.Outlined.Warning, null) },
             title = { Text(stringResource(R.string.settings_dialog_reset_imported_lyrics_title)) },
             text = { Text(stringResource(R.string.settings_dialog_reset_imported_lyrics_body)) },
@@ -1942,7 +1940,7 @@ fun SettingsCategoryScreen(
     if (showRebuildDatabaseWarning) {
         val syncIndicatorRebuilding = stringResource(R.string.settings_label_sync_rebuilding)
         val toastRebuildingDatabase = stringResource(R.string.settings_toast_rebuilding_database)
-        GlassAlertDialog(
+        AlertDialog(
             icon = { Icon(Icons.Outlined.Warning, null, tint = MaterialTheme.colorScheme.error) },
             title = { Text(stringResource(R.string.settings_dialog_rebuild_database_title)) },
             text = { Text(stringResource(R.string.settings_dialog_rebuild_database_body)) },
@@ -1968,7 +1966,7 @@ fun SettingsCategoryScreen(
 
     if (showRegenerateDailyMixDialog) {
         val toastDailyMixRegenerationStarted = stringResource(R.string.settings_toast_daily_mix_regeneration_started)
-        GlassAlertDialog(
+        AlertDialog(
             icon = { Icon(painterResource(R.drawable.rounded_instant_mix_24), null, tint = MaterialTheme.colorScheme.primary) },
             title = { Text(stringResource(R.string.settings_dialog_regenerate_daily_mix_title)) },
             text = { Text(stringResource(R.string.settings_dialog_regenerate_daily_mix_body)) },
@@ -1990,7 +1988,7 @@ fun SettingsCategoryScreen(
 
     if (showRegenerateStatsDialog) {
         val toastStatsRegenerationStarted = stringResource(R.string.settings_toast_stats_regeneration_started)
-        GlassAlertDialog(
+        AlertDialog(
             icon = { Icon(painterResource(R.drawable.rounded_monitoring_24), null, tint = MaterialTheme.colorScheme.primary) },
             title = { Text(stringResource(R.string.settings_dialog_regenerate_stats_title)) },
             text = { Text(stringResource(R.string.settings_dialog_regenerate_stats_body)) },
@@ -2507,7 +2505,7 @@ private fun BackupSectionSelectableCard(
                     }
                 }
 
-                GlassSwitch(
+                Switch(
                     checked = selected,
                     onCheckedChange = { onToggle() },
                     enabled = enabled,

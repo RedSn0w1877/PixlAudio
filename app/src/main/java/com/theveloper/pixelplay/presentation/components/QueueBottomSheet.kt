@@ -1,6 +1,6 @@
 package com.theveloper.pixelplay.presentation.components
 
-import com.theveloper.pixelplay.ui.glass.GlassAlertDialog
+import androidx.compose.material3.AlertDialog
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
@@ -1230,7 +1230,7 @@ fun QueueBottomSheet(
         }
 
         if (showClearQueueDialog) {
-            GlassAlertDialog(
+            AlertDialog(
                 onDismissRequest = { showClearQueueDialog = false },
                 title = { Text(stringResource(R.string.queue_dialog_clear_queue_title)) },
                 text = { Text(stringResource(R.string.queue_dialog_clear_queue_message)) },

@@ -39,7 +39,7 @@ import androidx.work.WorkManager
 import com.theveloper.pixelplay.R
 import com.theveloper.pixelplay.data.model.Song
 import com.theveloper.pixelplay.data.repository.LyricsRepository
-import com.theveloper.pixelplay.ui.glass.GlassAlertDialog
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.res.stringResource
@@ -171,7 +171,7 @@ fun LyricsSyncJobRow(song: Song?, onLyricsReady: (Boolean) -> Unit = {}) {
     var pendingStart by remember(song?.id) { mutableStateOf<(() -> Unit)?>(null) }
 
     pendingStart?.let { start ->
-        GlassAlertDialog(
+        AlertDialog(
             onDismissRequest = { pendingStart = null },
             text = { Text(stringResource(R.string.lyrics_sync_studio_replace_q)) },
             confirmButton = {

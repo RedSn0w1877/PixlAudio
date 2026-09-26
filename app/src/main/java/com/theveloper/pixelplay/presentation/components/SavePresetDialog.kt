@@ -1,9 +1,9 @@
 package com.theveloper.pixelplay.presentation.components
 
-import com.theveloper.pixelplay.ui.glass.GlassAlertDialog
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -29,7 +29,7 @@ fun SavePresetDialog(
     var name by remember { mutableStateOf("") }
     var isError by remember { mutableStateOf(false) }
 
-    GlassAlertDialog(
+    AlertDialog(
         onDismissRequest = onDismiss,
         title = {
             Text(text = stringResource(R.string.equalizer_presets_save_custom_title), fontFamily = GoogleSansRounded)
@@ -93,7 +93,7 @@ fun RenamePresetDialog(
     var name by remember { mutableStateOf(currentName) }
     var isError by remember { mutableStateOf(false) }
 
-    GlassAlertDialog(
+    AlertDialog(
         onDismissRequest = onDismiss,
         title = {
             Text(text = stringResource(R.string.equalizer_presets_rename_title), fontFamily = GoogleSansRounded)

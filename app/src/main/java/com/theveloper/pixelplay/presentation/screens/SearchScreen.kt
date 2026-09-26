@@ -1,9 +1,5 @@
 package com.theveloper.pixelplay.presentation.screens
 
-import com.theveloper.pixelplay.ui.glass.GlassChrome
-import com.theveloper.pixelplay.ui.glass.GlassIconButton
-import com.theveloper.pixelplay.ui.glass.glassScreenContent
-import com.theveloper.pixelplay.ui.glass.rememberGlassScreenBackdrop
 import com.theveloper.pixelplay.presentation.navigation.navigateSafely
 import com.theveloper.pixelplay.presentation.navigation.navigateSafelyReplacing
 
@@ -327,7 +323,6 @@ fun SearchScreen(
         }
     }
 
-    val screenGlass = rememberGlassScreenBackdrop()
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -337,132 +332,113 @@ fun SearchScreen(
         Column(
             modifier = Modifier.fillMaxSize()
         ) {
-            // Glass mode: the results below are recorded and this header is chrome over them.
-            GlassChrome(screenGlass, scrollEdge = false) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(start = 24.dp, top = statusBarTopInset + 12.dp, end = 24.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalAlignment = Alignment.CenterVertically
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 24.dp, top = statusBarTopInset + 12.dp, end = 24.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                val searchBarInputFieldColors = SearchBarDefaults.inputFieldColors(
+                    focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                    unfocusedTextColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f),
+                    focusedContainerColor = Color.Transparent,
+                    unfocusedContainerColor = Color.Transparent,
+                    cursorColor = MaterialTheme.colorScheme.primary
+                )
+
+                Box(
+                    Modifier
+                        .weight(1f)
+                        .background(color = Color.Transparent)
                 ) {
-                    val searchBarInputFieldColors = SearchBarDefaults.inputFieldColors(
-                        focusedTextColor = MaterialTheme.colorScheme.onSurface,
-                        unfocusedTextColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f),
-                        focusedContainerColor = Color.Transparent,
-                        unfocusedContainerColor = Color.Transparent,
-                        cursorColor = MaterialTheme.colorScheme.primary
-                    )
-
-                    Box(
-                        Modifier
-                            .weight(1f)
-                            .background(color = Color.Transparent)
-                    ) {
-                        DockedSearchBar(
-                            inputField = {
-                                SearchBarDefaults.InputField(
-                                    modifier = Modifier.focusRequester(searchInputFocusRequester),
-                                    query = searchQuery,
-                                    onQueryChange = {
-                                        searchQuery = it
-                                        playerViewModel.updateSearchQuery(it)
-                                    },
-                                    onSearch = { query ->
-                                        if (query.isNotBlank()) {
-                                            playerViewModel.onSearchQuerySubmitted(query)
-                                        }
-                                        keyboardController?.hide()
-                                    },
-                                    expanded = false,
-                                    onExpandedChange = {},
-                                    placeholder = {
-                                        Text(
-                                            stringResource(R.string.search_placeholder),
-                                            style = MaterialTheme.typography.bodyLarge,
-                                            color = MaterialTheme.colorScheme.primary
-                                        )
-                                    },
-                                    leadingIcon = {
-                                        Icon(
-                                            imageVector = Icons.Rounded.Search,
-                                            contentDescription = stringResource(R.string.search_cd_search_icon),
-                                            tint = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.size(24.dp)
-                                        )
-                                    },
-                                    trailingIcon = {
-                                        if (searchQuery.isNotBlank()) {
-                                            IconButton(
-                                                onClick = {
-                                                    searchQuery = ""
-                                                    playerViewModel.updateSearchQuery("")
-                                                },
-                                                modifier = Modifier
-                                                    .size(48.dp)
-                                                    .clip(CircleShape)
-                                                    .background(
-                                                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.2f)
-                                                    )
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Rounded.Close,
-                                                    contentDescription = stringResource(R.string.search_cd_clear_search_query),
-                                                    tint = MaterialTheme.colorScheme.primary
+                    DockedSearchBar(
+                        inputField = {
+                            SearchBarDefaults.InputField(
+                                modifier = Modifier.focusRequester(searchInputFocusRequester),
+                                query = searchQuery,
+                                onQueryChange = {
+                                    searchQuery = it
+                                    playerViewModel.updateSearchQuery(it)
+                                },
+                                onSearch = { query ->
+                                    if (query.isNotBlank()) {
+                                        playerViewModel.onSearchQuerySubmitted(query)
+                                    }
+                                    keyboardController?.hide()
+                                },
+                                expanded = false,
+                                onExpandedChange = {},
+                                placeholder = {
+                                    Text(
+                                        stringResource(R.string.search_placeholder),
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                },
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Search,
+                                        contentDescription = stringResource(R.string.search_cd_search_icon),
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                },
+                                trailingIcon = {
+                                    if (searchQuery.isNotBlank()) {
+                                        IconButton(
+                                            onClick = {
+                                                searchQuery = ""
+                                                playerViewModel.updateSearchQuery("")
+                                            },
+                                            modifier = Modifier
+                                                .size(48.dp)
+                                                .clip(CircleShape)
+                                                .background(
+                                                    MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.2f)
                                                 )
-                                            }
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Rounded.Close,
+                                                contentDescription = stringResource(R.string.search_cd_clear_search_query),
+                                                tint = MaterialTheme.colorScheme.primary
+                                            )
                                         }
-                                    },
-                                    colors = searchBarInputFieldColors
-                                )
-                            },
-                            expanded = false,
-                            onExpandedChange = {},
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(searchbarCornerRadius)),
-                            colors = SearchBarDefaults.colors(
-                                containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f),
-                                dividerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f),
-                                inputFieldColors = searchBarInputFieldColors
-                            ),
-                            content = {}
-                        )
-                    }
+                                    }
+                                },
+                                colors = searchBarInputFieldColors
+                            )
+                        },
+                        expanded = false,
+                        onExpandedChange = {},
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(searchbarCornerRadius)),
+                        colors = SearchBarDefaults.colors(
+                            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f),
+                            dividerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f),
+                            inputFieldColors = searchBarInputFieldColors
+                        ),
+                        content = {}
+                    )
+                }
 
-                    if (screenGlass != null) {
-                        GlassIconButton(
-                            onClick = { navController.navigateSafely(Screen.Settings.route) },
-                            modifier = Modifier.padding(bottom = 2.dp),
-                            size = 40.dp,
-                            containerColor = MaterialTheme.colorScheme.primaryContainer,
-                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                        ) {
-                            Icon(
-                                painter = painterResource(R.drawable.rounded_settings_24),
-                                contentDescription = stringResource(R.string.library_cd_open_settings)
-                            )
-                        }
-                    } else {
-                        FilledIconButton(
-                            modifier = Modifier.padding(bottom = 2.dp),
-                            colors = IconButtonDefaults.filledIconButtonColors(
-                                containerColor = MaterialTheme.colorScheme.primaryContainer,
-                                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                            ),
-                            onClick = { navController.navigateSafely(Screen.Settings.route) }
-                        ) {
-                            Icon(
-                                painter = painterResource(R.drawable.rounded_settings_24),
-                                contentDescription = stringResource(R.string.library_cd_open_settings)
-                            )
-                        }
-                    }
+                FilledIconButton(
+                    modifier = Modifier.padding(bottom = 2.dp),
+                    colors = IconButtonDefaults.filledIconButtonColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                    ),
+                    onClick = { navController.navigateSafely(Screen.Settings.route) }
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.rounded_settings_24),
+                        contentDescription = stringResource(R.string.library_cd_open_settings)
+                    )
                 }
             }
 
             val showGenreBrowse by remember(searchQuery) { derivedStateOf { searchQuery.isBlank() } }
             AnimatedContent(
-                modifier = Modifier.glassScreenContent(screenGlass),
                 targetState = showGenreBrowse,
                 transitionSpec = {
                     val switchingToGenre = targetState

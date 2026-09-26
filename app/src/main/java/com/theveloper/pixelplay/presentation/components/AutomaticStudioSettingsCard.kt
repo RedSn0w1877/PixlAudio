@@ -1,6 +1,5 @@
 package com.theveloper.pixelplay.presentation.components
 
-import com.theveloper.pixelplay.ui.glass.GlassSwitch
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material3.*
@@ -66,6 +65,6 @@ private fun AutomaticStudioToggle(title: String, description: String, checked: B
             Text(title, style = MaterialTheme.typography.titleMedium)
             Text(description, style = MaterialTheme.typography.bodySmall)
         }
-        GlassSwitch(checked = checked, onCheckedChange = null)
+        Switch(checked = checked, onCheckedChange = null)
     }
 }

@@ -2,13 +2,8 @@
 
 package com.theveloper.pixelplay.presentation.screens
 
-import com.theveloper.pixelplay.ui.glass.GlassChrome
-import com.theveloper.pixelplay.ui.glass.GlassIconButton
 import com.theveloper.pixelplay.ui.glass.GlassScreenLayer
 import com.theveloper.pixelplay.ui.glass.rememberGlassScreenBackdrop
-import com.theveloper.pixelplay.presentation.components.GlassDetailBackButton
-import androidx.compose.foundation.layout.BoxScope
-import androidx.compose.foundation.layout.statusBarsPadding
 import com.theveloper.pixelplay.presentation.navigation.navigateSafely
 import com.theveloper.pixelplay.presentation.navigation.navigateSafelyReplacing
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -531,7 +526,6 @@ fun ArtistDetailScreen(
                                     headerImageRequestSize = headerImageRequestSize,
                                     hasCustomImage = !artist.customImageUri.isNullOrBlank(),
                                     onBackPressed = { navController.popBackStack() },
-                                    showNavigationControls = screenGlass == null,
                                     onPlayClick = {
                                         if (songs.isNotEmpty()) {
                                             playerViewModel.playSongsShuffled(
@@ -567,16 +561,6 @@ fun ArtistDetailScreen(
                                     onClearCustomImage = { viewModel.clearCustomImage() }
                                 )
                             }
-                        }
-                    }
-                    if (screenGlass != null) {
-                        GlassChrome(screenGlass, scrollEdge = false) {
-                            ArtistGlassControls(
-                                hasCustomImage = !artist.customImageUri.isNullOrBlank(),
-                                onBack = { navController.popBackStack() },
-                                onChangeImage = { imagePickerLauncher.launch("image/*") },
-                                onClearCustomImage = { viewModel.clearCustomImage() }
-                            )
                         }
                     }
                 }
@@ -965,7 +949,6 @@ private fun SharedArtistTopBarProbe(
     headerImageRequestSize: Size,
     hasCustomImage: Boolean,
     onBackPressed: () -> Unit,
-    showNavigationControls: Boolean = true,
     onPlayClick: () -> Unit,
     onChangeImage: () -> Unit,
     onClearCustomImage: () -> Unit
@@ -1073,7 +1056,6 @@ private fun SharedArtistTopBarProbe(
             subtitleColor = MaterialTheme.colorScheme.onSurfaceVariant,
             fadeSubtitleOnCollapse = false,
             syncStatusBarWithContainer = false,
-            showNavigationControls = showNavigationControls,
             actions = {
                 Box(
                     modifier = Modifier.padding(end = 12.dp, top = 4.dp)
@@ -1448,58 +1430,5 @@ private fun MusicIconPattern(modifier: Modifier = Modifier) {
                 .size(45.dp)
                 .graphicsLayer { rotationZ = -8f }
         )
-    }
-}
-
-/**
- * Liquid Glass mode only: the artist screen's back and edit-photo buttons, floating as glass
- * chrome above the recorded header and list (the header's own copies are hidden). Same positions
- * and menu as the header's.
- */
-@Composable
-private fun BoxScope.ArtistGlassControls(
-    hasCustomImage: Boolean,
-    onBack: () -> Unit,
-    onChangeImage: () -> Unit,
-    onClearCustomImage: () -> Unit
-) {
-    GlassDetailBackButton(onClick = onBack, modifier = Modifier.align(Alignment.TopStart))
-
-    var showImageMenu by remember { mutableStateOf(false) }
-    Box(
-        modifier = Modifier
-            .align(Alignment.TopEnd)
-            .statusBarsPadding()
-            .padding(end = 12.dp, top = 4.dp)
-    ) {
-        GlassIconButton(onClick = { showImageMenu = true }, size = 40.dp) {
-            Icon(
-                imageVector = Icons.Rounded.Edit,
-                contentDescription = stringResource(R.string.artist_cd_edit_image)
-            )
-        }
-        DropdownMenu(
-            expanded = showImageMenu,
-            onDismissRequest = { showImageMenu = false }
-        ) {
-            DropdownMenuItem(
-                text = { Text(stringResource(R.string.artist_action_change_photo)) },
-                leadingIcon = { Icon(Icons.Rounded.AddAPhoto, contentDescription = null) },
-                onClick = {
-                    showImageMenu = false
-                    onChangeImage()
-                }
-            )
-            if (hasCustomImage) {
-                DropdownMenuItem(
-                    text = { Text(stringResource(R.string.artist_action_reset_to_default)) },
-                    leadingIcon = { Icon(Icons.Rounded.Delete, contentDescription = null) },
-                    onClick = {
-                        showImageMenu = false
-                        onClearCustomImage()
-                    }
-                )
-            }
-        }
     }
 }
