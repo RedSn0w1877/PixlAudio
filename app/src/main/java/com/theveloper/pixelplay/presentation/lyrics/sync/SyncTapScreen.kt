@@ -6,10 +6,6 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -69,6 +65,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalView
@@ -421,6 +418,14 @@ private fun ContextLine(text: String, fontFamily: FontFamily?, onClick: (() -> U
 
 private enum class WordState { DONE, SUNG, NEXT, LATER }
 
+/**
+ * One word of the current line. The white box marks the word being sung (the last one tapped).
+ * Tapped words are coloured in: the accent sweeps across the letters from the first to the last
+ * when the word is tapped, and stays. Untapped words are white (the next one) or dim (later).
+ *
+ * The sweep is read only in draw, so it never recomposes; the base and the accent copy are each
+ * clipped to their own side of the edge, so no glyph is drawn twice.
+ */
 @Composable
 private fun WordChip(
     text: String,
@@ -430,48 +435,88 @@ private fun WordChip(
     fontFamily: FontFamily?,
     palette: SyncEditorPalette,
 ) {
-    val color = when (state) {
-        WordState.DONE -> Color.White
-        WordState.SUNG -> palette.accent
-        WordState.NEXT -> Color.White
-        WordState.LATER -> Color.White.copy(alpha = 0.4f)
-    }
-    val base = Modifier.padding(end = if (trailingSpace) 4.dp else 0.dp)
-    val decorated = when (state) {
-        WordState.NEXT -> {
-            val transition = rememberInfiniteTransition(label = "nextBreath")
-            val breath = transition.animateFloat(
-                initialValue = 1f,
-                targetValue = 1.04f,
-                animationSpec = infiniteRepeatable(tween(BREATH_HALF_MS, easing = FastOutSlowInEasing), RepeatMode.Reverse),
-                label = "breath",
-            )
-            base
-                .graphicsLayer {
-                    scaleX = breath.value
-                    scaleY = breath.value
+    val tapped = state == WordState.DONE || state == WordState.SUNG
+    val fill = remember { Animatable(if (tapped) 1f else 0f) }
+    val pop = remember { Animatable(1f) }
+    LaunchedEffect(state) {
+        when (state) {
+            WordState.SUNG -> {
+                if (fill.value < 1f) {
+                    launch { pop.snapTo(BOX_POP_SCALE); pop.animateTo(1f, spring(dampingRatio = 0.6f, stiffness = 900f)) }
+                    fill.animateTo(1f, tween(FILL_SWEEP_MS, easing = FastOutSlowInEasing))
                 }
-                .border(1.5.dp, Color.White.copy(alpha = 0.55f), RoundedCornerShape(10.dp))
-                .padding(horizontal = 6.dp)
-        }
-        WordState.SUNG -> base
-            .drawBehind {
-                val stroke = 2.dp.toPx()
-                val y = size.height - stroke
-                drawLine(palette.accent, Offset(6.dp.toPx(), y), Offset(size.width - 6.dp.toPx(), y), stroke, StrokeCap.Round)
             }
-            .padding(horizontal = 6.dp)
-        else -> base.padding(horizontal = 6.dp)
+            // A tap that lands mid-sweep cancels it: finish the fill and settle the box at once.
+            WordState.DONE -> {
+                pop.snapTo(1f)
+                fill.snapTo(1f)
+            }
+            else -> {
+                pop.snapTo(1f)
+                fill.snapTo(0f)
+            }
+        }
     }
-    Text(
-        text = text,
-        color = color,
-        fontSize = fontSize,
-        lineHeight = fontSize * 1.2f,
-        fontWeight = FontWeight.SemiBold,
-        fontFamily = lyricsFamilyAtSize(fontFamily, fontSize),
-        modifier = decorated,
-    )
+    val rtl = remember(text) { isRtlWord(text) }
+    val family = lyricsFamilyAtSize(fontFamily, fontSize)
+    val baseColor = if (state == WordState.LATER) Color.White.copy(alpha = 0.4f) else Color.White
+
+    Box(
+        modifier = Modifier
+            .padding(end = if (trailingSpace) 4.dp else 0.dp)
+            .then(
+                if (state == WordState.SUNG) Modifier
+                    .graphicsLayer {
+                        scaleX = pop.value
+                        scaleY = pop.value
+                    }
+                    .border(1.5.dp, Color.White.copy(alpha = 0.55f), RoundedCornerShape(10.dp))
+                else Modifier
+            )
+            .padding(horizontal = 6.dp),
+    ) {
+        Text(
+            text = text,
+            color = baseColor,
+            fontSize = fontSize,
+            lineHeight = fontSize * 1.2f,
+            fontWeight = FontWeight.SemiBold,
+            fontFamily = family,
+            modifier = if (tapped) Modifier.drawWithContent { clipFill(fill.value, rtl, filledSide = false) } else Modifier,
+        )
+        if (tapped) {
+            Text(
+                text = text,
+                color = palette.accent,
+                fontSize = fontSize,
+                lineHeight = fontSize * 1.2f,
+                fontWeight = FontWeight.SemiBold,
+                fontFamily = family,
+                modifier = Modifier.drawWithContent { clipFill(fill.value, rtl, filledSide = true) },
+            )
+        }
+    }
+}
+
+/** Draws the part of the text on one side of the fill edge ([fraction] of the width from the start). */
+private fun androidx.compose.ui.graphics.drawscope.ContentDrawScope.clipFill(
+    fraction: Float,
+    rtl: Boolean,
+    filledSide: Boolean,
+) {
+    val f = fraction.coerceIn(0f, 1f)
+    if (f >= 1f) { if (filledSide) drawContent(); return }
+    if (f <= 0f) { if (!filledSide) drawContent(); return }
+    val edge = if (rtl) size.width * (1f - f) else size.width * f
+    val startSide = filledSide != rtl
+    if (startSide) clipRect(right = edge) { this@clipFill.drawContent() }
+    else clipRect(left = edge) { this@clipFill.drawContent() }
+}
+
+private fun isRtlWord(text: String): Boolean {
+    val first = text.firstOrNull { it.isLetter() } ?: return false
+    val d = Character.getDirectionality(first)
+    return d == Character.DIRECTIONALITY_RIGHT_TO_LEFT || d == Character.DIRECTIONALITY_RIGHT_TO_LEFT_ARABIC
 }
 
 @Composable
@@ -706,7 +751,8 @@ private fun TapPad(
 
 private const val HOLD_TIP_TAPS = 20
 private const val COMPACT_TOKENS = 12
-private const val BREATH_HALF_MS = 800
+private const val FILL_SWEEP_MS = 260
+private const val BOX_POP_SCALE = 1.06f
 private const val MUSIC_BREAK_MIN_MS = 5_000L
 private const val MUSIC_BREAK_END_MS = 1_500L
 private const val PRESSED_SCALE = 0.97f
