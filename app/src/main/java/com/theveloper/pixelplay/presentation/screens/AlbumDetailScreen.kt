@@ -52,6 +52,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -91,6 +92,8 @@ import coil.size.Size
 import com.theveloper.pixelplay.R
 import com.theveloper.pixelplay.data.model.Album
 import com.theveloper.pixelplay.presentation.components.CollapsibleCommonTopBar
+import com.theveloper.pixelplay.presentation.components.WithCollapsingHeader
+import com.theveloper.pixelplay.presentation.components.rememberCollapseFraction
 import com.theveloper.pixelplay.presentation.components.ExpressiveScrollBar
 import com.theveloper.pixelplay.ui.theme.LocalShowScrollbar
 import com.theveloper.pixelplay.presentation.components.MiniPlayerHeight
@@ -110,6 +113,12 @@ import kotlin.math.roundToInt
 import androidx.compose.ui.res.stringResource
 
 private const val UseSharedCollapsibleTopBarProbe = true
+
+/**
+ * The header's shuffle FAB shape, shared so the per-frame header recomposition hands the FAB the
+ * same instance (RoundedStarShape has no equals) and its 360-step outline is built once per size.
+ */
+private val ShuffleFabShape = RoundedStarShape(sides = 8, curve = 0.05, rotation = 0f)
 
 @androidx.annotation.OptIn(UnstableApi::class)
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
@@ -214,14 +223,11 @@ fun AlbumDetailScreen(
                 }
 
                 val topBarHeight = remember { Animatable(maxTopBarHeightPx) }
-                val collapseFraction by remember(minTopBarHeightPx, maxTopBarHeightPx) {
-                    derivedStateOf {
-                        1f - ((topBarHeight.value - minTopBarHeightPx) / (maxTopBarHeightPx - minTopBarHeightPx)).coerceIn(
-                            0f,
-                            1f
-                        )
-                    }
-                }
+                // Read only inside derivedStateOf and WithCollapsingHeader: the per-frame header
+                // height never recomposes the list or the glass layer.
+                val collapseFractionState =
+                    rememberCollapseFraction(topBarHeight, minTopBarHeightPx, maxTopBarHeightPx)
+                val collapseFraction by collapseFractionState
 
                 val nestedScrollConnection = remember {
                     object : NestedScrollConnection {
@@ -296,11 +302,14 @@ fun AlbumDetailScreen(
                     // Glass mode: the list AND the artwork header are recorded, and the back
                     // button floats above both as glass chrome. Material 3: unchanged.
                     GlassScreenLayer(screenGlass) {
-                        val currentTopBarHeightDp = with(density) { topBarHeight.value.toDp() }
-                        val showScrollBar =
-                            LocalShowScrollbar.current &&
-                            collapseFraction > 0.95f &&
-                                (lazyListState.canScrollForward || lazyListState.canScrollBackward)
+                        val isScrollbarEnabled = LocalShowScrollbar.current
+                        val showScrollBar by remember(isScrollbarEnabled) {
+                            derivedStateOf {
+                                isScrollbarEnabled &&
+                                collapseFraction > 0.95f &&
+                                    (lazyListState.canScrollForward || lazyListState.canScrollBackward)
+                            }
+                        }
 
                         LazyColumn(
                             state = lazyListState,
@@ -364,47 +373,49 @@ fun AlbumDetailScreen(
                             )
                         }
 
-                        if (UseSharedCollapsibleTopBarProbe) {
-                            SharedAlbumTopBarProbe(
-                                album = album,
-                                songsCount = songs.size,
-                                collapseFraction = collapseFraction,
-                                headerHeight = currentTopBarHeightDp,
-                                headerImageRequestSize = headerImageRequestSize,
-                                onHeaderArtworkState = { state ->
-                                    if (state is AsyncImagePainter.State.Success) {
-                                        headerArtworkLoaded = true
+                        WithCollapsingHeader(topBarHeight, collapseFractionState) { fraction, headerHeight ->
+                            if (UseSharedCollapsibleTopBarProbe) {
+                                SharedAlbumTopBarProbe(
+                                    album = album,
+                                    songsCount = songs.size,
+                                    collapseFraction = fraction,
+                                    headerHeight = headerHeight,
+                                    headerImageRequestSize = headerImageRequestSize,
+                                    onHeaderArtworkState = { state ->
+                                        if (state is AsyncImagePainter.State.Success) {
+                                            headerArtworkLoaded = true
+                                        }
+                                    },
+                                    onBackPressed = { navController.popBackStack() },
+                                    showNavigationControls = screenGlass == null,
+                                    onPlayClick = {
+                                        if (songs.isNotEmpty()) {
+                                            val randomSong = songs.random()
+                                            playerViewModel.showAndPlaySong(randomSong, songs)
+                                        }
                                     }
-                                },
-                                onBackPressed = { navController.popBackStack() },
-                                showNavigationControls = screenGlass == null,
-                                onPlayClick = {
-                                    if (songs.isNotEmpty()) {
-                                        val randomSong = songs.random()
-                                        playerViewModel.showAndPlaySong(randomSong, songs)
+                                )
+                            } else {
+                                CollapsingAlbumTopBar(
+                                    album = album,
+                                    songsCount = songs.size,
+                                    collapseFraction = fraction,
+                                    headerHeight = headerHeight,
+                                    headerImageRequestSize = headerImageRequestSize,
+                                    onHeaderArtworkState = { state ->
+                                        if (state is AsyncImagePainter.State.Success) {
+                                            headerArtworkLoaded = true
+                                        }
+                                    },
+                                    onBackPressed = { navController.popBackStack() },
+                                    onPlayClick = {
+                                        if (songs.isNotEmpty()) {
+                                            val randomSong = songs.random()
+                                            playerViewModel.showAndPlaySong(randomSong, songs)
+                                        }
                                     }
-                                }
-                            )
-                        } else {
-                            CollapsingAlbumTopBar(
-                                album = album,
-                                songsCount = songs.size,
-                                collapseFraction = collapseFraction,
-                                headerHeight = currentTopBarHeightDp,
-                                headerImageRequestSize = headerImageRequestSize,
-                                onHeaderArtworkState = { state ->
-                                    if (state is AsyncImagePainter.State.Success) {
-                                        headerArtworkLoaded = true
-                                    }
-                                },
-                                onBackPressed = { navController.popBackStack() },
-                                onPlayClick = {
-                                    if (songs.isNotEmpty()) {
-                                        val randomSong = songs.random()
-                                        playerViewModel.showAndPlaySong(randomSong, songs)
-                                    }
-                                }
-                            )
+                                )
+                            }
                         }
                     }
                     if (screenGlass != null) {
@@ -533,6 +544,7 @@ private fun SharedAlbumTopBarProbe(
         else Color.White.copy(alpha = 0.4f)
     val solidAlpha = (collapseFraction * 2f).coerceIn(0f, 1f)
     val expandedContentAlpha = 1f - solidAlpha
+    val expandedContentAlphaState = rememberUpdatedState(expandedContentAlpha)
     val headerOverlayBrush = remember(surfaceColor, expandedContentAlpha) {
         Brush.verticalGradient(
             colors = listOf(
@@ -571,9 +583,12 @@ private fun SharedAlbumTopBarProbe(
                 targetSize = headerImageRequestSize,
                 allowHardware = true,
                 crossfadeDurationMillis = 0,
-                alpha = expandedContentAlpha,
                 onState = onHeaderArtworkState,
-                modifier = Modifier.fillMaxSize()
+                // The fade is a layer property read at draw time, so the image's params stay
+                // equal and it skips while the header collapses (one bitmap: same pixels).
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer { alpha = expandedContentAlphaState.value }
             )
             Box(
                 modifier = Modifier
@@ -621,7 +636,7 @@ private fun SharedAlbumTopBarProbe(
 
         LargeExtendedFloatingActionButton(
             onClick = onPlayClick,
-            shape = RoundedStarShape(sides = 8, curve = 0.05, rotation = 0f),
+            shape = ShuffleFabShape,
             modifier = Modifier
                 .align(shuffleAlignment)
                 .statusBarsPadding()
@@ -796,7 +811,7 @@ private fun CollapsingAlbumTopBar(
 
                 LargeExtendedFloatingActionButton(
                     onClick = onPlayClick,
-                    shape = RoundedStarShape(sides = 8, curve = 0.05, rotation = 0f),
+                    shape = ShuffleFabShape,
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
                         .padding(16.dp)

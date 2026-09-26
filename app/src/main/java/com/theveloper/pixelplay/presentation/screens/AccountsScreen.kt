@@ -80,6 +80,8 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.theveloper.pixelplay.R
 import com.theveloper.pixelplay.presentation.components.CollapsibleCommonTopBar
+import com.theveloper.pixelplay.presentation.components.rememberCollapseFraction
+import com.theveloper.pixelplay.presentation.components.rememberCollapsingHeaderContentPadding
 import com.theveloper.pixelplay.presentation.components.MiniPlayerHeight
 import com.theveloper.pixelplay.presentation.components.subcomps.TightWrapText
 import com.theveloper.pixelplay.presentation.viewmodel.AccountsViewModel
@@ -108,15 +110,9 @@ fun AccountsScreen(
     val minTopBarHeightPx = with(density) { minTopBarHeight.toPx() }
     val maxTopBarHeightPx = with(density) { maxTopBarHeight.toPx() }
     val topBarHeight = remember { Animatable(maxTopBarHeightPx) }
-    var collapseFraction by remember { mutableStateOf(0f) }
-
-    LaunchedEffect(topBarHeight.value) {
-        collapseFraction =
-            1f - (
-                (topBarHeight.value - minTopBarHeightPx) /
-                    (maxTopBarHeightPx - minTopBarHeightPx)
-                ).coerceIn(0f, 1f)
-    }
+    // Derived, and read only by the top bar below: the per-frame header height never recomposes
+    // this screen body.
+    val collapseFraction by rememberCollapseFraction(topBarHeight, minTopBarHeightPx, maxTopBarHeightPx)
 
     val nestedScrollConnection = remember {
         object : NestedScrollConnection {
@@ -164,17 +160,19 @@ fun AccountsScreen(
 
     val screenGlass = rememberGlassScreenBackdrop()
     Box(modifier = Modifier.nestedScroll(nestedScrollConnection).fillMaxSize()) {
-        val currentTopBarHeightDp = with(density) { topBarHeight.value.toDp() }
+        // Top padding follows the header height, read by the list's measure pass (layout only).
+        val listContentPadding = rememberCollapsingHeaderContentPadding(
+            height = topBarHeight,
+            extraTop = 8.dp,
+            start = 16.dp,
+            end = 16.dp,
+            bottom = MiniPlayerHeight + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 16.dp
+        )
 
         LazyColumn(
             state = lazyListState,
             modifier = Modifier.fillMaxSize().glassScreenContent(screenGlass),
-            contentPadding = PaddingValues(
-                top = currentTopBarHeightDp + 8.dp,
-                start = 16.dp,
-                end = 16.dp,
-                bottom = MiniPlayerHeight + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 16.dp
-            ),
+            contentPadding = listContentPadding,
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             item {
@@ -225,7 +223,7 @@ fun AccountsScreen(
             CollapsibleCommonTopBar(
                 title = stringResource(R.string.settings_category_accounts_title),
                 collapseFraction = collapseFraction,
-                headerHeight = currentTopBarHeightDp,
+                headerHeight = with(density) { topBarHeight.value.toDp() },
                 onBackClick = onBackClick,
                 expandedTitleStartPadding = 20.dp,
                 collapsedTitleStartPadding = 68.dp

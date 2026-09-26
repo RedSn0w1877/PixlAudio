@@ -179,6 +179,8 @@ import com.theveloper.pixelplay.data.preferences.ThemePreference
 import com.theveloper.pixelplay.data.model.Song
 import com.theveloper.pixelplay.data.model.LyricsSourcePreference
 import com.theveloper.pixelplay.presentation.components.CollapsibleCommonTopBar
+import com.theveloper.pixelplay.presentation.components.rememberCollapseFraction
+import com.theveloper.pixelplay.presentation.components.rememberCollapsingHeaderContentPadding
 import com.theveloper.pixelplay.presentation.components.ExpressiveTopBarContent
 import com.theveloper.pixelplay.presentation.components.FileExplorerDialog
 import com.theveloper.pixelplay.presentation.components.MiniPlayerHeight
@@ -360,15 +362,9 @@ fun SettingsCategoryScreen(
     val titleMaxLines = if (isLongTitle) 2 else 1
 
     val topBarHeight = remember(maxTopBarHeightPx) { Animatable(maxTopBarHeightPx) }
-    var collapseFraction by remember { mutableStateOf(0f) }
-
-    LaunchedEffect(topBarHeight.value, maxTopBarHeightPx) {
-        collapseFraction =
-                1f -
-                        ((topBarHeight.value - minTopBarHeightPx) /
-                                        (maxTopBarHeightPx - minTopBarHeightPx))
-                                .coerceIn(0f, 1f)
-    }
+    // Derived, and read only by the top bar below: the per-frame header height never recomposes
+    // this (very large) screen body.
+    val collapseFraction by rememberCollapseFraction(topBarHeight, minTopBarHeightPx, maxTopBarHeightPx)
 
     val nestedScrollConnection = remember {
         object : NestedScrollConnection {
@@ -421,17 +417,19 @@ fun SettingsCategoryScreen(
         modifier =
             Modifier.nestedScroll(nestedScrollConnection).fillMaxSize()
     ) {
-        val currentTopBarHeightDp = with(density) { topBarHeight.value.toDp() }
-        
+        // Top padding follows the header height, read by the list's measure pass (layout only).
+        val listContentPadding = rememberCollapsingHeaderContentPadding(
+            height = topBarHeight,
+            extraTop = 8.dp,
+            start = 16.dp,
+            end = 16.dp,
+            bottom = MiniPlayerHeight + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 16.dp
+        )
+
         LazyColumn(
             state = lazyListState,
             modifier = Modifier.fillMaxSize().glassScreenContent(screenGlass),
-            contentPadding = PaddingValues(
-                top = currentTopBarHeightDp + 8.dp,
-                start = 16.dp,
-                end = 16.dp,
-                bottom = MiniPlayerHeight + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 16.dp
-            )
+            contentPadding = listContentPadding
         ) {
             item {
                // Use a simple Column for now, or ExpressiveSettingsGroup if preferred strictly for items
@@ -1699,7 +1697,7 @@ fun SettingsCategoryScreen(
         GlassChrome(screenGlass) {
             CollapsibleCommonTopBar(
                 collapseFraction = collapseFraction,
-                headerHeight = currentTopBarHeightDp,
+                headerHeight = with(density) { topBarHeight.value.toDp() },
                 onBackClick = onBackClick,
                 title = categoryTitle,
                 maxLines = titleMaxLines

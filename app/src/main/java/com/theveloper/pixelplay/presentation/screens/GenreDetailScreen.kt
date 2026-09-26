@@ -310,9 +310,6 @@ fun GenreDetailScreen(
                 .nestedScroll(nestedScrollConnection)
                 .background(MaterialTheme.colorScheme.background) // Uses new theme background
         ) {
-            // Optimization: Cache Dp conversions
-            val currentTopBarHeightDp = with(density) { topBarHeight.value.toDp() }
-
             // Optimization: Use fixed padding and offset instead of dynamic contentPadding 
             // to avoid triggered remeasures of the entire list on every pixel of scroll.
             
@@ -420,7 +417,9 @@ fun GenreDetailScreen(
                 GenreCollapsibleTopBar(
                     title = genreDisplayName,
                     collapseFraction = collapseFraction,
-                    headerHeight = currentTopBarHeightDp,
+                    // Read here, inside the chrome's own scope, so only the top bar recomposes
+                    // per frame while the header collapses.
+                    headerHeight = with(density) { topBarHeight.value.toDp() },
                     onBackPressed = { navController.popBackStack() },
                     startColor = startColor,
                     contentColor = contentColor,

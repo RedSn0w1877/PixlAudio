@@ -11,6 +11,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.AnimationVector1D
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.Spring
@@ -61,6 +62,10 @@ import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Stable
+import androidx.compose.runtime.State
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
@@ -83,6 +88,8 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.media3.common.util.UnstableApi
 import androidx.navigation.NavController
 import com.theveloper.pixelplay.presentation.components.CollapsibleCommonTopBar
+import com.theveloper.pixelplay.presentation.components.rememberCollapseFraction
+import com.theveloper.pixelplay.presentation.components.rememberCollapsingHeaderContentPadding
 import com.theveloper.pixelplay.presentation.components.MiniPlayerHeight
 import com.theveloper.pixelplay.presentation.viewmodel.PlayerViewModel
 import com.theveloper.pixelplay.presentation.viewmodel.SettingsViewModel
@@ -108,6 +115,18 @@ fun ExperimentalSettingsScreen(
         mutableFloatStateOf(uiState.liquidGlassIntensity)
     }
     val taisVocalAttenuation by playerViewModel.vocalAttenuation.collectAsStateWithLifecycle()
+    // Sliders that still apply every change live, but whose thumb (and value label) follow the
+    // finger on the first frame instead of waiting for each DataStore write to round-trip.
+    val lyricsBlurLive = rememberLiveSliderValue(uiState.animatedLyricsBlurStrength)
+    val vocalAttenuationLive = rememberLiveSliderValue(taisVocalAttenuation)
+    val appearThresholdLive = rememberLiveSliderValue(
+        uiState.fullPlayerLoadingTweaks.contentAppearThresholdPercent.toFloat(),
+        toStored = ::thresholdPercentStored
+    )
+    val closeThresholdLive = rememberLiveSliderValue(
+        uiState.fullPlayerLoadingTweaks.contentCloseThresholdPercent.toFloat(),
+        toStored = ::thresholdPercentStored
+    )
     var showTaisChatSheet by remember { mutableStateOf(false) }
     val taisChatSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
@@ -140,11 +159,9 @@ fun ExperimentalSettingsScreen(
     val maxTopBarHeightPx = with(density) { maxTopBarHeight.toPx() }
 
     val topBarHeight = remember { Animatable(maxTopBarHeightPx) }
-    var collapseFraction by remember { mutableStateOf(0f) }
-
-    LaunchedEffect(topBarHeight.value) {
-        collapseFraction = 1f - ((topBarHeight.value - minTopBarHeightPx) / (maxTopBarHeightPx - minTopBarHeightPx)).coerceIn(0f, 1f)
-    }
+    // Derived, and read only inside ExperimentalSettingsTopBar: the per-frame header height never
+    // recomposes this screen body.
+    val collapseFraction = rememberCollapseFraction(topBarHeight, minTopBarHeightPx, maxTopBarHeightPx)
 
     val nestedScrollConnection = remember {
         object : NestedScrollConnection {
@@ -196,11 +213,12 @@ fun ExperimentalSettingsScreen(
                 translationY = contentOffset.toPx()
             }
     ) {
-        val currentTopBarHeightDp = with(density) { topBarHeight.value.toDp() }
+        // Top padding follows the header height, read by the list's measure pass (layout only).
+        val listContentPadding = rememberCollapsingHeaderContentPadding(height = topBarHeight, extraTop = 8.dp)
 
         LazyColumn(
             state = lazyListState,
-            contentPadding = PaddingValues(top = currentTopBarHeightDp + 8.dp),
+            contentPadding = listContentPadding,
             modifier = Modifier.fillMaxSize()
         ) {
             item(key = "player_ui_tweaks_section") {
@@ -292,7 +310,7 @@ fun ExperimentalSettingsScreen(
                                                             ) {
                                                                 val strengthText = stringResource(
                                                                     R.string.settings_exp_lyrics_blur_strength_value,
-                                                                    uiState.animatedLyricsBlurStrength
+                                                                    lyricsBlurLive.display(uiState.animatedLyricsBlurStrength)
                                                                 )
                                                                 Text(
                                                                     text = strengthText,
@@ -311,8 +329,12 @@ fun ExperimentalSettingsScreen(
                                                 }
 
                                                 GlassSlider(
-                                                    value = uiState.animatedLyricsBlurStrength,
-                                                    onValueChange = { settingsViewModel.setAnimatedLyricsBlurStrength(it) },
+                                                    value = lyricsBlurLive.display(uiState.animatedLyricsBlurStrength),
+                                                    onValueChange = {
+                                                        lyricsBlurLive.onChange(it)
+                                                        settingsViewModel.setAnimatedLyricsBlurStrength(it)
+                                                    },
+                                                    onValueChangeFinished = { lyricsBlurLive.onFinished() },
                                                     valueRange = 0.1f..2.0f,
                                                     steps = 10
                                                 )
@@ -497,7 +519,7 @@ fun ExperimentalSettingsScreen(
                                                     modifier = Modifier.height(24.dp)
                                                 ) {
                                                     Text(
-                                                        text = "${(taisVocalAttenuation * 100f).roundToInt()}%",
+                                                        text = "${(vocalAttenuationLive.display(taisVocalAttenuation) * 100f).roundToInt()}%",
                                                         style = MaterialTheme.typography.labelSmall,
                                                         color = MaterialTheme.colorScheme.onSecondaryContainer,
                                                         modifier = Modifier.padding(
@@ -520,8 +542,12 @@ fun ExperimentalSettingsScreen(
                                     }
 
                                     GlassSlider(
-                                        value = taisVocalAttenuation,
-                                        onValueChange = { playerViewModel.setVocalAttenuation(it) },
+                                        value = vocalAttenuationLive.display(taisVocalAttenuation),
+                                        onValueChange = {
+                                            vocalAttenuationLive.onChange(it)
+                                            playerViewModel.setVocalAttenuation(it)
+                                        },
+                                        onValueChangeFinished = { vocalAttenuationLive.onFinished() },
                                         valueRange = 0f..1f,
                                         steps = 19
                                     )
@@ -933,8 +959,12 @@ fun ExperimentalSettingsScreen(
                                                     }
 
                                                     GlassSlider(
-                                                        value = appearThresholdPercent.toFloat(),
-                                                        onValueChange = { settingsViewModel.setFullPlayerAppearThreshold(it.roundToInt()) },
+                                                        value = appearThresholdLive.display(appearThresholdPercent.toFloat()),
+                                                        onValueChange = {
+                                                            appearThresholdLive.onChange(it)
+                                                            settingsViewModel.setFullPlayerAppearThreshold(it.roundToInt())
+                                                        },
+                                                        onValueChangeFinished = { appearThresholdLive.onFinished() },
                                                         valueRange = 0f..100f,
                                                         steps = 99,
                                                         enabled = isAnyDelayEnabled
@@ -943,7 +973,7 @@ fun ExperimentalSettingsScreen(
                                                     Text(
                                                         text = stringResource(
                                                             R.string.settings_exp_content_appears_at,
-                                                            appearThresholdPercent
+                                                            appearThresholdLive.display(appearThresholdPercent.toFloat()).roundToInt()
                                                         ),
                                                         style = MaterialTheme.typography.bodyMedium,
                                                         color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -1008,8 +1038,12 @@ fun ExperimentalSettingsScreen(
                                                         }
 
                                                         GlassSlider(
-                                                            value = closeThresholdPercent.toFloat(),
-                                                            onValueChange = { settingsViewModel.setFullPlayerCloseThreshold(it.roundToInt()) },
+                                                            value = closeThresholdLive.display(closeThresholdPercent.toFloat()),
+                                                            onValueChange = {
+                                                                closeThresholdLive.onChange(it)
+                                                                settingsViewModel.setFullPlayerCloseThreshold(it.roundToInt())
+                                                            },
+                                                            onValueChangeFinished = { closeThresholdLive.onFinished() },
                                                             valueRange = 0f..100f,
                                                             steps = 99,
                                                             enabled = isAnyDelayEnabled
@@ -1018,7 +1052,7 @@ fun ExperimentalSettingsScreen(
                                                         Text(
                                                             text = stringResource(
                                                                 R.string.settings_exp_placeholders_after_collapse,
-                                                                closeThresholdPercent
+                                                                closeThresholdLive.display(closeThresholdPercent.toFloat()).roundToInt()
                                                             ),
                                                             style = MaterialTheme.typography.bodyMedium,
                                                             color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -1192,10 +1226,9 @@ fun ExperimentalSettingsScreen(
             }
         }
 
-        CollapsibleCommonTopBar(
-            title = stringResource(R.string.settings_exp_screen_title),
+        ExperimentalSettingsTopBar(
+            topBarHeight = topBarHeight,
             collapseFraction = collapseFraction,
-            headerHeight = currentTopBarHeightDp,
             onBackClick = onNavigationIconClick
         )
     }
@@ -1215,6 +1248,76 @@ fun ExperimentalSettingsScreen(
             }
         )
     }
+}
+
+/** What the threshold setters store for a slider value (they save `roundToInt()`). */
+private fun thresholdPercentStored(value: Float): Float = value.roundToInt().toFloat()
+
+/**
+ * Lets a settings slider's thumb follow the finger locally. Every change is still written as it
+ * happens (live-apply is unchanged); the slider just shows the local value from the first change
+ * until the store has echoed the released value back, so it never waits on a DataStore write to
+ * move and a late echo of an earlier drag value can't pull the thumb back.
+ */
+@Stable
+private class LiveSliderValue {
+    private var local by mutableFloatStateOf(0f)
+    private var holding by mutableStateOf(false)
+
+    /** The value released at the end of the last drag, until the store reports it. */
+    var released by mutableStateOf<Float?>(null)
+        private set
+
+    fun display(stored: Float): Float = if (holding) local else stored
+
+    fun onChange(value: Float) {
+        local = value
+        holding = true
+        released = null
+    }
+
+    fun onFinished() {
+        if (holding) released = local
+    }
+
+    fun settle() {
+        holding = false
+        released = null
+    }
+}
+
+@Composable
+private fun rememberLiveSliderValue(
+    stored: Float,
+    toStored: (Float) -> Float = { it }
+): LiveSliderValue {
+    val live = remember { LiveSliderValue() }
+    val latestStored by rememberUpdatedState(stored)
+    val latestToStored by rememberUpdatedState(toStored)
+    LaunchedEffect(live) {
+        snapshotFlow { live.released?.let { latestToStored(it) == latestStored } == true }
+            .collect { settled -> if (settled) live.settle() }
+    }
+    return live
+}
+
+/**
+ * The screen's collapsing top bar. It reads the per-frame header height and collapse fraction
+ * itself, so only the bar recomposes while the header collapses — not the whole screen.
+ */
+@Composable
+private fun ExperimentalSettingsTopBar(
+    topBarHeight: Animatable<Float, AnimationVector1D>,
+    collapseFraction: State<Float>,
+    onBackClick: () -> Unit
+) {
+    val density = LocalDensity.current
+    CollapsibleCommonTopBar(
+        title = stringResource(R.string.settings_exp_screen_title),
+        collapseFraction = collapseFraction.value,
+        headerHeight = with(density) { topBarHeight.value.toDp() },
+        onBackClick = onBackClick
+    )
 }
 
 @Composable

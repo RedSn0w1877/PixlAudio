@@ -14,6 +14,7 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
@@ -46,22 +47,38 @@ fun PixelPlayStatusBarStyle(
     if (view.isInEditMode) return
 
     val updateNavigationBar = navigationColor != null
+    // Collapsing headers call this with a colour that changes every frame, so the window and its
+    // insets controller are looked up once, and each platform setter (which can re-lay out the
+    // decor's colour views) only runs when the window's current value differs. The resulting
+    // window state is the same as setting everything unconditionally.
+    val window = remember(view) { view.context.findActivity()?.window }
+    val insetsController = remember(view, window) {
+        window?.let { WindowCompat.getInsetsController(it, view) }
+    }
     SideEffect {
-        val window = view.context.findActivity()?.window ?: return@SideEffect
-        window.statusBarColor = android.graphics.Color.TRANSPARENT
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        if (window == null || insetsController == null) return@SideEffect
+        if (window.statusBarColor != android.graphics.Color.TRANSPARENT) {
+            window.statusBarColor = android.graphics.Color.TRANSPARENT
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && window.isStatusBarContrastEnforced) {
             window.isStatusBarContrastEnforced = false
         }
 
-        WindowCompat.getInsetsController(window, view).run {
-            isAppearanceLightStatusBars = useDarkIcons
+        insetsController.run {
+            if (isAppearanceLightStatusBars != useDarkIcons) {
+                isAppearanceLightStatusBars = useDarkIcons
+            }
 
             if (updateNavigationBar) {
-                window.navigationBarColor = android.graphics.Color.TRANSPARENT
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                if (window.navigationBarColor != android.graphics.Color.TRANSPARENT) {
+                    window.navigationBarColor = android.graphics.Color.TRANSPARENT
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && window.isNavigationBarContrastEnforced) {
                     window.isNavigationBarContrastEnforced = false
                 }
-                isAppearanceLightNavigationBars = useDarkNavigationIcons
+                if (isAppearanceLightNavigationBars != useDarkNavigationIcons) {
+                    isAppearanceLightNavigationBars = useDarkNavigationIcons
+                }
             }
         }
     }

@@ -53,9 +53,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.graphics.drawOutline
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -97,9 +100,11 @@ fun TaisChatSheet(
         }
     }
 
-    val sparkleBrush = Brush.linearGradient(
-        listOf(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.tertiary)
-    )
+    val sparklePrimary = MaterialTheme.colorScheme.primary
+    val sparkleTertiary = MaterialTheme.colorScheme.tertiary
+    val sparkleBrush = remember(sparklePrimary, sparkleTertiary) {
+        Brush.linearGradient(listOf(sparklePrimary, sparkleTertiary))
+    }
 
     // Liquid Glass: the sheet itself is glass (GlassSheetContainer on a transparent container) and
     // everything on it sits on glass. Material 3: the default container, exactly as before.
@@ -545,9 +550,12 @@ private fun TaizoOnlineTrackRow(track: SpotifyTrack, enabled: Boolean, onClick: 
 @Composable
 private fun ThinkingDots() {
     val infiniteTransition = rememberInfiniteTransition(label = "taizoThinking")
+    val dotColor = MaterialTheme.colorScheme.primary
     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         repeat(3) { index ->
-            val phase by infiniteTransition.animateFloat(
+            // Kept as State and read only at draw time: the dots redraw each frame, nothing
+            // recomposes. drawOutline(CircleShape) is exactly what background(color, CircleShape) draws.
+            val phase = infiniteTransition.animateFloat(
                 initialValue = 0f,
                 targetValue = 1f,
                 animationSpec = infiniteRepeatable(
@@ -555,12 +563,17 @@ private fun ThinkingDots() {
                 ),
                 label = "dot$index"
             )
-            val local = (phase + index * 0.33f) % 1f
-            val alpha = 0.3f + 0.7f * kotlin.math.sin(local * Math.PI).toFloat().coerceIn(0f, 1f)
             Box(
                 modifier = Modifier
                     .size(7.dp)
-                    .background(MaterialTheme.colorScheme.primary.copy(alpha = alpha), CircleShape)
+                    .drawWithCache {
+                        val outline = CircleShape.createOutline(size, layoutDirection, this)
+                        onDrawBehind {
+                            val local = (phase.value + index * 0.33f) % 1f
+                            val alpha = 0.3f + 0.7f * kotlin.math.sin(local * Math.PI).toFloat().coerceIn(0f, 1f)
+                            drawOutline(outline, dotColor.copy(alpha = alpha))
+                        }
+                    }
             )
         }
     }

@@ -80,6 +80,8 @@ import androidx.navigation.NavController
 import com.theveloper.pixelplay.data.model.Artist
 import com.theveloper.pixelplay.data.model.Song
 import com.theveloper.pixelplay.presentation.components.CollapsibleCommonTopBar
+import com.theveloper.pixelplay.presentation.components.WithCollapsingHeader
+import com.theveloper.pixelplay.presentation.components.rememberCollapseFraction
 import com.theveloper.pixelplay.presentation.components.ExpressiveScrollBar
 import com.theveloper.pixelplay.ui.theme.LocalShowScrollbar
 import com.theveloper.pixelplay.presentation.components.MiniPlayerHeight
@@ -112,6 +114,12 @@ import androidx.compose.ui.res.stringResource
 import com.theveloper.pixelplay.R
 
 private const val UseSharedCollapsibleTopBarProbe = true
+
+/**
+ * The header's shuffle FAB shape, shared so the per-frame header recomposition hands the FAB the
+ * same instance (RoundedStarShape has no equals) and its 360-step outline is built once per size.
+ */
+private val ShuffleFabShape = RoundedStarShape(sides = 8, curve = 0.05, rotation = 0f)
 
 @androidx.annotation.OptIn(UnstableApi::class)
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class, ExperimentalMaterial3ExpressiveApi::class)
@@ -186,11 +194,10 @@ fun ArtistDetailScreen(
     }
 
     val topBarHeight = remember { Animatable(maxTopBarHeightPx) }
-    val collapseFraction by remember(minTopBarHeightPx, maxTopBarHeightPx) {
-        derivedStateOf {
-            1f - ((topBarHeight.value - minTopBarHeightPx) / (maxTopBarHeightPx - minTopBarHeightPx)).coerceIn(0f, 1f)
-        }
-    }
+    // Read only inside derivedStateOf and WithCollapsingHeader: the per-frame header height never
+    // recomposes the screen body, its list or its glass layer.
+    val collapseFractionState = rememberCollapseFraction(topBarHeight, minTopBarHeightPx, maxTopBarHeightPx)
+    val collapseFraction by collapseFractionState
 
     val nestedScrollConnection = remember {
         object : NestedScrollConnection {
@@ -277,8 +284,6 @@ fun ArtistDetailScreen(
                 uiState.artist != null -> {
                     val artist = uiState.artist!!
                     val songs = uiState.songs
-                    val currentTopBarHeightDp = with(density) { topBarHeight.value.toDp() }
-
                     val albumSections = uiState.albumSections
                     val expandedSections = remember { mutableStateMapOf<String, Boolean>() }
                     LaunchedEffect(albumSections) {
@@ -515,51 +520,53 @@ fun ArtistDetailScreen(
                             )
                         }
 
-                        if (UseSharedCollapsibleTopBarProbe) {
-                            SharedArtistTopBarProbe(
-                                artist = artist,
-                                effectiveImageUrl = uiState.effectiveImageUrl,
-                                songsCount = songs.size,
-                                collapseFraction = collapseFraction,
-                                headerHeight = currentTopBarHeightDp,
-                                headerImageRequestSize = headerImageRequestSize,
-                                hasCustomImage = !artist.customImageUri.isNullOrBlank(),
-                                onBackPressed = { navController.popBackStack() },
-                                showNavigationControls = screenGlass == null,
-                                onPlayClick = {
-                                    if (songs.isNotEmpty()) {
-                                        playerViewModel.playSongsShuffled(
-                                            songs,
-                                            artist.name,
-                                            startAtZero = true
-                                        )
-                                    }
-                                },
-                                onChangeImage = { imagePickerLauncher.launch("image/*") },
-                                onClearCustomImage = { viewModel.clearCustomImage() }
-                            )
-                        } else {
-                            CustomCollapsingTopBar(
-                                artist = artist,
-                                effectiveImageUrl = uiState.effectiveImageUrl,
-                                hasCustomImage = !artist.customImageUri.isNullOrBlank(),
-                                songsCount = songs.size,
-                                collapseFraction = collapseFraction,
-                                headerHeight = currentTopBarHeightDp,
-                                headerImageRequestSize = headerImageRequestSize,
-                                onBackPressed = { navController.popBackStack() },
-                                onPlayClick = {
-                                    if (songs.isNotEmpty()) {
-                                        playerViewModel.playSongsShuffled(
-                                            songs,
-                                            artist.name,
-                                            startAtZero = true
-                                        )
-                                    }
-                                },
-                                onChangeImage = { imagePickerLauncher.launch("image/*") },
-                                onClearCustomImage = { viewModel.clearCustomImage() }
-                            )
+                        WithCollapsingHeader(topBarHeight, collapseFractionState) { fraction, headerHeight ->
+                            if (UseSharedCollapsibleTopBarProbe) {
+                                SharedArtistTopBarProbe(
+                                    artist = artist,
+                                    effectiveImageUrl = uiState.effectiveImageUrl,
+                                    songsCount = songs.size,
+                                    collapseFraction = fraction,
+                                    headerHeight = headerHeight,
+                                    headerImageRequestSize = headerImageRequestSize,
+                                    hasCustomImage = !artist.customImageUri.isNullOrBlank(),
+                                    onBackPressed = { navController.popBackStack() },
+                                    showNavigationControls = screenGlass == null,
+                                    onPlayClick = {
+                                        if (songs.isNotEmpty()) {
+                                            playerViewModel.playSongsShuffled(
+                                                songs,
+                                                artist.name,
+                                                startAtZero = true
+                                            )
+                                        }
+                                    },
+                                    onChangeImage = { imagePickerLauncher.launch("image/*") },
+                                    onClearCustomImage = { viewModel.clearCustomImage() }
+                                )
+                            } else {
+                                CustomCollapsingTopBar(
+                                    artist = artist,
+                                    effectiveImageUrl = uiState.effectiveImageUrl,
+                                    hasCustomImage = !artist.customImageUri.isNullOrBlank(),
+                                    songsCount = songs.size,
+                                    collapseFraction = fraction,
+                                    headerHeight = headerHeight,
+                                    headerImageRequestSize = headerImageRequestSize,
+                                    onBackPressed = { navController.popBackStack() },
+                                    onPlayClick = {
+                                        if (songs.isNotEmpty()) {
+                                            playerViewModel.playSongsShuffled(
+                                                songs,
+                                                artist.name,
+                                                startAtZero = true
+                                            )
+                                        }
+                                    },
+                                    onChangeImage = { imagePickerLauncher.launch("image/*") },
+                                    onClearCustomImage = { viewModel.clearCustomImage() }
+                                )
+                            }
                         }
                     }
                     if (screenGlass != null) {
@@ -970,6 +977,7 @@ private fun SharedArtistTopBarProbe(
         else Color.White.copy(alpha = 0.4f)
     val solidAlpha = (collapseFraction * 2f).coerceIn(0f, 1f)
     val expandedContentAlpha = 1f - solidAlpha
+    val expandedContentAlphaState = rememberUpdatedState(expandedContentAlpha)
     val displayUrl = effectiveImageUrl?.takeIf { it.isNotBlank() }
     val headerOverlayBrush = remember(surfaceColor, expandedContentAlpha) {
         Brush.verticalGradient(
@@ -1010,8 +1018,11 @@ private fun SharedArtistTopBarProbe(
                     targetSize = headerImageRequestSize,
                     allowHardware = true,
                     crossfadeDurationMillis = 0,
-                    alpha = expandedContentAlpha,
-                    modifier = Modifier.fillMaxSize()
+                    // The fade is a layer property read at draw time, so the image's params stay
+                    // equal and it skips while the header collapses (one bitmap: same pixels).
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer { alpha = expandedContentAlphaState.value }
                 )
             } else {
                 MusicIconPattern(
@@ -1112,7 +1123,7 @@ private fun SharedArtistTopBarProbe(
 
         LargeExtendedFloatingActionButton(
             onClick = onPlayClick,
-            shape = RoundedStarShape(sides = 8, curve = 0.05, rotation = 0f),
+            shape = ShuffleFabShape,
             modifier = Modifier
                 .align(shuffleAlignment)
                 .statusBarsPadding()
@@ -1351,7 +1362,7 @@ private fun CustomCollapsingTopBar(
                 // Botón de Play
                 LargeExtendedFloatingActionButton(
                     onClick = onPlayClick,
-                    shape = RoundedStarShape(sides = 8, curve = 0.05, rotation = 0f),
+                    shape = ShuffleFabShape,
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
                         .padding(16.dp)

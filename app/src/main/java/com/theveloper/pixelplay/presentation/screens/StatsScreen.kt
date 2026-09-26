@@ -114,6 +114,8 @@ import com.theveloper.pixelplay.R
 import com.theveloper.pixelplay.data.stats.PlaybackStatsRepository
 import com.theveloper.pixelplay.data.stats.StatsTimeRange
 import com.theveloper.pixelplay.presentation.components.CollapsibleCommonTopBar
+import com.theveloper.pixelplay.presentation.components.rememberCollapseFraction
+import com.theveloper.pixelplay.presentation.components.rememberCollapsingHeaderContentPadding
 import com.theveloper.pixelplay.presentation.components.ExpressiveTopBarContent
 import com.theveloper.pixelplay.presentation.components.MiniPlayerHeight
 import com.theveloper.pixelplay.presentation.components.SmartImage
@@ -160,11 +162,9 @@ fun StatsScreen(
     val maxTopBarHeightPx = with(density) { maxTopBarHeight.toPx() }
 
     val topBarHeight = remember { Animatable(maxTopBarHeightPx) }
-    var collapseFraction by remember { mutableStateOf(0f) }
-
-    LaunchedEffect(topBarHeight.value) {
-        collapseFraction = 1f - ((topBarHeight.value - minTopBarHeightPx) / (maxTopBarHeightPx - minTopBarHeightPx)).coerceIn(0f, 1f)
-    }
+    // Derived, and read only by the top bar below: the per-frame header height never recomposes
+    // this screen body (or the pull-to-refresh box and list).
+    val collapseFraction by rememberCollapseFraction(topBarHeight, minTopBarHeightPx, maxTopBarHeightPx)
 
     val nestedScrollConnection = remember {
         object : NestedScrollConnection {
@@ -206,11 +206,20 @@ fun StatsScreen(
         }
     }
 
-    val currentTopBarHeightDp = with(density) { topBarHeight.value.toDp() }
     val tabsHeight = 62.dp
     val showRangeTabIndicator = false
     val tabIndicatorExtraSpacing = if (showRangeTabIndicator) 8.dp else 0.dp
     val tabContentSpacing = 20.dp
+    // Paddings that follow the header height, read at layout time (a relayout, not a recomposition).
+    val indicatorPadding = rememberCollapsingHeaderContentPadding(
+        height = topBarHeight,
+        extraTop = tabsHeight + tabIndicatorExtraSpacing + 4.dp
+    )
+    val listContentPadding = rememberCollapsingHeaderContentPadding(
+        height = topBarHeight,
+        extraTop = tabsHeight + tabIndicatorExtraSpacing + tabContentSpacing + 0.dp,
+        bottom = MiniPlayerHeight + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 16.dp
+    )
     var selectedTimelineMetric by rememberSaveable { mutableStateOf(TimelineMetric.ListeningTime) }
     var selectedCategoryDimension by rememberSaveable { mutableStateOf(CategoryDimension.Song) }
     val pullToRefreshState = rememberPullToRefreshState()
@@ -259,7 +268,7 @@ fun StatsScreen(
                 isRefreshing = isPullRefreshAnimating,
                 modifier = Modifier
                     .align(Alignment.TopCenter)
-                    .padding(top = currentTopBarHeightDp + tabsHeight + tabIndicatorExtraSpacing + 4.dp)
+                    .padding(indicatorPadding)
             )
         }
     ) {
@@ -282,10 +291,7 @@ fun StatsScreen(
                     modifier = Modifier
                         .fillMaxSize()
                         .glassScreenContent(screenGlass),
-                    contentPadding = PaddingValues(
-                        top = currentTopBarHeightDp + tabsHeight + tabIndicatorExtraSpacing + tabContentSpacing + 0.dp,
-                        bottom = MiniPlayerHeight + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 16.dp
-                    ),
+                    contentPadding = listContentPadding,
                     verticalArrangement = Arrangement.spacedBy(24.dp)
                 ) {
                     item(key = "hero_section") {
@@ -369,7 +375,7 @@ fun StatsScreen(
                         CollapsibleCommonTopBar(
                             title = stringResource(R.string.stats_title),
                             collapseFraction = collapseFraction,
-                            headerHeight = currentTopBarHeightDp,
+                            headerHeight = with(density) { topBarHeight.value.toDp() },
                             onBackClick = { navController.popBackStack() },
                             containerColor = Color.Transparent,
                             actions = {
