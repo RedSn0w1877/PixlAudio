@@ -271,12 +271,16 @@ fun PlaylistDetailScreen(
     }
 
     val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior(rememberTopAppBarState())
+    val glassTopBar = LocalGlassModeEnabled.current
 
     Scaffold(
-        modifier = Modifier
-            .nestedScroll(scrollBehavior.nestedScrollConnection),
+        // The enterAlways connection is only valid while the LargeFlexibleTopAppBar is laid out
+        // (it sets heightOffsetLimit). The glass capsule has no such bar, so attaching it there
+        // would swallow every upward drag.
+        modifier = if (glassTopBar) Modifier
+        else Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
-            if (LocalGlassModeEnabled.current) {
+            if (glassTopBar) {
                 // Liquid Glass: NexHome's floating capsule (no glint) with the back orb, the
                 // playlist name and its count/duration line, and sort / more as 40 dp orbs.
                 com.theveloper.pixelplay.presentation.components.GlassScreenTopBar(

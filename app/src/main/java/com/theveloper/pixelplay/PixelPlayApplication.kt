@@ -157,7 +157,11 @@ class PixelPlayApplication : Application(), ImageLoaderFactory, Configuration.Pr
             .components {
                 add(localArtworkCoilFetcherFactory.get())
                 // Opt-in (SmartImage display requests only): thumbnail-sized CDN variants.
-                add(com.theveloper.pixelplay.data.image.RemoteThumbnailInterceptor())
+                add(
+                    com.theveloper.pixelplay.data.image.RemoteThumbnailInterceptor(
+                        diskCache = { imageLoader.get().diskCache }
+                    )
+                )
             }
             .build()
     }

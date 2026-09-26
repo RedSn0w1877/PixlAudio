@@ -81,6 +81,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -912,7 +913,9 @@ fun AiApiKeyItem(
     title: String,
     subtitle: String
 ) {
-    var localApiKey by remember(apiKey) { mutableStateOf(apiKey) }
+    // Saveable: each settings subsection is its own lazy item, so a half-typed draft must survive
+    // its item scrolling out of composition.
+    var localApiKey by rememberSaveable(apiKey) { mutableStateOf(apiKey) }
     val hasChanges = localApiKey != apiKey
     var showSaved by remember { mutableStateOf(false) }
 
@@ -984,7 +987,7 @@ fun AiSystemPromptItem(
     title: String,
     subtitle: String
 ) {
-    var localPrompt by remember(systemPrompt) { mutableStateOf(systemPrompt) }
+    var localPrompt by rememberSaveable(systemPrompt) { mutableStateOf(systemPrompt) }
     val hasChanges = localPrompt != systemPrompt
     val isDefault = systemPrompt == defaultPrompt
     var showSaved by remember { mutableStateOf(false) }

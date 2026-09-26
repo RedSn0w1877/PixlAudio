@@ -3,7 +3,7 @@
 package com.theveloper.pixelplay.presentation.screens
 
 import com.theveloper.pixelplay.presentation.components.CollapsingHeaderHeight
-import com.theveloper.pixelplay.presentation.components.AdaptivePressSurface
+import com.theveloper.pixelplay.presentation.components.AdaptiveClickableSurface
 import com.theveloper.pixelplay.presentation.components.glassAwareHeaderFill
 import com.theveloper.pixelplay.presentation.components.glassArtFade
 import com.theveloper.pixelplay.presentation.components.glassAwareOverlay
@@ -913,7 +913,7 @@ private fun ArtistYouTubeMusicTrackItem(
 ) {
     var isBusy by remember(track.videoId) { mutableStateOf(false) }
 
-    AdaptivePressSurface(
+    AdaptiveClickableSurface(
         onClick = {
             if (!isBusy) {
                 isBusy = true

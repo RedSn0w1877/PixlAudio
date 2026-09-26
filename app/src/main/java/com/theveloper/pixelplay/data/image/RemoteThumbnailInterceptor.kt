@@ -1,11 +1,16 @@
 package com.theveloper.pixelplay.data.image
 
 import android.net.Uri
+import android.util.LruCache
+import coil.disk.DiskCache
 import coil.intercept.Interceptor
+import coil.request.ErrorResult
 import coil.request.ImageRequest
 import coil.request.ImageResult
 import coil.size.Dimension
 import coil.size.Size
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * Downloads a thumbnail-sized variant of remote artwork for CDNs that encode the image size in the
@@ -16,8 +21,19 @@ import coil.size.Size
  * is what Coil keys its memory and disk caches on, so a small row and the large player each get
  * the variant they asked for. Spotify's `i.scdn.co` hashes are never touched: their size is not in
  * the URL in a form that can be derived safely.
+ *
+ * The rewrite never costs an image that used to show: artwork already in the disk cache under its
+ * original URL (cached before this interceptor existed, or by a full-size load) keeps loading from
+ * there, and a variant that fails (offline, or a size the CDN refuses) falls back to the original
+ * request. The disk check runs once per URL per process on IO; the decision is remembered, so a
+ * memory-cache hit on a later bind stays synchronous.
  */
-class RemoteThumbnailInterceptor : Interceptor {
+class RemoteThumbnailInterceptor(
+    private val diskCache: () -> DiskCache? = { null },
+) : Interceptor {
+
+    /** Original URL -> true when it must load as-is (already on disk, or its variant failed). */
+    private val useOriginal = LruCache<String, Boolean>(DECISION_CACHE_SIZE)
 
     override suspend fun intercept(chain: Interceptor.Chain): ImageResult {
         val request = chain.request
@@ -29,7 +45,20 @@ class RemoteThumbnailInterceptor : Interceptor {
         }
         val targetPx = chain.size.maxPixels() ?: return chain.proceed(request)
         val variant = RemoteThumbnailUrls.variantFor(url, targetPx) ?: return chain.proceed(request)
-        return chain.proceed(request.newBuilder().data(variant).build())
+        if (request.diskCachePolicy.readEnabled) {
+            val keepOriginal = useOriginal.get(url) ?: isOnDisk(request.diskCacheKey ?: url).also {
+                useOriginal.put(url, it)
+            }
+            if (keepOriginal) return chain.proceed(request)
+        }
+        val result = chain.proceed(request.newBuilder().data(variant).build())
+        if (result !is ErrorResult) return result
+        useOriginal.put(url, true)
+        return chain.proceed(request)
+    }
+
+    private suspend fun isOnDisk(key: String): Boolean = withContext(Dispatchers.IO) {
+        runCatching { diskCache()?.openSnapshot(key)?.use { true } ?: false }.getOrDefault(false)
     }
 
     private fun Size.maxPixels(): Int? {
@@ -40,6 +69,7 @@ class RemoteThumbnailInterceptor : Interceptor {
 
     companion object {
         private const val PARAM_KEY = "pixelplay.remoteThumbnailVariant"
+        private const val DECISION_CACHE_SIZE = 2048
 
         /** Marks a display request as allowed to load a smaller CDN variant (no cache-key effect). */
         fun optIn(builder: ImageRequest.Builder): ImageRequest.Builder =

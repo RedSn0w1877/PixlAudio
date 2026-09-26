@@ -1,6 +1,6 @@
 package com.theveloper.pixelplay.presentation.screens
 
-import com.theveloper.pixelplay.presentation.components.AdaptivePressSurface
+import com.theveloper.pixelplay.presentation.components.AdaptiveClickableSurface
 import com.theveloper.pixelplay.ui.glass.controls.SegmentOption
 import com.theveloper.pixelplay.ui.glass.controls.LiquidSegmented
 import com.theveloper.pixelplay.presentation.components.AdaptiveClickableCard
@@ -1037,7 +1037,7 @@ private fun SearchResultCatalogItem(
 ) {
     var isBusy by remember(track.spotifyId) { mutableStateOf(false) }
 
-    AdaptivePressSurface(
+    AdaptiveClickableSurface(
         onClick = {
             if (!isBusy) {
                 isBusy = true
@@ -1119,7 +1119,7 @@ private fun SearchResultYouTubeMusicItem(
 ) {
     var isBusy by remember(track.videoId) { mutableStateOf(false) }
 
-    AdaptivePressSurface(
+    AdaptiveClickableSurface(
         onClick = {
             if (!isBusy) {
                 isBusy = true

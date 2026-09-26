@@ -40,6 +40,7 @@ import androidx.compose.ui.unit.Dp
 import com.theveloper.pixelplay.ui.glass.GlassPressIndication
 import com.theveloper.pixelplay.ui.glass.RowPressScale
 import com.theveloper.pixelplay.ui.glass.glassPressSwell
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.LayoutCoordinates
@@ -48,6 +49,15 @@ import androidx.compose.ui.node.DrawModifierNode
 import androidx.compose.ui.node.GlobalPositionAwareModifierNode
 import androidx.compose.ui.node.ModifierNodeElement
 import androidx.compose.ui.node.invalidateDraw
+import androidx.compose.ui.node.LayoutModifierNode
+import androidx.compose.ui.node.invalidateMeasurement
+import androidx.compose.ui.layout.Measurable
+import androidx.compose.ui.layout.MeasureResult
+import androidx.compose.ui.layout.MeasureScope
+import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.isSpecified
+import androidx.compose.material3.LocalMinimumInteractiveComponentSize
+import kotlin.math.roundToInt
 import androidx.compose.ui.platform.InspectorInfo
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.toSize
@@ -172,8 +182,12 @@ private class GlassAmbientFillNode(
         val rootSize = state.rootSize
         val a = alphaProvider?.invoke() ?: alpha
         if (a > 0f && rootSize.width > 0 && rootSize.height > 0) {
-            translate(-offsetInRoot.x, -offsetInRoot.y) {
-                state.draw(this, rootSize.toSize(), a)
+            // The ambient is drawn at root size; Compose does not clip drawing to layout bounds,
+            // so clip to the element here or an unclipped caller would paint the whole screen.
+            clipRect(0f, 0f, size.width, size.height) {
+                translate(-offsetInRoot.x, -offsetInRoot.y) {
+                    state.draw(this, rootSize.toSize(), a)
+                }
             }
         }
         drawContent()
@@ -288,12 +302,50 @@ fun AdaptiveClickableCard(
  * click handling is untouched.
  */
 @Composable
-fun Modifier.glassTilePress(interactionSource: MutableInteractionSource, shape: Shape): Modifier {
+private fun Modifier.glassTilePress(interactionSource: MutableInteractionSource, shape: Shape): Modifier {
     val glow = remember { GlassPressIndication(Color.White, swellScale = 1f) }
     return this
         .glassPressSwell(interactionSource, RowPressScale)
         .clip(shape)
         .indication(interactionSource, glow)
+}
+
+/**
+ * Material's `minimumInteractiveComponentSize()` layout (the tile centred in a [minSize] box), for
+ * the glass tiles: applied to the left of [glassTilePress] while the Surface's own copy is switched
+ * off, so the layout is unchanged but the swell, the clip and the glow see the drawn tile instead
+ * of the enlarged 48 dp touch box (a 36-44 dp chip would otherwise glow outside its pill).
+ */
+private fun Modifier.glassTileMinSize(minSize: Dp): Modifier =
+    if (minSize.isSpecified && minSize > 0.dp) this then GlassTileMinSizeElement(minSize) else this
+
+private data class GlassTileMinSizeElement(val minSize: Dp) : ModifierNodeElement<GlassTileMinSizeNode>() {
+    override fun create() = GlassTileMinSizeNode(minSize)
+    override fun update(node: GlassTileMinSizeNode) {
+        if (node.minSize != minSize) {
+            node.minSize = minSize
+            node.invalidateMeasurement()
+        }
+    }
+
+    override fun InspectorInfo.inspectableProperties() {
+        name = "glassTileMinSize"
+    }
+}
+
+private class GlassTileMinSizeNode(var minSize: Dp) : Modifier.Node(), LayoutModifierNode {
+    override fun MeasureScope.measure(measurable: Measurable, constraints: Constraints): MeasureResult {
+        val placeable = measurable.measure(constraints)
+        val sizePx = minSize.roundToPx()
+        val width = maxOf(placeable.width, sizePx)
+        val height = maxOf(placeable.height, sizePx)
+        return layout(width, height) {
+            placeable.place(
+                ((width - placeable.width) / 2f).roundToInt(),
+                ((height - placeable.height) / 2f).roundToInt()
+            )
+        }
+    }
 }
 
 /**
@@ -321,10 +373,21 @@ fun AdaptivePressSurface(
 ) {
     val glass = LocalGlassModeEnabled.current
     val source = interactionSource ?: if (glass) remember { MutableInteractionSource() } else null
-    val surfaceModifier = if (glass && source != null) modifier.glassTilePress(source, shape) else modifier
+    val minTouch = LocalMinimumInteractiveComponentSize.current
+    val surfaceModifier = if (glass && source != null) {
+        modifier.glassTileMinSize(minTouch).glassTilePress(source, shape)
+    } else {
+        modifier
+    }
     val innerRipple = LocalRippleConfiguration.current
     val body: @Composable () -> Unit = if (glass) {
-        { CompositionLocalProvider(LocalRippleConfiguration provides innerRipple, content = content) }
+        {
+            CompositionLocalProvider(
+                LocalRippleConfiguration provides innerRipple,
+                LocalMinimumInteractiveComponentSize provides minTouch,
+                content = content
+            )
+        }
     } else {
         content
     }
@@ -361,7 +424,12 @@ fun AdaptivePressSurface(
         }
     }
     if (glass) {
-        CompositionLocalProvider(LocalRippleConfiguration provides null, content = surface)
+        // The Surface's own minimum-size box is replaced by glassTileMinSize (see there).
+        CompositionLocalProvider(
+            LocalRippleConfiguration provides null,
+            LocalMinimumInteractiveComponentSize provides Dp.Unspecified,
+            content = surface
+        )
     } else {
         surface()
     }
@@ -401,10 +469,14 @@ fun AdaptivePressCard(
     }
     val source = interactionSource ?: remember { MutableInteractionSource() }
     val innerRipple = LocalRippleConfiguration.current
-    CompositionLocalProvider(LocalRippleConfiguration provides null) {
+    val minTouch = LocalMinimumInteractiveComponentSize.current
+    CompositionLocalProvider(
+        LocalRippleConfiguration provides null,
+        LocalMinimumInteractiveComponentSize provides Dp.Unspecified,
+    ) {
         Card(
             onClick = onClick,
-            modifier = modifier.glassTilePress(source, shape),
+            modifier = modifier.glassTileMinSize(minTouch).glassTilePress(source, shape),
             enabled = enabled,
             shape = shape,
             colors = colors,
@@ -412,7 +484,10 @@ fun AdaptivePressCard(
             border = border,
             interactionSource = source,
         ) {
-            CompositionLocalProvider(LocalRippleConfiguration provides innerRipple) {
+            CompositionLocalProvider(
+                LocalRippleConfiguration provides innerRipple,
+                LocalMinimumInteractiveComponentSize provides minTouch,
+            ) {
                 content()
             }
         }
