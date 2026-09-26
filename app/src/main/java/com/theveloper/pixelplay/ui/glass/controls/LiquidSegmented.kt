@@ -1,6 +1,8 @@
 package com.theveloper.pixelplay.ui.glass.controls
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.EaseOut
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.clickable
@@ -89,6 +91,10 @@ data class SegmentOption(val label: String, val icon: ImageVector? = null)
  *
  * PixlAudio changes: palette colours; the bar nudge follows the finger in a plain float state (no
  * coroutine per pointer event); frosted-tier blur on API 31–32.
+ *
+ * A [selectedIndex] outside the options means none of them is the current choice (Search's
+ * catalogue filters): the blob fades out, and tapping or dragging to any option (including the one
+ * the hidden blob rests on) selects it.
  */
 @Composable
 fun LiquidSegmented(
@@ -122,6 +128,12 @@ fun LiquidSegmented(
         val maxWidthPx = constraints.maxWidth.toFloat()
         val tabWidth = with(density) { (maxWidthPx - 8.dp.toPx()) / count }
         val currentTabWidth by rememberUpdatedState(tabWidth)
+        // No option selected: the blob fades out (read in its layer only).
+        val blobVisibility by animateFloatAsState(
+            targetValue = if (selectedIndex in 0 until count) 1f else 0f,
+            animationSpec = tween(160),
+            label = "segmentedBlobVisibility",
+        )
 
         var fingerOffset by remember { mutableFloatStateOf(0f) }
         val offsetAnimation = remember { Animatable(0f) }
@@ -148,6 +160,8 @@ fun LiquidSegmented(
                 onDragStarted = {},
                 onDragStopped = {
                     val target = targetValue.fastRoundToInt().fastCoerceIn(0, count - 1)
+                    // Landing on the option the hidden blob rests on still selects it.
+                    if (target == currentIndex && target != currentSelected) currentOnSelect(target)
                     currentIndex = target
                     animateToValue(target.toFloat())
                     val released = fingerOffset
@@ -172,7 +186,9 @@ fun LiquidSegmented(
         }
         LaunchedEffect(blob) {
             snapshotFlow { currentSelected }.collectLatest { index ->
-                currentIndex = index.coerceIn(0, count - 1)
+                // Out of range = nothing selected: the blob stays (hidden) where it is, so this
+                // never reads as the user picking the option it would be clamped to.
+                if (index in 0 until count) currentIndex = index
             }
         }
         LaunchedEffect(blob) {
@@ -201,7 +217,14 @@ fun LiquidSegmented(
         }
 
         val select: (Int) -> Unit = { index ->
-            if (index != currentIndex) haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            if (index != currentIndex) {
+                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            } else if (index != currentSelected) {
+                // Nothing selected (the blob is hidden on this option): the index does not change,
+                // so report the choice here.
+                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                currentOnSelect(index)
+            }
             currentIndex = index
         }
 
@@ -286,6 +309,8 @@ fun LiquidSegmented(
                     translationX =
                         if (isLtr) blob.value * currentTabWidth + panelOffset
                         else size.width - (blob.value + 1f) * currentTabWidth + panelOffset
+                    // Hidden while no option is selected, shown again as soon as it is held.
+                    alpha = maxOf(blobVisibility, blob.pressProgress.fastCoerceIn(0f, 1f))
                 }
                 .then(highlight.gestureModifier)
                 .then(blob.modifier)

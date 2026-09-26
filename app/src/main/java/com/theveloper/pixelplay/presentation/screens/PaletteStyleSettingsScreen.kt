@@ -1,5 +1,6 @@
 package com.theveloper.pixelplay.presentation.screens
 
+import com.theveloper.pixelplay.presentation.components.AdaptivePressSurface
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import androidx.compose.animation.core.animateDpAsState
@@ -572,7 +573,7 @@ private fun PaletteSwatchSquare(
             label = "paletteBorderWidth"
         )
 
-        Surface(
+        AdaptivePressSurface(
             onClick = onClick,
             color = scheme.surfaceContainerHighest,
             shape = RoundedCornerShape(outerCorner),

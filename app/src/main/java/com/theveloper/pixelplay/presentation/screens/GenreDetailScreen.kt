@@ -781,6 +781,18 @@ fun GenreCollapsibleTopBar(
     collapsedContentColor: Color
 ) {
     val solidAlpha = (collapseFraction * 2f).coerceIn(0f, 1f)
+    if (com.theveloper.pixelplay.ui.glass.LocalGlassModeEnabled.current) {
+        // Liquid Glass: NexHome's floating capsule (no glint, no collapse) with the glass back
+        // orb; the header fills with the aligned ambient as it collapses, masking the list the
+        // way the Material header's container colour does.
+        com.theveloper.pixelplay.presentation.components.GlassCollapsingTopBar(
+            title = title,
+            headerHeight = headerHeight,
+            maskAlpha = solidAlpha,
+            onBackClick = onBackPressed
+        )
+        return
+    }
     val animatedContentColor = androidx.compose.ui.graphics.lerp(
         start = contentColor,
         stop = collapsedContentColor,

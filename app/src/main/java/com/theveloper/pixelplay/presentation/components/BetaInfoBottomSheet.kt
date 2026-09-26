@@ -628,7 +628,7 @@ private fun BetaCardSurface(
             content = content
         )
     } else {
-        Surface(
+        AdaptivePressSurface(
             modifier = modifier.fillMaxWidth(),
             shape = shape,
             color = color,

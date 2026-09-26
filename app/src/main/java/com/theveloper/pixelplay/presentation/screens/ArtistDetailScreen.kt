@@ -2,6 +2,7 @@
 
 package com.theveloper.pixelplay.presentation.screens
 
+import com.theveloper.pixelplay.presentation.components.AdaptivePressSurface
 import com.theveloper.pixelplay.presentation.components.glassAwareHeaderFill
 import com.theveloper.pixelplay.presentation.components.glassArtFade
 import com.theveloper.pixelplay.presentation.components.glassAwareOverlay
@@ -913,7 +914,7 @@ private fun ArtistYouTubeMusicTrackItem(
 ) {
     var isBusy by remember(track.videoId) { mutableStateOf(false) }
 
-    Surface(
+    AdaptivePressSurface(
         onClick = {
             if (!isBusy) {
                 isBusy = true
@@ -1087,19 +1088,34 @@ private fun SharedArtistTopBarProbe(
             fadeSubtitleOnCollapse = false,
             syncStatusBarWithContainer = false,
             actions = {
+                val glassBar = com.theveloper.pixelplay.ui.glass.LocalGlassModeEnabled.current
                 Box(
-                    modifier = Modifier.padding(end = 12.dp, top = 4.dp)
+                    modifier = if (glassBar) Modifier else Modifier.padding(end = 12.dp, top = 4.dp)
                 ) {
-                    FilledIconButton(
-                        onClick = { showImageMenu = true },
-                        colors = IconButtonDefaults.filledIconButtonColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceContainerLow
-                        )
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.Edit,
+                    if (glassBar) {
+                        // Liquid Glass: the capsule's 40 dp action orb.
+                        com.theveloper.pixelplay.ui.glass.GlassCircleAction(
+                            onClick = { showImageMenu = true },
                             contentDescription = stringResource(R.string.artist_cd_edit_image)
-                        )
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Edit,
+                                contentDescription = null,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    } else {
+                        FilledIconButton(
+                            onClick = { showImageMenu = true },
+                            colors = IconButtonDefaults.filledIconButtonColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+                            )
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Edit,
+                                contentDescription = stringResource(R.string.artist_cd_edit_image)
+                            )
+                        }
                     }
 
                     RestoreMaterialColors {
@@ -1135,20 +1151,40 @@ private fun SharedArtistTopBarProbe(
             }
         )
 
-        LargeExtendedFloatingActionButton(
-            onClick = onPlayClick,
-            shape = ShuffleFabShape,
-            modifier = Modifier
-                .align(shuffleAlignment)
-                .statusBarsPadding()
-                .padding(end = 16.dp)
-                .graphicsLayer {
-                    scaleX = expandedContentAlpha
-                    scaleY = expandedContentAlpha
-                    alpha = expandedContentAlpha
-                }
-        ) {
-            Icon(Icons.Rounded.Shuffle, contentDescription = stringResource(R.string.artist_cd_shuffle_play))
+        if (com.theveloper.pixelplay.ui.glass.LocalGlassModeEnabled.current) {
+            // Liquid Glass: the shuffle FAB becomes a lit glass orb, fading with the same collapse.
+            com.theveloper.pixelplay.presentation.components.GlassHeaderActionOrb(
+                onClick = onPlayClick,
+                contentDescription = stringResource(R.string.artist_cd_shuffle_play),
+                modifier = Modifier
+                    .align(shuffleAlignment)
+                    .statusBarsPadding()
+                    .padding(end = 16.dp, top = 8.dp, bottom = 8.dp)
+                    .graphicsLayer {
+                        val a = expandedContentAlphaState.value
+                        scaleX = a
+                        scaleY = a
+                        alpha = a
+                    }
+            ) {
+                Icon(Icons.Rounded.Shuffle, contentDescription = null, modifier = Modifier.size(26.dp))
+            }
+        } else {
+            LargeExtendedFloatingActionButton(
+                onClick = onPlayClick,
+                shape = ShuffleFabShape,
+                modifier = Modifier
+                    .align(shuffleAlignment)
+                    .statusBarsPadding()
+                    .padding(end = 16.dp)
+                    .graphicsLayer {
+                        scaleX = expandedContentAlpha
+                        scaleY = expandedContentAlpha
+                        alpha = expandedContentAlpha
+                    }
+            ) {
+                Icon(Icons.Rounded.Shuffle, contentDescription = stringResource(R.string.artist_cd_shuffle_play))
+            }
         }
     }
 }

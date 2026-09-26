@@ -343,7 +343,7 @@ fun AiPlaylistSheet(
                 enter = fadeIn() + scaleIn(initialScale = 0.9f),
                 exit = fadeOut() + scaleOut(targetScale = 0.9f)
             ) {
-                Surface(
+                AdaptivePressSurface(
                     modifier = Modifier.fillMaxWidth(),
                     shape = smoothCornerShape,
                     color = colors.errorContainer,

@@ -1,5 +1,6 @@
 package com.theveloper.pixelplay.presentation.screens
 
+import com.theveloper.pixelplay.presentation.components.AdaptivePressSurface
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import com.theveloper.pixelplay.ui.theme.VisualStyle
@@ -1064,7 +1065,7 @@ fun ExperimentalSettingsScreen(
                                val isSelected = quality == albumArtQuality
                                val qualityLine = albumArtQualityLine(quality)
                                
-                               Surface(
+                               AdaptivePressSurface(
                                    color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
                                    shape = RoundedCornerShape(12.dp),
                                    modifier = Modifier.fillMaxWidth(),
@@ -1109,7 +1110,7 @@ fun ExperimentalSettingsScreen(
             }
 
             item(key = "plus_license_debug_tools") {
-                Surface(
+                AdaptivePressSurface(
                     onClick = { navController.navigate(com.theveloper.pixelplay.presentation.navigation.Screen.PlusLicenseDebug.route) },
                     shape = RoundedCornerShape(24.dp),
                     color = MaterialTheme.colorScheme.surfaceContainer,

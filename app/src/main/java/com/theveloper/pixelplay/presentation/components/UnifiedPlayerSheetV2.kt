@@ -8,7 +8,6 @@ import com.theveloper.pixelplay.presentation.components.ExpressiveOfflineDialog
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.keyframes
 import androidx.compose.animation.core.spring
@@ -24,7 +23,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.ui.layout.layout
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -42,7 +40,6 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
@@ -55,7 +52,6 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.media3.common.util.UnstableApi
 import androidx.lifecycle.Lifecycle
@@ -65,7 +61,6 @@ import androidx.lifecycle.repeatOnLifecycle
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.currentBackStackEntryAsState
 import com.theveloper.pixelplay.data.diagnostics.AdvancedPerformanceDiagnostics
-import com.theveloper.pixelplay.data.model.Song
 import com.theveloper.pixelplay.data.preferences.sanitizeNavBarCornerRadius
 import com.theveloper.pixelplay.presentation.components.scoped.PlayerAlbumNavigationEffect
 import com.theveloper.pixelplay.presentation.components.scoped.PlayerArtistNavigationEffect
@@ -91,15 +86,11 @@ import com.theveloper.pixelplay.presentation.components.scoped.rememberSheetVisu
 import com.theveloper.pixelplay.presentation.viewmodel.PlayerSheetState
 import com.theveloper.pixelplay.presentation.viewmodel.PlayerViewModel
 import com.theveloper.pixelplay.presentation.viewmodel.StablePlayerState
-import com.theveloper.pixelplay.ui.glass.LocalGlassBackdrop
-import com.theveloper.pixelplay.ui.glass.LocalGlassCapability
 import com.theveloper.pixelplay.ui.glass.LocalGlassModeEnabled
 import com.theveloper.pixelplay.ui.glass.GlassPressIndication
 import com.theveloper.pixelplay.ui.glass.glassPressSwell
 import com.theveloper.pixelplay.ui.glass.theme.LocalGlassPalette
 import com.theveloper.pixelplay.ui.theme.LocalPixelPlayDarkTheme
-import com.theveloper.pixelplay.ui.theme.QuantizedCornerShapeCache
-import kotlinx.collections.immutable.persistentListOf
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch

@@ -3,6 +3,16 @@
 package com.theveloper.pixelplay.presentation.screens
 
 import com.theveloper.pixelplay.presentation.components.AdaptiveClickableCard
+import com.kyant.shapes.Capsule
+import com.theveloper.pixelplay.ui.glass.GlassCircleAction
+import com.theveloper.pixelplay.ui.glass.GlassTabStrip
+import com.theveloper.pixelplay.ui.glass.GlassTopBar
+import com.theveloper.pixelplay.ui.glass.GlassTopBarTitle
+import com.theveloper.pixelplay.ui.glass.LocalGlassModeEnabled
+import com.theveloper.pixelplay.ui.glass.components.GlassPanel
+import com.theveloper.pixelplay.ui.glass.components.GlassText
+import com.theveloper.pixelplay.ui.glass.theme.GlassType
+import com.theveloper.pixelplay.ui.glass.theme.LocalGlassPalette
 import com.theveloper.pixelplay.presentation.components.AdaptiveDialogSurface
 import com.theveloper.pixelplay.presentation.components.AdaptiveAlertDialog
 import com.theveloper.pixelplay.presentation.components.AdaptiveModalBottomSheet
@@ -33,6 +43,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
@@ -101,6 +112,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
@@ -840,11 +852,54 @@ fun LibraryScreen(
     val currentTab = tabTitles.getOrNull(currentTabIndex)?.toLibraryTabIdOrNull() ?: currentTabId
     val currentTabTitle = currentTab.displayTitle()
 
-    val headerContainerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
+    // Liquid Glass: the header band and the page gradient go clear, so the floating capsules sit
+    // straight on the ambient like every other glass screen.
+    val glassMode = LocalGlassModeEnabled.current
+    val headerContainerColor =
+        if (glassMode) Color.Transparent else MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
 
     Scaffold(
-        modifier = Modifier.background(brush = gradientBrush),
+        modifier = if (glassMode) Modifier else Modifier.background(brush = gradientBrush),
         topBar = {
+            if (glassMode) {
+                val watchTransferPercent = if (isSendingToWatch) {
+                    ((activeWatchTransfer?.progress ?: 0f) * 100f).toInt().coerceIn(0, 100)
+                } else {
+                    null
+                }
+                GlassLibraryTopBar(
+                    isCompactNavigation = isCompactNavigation,
+                    currentTabTitle = currentTabTitle,
+                    currentTabIconRes = currentTab.iconRes(),
+                    showTabIcon = !isSendingToWatch,
+                    pageIndex = pagerState.currentPage,
+                    isTabSwitcherExpanded = showTabSwitcherSheet,
+                    watchTransferPercent = watchTransferPercent,
+                    onWatchTransferClick = if (activeWatchTransfer != null) {
+                        { showWatchTransferDialog = true }
+                    } else {
+                        null
+                    },
+                    onOpenTabSwitcher = { showTabSwitcherSheet = true },
+                    onOpenSettings = { navController.navigateSafely(Screen.Settings.route) },
+                    tabTitles = tabTitles,
+                    selectedTabIndex = currentTabIndex,
+                    onTabSelected = { index ->
+                        scope.launch {
+                            pagerState.animateScrollToPage(
+                                targetPageForTabIndex(
+                                    currentPage = pagerState.currentPage,
+                                    targetTabIndex = index,
+                                    tabCount = tabTitles.size,
+                                    compactMode = isCompactNavigation
+                                )
+                            )
+                        }
+                    },
+                    onEditTabs = { showReorderTabsSheet = true }
+                )
+                return@Scaffold
+            }
             Column(
                 modifier = Modifier.background(headerContainerColor)
             ) {
@@ -2483,6 +2538,199 @@ fun LibraryNavigationPill(
                     )
                 }
             }
+        }
+    }
+}
+
+/**
+ * Library's top area in Liquid Glass mode: NexHome's floating capsule (no glint) holding the
+ * Library title — or, in compact navigation, the current tab's icon and name sliding between tabs
+ * with the pill's own transition, plus the arrow that opens the tab switcher — and, at the end, the
+ * watch-transfer progress as a small glass capsule and Settings as a 40 dp orb. Below it: the tabs
+ * as a [GlassTabStrip] (one glass capsule, NexHome's resting blob under the selected tab, the edit
+ * button at its end), or the compact pager dots.
+ *
+ * Glass layers: capsule 1 + Settings orb 1 + tab strip 1 (+ 1 while a watch transfer runs).
+ */
+@Composable
+private fun GlassLibraryTopBar(
+    isCompactNavigation: Boolean,
+    currentTabTitle: String,
+    currentTabIconRes: Int,
+    showTabIcon: Boolean,
+    pageIndex: Int,
+    isTabSwitcherExpanded: Boolean,
+    watchTransferPercent: Int?,
+    onWatchTransferClick: (() -> Unit)?,
+    onOpenTabSwitcher: () -> Unit,
+    onOpenSettings: () -> Unit,
+    tabTitles: List<String>,
+    selectedTabIndex: Int,
+    onTabSelected: (Int) -> Unit,
+    onEditTabs: () -> Unit
+) {
+    val palette = LocalGlassPalette.current
+    Column {
+        GlassTopBar(
+            trailing = {
+                if (watchTransferPercent != null) {
+                    GlassPanel(
+                        modifier = Modifier.height(40.dp),
+                        shape = Capsule(),
+                        tint = palette.tintSubtle,
+                        onClick = onWatchTransferClick,
+                        showHighlight = false,
+                        refractionHeight = 16.dp,
+                        refractionAmount = 32.dp
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .align(Alignment.Center)
+                                .padding(horizontal = 12.dp),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                painter = painterResource(R.drawable.rounded_watch_arrow_down_24),
+                                contentDescription = stringResource(R.string.library_cd_watch_transfer),
+                                modifier = Modifier.size(18.dp)
+                            )
+                            GlassText(
+                                text = stringResource(R.string.common_percentage_text, watchTransferPercent),
+                                style = GlassType.Label,
+                                maxLines = 1
+                            )
+                        }
+                    }
+                }
+                GlassCircleAction(
+                    onClick = onOpenSettings,
+                    contentDescription = stringResource(R.string.library_cd_open_settings)
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.rounded_settings_24),
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+        ) {
+            if (isCompactNavigation) {
+                GlassLibraryNavigationTitle(
+                    title = currentTabTitle,
+                    iconRes = currentTabIconRes,
+                    showIcon = showTabIcon,
+                    pageIndex = pageIndex,
+                    isExpanded = isTabSwitcherExpanded,
+                    onClick = onOpenTabSwitcher
+                )
+            } else {
+                GlassTopBarTitle(title = stringResource(R.string.library_screen_title))
+            }
+        }
+        if (isCompactNavigation) {
+            CompactLibraryPagerIndicator(
+                currentIndex = selectedTabIndex,
+                pageCount = tabTitles.size,
+                modifier = Modifier.padding(top = 2.dp, bottom = 10.dp)
+            )
+        } else {
+            val labels = tabTitles.map { rawId ->
+                stringResource((rawId.toLibraryTabIdOrNull() ?: LibraryTabId.SONGS).titleRes)
+            }
+            GlassTabStrip(
+                labels = labels,
+                selectedIndex = selectedTabIndex,
+                onSelect = onTabSelected,
+                modifier = Modifier.padding(bottom = 10.dp),
+                trailing = {
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .clickable(onClick = onEditTabs),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Edit,
+                            contentDescription = stringResource(R.string.library_cd_reorder_tabs),
+                            tint = palette.secondary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+            )
+        }
+    }
+}
+
+private data class GlassLibraryPillState(val pageIndex: Int, val iconRes: Int, val title: String)
+
+/**
+ * The compact-navigation title inside the glass capsule: the current tab's icon and name (Title
+ * type) sliding in the direction of travel exactly as [LibraryNavigationPill]'s title does, and a
+ * chevron that turns while the tab switcher is open. The whole group opens the switcher.
+ */
+@Composable
+private fun RowScope.GlassLibraryNavigationTitle(
+    title: String,
+    iconRes: Int,
+    showIcon: Boolean,
+    pageIndex: Int,
+    isExpanded: Boolean,
+    onClick: () -> Unit
+) {
+    val palette = LocalGlassPalette.current
+    val arrowRotation = animateFloatAsState(
+        targetValue = if (isExpanded) 180f else 0f,
+        label = "GlassLibraryArrowRotation"
+    )
+    Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            modifier = Modifier
+                .clip(Capsule())
+                .clickable(onClick = onClick)
+                .padding(vertical = 6.dp, horizontal = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            AnimatedContent(
+                targetState = GlassLibraryPillState(pageIndex = pageIndex, iconRes = iconRes, title = title),
+                modifier = Modifier.weight(1f, fill = false),
+                transitionSpec = {
+                    val diff = targetState.pageIndex - initialState.pageIndex
+                    val direction = if (abs(diff) > 1) diff.coerceIn(-1, 1) else diff
+                    val slideIn = slideInHorizontally { fullWidth ->
+                        if (direction >= 0) fullWidth else -fullWidth
+                    } + fadeIn(animationSpec = tween(220))
+                    val slideOut = slideOutHorizontally { fullWidth ->
+                        if (direction >= 0) -fullWidth else fullWidth
+                    } + fadeOut(animationSpec = tween(220))
+                    slideIn.togetherWith(slideOut)
+                },
+                label = "GlassLibraryPillTitle"
+            ) { state ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (showIcon) {
+                        Icon(
+                            painter = painterResource(id = state.iconRes),
+                            contentDescription = null,
+                            tint = palette.accent,
+                            modifier = Modifier.size(22.dp)
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                    }
+                    GlassText(text = state.title, style = GlassType.Title, maxLines = 1)
+                }
+            }
+            Icon(
+                imageVector = Icons.Rounded.KeyboardArrowDown,
+                contentDescription = stringResource(R.string.library_cd_expand_tab_menu),
+                tint = palette.secondary,
+                modifier = Modifier
+                    .padding(start = 6.dp)
+                    .size(22.dp)
+                    .graphicsLayer { rotationZ = arrowRotation.value }
+            )
         }
     }
 }

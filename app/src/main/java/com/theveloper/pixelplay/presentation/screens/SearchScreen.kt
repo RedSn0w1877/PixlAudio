@@ -1,5 +1,6 @@
 package com.theveloper.pixelplay.presentation.screens
 
+import com.theveloper.pixelplay.presentation.components.AdaptivePressSurface
 import com.theveloper.pixelplay.ui.glass.controls.SegmentOption
 import com.theveloper.pixelplay.ui.glass.controls.LiquidSegmented
 import com.theveloper.pixelplay.presentation.components.AdaptiveClickableCard
@@ -1036,7 +1037,7 @@ private fun SearchResultCatalogItem(
 ) {
     var isBusy by remember(track.spotifyId) { mutableStateOf(false) }
 
-    Surface(
+    AdaptivePressSurface(
         onClick = {
             if (!isBusy) {
                 isBusy = true
@@ -1118,7 +1119,7 @@ private fun SearchResultYouTubeMusicItem(
 ) {
     var isBusy by remember(track.videoId) { mutableStateOf(false) }
 
-    Surface(
+    AdaptivePressSurface(
         onClick = {
             if (!isBusy) {
                 isBusy = true
@@ -2044,7 +2045,9 @@ private val GlassSearchFilters = listOf(
 
 /**
  * Glass mode's search filter: NexHome's LiquidSegmented over the same five filters the Material
- * chips offer (a tap or a drag selects; the choice goes through the same view-model call).
+ * chips offer (a tap or a drag selects; the choice goes through the same view-model call). A
+ * filter the control does not offer (CATALOG, YOUTUBE_MUSIC) selects none of its options, as none
+ * of the Material chips is selected then, so tapping All returns to All.
  */
 @Composable
 private fun GlassSearchFilterSegmented(
@@ -2054,7 +2057,7 @@ private fun GlassSearchFilterSegmented(
 ) {
     val labels = GlassSearchFilters.map { stringResource(it.second) }
     val options = remember(labels) { labels.map { SegmentOption(it) } }
-    val selectedIndex = GlassSearchFilters.indexOfFirst { it.first == currentFilter }.coerceAtLeast(0)
+    val selectedIndex = GlassSearchFilters.indexOfFirst { it.first == currentFilter }
     LiquidSegmented(
         options = options,
         selectedIndex = selectedIndex,

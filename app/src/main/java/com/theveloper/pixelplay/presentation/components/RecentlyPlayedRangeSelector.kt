@@ -115,7 +115,7 @@ private fun RecentlyPlayedRangeChip(
         label = "RecentlyPlayedRangeChipIconScale"
     )
 
-    Surface(
+    AdaptivePressSurface(
         selected = selected,
         onClick = onClick,
         modifier = modifier

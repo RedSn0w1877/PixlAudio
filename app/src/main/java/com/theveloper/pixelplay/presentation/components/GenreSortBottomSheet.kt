@@ -163,7 +163,7 @@ fun SortOptionCard(
     val containerColor = if (isSelected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh
     val contentColor = if (isSelected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface
 
-    Surface(
+    AdaptivePressSurface(
         onClick = onClick,
         color = containerColor,
         shape = AbsoluteSmoothCornerShape(16.dp, 60),

@@ -276,6 +276,44 @@ fun PlaylistDetailScreen(
         modifier = Modifier
             .nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
+            if (LocalGlassModeEnabled.current) {
+                // Liquid Glass: NexHome's floating capsule (no glint) with the back orb, the
+                // playlist name and its count/duration line, and sort / more as 40 dp orbs.
+                com.theveloper.pixelplay.presentation.components.GlassScreenTopBar(
+                    title = currentPlaylist?.name ?: fallbackPlaylistName,
+                    subtitle = stringResource(
+                        R.string.playlist_song_duration_line,
+                        formatSongCount(songsInPlaylist.size),
+                        formatTotalDuration(songsInPlaylist)
+                    ),
+                    onBackClick = onBackClick,
+                    actions = {
+                        com.theveloper.pixelplay.ui.glass.GlassCircleAction(
+                            onClick = { playerViewModel.showSortingSheet() },
+                            contentDescription = sortSongsLabel
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Rounded.Sort,
+                                contentDescription = null,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        if (!isFolderPlaylist) {
+                            com.theveloper.pixelplay.ui.glass.GlassCircleAction(
+                                onClick = { showPlaylistOptionsSheet = true },
+                                contentDescription = moreOptionsLabel
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.MoreVert,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+                    }
+                )
+                return@Scaffold
+            }
             LargeFlexibleTopAppBar(
                 title = {
                     Text(

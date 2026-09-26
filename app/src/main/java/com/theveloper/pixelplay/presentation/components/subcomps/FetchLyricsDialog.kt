@@ -1,5 +1,6 @@
 package com.theveloper.pixelplay.presentation.components.subcomps
 
+import com.theveloper.pixelplay.presentation.components.AdaptivePressSurface
 import com.theveloper.pixelplay.presentation.components.AdaptiveDialogSurface
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -356,7 +357,7 @@ private fun ResultItemCard(
 ) {
     val hasSyncedLyrics = !result.record.syncedLyrics.isNullOrEmpty()
     
-    Surface(
+    AdaptivePressSurface(
         onClick = onClick,
         shape = RoundedCornerShape(16.dp),
         color = MaterialTheme.colorScheme.surfaceContainerHighest,

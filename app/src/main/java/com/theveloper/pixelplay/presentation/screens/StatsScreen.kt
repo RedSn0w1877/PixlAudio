@@ -4,6 +4,10 @@ package com.theveloper.pixelplay.presentation.screens
 
 import com.theveloper.pixelplay.presentation.components.AdaptiveChip
 import com.theveloper.pixelplay.presentation.components.ScreenChrome
+import com.theveloper.pixelplay.presentation.components.glassAwareHeaderFill
+import com.theveloper.pixelplay.ui.glass.GlassCircleAction
+import com.theveloper.pixelplay.ui.glass.GlassTabStrip
+import com.theveloper.pixelplay.ui.glass.LocalGlassModeEnabled
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
@@ -354,11 +358,12 @@ fun StatsScreen(
                         .zIndex(5f)
                 ) {
                     val solidAlpha = (collapseFraction * 2f).coerceIn(0f, 1f)
-                    val backgroundColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = solidAlpha)
 
                     Column(
                         modifier = Modifier
-                            .background(backgroundColor)
+                            // Glass mode: the aligned ambient instead of the solid container, so
+                            // the collapsed header still masks the list as clear glass.
+                            .glassAwareHeaderFill(MaterialTheme.colorScheme.surfaceContainerHigh, solidAlpha)
                             .padding(bottom = 8.dp) // Reduced padding below tabs
                     ) {
                         CollapsibleCommonTopBar(
@@ -369,6 +374,22 @@ fun StatsScreen(
                             containerColor = Color.Transparent,
                             actions = {
                                 val refreshEnabled = !uiState.isLoading && !uiState.isRefreshing && !isPullRefreshAnimating
+                                if (LocalGlassModeEnabled.current) {
+                                    // Liquid Glass: the capsule's 40 dp action orb (faded and
+                                    // inert while a refresh is running).
+                                    GlassCircleAction(
+                                        onClick = { if (refreshEnabled) statsViewModel.requestStatsRefresh() },
+                                        modifier = Modifier.alpha(if (refreshEnabled) 1f else 0.38f),
+                                        contentDescription = stringResource(R.string.stats_cd_refresh)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Rounded.Refresh,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                    return@CollapsibleCommonTopBar
+                                }
                                 FilledIconButton(
                                     modifier = Modifier
                                         .padding(end = 12.dp),
@@ -656,6 +677,21 @@ private fun RangeTabsHeader(
     modifier: Modifier = Modifier
 ) {
     val selectedIndex = remember(ranges, selected) { ranges.indexOf(selected).coerceAtLeast(0) }
+    if (LocalGlassModeEnabled.current) {
+        // Liquid Glass: one floating glass capsule of range tabs with NexHome's resting blob under
+        // the selected one (five long labels do not fit a LiquidSegmented). Same 62 dp height as
+        // the Material tab row, so the list padding is unchanged.
+        val labels = ranges.map { stringResource(it.displayNameRes()) }
+        GlassTabStrip(
+            labels = labels,
+            selectedIndex = selectedIndex,
+            onSelect = { index -> ranges.getOrNull(index)?.let(onRangeSelected) },
+            modifier = modifier
+                .zIndex(1f)
+                .padding(top = 12.dp, bottom = 2.dp)
+        )
+        return
+    }
     Surface(
         modifier = modifier
             .fillMaxWidth()

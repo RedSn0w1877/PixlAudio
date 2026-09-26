@@ -719,4 +719,9 @@
     <string name="settings_storage_action_free">Free up %1$s</string>
     <string name="settings_storage_action_nothing">Nothing to free</string>
     <string name="settings_storage_freed">Freed %1$s. Your downloads were kept.</string>
+    <!-- Main settings groups (Liquid Glass mode) -->
+    <string name="settings_group_music">Music</string>
+    <string name="settings_group_look_and_feel">Look &amp; feel</string>
+    <string name="settings_group_services">Services</string>
+    <string name="settings_group_advanced">Advanced</string>
 </resources>

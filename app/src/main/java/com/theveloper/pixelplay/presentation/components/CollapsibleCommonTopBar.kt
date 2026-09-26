@@ -75,22 +75,19 @@ fun CollapsibleCommonTopBar(
     if (LocalGlassModeEnabled.current) {
         // Liquid Glass: NexHome's floating capsule (no glint, no collapse), through the
         // ScreenChrome seam. The header keeps its height so the screen's layout is unchanged;
-        // content scrolls under the capsule.
-        Box(
-            modifier = modifier
-                .fillMaxWidth()
-                .height(headerHeight)
-                .zIndex(5f)
-        ) {
-            GlassScreenTopBar(
-                title = title,
-                subtitle = subtitle,
-                onBackClick = onBackClick,
-                modifier = Modifier.wrapContentHeight(align = Alignment.Top, unbounded = true),
-                supportingContent = supportingContent,
-                actions = actions
-            )
-        }
+        // it fills with the aligned ambient as it collapses (the Material header's solid fill:
+        // the caller's container alpha, else the default 0 → 1 ramp), so a collapsed header
+        // still masks the list scrolled under it.
+        GlassCollapsingTopBar(
+            title = title,
+            headerHeight = headerHeight,
+            maskAlpha = containerColor?.alpha ?: solidAlpha,
+            onBackClick = onBackClick,
+            modifier = modifier,
+            subtitle = subtitle,
+            supportingContent = supportingContent,
+            actions = actions
+        )
         return
     }
 

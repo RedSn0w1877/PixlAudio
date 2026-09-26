@@ -1,5 +1,6 @@
 package com.theveloper.pixelplay.presentation.screens
 
+import com.theveloper.pixelplay.presentation.components.AdaptivePressSurface
 import com.theveloper.pixelplay.ui.glass.LocalGlassModeEnabled
 import com.theveloper.pixelplay.presentation.components.AdaptiveClickableSurface
 import com.theveloper.pixelplay.presentation.components.ScreenChrome
@@ -34,7 +35,9 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.width
+import androidx.annotation.StringRes
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -206,6 +209,9 @@ fun SettingsScreen(
             end = 16.dp,
             bottom = MiniPlayerHeight + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 8.dp
         )
+        // Liquid Glass: the categories are split into NexHome-style groups, one GlassSection per
+        // list item, instead of one ~1060 dp lens re-rendered on every scroll frame.
+        val glassGroups = LocalGlassModeEnabled.current
         LazyColumn(
                 state = lazyListState,
                 contentPadding = listContentPadding,
@@ -215,7 +221,30 @@ fun SettingsScreen(
             item {
                 PlusSettingsItem(onClick = { navController.navigateSafely(Screen.Plus.route) })
             }
-            item {
+            if (glassGroups) {
+                items(
+                    items = GlassMainSettingsGroups,
+                    key = { group -> "settings_group_${group.titleRes}" },
+                    contentType = { "settings_group" }
+                ) { group ->
+                    GlassMainSettingsGroupItem(
+                        group = group,
+                        onCategoryClick = { category ->
+                            when (category) {
+                                SettingsCategory.EQUALIZER -> navController.navigateSafely(Screen.Equalizer.route)
+                                SettingsCategory.DEVICE_CAPABILITIES -> navController.navigateSafely(Screen.DeviceCapabilities.route)
+                                SettingsCategory.ABOUT -> navController.navigateSafely("about")
+                                else -> navController.navigateSafely(Screen.SettingsCategory.createRoute(category.id))
+                            }
+                        },
+                        onAccountsClick = { navController.navigateSafely(Screen.Accounts.route) }
+                    )
+                }
+                item(key = "settings_bottom_spacer") {
+                    // for player active:
+                    Spacer(modifier = Modifier.height(32.dp))
+                }
+            } else item {
                 val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
                 ExpressiveSettingsGroup {
                     // User-facing categories first, in SettingsCategory's declaration order
@@ -321,7 +350,7 @@ fun SettingsScreen(
 @Composable
 private fun PlusSettingsItem(onClick: () -> Unit) {
     val colors = MaterialTheme.colorScheme
-    Surface(
+    AdaptivePressSurface(
         onClick = onClick,
         shape = RoundedCornerShape(28.dp),
         color = colors.primaryContainer,
@@ -483,6 +512,98 @@ fun ExpressiveCategoryItem(
 //                    modifier = Modifier.size(20.dp)
 //                )
 //            }
+        }
+    }
+}
+
+/** One row of the main settings list: a category, or the Accounts entry (not a category). */
+private sealed interface MainSettingsRow {
+    data class Category(val category: SettingsCategory) : MainSettingsRow
+    data object Accounts : MainSettingsRow
+}
+
+/** A titled group of the main settings list in Liquid Glass mode. */
+private data class GlassMainSettingsGroup(@StringRes val titleRes: Int, val rows: List<MainSettingsRow>)
+
+/**
+ * Liquid Glass mode's grouping of the main settings list (NexHome's settings: several titled
+ * sections instead of one long one). Same entries as Material 3 mode; within the groups the only
+ * move is Appearance, which sits with Behavior. A category added later without a group lands at the
+ * top of the last group, so nothing can go missing.
+ */
+private val GlassMainSettingsGroups: List<GlassMainSettingsGroup> = run {
+    fun c(category: SettingsCategory) = MainSettingsRow.Category(category)
+    val groups = listOf(
+        GlassMainSettingsGroup(
+            R.string.settings_group_music,
+            listOf(c(SettingsCategory.LIBRARY), c(SettingsCategory.PLAYBACK), c(SettingsCategory.EQUALIZER))
+        ),
+        GlassMainSettingsGroup(
+            R.string.settings_group_look_and_feel,
+            listOf(c(SettingsCategory.APPEARANCE), c(SettingsCategory.BEHAVIOR))
+        ),
+        GlassMainSettingsGroup(
+            R.string.settings_group_services,
+            listOf(c(SettingsCategory.AI_INTEGRATION), c(SettingsCategory.BACKUP_RESTORE), MainSettingsRow.Accounts)
+        ),
+        GlassMainSettingsGroup(
+            R.string.settings_group_advanced,
+            listOf(c(SettingsCategory.DEVELOPER), c(SettingsCategory.DEVICE_CAPABILITIES), c(SettingsCategory.ABOUT))
+        ),
+    )
+    val listed = groups.flatMap { it.rows }.filterIsInstance<MainSettingsRow.Category>().map { it.category }.toSet()
+    val missing = SettingsCategory.entries.filter { it !in listed }
+    if (missing.isEmpty()) {
+        groups
+    } else {
+        val last = groups.last()
+        groups.dropLast(1) + last.copy(rows = missing.map { c(it) } + last.rows)
+    }
+}
+
+/**
+ * One group of the main settings list in Liquid Glass mode: NexHome's UPPERCASE caption over one
+ * GlassSection ([ExpressiveSettingsGroup]) of the same flat category rows Material 3 mode shows,
+ * with the group's first and last rows rounded to the section.
+ */
+@Composable
+private fun GlassMainSettingsGroupItem(
+    group: GlassMainSettingsGroup,
+    onCategoryClick: (SettingsCategory) -> Unit,
+    onAccountsClick: () -> Unit
+) {
+    val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
+    val count = group.rows.size
+    Column(modifier = Modifier.fillMaxWidth()) {
+        GlassSettingsCaption(stringResource(group.titleRes))
+        ExpressiveSettingsGroup {
+            group.rows.forEachIndexed { index, row ->
+                val shape = when {
+                    count == 1 -> RoundedCornerShape(24.dp)
+                    index == 0 -> RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp, bottomStart = 4.dp, bottomEnd = 4.dp)
+                    index == count - 1 -> RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp, bottomStart = 24.dp, bottomEnd = 24.dp)
+                    else -> RoundedCornerShape(4.dp)
+                }
+                when (row) {
+                    is MainSettingsRow.Category -> ExpressiveCategoryItem(
+                        category = row.category,
+                        customColors = getCategoryColors(row.category, isDark),
+                        onClick = { onCategoryClick(row.category) },
+                        shape = shape
+                    )
+                    MainSettingsRow.Accounts -> ExpressiveNavigationItem(
+                        title = stringResource(R.string.settings_category_accounts_title),
+                        subtitle = stringResource(R.string.settings_category_accounts_subtitle),
+                        icon = Icons.Rounded.AccountCircle,
+                        colors = getAccountsColors(isDark),
+                        onClick = onAccountsClick,
+                        shape = shape
+                    )
+                }
+                if (index < count - 1) {
+                    Spacer(modifier = Modifier.height(2.dp))
+                }
+            }
         }
     }
 }

@@ -1,5 +1,6 @@
 package com.theveloper.pixelplay.presentation.screens
 
+import com.theveloper.pixelplay.presentation.components.AdaptivePressSurface
 import com.theveloper.pixelplay.presentation.components.rememberCollapsingHeaderContentPadding
 import com.theveloper.pixelplay.presentation.components.WithCollapsingHeader
 import com.theveloper.pixelplay.presentation.components.rememberCollapseFraction
@@ -570,7 +571,7 @@ private fun BandSlidersSection(
                  val isCustomOrSaved = editingPresetName != null || currentPreset.name == "custom" || currentPreset.isCustom
                  val displayLabel = editingPresetName ?: currentPreset.displayName
                  
-                 Surface(
+                 AdaptivePressSurface(
                     color = MaterialTheme.colorScheme.secondaryContainer,
                     shape = CircleShape,
                     onClick = onPresetsListClick,
@@ -599,7 +600,7 @@ private fun BandSlidersSection(
                 }
                 
                 if (currentPreset.name == "custom" && editingPresetName == null) {
-                     Surface(
+                     AdaptivePressSurface(
                         color = MaterialTheme.colorScheme.tertiaryContainer,
                         shape = CircleShape,
                         onClick = onSaveClick
@@ -626,7 +627,7 @@ private fun BandSlidersSection(
                 
                 if (editingPresetName != null) {
                     // Update Option
-                    Surface(
+                    AdaptivePressSurface(
                         color = MaterialTheme.colorScheme.primaryContainer,
                         shape = CircleShape,
                         onClick = onUpdateClick
@@ -651,7 +652,7 @@ private fun BandSlidersSection(
                     }
 
                     // Save New Option
-                    Surface(
+                    AdaptivePressSurface(
                         color = MaterialTheme.colorScheme.tertiaryContainer,
                         shape = CircleShape,
                         onClick = onSaveClick

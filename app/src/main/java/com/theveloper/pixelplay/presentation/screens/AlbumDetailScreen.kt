@@ -31,6 +31,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -628,20 +629,40 @@ private fun SharedAlbumTopBarProbe(
             syncStatusBarWithContainer = false
         )
 
-        LargeExtendedFloatingActionButton(
-            onClick = onPlayClick,
-            shape = ShuffleFabShape,
-            modifier = Modifier
-                .align(shuffleAlignment)
-                .statusBarsPadding()
-                .padding(end = 16.dp)
-                .graphicsLayer {
-                    scaleX = expandedContentAlpha
-                    scaleY = expandedContentAlpha
-                    alpha = expandedContentAlpha
-                }
-        ) {
-            Icon(Icons.Rounded.Shuffle, contentDescription = stringResource(R.string.common_shuffle_play_album))
+        if (com.theveloper.pixelplay.ui.glass.LocalGlassModeEnabled.current) {
+            // Liquid Glass: the shuffle FAB becomes a lit glass orb, fading with the same collapse.
+            com.theveloper.pixelplay.presentation.components.GlassHeaderActionOrb(
+                onClick = onPlayClick,
+                contentDescription = stringResource(R.string.common_shuffle_play_album),
+                modifier = Modifier
+                    .align(shuffleAlignment)
+                    .statusBarsPadding()
+                    .padding(end = 16.dp, top = 8.dp, bottom = 8.dp)
+                    .graphicsLayer {
+                        val a = expandedContentAlphaState.value
+                        scaleX = a
+                        scaleY = a
+                        alpha = a
+                    }
+            ) {
+                Icon(Icons.Rounded.Shuffle, contentDescription = null, modifier = Modifier.size(26.dp))
+            }
+        } else {
+            LargeExtendedFloatingActionButton(
+                onClick = onPlayClick,
+                shape = ShuffleFabShape,
+                modifier = Modifier
+                    .align(shuffleAlignment)
+                    .statusBarsPadding()
+                    .padding(end = 16.dp)
+                    .graphicsLayer {
+                        scaleX = expandedContentAlpha
+                        scaleY = expandedContentAlpha
+                        alpha = expandedContentAlpha
+                    }
+            ) {
+                Icon(Icons.Rounded.Shuffle, contentDescription = stringResource(R.string.common_shuffle_play_album))
+            }
         }
     }
 }

@@ -28,6 +28,18 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.ContentDrawScope
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.indication
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.LocalRippleConfiguration
+import androidx.compose.material3.contentColorFor
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.remember
+import androidx.compose.ui.unit.Dp
+import com.theveloper.pixelplay.ui.glass.GlassPressIndication
+import com.theveloper.pixelplay.ui.glass.RowPressScale
+import com.theveloper.pixelplay.ui.glass.glassPressSwell
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.LayoutCoordinates
@@ -264,6 +276,146 @@ fun AdaptiveClickableCard(
             elevation = elevation,
             content = content,
         )
+    }
+}
+
+/**
+ * Glass mode's press feedback for a Material tile that keeps its own fill (a `Surface(onClick)` or
+ * `Card(onClick)` whose Material ripple is switched off): the whole tile swells to
+ * [RowPressScale] with the press spring and settles back with the bouncy release spring (placement
+ * layer, never a shrink, never a relayout), under NexHome's dim press glow clipped to [shape]
+ * (0.10 flood + 0.22 spot at the finger, white). Observes [interactionSource] only; the tile's own
+ * click handling is untouched.
+ */
+@Composable
+fun Modifier.glassTilePress(interactionSource: MutableInteractionSource, shape: Shape): Modifier {
+    val glow = remember { GlassPressIndication(Color.White, swellScale = 1f) }
+    return this
+        .glassPressSwell(interactionSource, RowPressScale)
+        .clip(shape)
+        .indication(interactionSource, glow)
+}
+
+/**
+ * `Surface(onClick)` (or `Surface(selected, onClick)` when [selected] is given) whose press follows
+ * the theme mode. Material 3 mode is exactly that Material call, ripple included. Liquid Glass mode
+ * keeps the tile — its fill (translucent over glass), shape, border and elevation — but replaces the
+ * Material ripple with the glass press ([glassTilePress]: swell with overshoot plus dim glow).
+ * Ripples inside the content are unaffected.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun AdaptivePressSurface(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    selected: Boolean? = null,
+    enabled: Boolean = true,
+    shape: Shape = RectangleShape,
+    color: Color = MaterialTheme.colorScheme.surface,
+    contentColor: Color = contentColorFor(color),
+    tonalElevation: Dp = 0.dp,
+    shadowElevation: Dp = 0.dp,
+    border: BorderStroke? = null,
+    interactionSource: MutableInteractionSource? = null,
+    content: @Composable () -> Unit,
+) {
+    val glass = LocalGlassModeEnabled.current
+    val source = interactionSource ?: if (glass) remember { MutableInteractionSource() } else null
+    val surfaceModifier = if (glass && source != null) modifier.glassTilePress(source, shape) else modifier
+    val innerRipple = LocalRippleConfiguration.current
+    val body: @Composable () -> Unit = if (glass) {
+        { CompositionLocalProvider(LocalRippleConfiguration provides innerRipple, content = content) }
+    } else {
+        content
+    }
+    val surface: @Composable () -> Unit = {
+        if (selected != null) {
+            Surface(
+                selected = selected,
+                onClick = onClick,
+                modifier = surfaceModifier,
+                enabled = enabled,
+                shape = shape,
+                color = color,
+                contentColor = contentColor,
+                tonalElevation = tonalElevation,
+                shadowElevation = shadowElevation,
+                border = border,
+                interactionSource = source,
+                content = body,
+            )
+        } else {
+            Surface(
+                onClick = onClick,
+                modifier = surfaceModifier,
+                enabled = enabled,
+                shape = shape,
+                color = color,
+                contentColor = contentColor,
+                tonalElevation = tonalElevation,
+                shadowElevation = shadowElevation,
+                border = border,
+                interactionSource = source,
+                content = body,
+            )
+        }
+    }
+    if (glass) {
+        CompositionLocalProvider(LocalRippleConfiguration provides null, content = surface)
+    } else {
+        surface()
+    }
+}
+
+/**
+ * `Card(onClick)` whose press follows the theme mode. Material 3 mode is exactly that Material
+ * call. Liquid Glass mode keeps the card's fill, shape, border and elevation and replaces the
+ * Material ripple with the glass press ([glassTilePress]). Ripples inside the content are unaffected.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun AdaptivePressCard(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    shape: Shape = CardDefaults.shape,
+    colors: CardColors = CardDefaults.cardColors(),
+    elevation: CardElevation = CardDefaults.cardElevation(),
+    border: BorderStroke? = null,
+    interactionSource: MutableInteractionSource? = null,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    if (!LocalGlassModeEnabled.current) {
+        Card(
+            onClick = onClick,
+            modifier = modifier,
+            enabled = enabled,
+            shape = shape,
+            colors = colors,
+            elevation = elevation,
+            border = border,
+            interactionSource = interactionSource,
+            content = content,
+        )
+        return
+    }
+    val source = interactionSource ?: remember { MutableInteractionSource() }
+    val innerRipple = LocalRippleConfiguration.current
+    CompositionLocalProvider(LocalRippleConfiguration provides null) {
+        Card(
+            onClick = onClick,
+            modifier = modifier.glassTilePress(source, shape),
+            enabled = enabled,
+            shape = shape,
+            colors = colors,
+            elevation = elevation,
+            border = border,
+            interactionSource = source,
+        ) {
+            CompositionLocalProvider(LocalRippleConfiguration provides innerRipple) {
+                content()
+            }
+        }
     }
 }
 

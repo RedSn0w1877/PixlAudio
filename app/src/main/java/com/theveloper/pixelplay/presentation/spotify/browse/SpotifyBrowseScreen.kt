@@ -100,14 +100,23 @@ fun SpotifyBrowseScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text(titleFor(uiState.level)) },
-                navigationIcon = {
-                    IconButton(onClick = { if (!viewModel.goBack()) onBackClick() }) {
-                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
+            if (com.theveloper.pixelplay.ui.glass.LocalGlassModeEnabled.current) {
+                // Liquid Glass: NexHome's floating capsule (no glint) with the back orb; back
+                // still steps out of the drill-down first.
+                com.theveloper.pixelplay.presentation.components.GlassScreenTopBar(
+                    title = titleFor(uiState.level),
+                    onBackClick = { if (!viewModel.goBack()) onBackClick() }
+                )
+            } else {
+                TopAppBar(
+                    title = { Text(titleFor(uiState.level)) },
+                    navigationIcon = {
+                        IconButton(onClick = { if (!viewModel.goBack()) onBackClick() }) {
+                            Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
+                        }
                     }
-                }
-            )
+                )
+            }
         },
         snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { innerPadding ->

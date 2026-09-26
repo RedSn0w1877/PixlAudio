@@ -1,5 +1,6 @@
 package com.theveloper.pixelplay.presentation.screens
 
+import com.theveloper.pixelplay.presentation.components.AdaptivePressSurface
 import com.theveloper.pixelplay.presentation.components.rememberCollapsingHeaderContentPadding
 import com.theveloper.pixelplay.presentation.components.WithCollapsingHeader
 import com.theveloper.pixelplay.presentation.components.rememberCollapseFraction
@@ -334,7 +335,7 @@ private fun OpenSourceLicensesCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Surface(
+    AdaptivePressSurface(
         onClick = onClick,
         modifier = modifier,
         shape = expressiveListShape(index = 0, count = 1),

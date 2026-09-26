@@ -97,14 +97,22 @@ fun SpotifyDashboardScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("Spotify") },
-                navigationIcon = {
-                    IconButton(onClick = onBackClick) {
-                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
+            if (com.theveloper.pixelplay.ui.glass.LocalGlassModeEnabled.current) {
+                // Liquid Glass: NexHome's floating capsule (no glint) with the back orb.
+                com.theveloper.pixelplay.presentation.components.GlassScreenTopBar(
+                    title = "Spotify",
+                    onBackClick = onBackClick
+                )
+            } else {
+                TopAppBar(
+                    title = { Text("Spotify") },
+                    navigationIcon = {
+                        IconButton(onClick = onBackClick) {
+                            Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
+                        }
                     }
-                }
-            )
+                )
+            }
         }
     ) { innerPadding ->
         LazyColumn(

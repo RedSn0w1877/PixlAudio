@@ -1,5 +1,6 @@
 package com.theveloper.pixelplay.presentation.screens
 
+import com.theveloper.pixelplay.presentation.components.AdaptivePressSurface
 import com.theveloper.pixelplay.ui.glass.LocalGlassModeEnabled
 import com.theveloper.pixelplay.presentation.components.RestoreMaterialColors
 import com.theveloper.pixelplay.presentation.components.AdaptiveFullScreenDialog
@@ -2434,7 +2435,7 @@ private fun BackupSectionSelectableCard(
         label = "backup_section_icon_tint"
     )
 
-    Surface(
+    AdaptivePressSurface(
         onClick = onToggle,
         enabled = enabled,
         shape = RoundedCornerShape(22.dp),
@@ -2930,7 +2931,7 @@ private fun BackupHistoryCard(
     }
     val moduleCount = entry.modules.size
 
-    Surface(
+    AdaptivePressSurface(
         onClick = onSelect,
         shape = RoundedCornerShape(22.dp),
         color = MaterialTheme.colorScheme.surfaceContainerLow,

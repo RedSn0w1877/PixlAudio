@@ -1,5 +1,6 @@
 package com.theveloper.pixelplay.presentation.components.player
 
+import com.theveloper.pixelplay.presentation.components.AdaptivePressSurface
 import com.theveloper.pixelplay.presentation.components.AdaptiveModalBottomSheet
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -177,7 +178,7 @@ private fun PlayerArtistShortcutCard(
     val trailingContainerColor = contentColor.copy(alpha = 0.12f)
     val avatarSize = 52.dp
 
-    Surface(
+    AdaptivePressSurface(
         onClick = onClick,
         color = containerColor,
         contentColor = contentColor,

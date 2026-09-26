@@ -240,7 +240,7 @@ private fun CreationModeCard(
     containerColor: Color,
     contentColor: Color
 ) {
-    Card(
+    AdaptivePressCard(
         onClick = onClick,
         enabled = enabled,
         colors = CardDefaults.cardColors(containerColor = containerColor),

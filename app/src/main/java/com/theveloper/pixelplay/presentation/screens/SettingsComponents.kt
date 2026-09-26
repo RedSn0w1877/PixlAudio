@@ -1,5 +1,6 @@
 package com.theveloper.pixelplay.presentation.screens
 
+import com.theveloper.pixelplay.presentation.components.AdaptivePressSurface
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.animation.shrinkVertically
@@ -380,7 +381,7 @@ fun ThemeSelectorItem(
                         val containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainer
                         val contentColor = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
                         
-                        Surface(
+                        AdaptivePressSurface(
                             onClick = {
                                 onSelectionChanged(key)
                                 showSheet = false

@@ -475,7 +475,7 @@ private fun BackupSectionSelectableCardShared(
         label = "backup_section_icon_tint"
     )
 
-    Surface(
+    AdaptivePressSurface(
         onClick = onToggle,
         enabled = enabled,
         shape = RoundedCornerShape(22.dp),
