@@ -201,6 +201,7 @@ class LyricsSyncEditorStateHolder @Inject constructor(
     private var finishJob: Job? = null
     private var fixLineReturnJob: Job? = null
     private var previewJob: Job? = null
+    private var previewSeekJob: Job? = null
     private var searchJob: Job? = null
     private var pendingOpenJob: Job? = null
     private var noticeCounter = 0L
@@ -426,7 +427,7 @@ class LyricsSyncEditorStateHolder @Inject constructor(
         session = null
         jobs.forEach { it.cancel() }
         jobs.clear()
-        listOf(undoSeekJob, finishJob, fixLineReturnJob, previewJob, searchJob).forEach { it?.cancel() }
+        listOf(undoSeekJob, finishJob, fixLineReturnJob, previewJob, previewSeekJob, searchJob).forEach { it?.cancel() }
         draftSaveJob?.cancel()
         observedPlayer?.removeListener(playerListener)
         observedPlayer = null
@@ -826,17 +827,27 @@ class LyricsSyncEditorStateHolder @Inject constructor(
         undoSeekJob?.cancel()
         _uiState.update { it.copy(fixLine = null, lineSelectMode = false) }
         _phase.value = SyncPhase.Preview
-        val timing = LyricsTapSync.resolveTiming(current, offsetMs)
-        val target = if (timing != null) {
-            if (focusLine != null && focusLine in current.lines.indices) {
-                timing.startsMs[current.lines[focusLine].firstToken] - PREVIEW_LINE_PREROLL_MS
-            } else {
-                (timing.startsMs.minOrNull() ?: 0L) - PREVIEW_START_PREROLL_MS
-            }
-        } else 0L
         rebuildPreview()
-        seekTo(target.coerceAtLeast(0L))
-        play()
+        // The start position needs the whole timing resolved (O(words), allocating): worked out
+        // off the main thread, so a tap that finishes the song shows its press and the move to
+        // Preview first. Seek and play follow a dispatch later, unless Preview was left already.
+        val offset = offsetMs
+        previewSeekJob?.cancel()
+        previewSeekJob = scope.launch {
+            val target = withContext(Dispatchers.Default) { previewStartMs(current, offset, focusLine) }
+            if (_phase.value != SyncPhase.Preview) return@launch
+            seekTo(target.coerceAtLeast(0L))
+            play()
+        }
+    }
+
+    private fun previewStartMs(current: SyncDraft, offset: Int, focusLine: Int?): Long {
+        val timing = LyricsTapSync.resolveTiming(current, offset) ?: return 0L
+        return if (focusLine != null && focusLine in current.lines.indices) {
+            timing.startsMs[current.lines[focusLine].firstToken] - PREVIEW_LINE_PREROLL_MS
+        } else {
+            (timing.startsMs.minOrNull() ?: 0L) - PREVIEW_START_PREROLL_MS
+        }
     }
 
     private fun rebuildPreview() {
@@ -900,10 +911,20 @@ class LyricsSyncEditorStateHolder @Inject constructor(
         pause()
         scope.launch {
             val offset = offsetMs
-            val result = withContext(Dispatchers.Default) { LyricsTapSync.buildResult(current, offset) }
-            val doc = result.getOrNull()?.doc
-            val saved = doc != null && try {
-                lyricsRepository.updateLyrics(s.song, LyricsDocCodec.encode(doc), LyricsTapSync.SOURCE_USER)
+            // Built and serialized off the main thread: the JSON is tens of KB and would land on
+            // the frames of the Save press and the overlay's exit.
+            val encoded = withContext(Dispatchers.Default) {
+                LyricsTapSync.buildResult(current, offset).getOrNull()?.doc?.let { doc ->
+                    try {
+                        LyricsDocCodec.encode(doc)
+                    } catch (e: Exception) {
+                        Timber.w(e, "Lyrics sync: save failed")
+                        null
+                    }
+                }
+            }
+            val saved = encoded != null && try {
+                lyricsRepository.updateLyrics(s.song, encoded, LyricsTapSync.SOURCE_USER)
                 true
             } catch (e: CancellationException) {
                 throw e

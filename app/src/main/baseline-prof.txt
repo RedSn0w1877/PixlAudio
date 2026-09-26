@@ -1,0 +1,22 @@
+# Hand-written rules, merged by AGP with the generated profile (src/release/generated) and kept
+# across regeneration. The lyrics view and the tap-to-sync editor are not reached by the
+# generator's journeys, so without these their per-tap and per-frame paths start out interpreted
+# after every install.
+
+# Karaoke lyrics view (lyrics sheet and the editor's Preview): engine, line nodes, background.
+HSPLcom/theveloper/pixelplay/presentation/lyrics/**->**(**)**
+Lcom/theveloper/pixelplay/presentation/lyrics/**;
+
+# Tap-to-sync reducers, draft store and export.
+HSPLcom/theveloper/pixelplay/data/lyrics/sync/**->**(**)**
+Lcom/theveloper/pixelplay/data/lyrics/sync/**;
+
+# The editor's state holder (tap path, preview, save).
+HSPLcom/theveloper/pixelplay/presentation/viewmodel/LyricsSyncEditorStateHolder**->**(**)**
+HSPLcom/theveloper/pixelplay/presentation/viewmodel/SyncUiState**->**(**)**
+HSPLcom/theveloper/pixelplay/presentation/viewmodel/SyncPhase**->**(**)**
+
+# The lyrics document codec used when saving.
+HSPLcom/theveloper/pixelplay/data/model/LyricsDoc**->**(**)**
+HSPLcom/theveloper/pixelplay/data/model/TimedLine**->**(**)**
+HSPLcom/theveloper/pixelplay/data/model/TimedSyllable**->**(**)**

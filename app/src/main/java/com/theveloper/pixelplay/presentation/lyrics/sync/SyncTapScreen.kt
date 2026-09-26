@@ -15,7 +15,6 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -62,6 +61,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -129,10 +129,14 @@ internal fun SyncTapScreen(
             speed = ui.speed,
             onSpeedChange = holder::setSpeed,
         )
+        // The bar reads the fraction in draw, so a tap redraws it without recomposing the row
+        // (which re-runs only when the line number changes).
+        val progress by rememberUpdatedState(view.progress)
+        val progressProvider = remember { { progress } }
         ProgressRow(
             lineNumber = view.lineNumber,
             lineCount = view.lineCount,
-            fraction = if (draft.tappableCount == 0) 1f else draft.tappedCount / draft.tappableCount.toFloat(),
+            fraction = progressProvider,
             palette = palette,
         )
 
@@ -257,6 +261,8 @@ private class TapView(
     val canUndo: Boolean,
     val canSkip: Boolean,
     val musicBreak: MusicBreak?,
+    /** Tapped share of the tappable words, 0..1 (1 when there is nothing to tap). */
+    val progress: Float,
 )
 
 @Composable
@@ -308,6 +314,7 @@ private fun derivedTapView(draft: SyncDraft, fixLine: Int?): TapView = remember(
         canUndo = canUndo,
         canSkip = LyricsTapSync.canSkipLine(draft),
         musicBreak = musicBreak,
+        progress = draft.tappableCount.let { total -> if (total == 0) 1f else draft.tappedCount / total.toFloat() },
     )
 }
 
@@ -316,8 +323,7 @@ private fun derivedTapView(draft: SyncDraft, fixLine: Int?): TapView = remember(
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 
 @Composable
-private fun ProgressRow(lineNumber: Int, lineCount: Int, fraction: Float, palette: SyncEditorPalette) {
-    val fill by rememberUpdatedState(fraction.coerceIn(0f, 1f))
+private fun ProgressRow(lineNumber: Int, lineCount: Int, fraction: () -> Float, palette: SyncEditorPalette) {
     Column(Modifier.fillMaxWidth().padding(top = 4.dp)) {
         Text(
             text = stringResource(R.string.lyrics_sync_line_of, lineNumber, lineCount),
@@ -331,6 +337,7 @@ private fun ProgressRow(lineNumber: Int, lineCount: Int, fraction: Float, palett
                 .fillMaxWidth()
                 .height(3.dp)
                 .drawBehind {
+                    val fill = fraction().coerceIn(0f, 1f)
                     val radius = CornerRadius(size.height / 2f)
                     drawRoundRect(Color.White.copy(alpha = 0.18f), cornerRadius = radius)
                     drawRoundRect(palette.accent, size = Size(size.width * fill, size.height), cornerRadius = radius)
@@ -533,15 +540,26 @@ private fun MusicBreakOrContext(
         } else {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                 Box(contentAlignment = Alignment.Center, modifier = Modifier.size(72.dp)) {
-                    Canvas(Modifier.fillMaxSize()) {
-                        val stroke = 5.dp.toPx()
-                        val span = (breakInfo.anchorMs - breakInfo.fromMs).coerceAtLeast(1L).toFloat()
-                        val left = ((breakInfo.anchorMs - position.longValue) / span).coerceIn(0f, 1f)
-                        val inset = stroke / 2f
-                        val arcSize = Size(size.width - stroke, size.height - stroke)
-                        drawArc(Color.White.copy(alpha = 0.16f), 0f, 360f, false, Offset(inset, inset), arcSize, style = Stroke(stroke))
-                        drawArc(palette.accent, -90f, 360f * left, false, Offset(inset, inset), arcSize, style = Stroke(stroke, cap = StrokeCap.Round))
-                    }
+                    // Strokes and geometry cached per size; the per-frame position read stays in
+                    // draw, and its own layer keeps the re-record to the ring alone.
+                    Spacer(
+                        Modifier
+                            .fillMaxSize()
+                            .graphicsLayer()
+                            .drawWithCache {
+                                val stroke = 5.dp.toPx()
+                                val track = Stroke(stroke)
+                                val arc = Stroke(stroke, cap = StrokeCap.Round)
+                                val topLeft = Offset(stroke / 2f, stroke / 2f)
+                                val arcSize = Size(size.width - stroke, size.height - stroke)
+                                val span = (breakInfo.anchorMs - breakInfo.fromMs).coerceAtLeast(1L).toFloat()
+                                onDrawBehind {
+                                    val left = ((breakInfo.anchorMs - position.longValue) / span).coerceIn(0f, 1f)
+                                    drawArc(RING_TRACK, 0f, 360f, false, topLeft, arcSize, style = track)
+                                    drawArc(palette.accent, -90f, 360f * left, false, topLeft, arcSize, style = arc)
+                                }
+                            },
+                    )
                     Text(
                         text = secondsLeft.toString(),
                         color = Color.White,
@@ -697,3 +715,4 @@ private val PRESS_SPRING = spring<Float>(dampingRatio = 1f, stiffness = 1_400f)
 private val RELEASE_SPRING = spring<Float>(dampingRatio = 0.7f, stiffness = 900f)
 
 private const val BREAK_IDLE_POLL_MS = 150L
+private val RING_TRACK = Color.White.copy(alpha = 0.16f)

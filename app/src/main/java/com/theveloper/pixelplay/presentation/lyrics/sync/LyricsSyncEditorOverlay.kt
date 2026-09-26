@@ -27,6 +27,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -46,7 +47,6 @@ import com.theveloper.pixelplay.presentation.lyrics.background.rememberLyricsBac
 import com.theveloper.pixelplay.presentation.viewmodel.LyricsSyncEditorStateHolder
 import com.theveloper.pixelplay.presentation.viewmodel.SyncDialog
 import com.theveloper.pixelplay.presentation.viewmodel.SyncPhase
-import com.theveloper.pixelplay.presentation.viewmodel.SyncUiState
 import com.theveloper.pixelplay.ui.glass.GlassAlertDialog
 
 /**
@@ -75,7 +75,13 @@ fun LyricsSyncEditorOverlay(
 
 @Composable
 private fun EditorHost(holder: LyricsSyncEditorStateHolder, phase: SyncPhase) {
-    val ui by holder.uiState.collectAsStateWithLifecycle()
+    // The whole state is read only inside the screen switcher below, so a tap (a new draft)
+    // recomposes the current screen, not the host, the background and the dialogs.
+    val uiState = holder.uiState.collectAsStateWithLifecycle()
+    val artUri by remember { derivedStateOf { uiState.value.artUri } }
+    val notice by remember { derivedStateOf { uiState.value.notice } }
+    val dialog by remember { derivedStateOf { uiState.value.dialog } }
+    val endedEarlyWords by remember { derivedStateOf { uiState.value.endedEarlyWords } }
     // While the exit animation runs the phase is already Closed: keep drawing the last screen.
     val lastPhase = remember { LastPhase() }
     if (phase != SyncPhase.Closed) lastPhase.value = phase
@@ -116,7 +122,7 @@ private fun EditorHost(holder: LyricsSyncEditorStateHolder, phase: SyncPhase) {
             },
     ) {
         LyricsArtworkBackground(
-            artUri = ui.artUri,
+            artUri = artUri,
             modifier = Modifier.fillMaxSize(),
             state = backgroundState,
             colorScheme = MaterialTheme.colorScheme,
@@ -135,6 +141,7 @@ private fun EditorHost(holder: LyricsSyncEditorStateHolder, phase: SyncPhase) {
             label = "syncEditorScreen",
             modifier = Modifier.fillMaxSize(),
         ) { target ->
+            val ui = uiState.value
             when (target) {
                 SyncPhase.Closed, SyncPhase.Loading -> SyncLoadingScreen()
                 is SyncPhase.ResumePrompt -> SyncResumeScreen(target, ui, holder, palette)
@@ -147,9 +154,9 @@ private fun EditorHost(holder: LyricsSyncEditorStateHolder, phase: SyncPhase) {
             }
         }
 
-        ui.notice?.let { notice ->
+        notice?.let { shown ->
             SyncNoticePill(
-                notice = notice,
+                notice = shown,
                 palette = palette,
                 holder = holder,
                 modifier = Modifier
@@ -160,7 +167,7 @@ private fun EditorHost(holder: LyricsSyncEditorStateHolder, phase: SyncPhase) {
         }
     }
 
-    SyncDialogs(ui, holder)
+    SyncDialogs(dialog, endedEarlyWords, holder)
 }
 
 private class LastPhase {
@@ -200,8 +207,8 @@ private tailrec fun Context.findActivity(): Activity? = when (this) {
 }
 
 @Composable
-private fun SyncDialogs(ui: SyncUiState, holder: LyricsSyncEditorStateHolder) {
-    when (ui.dialog) {
+private fun SyncDialogs(dialog: SyncDialog, endedEarlyWords: Int, holder: LyricsSyncEditorStateHolder) {
+    when (dialog) {
         SyncDialog.NONE -> Unit
         SyncDialog.LEAVE -> GlassAlertDialog(
             onDismissRequest = holder::dismissDialog,
@@ -224,7 +231,7 @@ private fun SyncDialogs(ui: SyncUiState, holder: LyricsSyncEditorStateHolder) {
         )
         SyncDialog.ENDED_EARLY -> GlassAlertDialog(
             onDismissRequest = holder::dismissDialog,
-            text = { Text(stringResource(R.string.lyrics_sync_ended_early, ui.endedEarlyWords)) },
+            text = { Text(stringResource(R.string.lyrics_sync_ended_early, endedEarlyWords)) },
             confirmButton = {
                 TextButton(onClick = holder::endedKeepGoing) { Text(stringResource(R.string.lyrics_sync_keep_going)) }
             },

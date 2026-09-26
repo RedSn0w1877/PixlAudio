@@ -248,9 +248,15 @@ internal class LyricLineNode(
         clickLabel: String,
         onClick: () -> Unit,
     ) {
-        val remeasure = line != this.line || style !== this.style
-        val redraw = remeasure || motion !== this.motion || clock !== this.clock || pressed !== this.pressed
-        val semantics = line.text != this.line.text || clickLabel != this.clickLabel || onClick !== this.onClick
+        val old = this.line
+        // Only what [measureText] reads. A timing-only change (the sync editor's Earlier/Later
+        // nudge rebuilds every line with shifted times) keeps the text layouts and just rebuilds
+        // the word pieces, which carry the times.
+        val remeasure = style !== this.style || line.text != old.text || line.role != old.role ||
+            line.romanization != old.romanization || line.translation != old.translation
+        val retimed = !remeasure && line != old
+        val redraw = remeasure || retimed || motion !== this.motion || clock !== this.clock || pressed !== this.pressed
+        val semantics = line.text != old.text || clickLabel != this.clickLabel || onClick !== this.onClick
         this.line = line
         this.motion = motion
         this.clock = clock
@@ -265,6 +271,14 @@ internal class LyricLineNode(
             sweepBrush = null
             sweepKey = Long.MIN_VALUE
             invalidateMeasurement()
+        } else if (retimed) {
+            // Same text and style: layouts, heights and highlight extents stand. The pieces
+            // (and the sweep brush keyed on them) are rebuilt with the new times, and a posted
+            // build for the old times is dropped.
+            measureGeneration++
+            segments = null
+            sweepBrush = null
+            sweepKey = Long.MIN_VALUE
         }
         if (redraw) invalidateDraw()
         if (semantics) invalidateSemantics()
