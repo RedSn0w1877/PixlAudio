@@ -69,8 +69,8 @@ fun LyricsFloatingToolbar(
     // Draw-phase lambda: 0f = fully visible, 1f = dismissed. Read inside graphicsLayer to avoid recomposition per frame.
     backProgressProvider: () -> Float = { 0f }
 ) {
-    if (showSyncedLyrics == null) return
-
+    // With no lyrics (loading, or none found) the Synced/Plain switch has nothing to switch, but
+    // Back and More stay: the screen must always be easy to leave and to fix.
     Row(
         modifier = modifier
             .fillMaxWidth(),
@@ -114,7 +114,9 @@ fun LyricsFloatingToolbar(
 
         Spacer(modifier = Modifier.width(8.dp))
 
-        Row(
+        if (showSyncedLyrics == null) {
+            Spacer(modifier = Modifier.weight(1f).height(50.dp))
+        } else Row(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth(),

@@ -170,86 +170,87 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.animation.core.FastOutLinearInEasing
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.changedToDown
+import androidx.compose.ui.layout.onSizeChanged
+import com.kyant.backdrop.Backdrop
+import com.theveloper.pixelplay.ui.glass.GlassRecipe
+import com.theveloper.pixelplay.ui.glass.GlassRole
+import com.theveloper.pixelplay.ui.glass.GlassShapes
+import com.theveloper.pixelplay.ui.glass.LocalGlassHighContrast
+import com.theveloper.pixelplay.ui.glass.QuantizedCornerShapeCache
+import com.theveloper.pixelplay.ui.glass.glassTransparency
+import com.theveloper.pixelplay.ui.glass.isGlassEnabled
+import com.theveloper.pixelplay.ui.glass.liquidGlass
+import com.theveloper.pixelplay.ui.glass.readGlassReduceMotion
+import com.theveloper.pixelplay.ui.glass.resolveRecipe
+import kotlin.math.max
 
-internal data class LyricsSheetColors(
+/**
+ * Colours of the lyrics screen's chrome (header, controls). The chrome always sits over the
+ * dark, graded artwork background, so both looks are built for a dark backdrop regardless of the
+ * app's light/dark setting:
+ *
+ * - Material 3 Expressive: tonal pills from the album's *fixed* roles (identical in light and
+ *   dark schemes): a translucent tone-30 container with tone-90 glyphs, tone-80 accents.
+ * - Liquid Glass: the chrome is clear glass, so controls on it are white fills and white glyphs;
+ *   only play/pause keeps a tint (the album accent).
+ */
+@androidx.compose.runtime.Immutable
+internal data class LyricsChromeColors(
     val container: Color,
     val content: Color,
-    val controlContainer: Color,
-    val controlContent: Color,
+    val contentVariant: Color,
     val accent: Color,
-    val accentContent: Color,
-    val lyricHighlight: Color,
-    val playPauseContainer: Color,
-    val playPauseContent: Color,
-    val syncButtonContainer: Color,
-    val syncButtonContent: Color
+    val accentTrack: Color,
+    val selected: Color,
+    val onSelected: Color,
+    val playPause: Color,
+    val onPlayPause: Color,
+    val syncAccent: Color,
+    val onSyncAccent: Color,
+    val emphasis: Color,
+    val onEmphasis: Color,
 )
 
-internal fun lyricsSheetColors(colorScheme: ColorScheme): LyricsSheetColors {
-    val container = colorScheme.primaryContainer
-    val content = colorScheme.onPrimaryContainer
-    val accent = colorScheme.primary
-    val accentContent = colorScheme.onPrimary
-
-    return LyricsSheetColors(
-        container = container,
-        content = content,
-        controlContainer = colorScheme.surfaceContainerLowest,
-        controlContent = colorScheme.onSurface,
-        accent = accent,
-        accentContent = accentContent,
-        lyricHighlight = preferredContrastColor(
-            background = container,
-            preferred = accent,
-            fallback = content
-        ),
-        playPauseContainer = colorScheme.tertiaryFixedDim,
-        playPauseContent = colorScheme.onTertiaryFixed,
-        syncButtonContainer = colorScheme.secondaryFixedDim,
-        syncButtonContent = colorScheme.onSecondaryFixed
-    )
-}
-
-private fun preferredContrastColor(
-    background: Color,
-    preferred: Color,
-    fallback: Color,
-    minContrastRatio: Double = 4.5
-): Color {
-    if (contrastRatio(preferred, background) >= minContrastRatio) return preferred
-    if (contrastRatio(fallback, background) >= minContrastRatio) return fallback
-
-    val blackContrast = contrastRatio(Color.Black, background)
-    val whiteContrast = contrastRatio(Color.White, background)
-    return if (blackContrast >= whiteContrast) Color.Black else Color.White
-}
-
-private fun contrastRatio(foreground: Color, background: Color): Double {
-    val foregroundLuminance = foreground.relativeLuminance()
-    val backgroundLuminance = background.relativeLuminance()
-    val lighter = maxOf(foregroundLuminance, backgroundLuminance)
-    val darker = minOf(foregroundLuminance, backgroundLuminance)
-    return (lighter + 0.05) / (darker + 0.05)
-}
-
-private fun Color.relativeLuminance(): Double {
-    val argb = encodedSrgbArgb()
-    val red = linearizedChannel((argb shr 16) and 0xFF)
-    val green = linearizedChannel((argb shr 8) and 0xFF)
-    val blue = linearizedChannel(argb and 0xFF)
-    return (0.2126 * red) + (0.7152 * green) + (0.0722 * blue)
-}
-
-private fun Color.encodedSrgbArgb(): Int = (value shr 32).toInt()
-
-private fun linearizedChannel(channel: Int): Double {
-    val value = channel / 255.0
-    return if (value <= 0.03928) {
-        value / 12.92
+internal fun lyricsChromeColors(colorScheme: ColorScheme, glass: Boolean, highContrast: Boolean = false): LyricsChromeColors =
+    if (glass) {
+        val fill = Color.White.copy(alpha = if (highContrast) 0.22f else 0.12f)
+        LyricsChromeColors(
+            container = fill,
+            content = Color.White,
+            contentVariant = Color.White.copy(alpha = 0.72f),
+            accent = Color.White,
+            accentTrack = Color.White.copy(alpha = 0.28f),
+            selected = Color.White.copy(alpha = if (highContrast) 0.40f else 0.26f),
+            onSelected = Color.White,
+            playPause = colorScheme.primaryFixedDim,
+            onPlayPause = colorScheme.onPrimaryFixed,
+            syncAccent = Color.White.copy(alpha = 0.18f),
+            onSyncAccent = Color.White,
+            emphasis = colorScheme.primaryFixedDim,
+            onEmphasis = colorScheme.onPrimaryFixed,
+        )
     } else {
-        ((value + 0.055) / 1.055).pow(2.4)
+        LyricsChromeColors(
+            container = colorScheme.onPrimaryFixedVariant.copy(alpha = if (highContrast) 0.92f else 0.62f),
+            content = colorScheme.primaryFixed,
+            contentVariant = colorScheme.primaryFixed.copy(alpha = 0.74f),
+            accent = colorScheme.primaryFixedDim,
+            accentTrack = colorScheme.primaryFixedDim.copy(alpha = 0.26f),
+            selected = colorScheme.primaryFixedDim,
+            onSelected = colorScheme.onPrimaryFixed,
+            playPause = colorScheme.tertiaryFixedDim,
+            onPlayPause = colorScheme.onTertiaryFixed,
+            syncAccent = colorScheme.secondaryFixedDim,
+            onSyncAccent = colorScheme.onSecondaryFixed,
+            emphasis = colorScheme.primaryFixedDim,
+            onEmphasis = colorScheme.onPrimaryFixed,
+        )
     }
-}
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -337,17 +338,6 @@ fun LyricsSheet(
     val stablePlayerState by stablePlayerStateFlow.collectAsStateWithLifecycle()
     val studioInstrumentalAvailable by studioInstrumentalAvailableFlow.collectAsStateWithLifecycle()
     val studioInstrumentalActive by studioInstrumentalActiveFlow.collectAsStateWithLifecycle()
-    val sheetColors = remember(colorScheme) { lyricsSheetColors(colorScheme) }
-    val backgroundColor = sheetColors.controlContainer
-    val onBackgroundColor = sheetColors.controlContent
-    val containerColor = sheetColors.container
-    val contentColor = sheetColors.content
-    val accentColor = sheetColors.accent
-    val onAccentColor = sheetColors.accentContent
-    val lyricHighlightColor = sheetColors.lyricHighlight
-    val playPauseColor = sheetColors.playPauseContainer
-    val onPlayPauseColor = sheetColors.playPauseContent
-
     val isLoadingLyrics by remember(stablePlayerState) { derivedStateOf { stablePlayerState.isLoadingLyrics } }
     val lyrics by remember(stablePlayerState) { derivedStateOf { stablePlayerState.lyrics } }
     val isPlaying by remember(stablePlayerState) { derivedStateOf { stablePlayerState.isPlaying } }
@@ -550,12 +540,42 @@ fun LyricsSheet(
     }
     val preparedLyrics by (preparedLyricsFlow ?: localPreparedFlow!!).collectAsStateWithLifecycle()
 
+    // Song change: the outgoing lines fade out in place (their clock frozen) instead of being cut,
+    // then the next song's lines cascade in from below. `shownPrepared` is what is on screen.
+    var shownPrepared by remember { mutableStateOf(preparedLyrics) }
+    val shownSongId = remember { mutableStateOf(currentSong?.id) }
+    val karaokeFade = remember { Animatable(1f) }
+    val lastModeSynced = remember { booleanArrayOf(true) }
+    SideEffect { showSyncedLyrics?.let { lastModeSynced[0] = it } }
+    LaunchedEffect(preparedLyrics) {
+        val next = preparedLyrics
+        if (next != null) {
+            karaokeFade.snapTo(1f)
+            shownSongId.value = stablePlayerStateFlow.value.currentSong?.id
+            shownPrepared = next
+        } else if (shownPrepared != null) {
+            if (lastModeSynced[0]) {
+                karaokeFade.animateTo(0f, tween(SONG_CHANGE_FADE_MS, easing = FastOutLinearInEasing))
+            }
+            shownPrepared = null
+            karaokeFade.snapTo(1f)
+        }
+    }
+
     val currentPositionProvider by rememberUpdatedState(positionProvider)
     val syncOffsetState = rememberUpdatedState(lyricsSyncOffset)
     val previewSeekState = rememberUpdatedState(previewSeekPositionMs)
+    val lastRawPosition = remember { longArrayOf(0L) }
     val lyricsClock = rememberLyricsClock(
-        // While the seek bar is being dragged the lyrics follow the finger.
-        positionProvider = { previewSeekState.value ?: currentPositionProvider() },
+        positionProvider = {
+            if (stablePlayerStateFlow.value.currentSong?.id != shownSongId.value) {
+                // The lines on screen belong to the previous song: hold them still while they fade.
+                lastRawPosition[0]
+            } else {
+                // While the seek bar is being dragged the lyrics follow the finger.
+                (previewSeekState.value ?: currentPositionProvider()).also { lastRawPosition[0] = it }
+            }
+        },
         offsetMsProvider = { syncOffsetState.value.toLong() }
     )
     val lyricsEngine = rememberLyricsEngine(lyricsClock)
@@ -683,6 +703,45 @@ fun LyricsSheet(
 
     
 
+    // ─── Chrome: colours, glass, immersive show/hide ────────────────────────
+    val glass = isGlassEnabled
+    val glassHighContrast = LocalGlassHighContrast.current
+    val chrome = remember(colorScheme, glass, glassHighContrast, highContrast) {
+        lyricsChromeColors(colorScheme, glass, glassHighContrast || highContrast)
+    }
+    val reduceMotion = remember(context) { readGlassReduceMotion(context) }
+    val density = LocalDensity.current
+    // Plain lyrics start at the top for every song.
+    val staticListState = remember(currentSong?.id) { LazyListState() }
+
+    // Immersive show/hide is one progress value per element, read only in draw / layer blocks, so
+    // nothing re-lays out and the lyrics viewport never changes size. In Liquid Glass the panel
+    // and the "show controls" button materialise by lensing and never coexist: header + one of
+    // them = at most two glass nodes.
+    // Starts hidden, so on first open the controls rise in (M3) or lens into being (glass).
+    val controlsVisibility = remember { Animatable(0f) }
+    val showButtonVisibility = remember { Animatable(0f) }
+    LaunchedEffect(immersiveMode, reduceMotion) {
+        val spec: AnimationSpec<Float> =
+            if (reduceMotion) tween(120) else spring(dampingRatio = 1f, stiffness = 420f)
+        if (immersiveMode) {
+            controlsVisibility.animateTo(0f, spec)
+            showButtonVisibility.animateTo(1f, spec)
+        } else {
+            showButtonVisibility.animateTo(
+                0f,
+                if (reduceMotion) tween(80) else spring(dampingRatio = 1f, stiffness = 1400f)
+            )
+            controlsVisibility.animateTo(1f, spec)
+        }
+    }
+    val controlsPresent by remember { derivedStateOf { controlsVisibility.value > 0.001f } }
+    val showButtonPresent by remember { derivedStateOf { showButtonVisibility.value > 0.001f } }
+    val controlsProgress: () -> Float = remember { { controlsVisibility.value } }
+    val showButtonProgress: () -> Float = remember { { showButtonVisibility.value } }
+    val karaokeAlpha: () -> Float = remember { { karaokeFade.value } }
+    var controlsHeightPx by remember { mutableFloatStateOf(0f) }
+
     Scaffold(
         modifier = modifier
             .fillMaxSize()
@@ -690,9 +749,7 @@ fun LyricsSheet(
             // Read backProgressProvider inside graphicsLayer (draw-phase) — no layout
             // pass is triggered per gesture frame, same pattern as SheetVisualState.
             // 0f = fully visible, 1f = fully dismissed.
-            // Effect: scale down to 92 % + slide down 8 % of height + fade to 72 % alpha.
-            // Matches Android predictive back spec for full-screen destinations and
-            // mirrors the scale+alpha treatment used across the rest of the app.
+            // Effect: scale down to 92 % + slide down 8 % of height.
             .graphicsLayer {
                 val p = backProgressProvider.value
                 val scale = lerp(1f, 0.92f, p)
@@ -714,8 +771,8 @@ fun LyricsSheet(
                     },
                     onDragEnd = {
                         isSwipeActive = false
-                        val committed = abs(dragOffset) > swipeThresholdPx && !hasTriggeredAction 
-                        
+                        val committed = abs(dragOffset) > swipeThresholdPx && !hasTriggeredAction
+
                         if (committed) {
                             if (dragOffset > 0) onPrev() else onNext()
                             hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -736,11 +793,11 @@ fun LyricsSheet(
                     onDrag = { change, dragAmount ->
                         change.consume()
                         resetImmersiveTimer()
-                        
+
                         if (!hasTriggeredAction) {
                             dragOffset += dragAmount.x
                             val progress = (abs(dragOffset) / swipeThresholdPx).coerceIn(0f, 1f)
-                            
+
                             coroutineScope.launch {
                                 swipeProgress.snapTo(progress)
                             }
@@ -751,362 +808,297 @@ fun LyricsSheet(
         // Full-bleed animated artwork behind everything (drawn below); the Scaffold stays clear.
         containerColor = Color.Transparent,
         contentColor = Color.White,
-        // Removed TopBar and FAB
     ) { paddingValues ->
-        Box(modifier = Modifier.fillMaxSize()) {
+        val statusTop = paddingValues.calculateTopPadding()
+        val navBottom = paddingValues.calculateBottomPadding()
+        // Everything above this is chrome (status bar, header, the sync chip): lyrics are fully
+        // hidden there and fade in over the next [LyricsTopFade], so they dissolve before they
+        // reach the header instead of being cut by it.
+        val topChrome = statusTop + LyricsHeaderInset + if (showSyncChip) SyncChipInset else 0.dp
+        val showButtonAreaPx = with(density) { (navBottom + ShowControlsBottomGap + ShowControlsSize).toPx() }
+        // The bottom chrome's current height (px): the control cluster, or the "show controls"
+        // button while immersive. Read in the draw phase only.
+        val bottomChromePx: () -> Float = remember(showButtonAreaPx) {
+            {
+                max(
+                    controlsHeightPx * controlsVisibility.value,
+                    showButtonAreaPx * showButtonVisibility.value
+                )
+            }
+        }
+        val listPadding = remember(topChrome, density) {
+            LyricsListPadding(
+                top = topChrome + LyricsTopFade,
+                horizontal = 24.dp,
+                bottom = { with(density) { controlsHeightPx.toDp() } + LyricsBottomFade }
+            )
+        }
+
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                // Any touch anywhere keeps the controls up (observed, never consumed).
+                .pointerInput(Unit) {
+                    awaitPointerEventScope {
+                        while (true) {
+                            val event = awaitPointerEvent(PointerEventPass.Initial)
+                            if (event.changes.any { it.changedToDown() }) resetImmersiveTimer()
+                        }
+                    }
+                }
+        ) {
             LyricsArtworkBackground(
                 artUri = currentSong?.albumArtUriString,
                 modifier = Modifier.matchParentSize(),
                 state = backgroundState,
                 colorScheme = colorScheme
             )
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(top = paddingValues.calculateTopPadding())
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null
-                ) {
-                    resetImmersiveTimer()
-                }
-        ) {
-            val staticListState = rememberLazyListState()
 
-            // Lyrics Content (Weight 1)
-            Box(
-                modifier = Modifier
-                    .align(Alignment.Start)
-                    .weight(1f)
-                    .fillMaxWidth()
-            ) {
-                // Track Info Header (Fixed at top)
-                AnimatedContent(
-                    targetState = currentSong,
-                    transitionSpec = {
-                        (fadeIn(animationSpec = tween(300)) + 
-                         scaleIn(initialScale = 0.9f, animationSpec = tween(300)))
-                        .togetherWith(fadeOut(animationSpec = tween(300)))
-                    },
+            // Material 3: a soft scrim grounds the control cluster over bright or busy art.
+            // (Liquid Glass needs none: the glass samples the art itself.)
+            if (!glass) {
+                Spacer(
                     modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .zIndex(2f)
-                        .wrapContentWidth(),
-                    label = "headerAnimation"
-                ) { song ->
-                    LyricsTrackInfo(
-                        song = song,
-                        modifier = Modifier
-                            .align(Alignment.TopStart)
-                            .padding(
-                                top = 4.dp, bottom = 24.dp, start = 18.dp, end = 18.dp
+                        .matchParentSize()
+                        .drawWithCache {
+                            val scrimHeight = (controlsHeightPx + M3ScrimExtra.toPx()).coerceAtMost(size.height)
+                            val top = size.height - scrimHeight
+                            val brush = Brush.verticalGradient(
+                                0f to Color.Transparent,
+                                1f to Color.Black.copy(alpha = M3ScrimAlpha),
+                                startY = top,
+                                endY = size.height
                             )
-                            .background(
-                                color = backgroundColor,
-                                shape = CircleShape
-                            )
-                            .wrapContentWidth()
-                            .animateContentSize(), // Animate width changes
-                        backgroundColor = backgroundColor, // Distinct solid background
-                        contentColor = onBackgroundColor,
-                        isPlaying = isPlaying
-                    )
-                }
+                            onDrawBehind {
+                                drawRect(
+                                    brush,
+                                    topLeft = Offset(0f, top),
+                                    size = Size(size.width, scrimHeight),
+                                    alpha = controlsVisibility.value
+                                )
+                            }
+                        }
+                )
+            }
 
-                when (showSyncedLyrics) {
-                    null -> {
+            // ─── Lyrics (full-bleed, under the chrome) ───────────────────────
+            val karaoke = shownPrepared
+            val showKaraoke = karaoke != null &&
+                (showSyncedLyrics == true || (showSyncedLyrics == null && preparedLyrics == null))
+            if (showKaraoke && karaoke != null) {
+                KaraokeLyricsView(
+                    prepared = karaoke,
+                    clock = lyricsClock,
+                    engine = lyricsEngine,
+                    isPlaying = isPlaying,
+                    songKey = shownSongId.value,
+                    appearance = karaokeAppearance,
+                    topInset = topChrome,
+                    topFadeLength = LyricsTopFade,
+                    bottomInsetPx = bottomChromePx,
+                    bottomFadeLength = LyricsBottomFade,
+                    fadeAlpha = karaokeAlpha,
+                    onInteraction = { resetImmersiveTimer() },
+                    onSeekLine = { line ->
+                        onSeekTo(
+                            resolveSeekPositionMs(
+                                lineTimeMs = line.startMs,
+                                lyricsSyncOffsetMs = lyricsSyncOffset
+                            )
+                        )
+                        resetImmersiveTimer()
+                    },
+                    footer = if (lyrics?.areFromRemote == true) {
+                        {
+                            Text(
+                                text = lyrics?.document?.metadata?.source?.let { "Lyrics: $it" } ?: "Online lyrics",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = Color.White.copy(alpha = 0.5f),
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 24.dp, vertical = 16.dp)
+                            )
+                        }
+                    } else null,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+
+            when (showSyncedLyrics) {
+                null -> LyricsStatusContent(
+                    isLoading = isLoadingLyrics,
+                    song = currentSong,
+                    colorScheme = colorScheme,
+                    accent = chrome.accent,
+                    accentTrack = chrome.accentTrack,
+                    contentPadding = listPadding,
+                    studioInstrumentalActive = studioInstrumentalActive,
+                    onPlayInstrumental = onPlayInstrumental,
+                    onPlayOriginal = onToggleStudioInstrumental,
+                    onFindLyrics = { showFetchLyricsDialog = true },
+                    onSyncYourself = onSyncYourself,
+                )
+
+                true -> Unit // KaraokeLyricsView above (nothing while the model is still being built).
+
+                false -> {
+                    lyrics?.plain?.let { plain ->
+                        val fadeTopPx = with(density) { topChrome.toPx() }
+                        val fadeLengthPx = with(density) { LyricsTopFade.toPx() }
+                        val bottomFadePx = with(density) { LyricsBottomFade.toPx() }
                         LazyColumn(
-                            modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(top = 110.dp, bottom = 24.dp, start = 24.dp, end = 24.dp)
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+                                .lyricsEdgeFade(
+                                    topInsetPx = fadeTopPx,
+                                    topFadePx = fadeLengthPx,
+                                    bottomInsetPx = bottomChromePx,
+                                    bottomFadePx = bottomFadePx
+                                ),
+                            state = staticListState,
+                            contentPadding = listPadding
                         ) {
-                            item(key = "loader_or_empty") {
-                                Box(
+                            itemsIndexed(
+                                items = plain,
+                                key = { index, _ -> index },
+                                contentType = { _, _ -> "plain_line" }
+                            ) { _, line ->
+                                PlainLyricsLine(
+                                    line = line,
+                                    style = plainLyricsStyle,
+                                    lyricsAlignment = lyricsAlignment,
+                                    showTranslation = if (hasTranslatedLyrics) showLyricsTranslation else true,
+                                    showRomanization = if (hasRomanizedLyrics) showLyricsRomanization else true,
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .heightIn(min = 180.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    if (isLoadingLyrics) {
-                                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                            Text(
-                                                text = stringResource(R.string.lyrics_loading),
-                                                style = MaterialTheme.typography.titleMedium
-                                            )
-                                            Spacer(modifier = Modifier.height(8.dp))
-                                            LinearWavyProgressIndicator(
-                                                trackColor = accentColor.copy(alpha = 0.4f),
-                                                color = accentColor,
-                                                modifier = Modifier.width(100.dp)
-                                            )
-                                        }
-                                    } else {
-                                        currentSong?.let { song ->
-                                            MaterialTheme(colorScheme = colorScheme) {
-                                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                                    com.theveloper.pixelplay.presentation.components.tais.InstrumentalRenderAction(
-                                                        song = song,
-                                                        instrumentalActive = studioInstrumentalActive,
-                                                        onPlayInstrumental = onPlayInstrumental,
-                                                        onPlayOriginal = onToggleStudioInstrumental,
-                                                        onFindLyrics = { showFetchLyricsDialog = true }
-                                                    )
-                                                    if (onSyncYourself != null) {
-                                                        androidx.compose.material3.TextButton(
-                                                            onClick = onSyncYourself,
-                                                            modifier = Modifier.padding(top = 8.dp)
-                                                        ) {
-                                                            Icon(
-                                                                imageVector = androidx.compose.material.icons.Icons.Rounded.TouchApp,
-                                                                contentDescription = null,
-                                                                tint = Color.White.copy(alpha = 0.85f),
-                                                                modifier = Modifier.size(18.dp)
-                                                            )
-                                                            Spacer(Modifier.width(8.dp))
-                                                            Text(
-                                                                text = stringResource(R.string.lyrics_sync_empty_button),
-                                                                color = Color.White.copy(alpha = 0.85f)
-                                                            )
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    true -> {
-                        preparedLyrics?.let { prepared ->
-                            KaraokeLyricsView(
-                                prepared = prepared,
-                                clock = lyricsClock,
-                                engine = lyricsEngine,
-                                isPlaying = isPlaying,
-                                songKey = currentSong?.id,
-                                appearance = karaokeAppearance,
-                                topInset = if (showSyncChip) LyricsHeaderInset + SyncChipInset else LyricsHeaderInset,
-                                onInteraction = { resetImmersiveTimer() },
-                                onSeekLine = { line ->
-                                    onSeekTo(
-                                        resolveSeekPositionMs(
-                                            lineTimeMs = line.startMs,
-                                            lyricsSyncOffsetMs = lyricsSyncOffset
-                                        )
-                                    )
-                                    resetImmersiveTimer()
-                                },
-                                footer = if (lyrics?.areFromRemote == true) {
-                                    {
-                                        Text(
-                                            text = lyrics?.document?.metadata?.source?.let { "Lyrics: $it" } ?: "Online lyrics",
-                                            style = MaterialTheme.typography.labelMedium,
-                                            color = Color.White.copy(alpha = 0.5f),
-                                            textAlign = TextAlign.Center,
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .padding(horizontal = 24.dp, vertical = 16.dp)
-                                        )
-                                    }
-                                } else null,
-                                modifier = Modifier.fillMaxSize()
-                            )
-                        }
-                    }
-
-                    false -> {
-                        lyrics?.plain?.let { plain ->
-                            LazyColumn(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
-                                    .lyricsEdgeFade(with(LocalDensity.current) { LyricsHeaderInset.toPx() }),
-                                state = staticListState,
-                                contentPadding = PaddingValues(
-                                    start = 24.dp,
-                                    end = 24.dp,
-                                    top = 130.dp,
-                                    bottom = 24.dp
+                                        .padding(bottom = 16.dp)
                                 )
-                            ) {
-                                itemsIndexed(
-                                    items = plain,
-                                    key = { index, line -> "$index-$line" }
-                                ) { _, line ->
-                                    PlainLyricsLine(
-                                        line = line,
-                                        style = plainLyricsStyle,
-                                        lyricsAlignment = lyricsAlignment,
-                                        showTranslation = if (hasTranslatedLyrics) showLyricsTranslation else true,
-                                        showRomanization = if (hasRomanizedLyrics) showLyricsRomanization else true,
-                                        modifier = Modifier.fillMaxWidth()
-                                    )
-                                    Spacer(modifier = Modifier.height(16.dp))
-                                }
                             }
                         }
                     }
                 }
+            }
 
+            // ─── Header: track pill, then the "sync it yourself" chip ────────
+            Column(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(top = statusTop + 4.dp, start = 18.dp, end = 18.dp)
+            ) {
+                LyricsHeader(
+                    song = currentSong,
+                    isPlaying = isPlaying,
+                    chrome = chrome,
+                    glass = glass,
+                    backdrop = backgroundState.backdrop,
+                    brightArt = backgroundState.isBrightArt
+                )
                 // "Make the words light up - Sync it yourself": line-only or plain lyrics only.
                 androidx.compose.animation.AnimatedVisibility(
                     visible = showSyncChip && !immersiveMode,
                     enter = fadeIn(),
                     exit = fadeOut(),
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .zIndex(2f)
-                        .padding(top = LyricsHeaderInset, start = 18.dp, end = 18.dp)
+                    modifier = Modifier.padding(top = 8.dp)
                 ) {
                     LyricsSyncChip(
                         onClick = { onSyncYourself?.invoke() },
                         onDismiss = onDismissSyncChip
                     )
                 }
-                
             }
 
-            // Controls Section (Auto-hide in immersive mode)
-            AnimatedVisibility(
-                visible = !immersiveMode,
-                enter = expandVertically(expandFrom = Alignment.Top) + fadeIn(),
-                exit = shrinkVertically(shrinkTowards = Alignment.Top) + fadeOut()
-            ) {
-                Column(
+            // ─── Bottom controls (overlaid; hidden in immersive mode) ─────────
+            if (controlsPresent) {
+                LyricsControlCluster(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = paddingValues.calculateBottomPadding() + 10.dp, end = 16.dp, start = 16.dp)
-                        .pointerInput(Unit) {
-                            awaitPointerEventScope {
-                                while (true) {
-                                    val event = awaitPointerEvent()
-                                    // Reset timer on any touch down or move in this area
-                                    if (event.changes.any { it.pressed }) {
-                                         resetImmersiveTimer()
-                                    }
-                                }
-                            }
-                        }
-                ) {
-                                AnimatedVisibility(
-                    visible = showSyncedLyrics == true && lyrics?.synced != null && showSyncControls,
-                    enter = expandVertically() + fadeIn(),
-                    exit = shrinkVertically() + fadeOut()
-                ) {
-                    LyricsSyncControls(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(bottom = 8.dp),
-                        offsetMillis = lyricsSyncOffset,
-                        onOffsetChange = onLyricsSyncOffsetChange,
-                        backgroundColor = backgroundColor,
-                        accentColor = sheetColors.syncButtonContainer,
-                        onAccentColor = sheetColors.syncButtonContent,
-                        onBackgroundColor = onBackgroundColor
-                    )
-                }
-
-                // Playback Controls Row, with the Magic Instrumentalize control floating above
-                // it — an expanding blur pill rather than a permanent settings-screen slider.
-                Box(modifier = Modifier.fillMaxWidth()) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 0.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    // Play/Pause Button (Smaller)
-                    val playPauseCornerRadius by animateDpAsState(
-                        targetValue = if (isPlaying) 18.dp else 50.dp,
-                        animationSpec = spring(stiffness = Spring.StiffnessLow),
-                        label = "playPauseShape"
-                    )
-
-                    Box(
-                        modifier = Modifier
-                            .size(78.dp)
-                            .clip(RoundedCornerShape(playPauseCornerRadius))
-                            .background(playPauseColor)
-                            .clickable {
-                                hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                onPlayPause()
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        AnimatedContent(
-                            targetState = isPlaying,
-                            label = "playPauseIconAnimation"
-                        ) { playing ->
-                            if (playing) {
-                                Icon(
-                                    modifier = Modifier.size(32.dp),
-                                    imageVector = Icons.Rounded.Pause,
-                                    contentDescription = "Pause",
-                                    tint = onPlayPauseColor
-                                )
-                            } else {
-                                Icon(
-                                    modifier = Modifier.size(32.dp),
-                                    imageVector = Icons.Rounded.PlayArrow,
-                                    contentDescription = stringResource(R.string.common_play),
-                                    tint = onPlayPauseColor
-                                )
-                            }
-                        }
-                    }
-
-                    // Progress Bar
-                    LyricsPlaybackSeekBar(
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(50.dp),
-                        playbackPositionFlow = playbackPositionFlow,
-                        backgroundColor = backgroundColor,
-                        onBackgroundColor = onBackgroundColor,
-                        accentColor = accentColor,
-                        totalDuration = stablePlayerState.totalDuration,
-                        onSeekTo = onSeekTo,
-                        onSeekPreviewChange = { previewSeekPositionMs = it },
-                        isPlaying = isPlaying
-                    )
-                }
-
-                if (studioInstrumentalAvailable) {
-                    FloatingInstrumentalToggle(
-                        active = studioInstrumentalActive,
-                        onToggle = onToggleStudioInstrumental,
-                        accentColor = accentColor,
-                        backgroundColor = backgroundColor,
-                        onBackgroundColor = onBackgroundColor,
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .offset(y = (-34).dp)
-                    )
-                }
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // Floating Toolbar
-                LyricsFloatingToolbar(
-                    modifier = Modifier.padding(horizontal = 0.dp),
+                        .align(Alignment.BottomCenter)
+                        .onSizeChanged { controlsHeightPx = it.height.toFloat() },
+                    progress = controlsProgress,
+                    navBottom = navBottom,
+                    chrome = chrome,
+                    glass = glass,
+                    backdrop = backgroundState.backdrop,
+                    brightArt = backgroundState.isBrightArt,
+                    showSyncControls = showSyncedLyrics == true && lyrics?.synced != null && showSyncControls,
+                    lyricsSyncOffset = lyricsSyncOffset,
+                    onLyricsSyncOffsetChange = onLyricsSyncOffsetChange,
+                    isPlaying = isPlaying,
+                    onPlayPause = {
+                        hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        onPlayPause()
+                    },
+                    playbackPositionFlow = playbackPositionFlow,
+                    totalDuration = stablePlayerState.totalDuration,
+                    onSeekTo = onSeekTo,
+                    onSeekPreviewChange = { previewSeekPositionMs = it },
+                    studioInstrumentalAvailable = studioInstrumentalAvailable,
+                    studioInstrumentalActive = studioInstrumentalActive,
+                    onToggleStudioInstrumental = onToggleStudioInstrumental,
                     showSyncedLyrics = showSyncedLyrics,
                     hasSyncedLyrics = hasSyncedLyrics,
                     onShowSyncedLyricsChange = { showSyncedLyrics = it },
-                    onNavigateBack = {
-                        onBackClick()
-                    },
+                    onNavigateBack = onBackClick,
                     onMoreClick = { showMoreSheet = true },
-                    backgroundColor = backgroundColor,
-                    onBackgroundColor = onBackgroundColor,
-                    accentColor = accentColor,
-                    onAccentColor = onAccentColor,
-                    // Pass progress so the back button animates with the gesture (draw-phase).
                     backProgressProvider = { backProgressProvider.value },
                 )
-             }
+            }
+
+            // ─── Show-controls button (immersive mode) ───────────────────────
+            if (showButtonPresent) {
+                LyricsShowControlsButton(
+                    onClick = { resetImmersiveTimer() },
+                    progress = showButtonProgress,
+                    chrome = chrome,
+                    glass = glass,
+                    backdrop = backgroundState.backdrop,
+                    brightArt = backgroundState.isBrightArt,
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = navBottom + ShowControlsBottomGap)
+                )
+            }
+
+            // ─── Swipe feedback overlay ──────────────────────────────────────
+            if (isSwipeActive || swipeProgress.value > 0f) {
+                val isNext = dragOffset < 0
+                val overlayAlignment = if (isNext) Alignment.CenterEnd else Alignment.CenterStart
+                val icon = if (isNext) Icons.Rounded.SkipNext else Icons.Rounded.SkipPrevious
+
+                Box(
+                    modifier = Modifier
+                        .align(overlayAlignment)
+                        .size(100.dp)
+                        .padding(
+                            start = if (isNext) 0.dp else 6.dp,
+                            end = if (isNext) 6.dp else 0.dp
+                        )
+                        .graphicsLayer {
+                            val widthPx = size.width
+                            val initialOffset = if (isNext) widthPx else -widthPx
+                            translationX = initialOffset * (1f - swipeProgress.value)
+                            scaleX = 0.8f + (swipeProgress.value * 0.2f)
+                            scaleY = 0.8f + (swipeProgress.value * 0.2f)
+                        }
+                        .background(
+                            color = chrome.emphasis,
+                            shape = RoundedCornerShape(
+                                topStart = if (isNext) 360.dp else 8.dp,
+                                bottomStart = if (isNext) 360.dp else 8.dp,
+                                topEnd = if (isNext) 8.dp else 360.dp,
+                                bottomEnd = if (isNext) 8.dp else 360.dp
+                            )
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        modifier = Modifier.size(48.dp),
+                        tint = chrome.onEmphasis
+                    )
+                }
             }
         }
 
@@ -1196,74 +1188,437 @@ fun LyricsSheet(
                 )
             }
         }
+    }
+}
 
-       // Show Controls Button (Overlay)
-       AnimatedVisibility(
-            visible = immersiveMode,
-            enter = fadeIn() + slideInVertically { it / 2 },
-            exit = fadeOut() + slideOutVertically { it / 2 },
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = 32.dp)
-        ) {
-            FilledIconButton(
-                onClick = { resetImmersiveTimer() },
-                modifier = Modifier.size(48.dp),
-                colors = IconButtonDefaults.filledIconButtonColors(
-                    containerColor = accentColor,
-                    contentColor = onAccentColor
-                )
+/** Content padding for the plain/status lists; the bottom follows the measured controls. */
+@androidx.compose.runtime.Stable
+private class LyricsListPadding(
+    private val top: Dp,
+    private val horizontal: Dp,
+    private val bottom: () -> Dp,
+) : PaddingValues {
+    override fun calculateLeftPadding(layoutDirection: androidx.compose.ui.unit.LayoutDirection): Dp = horizontal
+    override fun calculateTopPadding(): Dp = top
+    override fun calculateRightPadding(layoutDirection: androidx.compose.ui.unit.LayoutDirection): Dp = horizontal
+    // Read during the list's measure, so a new controls height re-measures, never recomposes.
+    override fun calculateBottomPadding(): Dp = bottom()
+}
+
+/**
+ * The glass recipe for the lyrics chrome: the Group role, but clear (Apple's rule over media) —
+ * the art shows through, glyphs stay white. [materializes] lets the lens, frost, rim and shadow
+ * grow with a progress value (immersive show/hide).
+ */
+@Composable
+private fun rememberLyricsGlassRecipe(role: GlassRole, materializes: Boolean): GlassRecipe {
+    val base = resolveRecipe(role)
+    return remember(base, materializes) {
+        if (materializes) base.copy(materializes = true) else base
+    }
+}
+
+/**
+ * Tint for the lyrics chrome glass, drawn over the refracted artwork: a clear white wash scaled by
+ * the transparency dial (a dark one under high contrast), plus the 35 % dimming over bright art.
+ * Both follow the materialise progress so a dematerialised surface draws exactly the backdrop.
+ */
+@Composable
+private fun rememberLyricsGlassSurface(brightArt: Boolean): androidx.compose.ui.graphics.drawscope.DrawScope.(Float) -> Unit {
+    val t = glassTransparency()
+    val highContrast = LocalGlassHighContrast.current
+    return remember(t, highContrast, brightArt) {
+        val tint = if (highContrast) {
+            Color.Black.copy(alpha = 0.45f)
+        } else {
+            Color.White.copy(alpha = lerp(0.05f, 0.16f, t))
+        }
+        val dim = if (brightArt) BRIGHT_ART_GLASS_DIM else 0f
+        val surface: androidx.compose.ui.graphics.drawscope.DrawScope.(Float) -> Unit = { p ->
+            if (dim > 0f) drawRect(Color.Black.copy(alpha = dim * p))
+            drawRect(tint.copy(alpha = tint.alpha * p))
+        }
+        surface
+    }
+}
+
+@Composable
+private fun LyricsHeader(
+    song: Song?,
+    isPlaying: Boolean,
+    chrome: LyricsChromeColors,
+    glass: Boolean,
+    backdrop: Backdrop,
+    brightArt: Boolean,
+    modifier: Modifier = Modifier
+) {
+    if (song == null) return
+    val container = if (glass) {
+        val recipe = rememberLyricsGlassRecipe(GlassRole.Group, materializes = false)
+        val surface = rememberLyricsGlassSurface(brightArt)
+        Modifier.liquidGlass(recipe = recipe, shape = GlassShapes.Capsule, backdrop = backdrop, surface = surface)
+    } else {
+        Modifier
+            .clip(CircleShape)
+            .background(chrome.container)
+    }
+    Box(
+        modifier = modifier
+            .then(container)
+            .animateContentSize()
+    ) {
+        AnimatedContent(
+            targetState = song,
+            contentKey = { it.id },
+            transitionSpec = {
+                (fadeIn(animationSpec = tween(300)) +
+                    scaleIn(initialScale = 0.9f, animationSpec = tween(300)))
+                    .togetherWith(fadeOut(animationSpec = tween(200)))
+            },
+            label = "headerAnimation"
+        ) { shown ->
+            LyricsTrackInfo(
+                song = shown,
+                contentColor = chrome.content,
+                contentVariantColor = chrome.contentVariant,
+                isPlaying = isPlaying
+            )
+        }
+    }
+}
+
+/**
+ * The bottom control cluster. Material 3: the familiar tonal pills over a soft scrim, sliding and
+ * fading with [progress]. Liquid Glass: one glass panel (one node) sampling the artwork, whose
+ * lens, frost and rim grow with [progress] while its controls fade in as white fills.
+ */
+@Composable
+private fun LyricsControlCluster(
+    modifier: Modifier,
+    progress: () -> Float,
+    navBottom: Dp,
+    chrome: LyricsChromeColors,
+    glass: Boolean,
+    backdrop: Backdrop,
+    brightArt: Boolean,
+    showSyncControls: Boolean,
+    lyricsSyncOffset: Int,
+    onLyricsSyncOffsetChange: (Int) -> Unit,
+    isPlaying: Boolean,
+    onPlayPause: () -> Unit,
+    playbackPositionFlow: StateFlow<Long>,
+    totalDuration: Long,
+    onSeekTo: (Long) -> Unit,
+    onSeekPreviewChange: (Long?) -> Unit,
+    studioInstrumentalAvailable: Boolean,
+    studioInstrumentalActive: Boolean,
+    onToggleStudioInstrumental: () -> Unit,
+    showSyncedLyrics: Boolean?,
+    hasSyncedLyrics: Boolean,
+    onShowSyncedLyricsChange: (Boolean) -> Unit,
+    onNavigateBack: () -> Unit,
+    onMoreClick: () -> Unit,
+    backProgressProvider: () -> Float,
+) {
+    val slidePx = with(LocalDensity.current) { ControlsSlide.toPx() }
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(bottom = navBottom + 10.dp, start = 16.dp, end = 16.dp)
+            .graphicsLayer {
+                if (!glass) {
+                    val p = progress()
+                    alpha = p.coerceIn(0f, 1f)
+                    translationY = (1f - p) * slidePx
+                }
+            }
+    ) {
+        if (studioInstrumentalAvailable) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 8.dp)
+                    .graphicsLayer { if (glass) alpha = progress().coerceIn(0f, 1f) },
+                contentAlignment = Alignment.CenterEnd
             ) {
-                Icon(
-                    imageVector = Icons.Rounded.KeyboardArrowUp,
-                    contentDescription = "Show Controls"
+                FloatingInstrumentalToggle(
+                    active = studioInstrumentalActive,
+                    onToggle = onToggleStudioInstrumental,
+                    accentColor = chrome.accent,
+                    backgroundColor = chrome.container,
+                    onBackgroundColor = chrome.content,
+                    glass = glass
                 )
             }
         }
-       
-       // Swipe Feedback Overlay
-       if (isSwipeActive || swipeProgress.value > 0f) {
-           val isNext = dragOffset < 0
-           val overlayAlignment = if (isNext) Alignment.CenterEnd else Alignment.CenterStart
-           val icon = if (isNext) Icons.Rounded.SkipNext else Icons.Rounded.SkipPrevious
-           
-           Box(
-               modifier = Modifier
-                   .align(overlayAlignment)
-                   .size(100.dp) // Base size
-                   .padding(
-                       start = if(isNext) 0.dp else 6.dp,
-                       end = if(isNext) 6.dp else 0.dp
-                   )
-                   .graphicsLayer {
-                        val widthPx = size.width
-                        val initialOffset = if(isNext) widthPx else -widthPx
-                        translationX = initialOffset * (1f - swipeProgress.value)
 
-                        scaleX = 0.8f + (swipeProgress.value * 0.2f)
-                        scaleY = 0.8f + (swipeProgress.value * 0.2f)
-                   }
-                   .background(
-                        color = accentColor, // No alpha modulation
-                        shape = RoundedCornerShape(
-                            topStart = if(isNext) 360.dp else 8.dp,
-                            bottomStart = if(isNext) 360.dp else 8.dp,
-                            topEnd = if(isNext) 8.dp else 360.dp,
-                            bottomEnd = if(isNext) 8.dp else 360.dp
-                        )
-                   ),
-               contentAlignment = Alignment.Center
-           ) {
-               Icon(
-                   imageVector = icon,
-                   contentDescription = null,
-                   modifier = Modifier.size(48.dp),
-                   tint = onAccentColor
-               )
-           }
-       }
+        val panel = if (glass) {
+            val recipe = rememberLyricsGlassRecipe(GlassRole.Group, materializes = true)
+            val surface = rememberLyricsGlassSurface(brightArt)
+            Modifier
+                .liquidGlass(
+                    recipe = recipe,
+                    shape = LyricsPanelShape,
+                    backdrop = backdrop,
+                    materialize = progress,
+                    surface = surface
+                )
+                .padding(12.dp)
+        } else {
+            Modifier
+        }
+        Column(modifier = Modifier.fillMaxWidth().then(panel)) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .graphicsLayer { if (glass) alpha = progress().coerceIn(0f, 1f) }
+            ) {
+                AnimatedVisibility(
+                    visible = showSyncControls,
+                    enter = expandVertically() + fadeIn(),
+                    exit = shrinkVertically() + fadeOut()
+                ) {
+                    LyricsSyncControls(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 8.dp),
+                        offsetMillis = lyricsSyncOffset,
+                        onOffsetChange = onLyricsSyncOffsetChange,
+                        backgroundColor = chrome.container,
+                        accentColor = chrome.syncAccent,
+                        onAccentColor = chrome.onSyncAccent,
+                        onBackgroundColor = chrome.content
+                    )
+                }
 
-      }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    LyricsPlayPauseButton(
+                        isPlaying = isPlaying,
+                        onClick = onPlayPause,
+                        container = chrome.playPause,
+                        content = chrome.onPlayPause
+                    )
+                    LyricsPlaybackSeekBar(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(50.dp),
+                        playbackPositionFlow = playbackPositionFlow,
+                        backgroundColor = chrome.container,
+                        onBackgroundColor = chrome.content,
+                        accentColor = chrome.accent,
+                        totalDuration = totalDuration,
+                        onSeekTo = onSeekTo,
+                        onSeekPreviewChange = onSeekPreviewChange,
+                        isPlaying = isPlaying
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(if (glass) 12.dp else 16.dp))
+
+                LyricsFloatingToolbar(
+                    showSyncedLyrics = showSyncedLyrics,
+                    hasSyncedLyrics = hasSyncedLyrics,
+                    onShowSyncedLyricsChange = onShowSyncedLyricsChange,
+                    onNavigateBack = onNavigateBack,
+                    onMoreClick = onMoreClick,
+                    backgroundColor = chrome.container,
+                    onBackgroundColor = chrome.content,
+                    accentColor = chrome.selected,
+                    onAccentColor = chrome.onSelected,
+                    // Pass progress so the back button animates with the gesture (draw-phase).
+                    backProgressProvider = backProgressProvider,
+                )
+            }
+        }
+    }
+}
+
+/** Play/pause: a squircle while playing, a circle while paused; the morph is read in the layer. */
+@Composable
+private fun LyricsPlayPauseButton(
+    isPlaying: Boolean,
+    onClick: () -> Unit,
+    container: Color,
+    content: Color,
+) {
+    val corner = remember { Animatable(if (isPlaying) PlayingCornerDp else PausedCornerDp) }
+    LaunchedEffect(isPlaying) {
+        corner.animateTo(
+            if (isPlaying) PlayingCornerDp else PausedCornerDp,
+            spring(stiffness = Spring.StiffnessLow)
+        )
+    }
+    val shapes = remember { QuantizedCornerShapeCache() }
+    Box(
+        modifier = Modifier
+            .size(78.dp)
+            .graphicsLayer {
+                shape = shapes.get(corner.value.dp)
+                clip = true
+            }
+            .background(container)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        AnimatedContent(
+            targetState = isPlaying,
+            label = "playPauseIconAnimation"
+        ) { playing ->
+            Icon(
+                modifier = Modifier.size(32.dp),
+                imageVector = if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                contentDescription = if (playing) "Pause" else stringResource(R.string.common_play),
+                tint = content
+            )
+        }
+    }
+}
+
+/**
+ * Brings the controls back in immersive mode. Liquid Glass: a clear glass disc that materialises
+ * by lensing once the panel has gone (never both at once). Material 3: an accent disc that fades
+ * and scales in.
+ */
+@Composable
+private fun LyricsShowControlsButton(
+    onClick: () -> Unit,
+    progress: () -> Float,
+    chrome: LyricsChromeColors,
+    glass: Boolean,
+    backdrop: Backdrop,
+    brightArt: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val background = if (glass) {
+        val recipe = rememberLyricsGlassRecipe(GlassRole.IconButton, materializes = true)
+        val surface = rememberLyricsGlassSurface(brightArt)
+        Modifier.liquidGlass(
+            recipe = recipe,
+            shape = CircleShape,
+            backdrop = backdrop,
+            materialize = progress,
+            surface = surface
+        )
+    } else {
+        Modifier
+            .graphicsLayer {
+                val p = progress().coerceIn(0f, 1f)
+                alpha = p
+                val s = lerp(0.8f, 1f, p)
+                scaleX = s
+                scaleY = s
+            }
+            .clip(CircleShape)
+            .background(chrome.emphasis)
+    }
+    Box(
+        modifier = modifier
+            .size(ShowControlsSize)
+            .then(background)
+            .clip(CircleShape)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            imageVector = Icons.Rounded.KeyboardArrowUp,
+            contentDescription = "Show Controls",
+            tint = if (glass) Color.White else chrome.onEmphasis,
+            modifier = Modifier.graphicsLayer { if (glass) alpha = progress().coerceIn(0f, 1f) }
+        )
+    }
+}
+
+/** Loading and "no lyrics" states. The loader only appears if loading takes a moment. */
+@Composable
+private fun LyricsStatusContent(
+    isLoading: Boolean,
+    song: Song?,
+    colorScheme: ColorScheme,
+    accent: Color,
+    accentTrack: Color,
+    contentPadding: PaddingValues,
+    studioInstrumentalActive: Boolean,
+    onPlayInstrumental: (String) -> Unit,
+    onPlayOriginal: () -> Unit,
+    onFindLyrics: () -> Unit,
+    onSyncYourself: (() -> Unit)?,
+) {
+    var loaderVisible by remember { mutableStateOf(false) }
+    LaunchedEffect(isLoading) {
+        loaderVisible = false
+        if (isLoading) {
+            delay(LOADER_DELAY_MS)
+            loaderVisible = true
+        }
+    }
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = contentPadding
+    ) {
+        item(key = "loader_or_empty", contentType = "status") {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 180.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                AnimatedVisibility(
+                    visible = if (isLoading) loaderVisible else song != null,
+                    enter = fadeIn(tween(250)),
+                    exit = fadeOut(tween(120))
+                ) {
+                    if (isLoading) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                text = stringResource(R.string.lyrics_loading),
+                                style = MaterialTheme.typography.titleMedium,
+                                color = Color.White.copy(alpha = 0.85f)
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            LinearWavyProgressIndicator(
+                                trackColor = accentTrack,
+                                color = accent,
+                                modifier = Modifier.width(100.dp)
+                            )
+                        }
+                    } else if (song != null) {
+                        MaterialTheme(colorScheme = colorScheme) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                com.theveloper.pixelplay.presentation.components.tais.InstrumentalRenderAction(
+                                    song = song,
+                                    instrumentalActive = studioInstrumentalActive,
+                                    onPlayInstrumental = onPlayInstrumental,
+                                    onPlayOriginal = onPlayOriginal,
+                                    onFindLyrics = onFindLyrics
+                                )
+                                if (onSyncYourself != null) {
+                                    TextButton(
+                                        onClick = onSyncYourself,
+                                        modifier = Modifier.padding(top = 8.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Rounded.TouchApp,
+                                            contentDescription = null,
+                                            tint = Color.White.copy(alpha = 0.85f),
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                        Spacer(Modifier.width(8.dp))
+                                        Text(
+                                            text = stringResource(R.string.lyrics_sync_empty_button),
+                                            color = Color.White.copy(alpha = 0.85f)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -1290,6 +1645,9 @@ private fun LyricsPlaybackSeekBar(
         onSeek = onSeekTo,
         onSeekPreview = onSeekPreviewChange,
         isPlaying = isPlaying,
+        // The pill is translucent over the artwork: a shadow would show through it.
+        shadowElevation = 0.dp,
+        inactiveTrackColor = accentTrackFor(accentColor),
         modifier = modifier
     )
 }
@@ -1310,6 +1668,7 @@ private fun FloatingInstrumentalToggle(
     accentColor: Color,
     backgroundColor: Color,
     onBackgroundColor: Color,
+    glass: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val width by animateDpAsState(
@@ -1323,7 +1682,11 @@ private fun FloatingInstrumentalToggle(
             .height(44.dp)
             .width(width)
             .clip(RoundedCornerShape(22.dp))
-            .background(backgroundColor.copy(alpha = 0.94f))
+            .background(backgroundColor)
+            .then(
+                if (glass) Modifier.border(0.75.dp, Color.White.copy(alpha = 0.24f), RoundedCornerShape(22.dp))
+                else Modifier
+            )
             .clickable { onToggle() },
         contentAlignment = Alignment.Center
     ) {
@@ -1474,6 +1837,37 @@ private val LyricsHeaderInset = 78.dp
 /** Extra top inset while the "sync it yourself" chip sits under the header. */
 private val SyncChipInset = 48.dp
 
+/** Lines fade in over this below the header, and out over [LyricsBottomFade] above the controls. */
+private val LyricsTopFade = 48.dp
+private val LyricsBottomFade = 96.dp
+
+/** Immersive mode's "show controls" disc and its gap above the navigation bar. */
+private val ShowControlsSize = 52.dp
+private val ShowControlsBottomGap = 24.dp
+
+/** How far the Material 3 controls slide while they hide. */
+private val ControlsSlide = 24.dp
+
+/** Material 3 bottom scrim: extends this far above the controls, up to this darkness. */
+private val M3ScrimExtra = 72.dp
+private const val M3ScrimAlpha = 0.38f
+
+/** Apple's "Clear" rule: glass over bright art gets a 35 % dark layer under its tint. */
+private const val BRIGHT_ART_GLASS_DIM = 0.35f
+
+/** The glass control panel's corners (kyant continuous corners). */
+private val LyricsPanelShape = GlassShapes.rounded(32.dp)
+
+/** Play/pause corner radius: a squircle while playing, a full circle (78 dp / 2) while paused. */
+private const val PlayingCornerDp = 18f
+private const val PausedCornerDp = 39f
+
+/** Outgoing lyrics fade on a song change; the loader waits this long before showing. */
+private const val SONG_CHANGE_FADE_MS = 180
+private const val LOADER_DELAY_MS = 400L
+
+private fun accentTrackFor(accent: Color): Color = accent.copy(alpha = accent.alpha * 0.26f)
+
 @Composable
 private fun LyricsSyncChip(onClick: () -> Unit, onDismiss: () -> Unit) {
     val glass = com.theveloper.pixelplay.ui.glass.isGlassEnabled
@@ -1546,8 +1940,8 @@ internal fun resolveSeekPositionMs(
 private fun LyricsTrackInfo(
     song: Song?,
     modifier: Modifier = Modifier,
-    backgroundColor: Color,
     contentColor: Color,
+    contentVariantColor: Color,
     isPlaying: Boolean
 ) {
     if (song == null) return
@@ -1625,7 +2019,7 @@ private fun LyricsTrackInfo(
             Text(
                 text = song.displayArtist,
                 style = MaterialTheme.typography.bodyMedium.copy(
-                    color = contentColor.copy(alpha = 0.7f),
+                    color = contentVariantColor,
                     //textGeometricTransform = TextGeometricTransform(scaleX = (0.9f)),
                 ),
                 maxLines = 1,

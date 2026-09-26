@@ -31,6 +31,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.theveloper.pixelplay.presentation.components.WavySliderExpressive
@@ -47,7 +48,9 @@ fun PlayerSeekBar(
     onSeek: (Long) -> Unit,
     onSeekPreview: ((Long?) -> Unit)? = null,
     isPlaying: Boolean,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    shadowElevation: Dp = 8.dp,
+    inactiveTrackColor: Color = primaryColor.copy(alpha = 0.2f)
 ) {
     val hapticFeedback = LocalHapticFeedback.current
     val progressFraction = remember(currentPosition, totalDuration) {
@@ -80,7 +83,7 @@ fun PlayerSeekBar(
         modifier = modifier
             .fillMaxWidth()
             .shadow(
-                elevation = 8.dp,          // nivel de sombra
+                elevation = shadowElevation, // nivel de sombra
                 shape = CircleShape,       // la misma forma de clip
                 clip = false               // importante: NO recortar la sombra
             )
@@ -125,7 +128,7 @@ fun PlayerSeekBar(
             strokeWidth = 5.dp, // Was trackHeight
             thumbRadius = 8.dp,
             activeTrackColor = primaryColor,
-            inactiveTrackColor = primaryColor.copy(alpha = 0.2f),
+            inactiveTrackColor = inactiveTrackColor,
             thumbColor = primaryColor,
             wavelength = 30.dp, // Was waveLength
             isPlaying = isPlaying,

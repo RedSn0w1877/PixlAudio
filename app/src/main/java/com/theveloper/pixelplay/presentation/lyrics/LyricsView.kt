@@ -22,6 +22,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.unit.isSpecified
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.Brush
@@ -130,8 +134,17 @@ private const val IDLE_POLL_MS = 150L
  * @param songKey identifies the song; a change runs the first-show cascade, a rebuild of the
  *   same song's lyrics snaps into place instead.
  * @param onSeekLine tap on a line (the caller seeks to `line.startMs − offset`).
- * @param topInset height of whatever overlays the top of this view (the header); the active
- *   line's anchor is kept at least 16 dp below it and the top fade covers it.
+ * @param topInset height of whatever overlays the top of this view (the header). With
+ *   [topFadeLength] set, lines are fully hidden above it and fade in over that length below it
+ *   (so they dissolve before they reach the chrome); otherwise the fade simply covers
+ *   `max(10 %, topInset)`. The active line's anchor is kept at least 16 dp below the fade.
+ * @param topFadeLength see [topInset]. [Dp.Unspecified] keeps the plain 10 % fade.
+ * @param bottomInsetPx height (px, from the bottom) of whatever overlays the bottom of this view,
+ *   read in the draw phase only, so it may animate. Lines are hidden below it and fade out over
+ *   [bottomFadeLength] above it. Taps under either inset never seek.
+ * @param bottomFadeLength [Dp.Unspecified] keeps the plain 12 % fade.
+ * @param fadeAlpha extra alpha for the whole lyrics layer, read in the draw phase (a song-change
+ *   fade). Applied to the offscreen layer itself, so `Plus` blending survives the fade.
  * @param onInteraction any touch on the lyrics (e.g. to reset an immersive-mode timer).
  * @param footer optional content placed right after the last line (e.g. the lyrics source).
  */
@@ -146,6 +159,10 @@ fun KaraokeLyricsView(
     songKey: Any? = null,
     appearance: KaraokeLyricsAppearance = KaraokeLyricsAppearance(),
     topInset: Dp = 0.dp,
+    topFadeLength: Dp = Dp.Unspecified,
+    bottomInsetPx: () -> Float = NoInset,
+    bottomFadeLength: Dp = Dp.Unspecified,
+    fadeAlpha: (() -> Float)? = null,
     onInteraction: () -> Unit = {},
     footer: (@Composable () -> Unit)? = null,
 ) {
@@ -200,7 +217,12 @@ fun KaraokeLyricsView(
     val pressedRow = holder.pressedRow
     val clickLabel = stringResource(R.string.lyrics_play_from_here)
     val topInsetPx = with(density) { topInset.toPx() }
-    val anchorMinPx = topInsetPx + with(density) { 16.dp.toPx() }
+    val topFadePx = if (topFadeLength.isSpecified) with(density) { topFadeLength.toPx() } else -1f
+    val bottomFadePx = if (bottomFadeLength.isSpecified) with(density) { bottomFadeLength.toPx() } else -1f
+    val anchorMinPx = topInsetPx + topFadePx.coerceAtLeast(0f) + with(density) { 16.dp.toPx() }
+    val bottomInset by rememberUpdatedState(bottomInsetPx)
+    val chromeTop by rememberUpdatedState(topInsetPx)
+    val layerAlpha by rememberUpdatedState(fadeAlpha)
     val blurCache = remember { BlurCache() }
 
     // Per-row layer blocks: allocated once per lyrics, read only their own row's state.
@@ -323,8 +345,14 @@ fun KaraokeLyricsView(
             .graphicsLayer {
                 compositingStrategy = CompositingStrategy.Offscreen
                 blendMode = blend
+                this.alpha = layerAlpha?.invoke()?.coerceIn(0f, 1f) ?: 1f
             }
-            .lyricsEdgeFade(topInsetPx)
+            .lyricsEdgeFade(
+                topInsetPx = if (topFadePx >= 0f) topInsetPx else 0f,
+                topFadePx = if (topFadePx >= 0f) topFadePx else -max(topInsetPx, 1f),
+                bottomInsetPx = bottomInsetPx,
+                bottomFadePx = bottomFadePx,
+            )
             .semantics {
                 collectionInfo = CollectionInfo(rowCount = holder.rowCount, columnCount = 1)
                 scrollBy { _, y ->
@@ -346,7 +374,10 @@ fun KaraokeLyricsView(
                     val down = awaitFirstDown(requireUnconsumed = false)
                     onTouch()
                     val row = holder.hitRow(down.position.y, engine.scrollOffset)
-                    val tappable = row >= 0 && prepared.rows[row] is Row.Line
+                    // Lines hidden under the chrome (fully faded) are never tap targets.
+                    val underChrome = down.position.y < chromeTop ||
+                        down.position.y > size.height - bottomInset()
+                    val tappable = !underChrome && row >= 0 && prepared.rows[row] is Row.Line
                     if (tappable) pressedRow.intValue = row
                     var overSlop = 0f
                     val dragStart = awaitVerticalTouchSlopOrCancellation(down.id) { change, over ->
@@ -388,25 +419,59 @@ fun KaraokeLyricsView(
 }
 
 /**
- * The lyrics edge fade (§1.1) as a `DstIn` mask: alpha 0 → 1 over the top
- * `max(10 % of the height, topInsetPx)`, and 1 → 0 over the bottom 12 %. Must sit inside an
- * offscreen layer (`CompositingStrategy.Offscreen`) so it masks only the lyrics.
+ * The lyrics edge fade (§1.1, glass spec §3) as a mask that must sit inside an offscreen layer
+ * (`CompositingStrategy.Offscreen`) so it masks only the lyrics.
+ *
+ * - Top: everything above [topInsetPx] is cleared, then alpha 0 → 1 over [topFadePx]. A negative
+ *   [topFadePx] means "10 % of the height, but at least `-topFadePx`" from the very top (the
+ *   plain fade for a view with nothing over it).
+ * - Bottom: everything below `height − bottomInsetPx()` is cleared, with alpha 1 → 0 over
+ *   [bottomFadePx] above that edge (negative = 12 % of the height).
+ *
+ * [bottomInsetPx] is read in the draw phase, so an animating control cluster only replays this
+ * draw; the gradients are built once per size and only translated, never re-allocated.
  */
-fun Modifier.lyricsEdgeFade(topInsetPx: Float = 0f): Modifier = drawWithCache {
+fun Modifier.lyricsEdgeFade(
+    topInsetPx: Float = 0f,
+    topFadePx: Float = -1f,
+    bottomInsetPx: () -> Float = NoInset,
+    bottomFadePx: Float = -1f,
+): Modifier = drawWithCache {
+    val w = size.width
     val h = size.height
-    val top = if (h > 0f) (max(h * TOP_FADE_FRACTION, topInsetPx) / h).coerceIn(0f, 0.45f) else 0f
-    val bottom = 1f - BOTTOM_FADE_FRACTION
-    val mask = Brush.verticalGradient(
+    val topFade = if (topFadePx >= 0f) topFadePx else max(h * TOP_FADE_FRACTION, -topFadePx).coerceAtMost(h * 0.45f)
+    val bottomFade = if (bottomFadePx >= 0f) bottomFadePx else h * BOTTOM_FADE_FRACTION
+    val topMask = Brush.verticalGradient(
         0f to Color.Transparent,
-        top to Color.Black,
-        bottom to Color.Black,
+        1f to Color.Black,
+        startY = topInsetPx,
+        endY = topInsetPx + topFade.coerceAtLeast(1f),
+    )
+    // Drawn in its own 0..bottomFade space and translated to the (possibly moving) edge.
+    val bottomMask = Brush.verticalGradient(
+        0f to Color.Black,
         1f to Color.Transparent,
+        startY = 0f,
+        endY = bottomFade.coerceAtLeast(1f),
     )
     onDrawWithContent {
         drawContent()
-        drawRect(mask, blendMode = BlendMode.DstIn)
+        if (topInsetPx > 0f) {
+            drawRect(Color.Black, size = Size(w, topInsetPx), blendMode = BlendMode.Clear)
+        }
+        drawRect(topMask, topLeft = Offset(0f, topInsetPx), size = Size(w, topFade), blendMode = BlendMode.DstIn)
+        val edge = (h - bottomInsetPx().coerceAtLeast(0f)).coerceIn(0f, h)
+        translate(0f, edge - bottomFade) {
+            drawRect(bottomMask, size = Size(w, bottomFade), blendMode = BlendMode.DstIn)
+        }
+        if (edge < h) {
+            drawRect(Color.Black, topLeft = Offset(0f, edge), size = Size(w, h - edge), blendMode = BlendMode.Clear)
+        }
     }
 }
+
+/** A zero inset, shared so default arguments allocate nothing. */
+val NoInset: () -> Float = { 0f }
 
 private const val ANCHOR_FRACTION = 0.25f
 private const val CULL_MARGIN_FRACTION = 0.5f

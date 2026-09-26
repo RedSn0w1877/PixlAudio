@@ -128,6 +128,25 @@ internal class LyricsRenderStyle(
         const val PRESS_INSET_V_EM = 0.15f
         const val HIGH_CONTRAST_UNSUNG = 0.6f
 
+        /**
+         * Scripts whose letters change shape with their neighbours (Arabic, Syriac, N'Ko,
+         * Mongolian) or build clusters across syllables (Indic, Myanmar, Khmer, Tibetan). Cutting
+         * such a word into separately measured pieces would break its shaping, so these lines
+         * draw each piece as a clipped window onto the whole shaped line instead, and skip the
+         * per-letter emphasis.
+         */
+        fun needsShapedPieces(text: String): Boolean {
+            for (ch in text) {
+                val c = ch.code
+                if (c < 0x0590) continue
+                if (c in 0x0600..0x08FF || c in 0x0900..0x0DFF || c in 0x0F00..0x0FFF ||
+                    c in 0x1000..0x109F || c in 0x1780..0x18AF || c in 0xA8E0..0xA8FF ||
+                    c in 0xFB50..0xFDFF || c in 0xFE70..0xFEFF
+                ) return true
+            }
+            return false
+        }
+
         /** First strong directional character decides the line's direction. */
         fun isRtlText(text: String): Boolean {
             for (ch in text) {
@@ -383,12 +402,17 @@ internal class LyricLineNode(
         val em = if (isBg) s.bgEmPx else s.emPx
         val motionOn = !s.reducedMotion
         val fade = segs.fadePx
+        val clip = segs.clipped
         for (i in 0 until segs.count) {
             val piece = segs.layouts[i]
             val x = segs.left[i]
             val y = segs.top[i]
             if (!segs.timed[i]) {
-                drawText(piece, color = Color.White, topLeft = Offset(x, y), alpha = unsung)
+                if (clip) {
+                    drawClippedPiece(segs, i, 0f, piece, 0, null, unsung, unsung)
+                } else {
+                    drawText(piece, color = Color.White, topLeft = Offset(x, y), alpha = unsung)
+                }
                 continue
             }
             val lift = if (motionOn) {
@@ -417,10 +441,13 @@ internal class LyricLineNode(
                 }
                 val ratio = if (sung > 0f) (unsung / sung).coerceIn(0f, 1f) else 1f
                 brush = sweepBrush(fade, ratio, rtl)
-                brush.moveTo(xc - fade / 2f - x)
+                // Clipped pieces draw the whole line from its own origin, not from the piece.
+                brush.moveTo(xc - fade / 2f - if (clip) 0f else x)
             }
 
-            if (motionOn && segs.emphasis[i]) {
+            if (clip) {
+                drawClippedPiece(segs, i, lift, piece, mode, brush, sung, unsung)
+            } else if (motionOn && segs.emphasis[i]) {
                 val du = segs.wordDurationEff[i]
                 val n = segs.graphemeCount[i]
                 val gi = segs.graphemeIndex[i]
@@ -428,13 +455,13 @@ internal class LyricLineNode(
                 val e = EmphasisMath.envelope(EmphasisMath.graphemeProgress(t, charStart, du))
                 val amount = segs.amount[i]
                 val sc = EmphasisMath.scale(e, amount)
-                val dx = EmphasisMath.offsetXEm(e, amount, n, gi) * em
+                // Letters spread out from the word's visual middle: mirror the index for RTL.
+                val visualIndex = if (segs.rtl[i]) n - 1 - gi else gi
+                val dx = EmphasisMath.offsetXEm(e, amount, n, visualIndex) * em
                 val dy = EmphasisMath.offsetYEm(e, amount) * em
                 val hop = EmphasisMath.hopEm(t, charStart, du) * em * a
                 val glowAlpha = EmphasisMath.glowAlpha(e, segs.glow[i]) * a
-                val shadow = if (glowAlpha > 0.01f) {
-                    Shadow(Color.White.copy(alpha = glowAlpha), Offset.Zero, segs.glowRadius[i])
-                } else null
+                val shadow = if (glowAlpha > 0.01f) segs.glowShadow(i, glowAlpha) else null
                 val w = piece.size.width
                 val h = piece.size.height
                 withTransform({
@@ -447,6 +474,30 @@ internal class LyricLineNode(
                 withTransform({ translate(x, y - lift) }) {
                     drawPiece(piece, mode, brush, sung, unsung, null)
                 }
+            }
+        }
+    }
+
+    /** A piece of a shaped line: the whole line, clipped to the piece's box and lifted with it. */
+    private fun DrawScope.drawClippedPiece(
+        segs: LineSegments,
+        i: Int,
+        lift: Float,
+        main: TextLayoutResult,
+        mode: Int,
+        brush: SweepBrush?,
+        sung: Float,
+        unsung: Float,
+    ) {
+        withTransform({
+            translate(0f, -lift)
+            clipRect(segs.sweepLeft[i], segs.top[i], segs.clipRight[i], segs.clipBottom[i])
+        }) {
+            val origin = Offset(textLeft, textTop)
+            if (mode == 2 && brush != null) {
+                drawText(main, brush = brush, topLeft = origin, alpha = sung)
+            } else {
+                drawText(main, color = Color.White, topLeft = origin, alpha = if (mode == 1) sung else unsung)
             }
         }
     }
@@ -501,6 +552,7 @@ internal class LyricLineNode(
         val lineHeight = em * LyricsRenderStyle.LINE_HEIGHT_EM
         val out = ArrayList<Piece>(syllables.size + 4)
         val covered = BooleanArray(text.length)
+        val shaped = LyricsRenderStyle.needsShapedPieces(text)
 
         fun lineOf(offset: Int) = main.getLineForOffset(offset.coerceIn(0, (text.length - 1).coerceAtLeast(0)))
 
@@ -539,7 +591,7 @@ internal class LyricLineNode(
             val syl = syllables[k]
             val cs = syl.charStart.coerceIn(0, text.length)
             val ce = syl.charEnd.coerceIn(cs, text.length)
-            if (syl.emphasis) {
+            if (syl.emphasis && !shaped) {
                 var j = k
                 while (j + 1 < syllables.size && syllables[j + 1].wordIndex == syl.wordIndex) j++
                 val ws = cs
@@ -638,7 +690,10 @@ internal class LyricLineNode(
             c = e
         }
 
-        return LineSegments.from(out, text, main, pStyle, s.textMeasurer, textLeft, textTop, fadePx = EmphasisMath.fadeWidthPx(lineHeight), boxLeft = ::boxLeft)
+        return LineSegments.from(
+            out, text, main, pStyle, s.textMeasurer, textLeft, textTop,
+            fadePx = EmphasisMath.fadeWidthPx(lineHeight), boxLeft = ::boxLeft, clipped = shaped,
+        )
     }
 
     // =========================================================================================
@@ -719,8 +774,24 @@ private class LineSegments(
     val glow: FloatArray,
     val glowRadius: FloatArray,
     val fadePx: Float,
+    /** Shaped-script line: [layouts] all hold the full line, drawn clipped to each piece. */
+    val clipped: Boolean,
+    val clipRight: FloatArray,
+    val clipBottom: FloatArray,
 ) {
+    /** Glow shadows by alpha in 1/32 steps, per piece, built on first use: no per-frame allocation. */
+    private val shadows = arrayOfNulls<Array<Shadow?>>(count)
+
+    fun glowShadow(i: Int, alpha: Float): Shadow {
+        val q = (alpha.coerceIn(0f, 1f) * SHADOW_STEPS).roundToInt()
+        val row = shadows[i] ?: arrayOfNulls<Shadow>(SHADOW_STEPS + 1).also { shadows[i] = it }
+        return row[q] ?: Shadow(Color.White.copy(alpha = q / SHADOW_STEPS.toFloat()), Offset.Zero, glowRadius[i])
+            .also { row[q] = it }
+    }
+
     companion object {
+        private const val SHADOW_STEPS = 32
+
         fun from(
             pieces: List<Piece>,
             text: String,
@@ -731,11 +802,12 @@ private class LineSegments(
             originY: Float,
             fadePx: Float,
             boxLeft: (Int, Int) -> Float,
+            clipped: Boolean,
         ): LineSegments {
             val n = pieces.size
             val layouts = Array(n) { i ->
                 val p = pieces[i]
-                measurer.measure(text.substring(p.a, p.b), pieceStyle, softWrap = false, maxLines = 1)
+                if (clipped) main else measurer.measure(text.substring(p.a, p.b), pieceStyle, softWrap = false, maxLines = 1)
             }
             return LineSegments(
                 count = n,
@@ -759,6 +831,9 @@ private class LineSegments(
                 glow = FloatArray(n) { pieces[it].glow },
                 glowRadius = FloatArray(n) { pieces[it].glowRadius },
                 fadePx = fadePx,
+                clipped = clipped,
+                clipRight = FloatArray(n) { originX + pieces[it].sweepRight },
+                clipBottom = FloatArray(n) { originY + main.getLineBottom(pieces[it].line) },
             )
         }
     }

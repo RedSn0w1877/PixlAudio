@@ -129,4 +129,34 @@ class LyricsSheetLogicTest {
         assertTrue(clusterSyncedWords(cjk).drop(1).none { it.words.first().startsNewWord })
     }
 
+    @Test
+    fun chromeColors_glass_isClearWithWhiteGlyphs_andOnlyPlayPauseTinted() {
+        val scheme = androidx.compose.material3.darkColorScheme()
+        val c = lyricsChromeColors(scheme, glass = true)
+        assertEquals(androidx.compose.ui.graphics.Color.White, c.content)
+        assertTrue("fills on glass stay translucent", c.container.alpha < 0.3f)
+        assertTrue("selected is a brighter fill, not a tint", c.selected.alpha > c.container.alpha)
+        assertEquals(scheme.primaryFixedDim, c.playPause)
+    }
+
+    @Test
+    fun chromeColors_material_usesFixedRoles_soLightAndDarkSchemesMatch() {
+        val light = lyricsChromeColors(androidx.compose.material3.lightColorScheme(), glass = false)
+        val dark = lyricsChromeColors(androidx.compose.material3.darkColorScheme(), glass = false)
+        val lightScheme = androidx.compose.material3.lightColorScheme()
+        assertEquals(lightScheme.primaryFixed, light.content)
+        assertEquals(lightScheme.tertiaryFixedDim, light.playPause)
+        // Fixed roles are theme-independent, so the chrome over the dark art does not flip.
+        assertEquals(light.content, dark.content)
+        assertEquals(light.container, dark.container)
+    }
+
+    @Test
+    fun chromeColors_highContrast_makesFillsHeavier() {
+        val scheme = androidx.compose.material3.darkColorScheme()
+        assertTrue(lyricsChromeColors(scheme, glass = true, highContrast = true).container.alpha >
+            lyricsChromeColors(scheme, glass = true).container.alpha)
+        assertTrue(lyricsChromeColors(scheme, glass = false, highContrast = true).container.alpha >
+            lyricsChromeColors(scheme, glass = false).container.alpha)
+    }
 }

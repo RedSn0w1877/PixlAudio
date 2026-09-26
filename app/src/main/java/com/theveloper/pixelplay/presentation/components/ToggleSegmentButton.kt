@@ -201,7 +201,8 @@ private fun ToggleSegmentButtonContainer(
 ) {
     val targetBgColor = if (active) activeColor else inactiveColor
     val bgColor by animateColorAsState(
-        targetValue = if (enabled) targetBgColor else targetBgColor.copy(alpha = 0.5f),
+        // Halve the container's own alpha, so a translucent container never gets brighter.
+        targetValue = if (enabled) targetBgColor else targetBgColor.copy(alpha = targetBgColor.alpha * 0.5f),
         animationSpec = tween(durationMillis = 250),
         label = ""
     )

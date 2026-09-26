@@ -199,7 +199,7 @@ fun Modifier.liquidGlass(
     }
     val materializes = materialize != null && recipe.materializes
 
-    val effects: BackdropEffectScope.() -> Unit = remember(recipe, px, progress) {
+    val effects: BackdropEffectScope.() -> Unit = remember(recipe, px, progress, materializes) {
         {
             when (recipe.colorFilter) {
                 GlassColorFilter.Vibrancy -> vibrancy()
@@ -209,7 +209,10 @@ fun Modifier.liquidGlass(
                 )
                 GlassColorFilter.None -> Unit
             }
-            if (px.blur > 0f) blur(px.blur)
+            // A materialising surface gains its frost together with its lens, so at p = 0 it
+            // draws exactly what is behind it. (The stock materialising roles have no blur.)
+            val blurPx = if (materializes) px.blur * progress() else px.blur
+            if (blurPx > 0f) blur(blurPx)
             if (recipe.hasLens) {
                 val p = if (materializes) progress() else 1f
                 if (p > 0f) {
