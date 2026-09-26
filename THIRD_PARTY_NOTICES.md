@@ -353,3 +353,16 @@ License: https://www.apache.org/licenses/LICENSE-2.0
 The app links the published `io.github.kyant0:backdrop` and `io.github.kyant0:shapes` libraries,
 which draw the optional Liquid Glass theme (backdrop sampling, blur, lens refraction, highlights,
 shadows, and continuous-corner capsule and rounded-rectangle shapes).
+
+The following files in `app/src/main/java/com/theveloper/pixelplay/ui/glass/` are ported, with
+modifications, from the Backdrop project's catalog app (via the owner's NexHome app) and remain
+under the Apache License, Version 2.0:
+
+- `utils/DampedDragAnimation.kt`, `utils/DragGestureInspector.kt`, `utils/InteractiveHighlight.kt`,
+  `utils/ProgressConverter.kt`, `utils/UISensor.kt`
+- `components/LiquidButton.kt`, `components/LiquidToggle.kt`, `components/LiquidSlider.kt`,
+  `components/LiquidBottomTabs.kt`, `components/LiquidBottomTab.kt`
+- `GlassDraw.kt` (its inverse-layer transform mirrors the library's internal `InverseLayerScope`)
+
+Modifications: renamed packages, the app's colour palette and motion tokens, lifecycle-aware sensor
+registration, coalesced gesture animation updates, cached brushes, and API-level tiers.

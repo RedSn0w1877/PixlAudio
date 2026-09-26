@@ -31,7 +31,10 @@ data class StartupPrefs(
     val setupDone: Boolean,
     val themeMode: String,
     val launchTab: String,
-    val showScrollbar: Boolean
+    val showScrollbar: Boolean,
+    /** `APP_UI_STYLE` as stored (see `VisualStyle`); null only in the failure fallback. */
+    val appUiStyle: String? = null,
+    val disableBlurAllOver: Boolean = false
 )
 
 @HiltViewModel
@@ -47,12 +50,20 @@ class MainViewModel @Inject constructor(
      * falls back to the defaults so the splash never hangs.
      */
     val startupPrefs: StateFlow<StartupPrefs?> = combine(
-        userPreferencesRepository.initialSetupDoneFlow,
-        themePreferencesRepository.appThemeModeFlow,
-        userPreferencesRepository.launchTabFlow,
-        userPreferencesRepository.showScrollbarFlow
-    ) { setupDone, themeMode, launchTab, showScrollbar ->
-        StartupPrefs(setupDone, themeMode, launchTab, showScrollbar)
+        combine(
+            userPreferencesRepository.initialSetupDoneFlow,
+            themePreferencesRepository.appThemeModeFlow,
+            userPreferencesRepository.launchTabFlow,
+            userPreferencesRepository.showScrollbarFlow
+        ) { setupDone, themeMode, launchTab, showScrollbar ->
+            StartupPrefs(setupDone, themeMode, launchTab, showScrollbar)
+        },
+        // The visual style decides whether the glass root is composed, so it is part of the
+        // first-frame snapshot too (no Material-then-glass flip at launch).
+        userPreferencesRepository.appUiStyleFlow,
+        userPreferencesRepository.disableBlurAllOverFlow
+    ) { prefs, appUiStyle, disableBlurAllOver ->
+        prefs.copy(appUiStyle = appUiStyle, disableBlurAllOver = disableBlurAllOver)
     }
         .distinctUntilChanged()
         .catch { emit(StartupPrefs(false, AppThemeMode.FOLLOW_SYSTEM, LaunchTab.HOME, true)) }

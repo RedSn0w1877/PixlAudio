@@ -138,6 +138,10 @@ import com.theveloper.pixelplay.presentation.viewmodel.MainViewModel
 import com.theveloper.pixelplay.presentation.viewmodel.PlayerViewModel
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.theveloper.pixelplay.ui.theme.LocalHighContrastText
+import com.theveloper.pixelplay.ui.theme.LocalPixelPlayDarkTheme
+import com.theveloper.pixelplay.ui.theme.VisualStyle
+import com.theveloper.pixelplay.ui.theme.rememberPowerSaveMode
+import com.theveloper.pixelplay.ui.glass.GlassModeRoot
 import com.theveloper.pixelplay.ui.theme.readHighContrastText
 import com.theveloper.pixelplay.ui.theme.PixelPlayTheme
 import com.theveloper.pixelplay.ui.theme.LocalShowScrollbar
@@ -722,6 +726,16 @@ class MainActivity : ComponentActivity() {
             onPauseOrDispose { }
         }
 
+        // Liquid Glass mode: read from the startup snapshot (so the first frame is already right) and
+        // kept live by it; only a flip of the resolved mode recomposes this shell.
+        val startupPrefsState = mainViewModel.startupPrefs.collectAsStateWithLifecycle()
+        val glassModeEnabled by remember {
+            derivedStateOf {
+                val prefs = startupPrefsState.value
+                prefs != null && VisualStyle.isGlassMode(prefs.appUiStyle, prefs.disableBlurAllOver)
+            }
+        }
+
         val rootView = LocalView.current
         val platformHapticFeedback = LocalHapticFeedback.current
         val appHapticsConfig = remember(hapticsEnabled) {
@@ -830,6 +844,7 @@ class MainActivity : ComponentActivity() {
             LocalHapticFeedback provides scopedHapticFeedback,
             LocalHighContrastText provides highContrastText
         ) {
+          GlassRoot(playerViewModel = playerViewModel, enabled = glassModeEnabled) {
             RouteAwareSidebarDrawer(
                 drawerState = drawerState,
                 currentRouteProvider = currentRouteProvider,
@@ -1171,6 +1186,7 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             }
+          }
         }
 
         Trace.endSection()
@@ -1272,6 +1288,49 @@ class MainActivity : ComponentActivity() {
         /** The remote announcement check waits until the app has settled. */
         const val ANNOUNCEMENT_FETCH_DELAY_MS = 5_000L
     }
+}
+
+/**
+ * Liquid Glass mode's root (see [GlassModeRoot]): the baked ambient layer behind the whole UI, the
+ * accelerometer, the light and the palette. The per-track inputs (artwork, album scheme) and the
+ * battery-saver receiver are collected here, in their own scope and only in glass mode, so a track
+ * change re-runs this wrapper and never the shell; [content] is the same instance and is skipped.
+ * In Material 3 mode nothing is collected and [content] is composed exactly as before.
+ */
+@Composable
+private fun GlassRoot(
+    playerViewModel: PlayerViewModel,
+    enabled: Boolean,
+    content: @Composable () -> Unit
+) {
+    val isDark = LocalPixelPlayDarkTheme.current
+    val appScheme = MaterialTheme.colorScheme
+    var accent = Color.Unspecified
+    var artUri: String? = null
+    var blobs: List<Color>? = null
+    var powerSave = false
+    if (enabled) {
+        val albumPair by playerViewModel.currentAlbumArtColorSchemePair.collectAsStateWithLifecycle()
+        val themedArtUri by playerViewModel.currentThemedAlbumArtUri.collectAsStateWithLifecycle()
+        val powerSaveState = rememberPowerSaveMode()
+        val albumScheme = albumPair?.let { if (isDark) it.dark else it.light }
+        accent = albumScheme?.primary ?: appScheme.primary
+        artUri = themedArtUri
+        blobs = remember(albumScheme, appScheme, isDark) {
+            val source = albumScheme ?: appScheme.takeUnless { isDark }
+            source?.let { listOf(it.primaryContainer, it.tertiaryContainer, it.secondaryContainer) }
+        }
+        powerSave = powerSaveState.value
+    }
+    GlassModeRoot(
+        enabled = enabled,
+        isDark = isDark,
+        accent = accent,
+        artUri = artUri,
+        blobs = blobs,
+        powerSave = powerSave,
+        content = content
+    )
 }
 
 /**
