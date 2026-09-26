@@ -54,6 +54,15 @@ import androidx.compose.ui.window.DialogProperties
 import com.kyant.shapes.Capsule
 import com.kyant.shapes.RoundedRectangle
 import com.theveloper.pixelplay.ui.glass.GlassPressIndication
+import com.theveloper.pixelplay.ui.glass.glassPressSwell
+import com.theveloper.pixelplay.ui.glass.theme.GlassType
+import androidx.compose.foundation.indication
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.material3.LocalRippleConfiguration
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChanged
 import com.theveloper.pixelplay.ui.glass.GlassSheetScrim
 import com.theveloper.pixelplay.ui.glass.LocalGlassModeEnabled
 import com.theveloper.pixelplay.ui.glass.ProvideGlassWindowBackdrop
@@ -439,7 +448,7 @@ fun AdaptiveAlertDialog(
                 }
                 if (title != null) {
                     CompositionLocalProvider(LocalContentColor provides colors.onSurface) {
-                        ProvideTextStyle(typography.headlineSmall) {
+                        ProvideTextStyle(GlassType.Title) {
                             Box(
                                 Modifier
                                     .padding(bottom = 16.dp)
@@ -450,7 +459,7 @@ fun AdaptiveAlertDialog(
                 }
                 if (text != null) {
                     CompositionLocalProvider(LocalContentColor provides colors.onSurfaceVariant) {
-                        ProvideTextStyle(typography.bodyMedium) {
+                        ProvideTextStyle(GlassType.Body) {
                             Box(
                                 Modifier
                                     .weight(1f, fill = false)
@@ -461,14 +470,23 @@ fun AdaptiveAlertDialog(
                     }
                 }
                 Box(Modifier.align(Alignment.End)) {
-                    CompositionLocalProvider(LocalContentColor provides colors.primary) {
-                        ProvideTextStyle(typography.labelLarge) {
-                            FlowRow(
-                                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
-                                verticalArrangement = Arrangement.spacedBy(12.dp),
-                            ) {
-                                dismissButton?.invoke()
-                                confirmButton()
+                    // NexHome's type and press feel for the caller's buttons: Material buttons set
+                    // labelLarge themselves, so the theme's labelLarge becomes GlassType.Label; the
+                    // ripple is off and each action swells and glows like a LiquidButton instead.
+                    val buttonTypography = remember(typography) { typography.copy(labelLarge = GlassType.Label) }
+                    MaterialTheme(colorScheme = colors, typography = buttonTypography, shapes = MaterialTheme.shapes) {
+                        CompositionLocalProvider(
+                            LocalContentColor provides colors.primary,
+                            LocalRippleConfiguration provides null,
+                        ) {
+                            ProvideTextStyle(GlassType.Label) {
+                                FlowRow(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                                ) {
+                                    if (dismissButton != null) GlassDialogAction(content = dismissButton)
+                                    GlassDialogAction(content = confirmButton)
+                                }
                             }
                         }
                     }
@@ -477,6 +495,49 @@ fun AdaptiveAlertDialog(
         }
     }
 }
+
+/**
+ * One glass dialog action: the caller's button, unchanged, with NexHome's LiquidButton press — it
+ * swells to [LiquidMotion.ButtonPressScale] with the press spring and glows dim white, clipped to a
+ * capsule. Presses are observed on the initial pass without consuming anything, so the button's own
+ * click handling is untouched.
+ */
+@Composable
+private fun GlassDialogAction(content: @Composable () -> Unit) {
+    val source = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+    val glow = remember { GlassPressIndication(Color.White, swellScale = 1f) }
+    Box(
+        Modifier
+            .glassPressSwell(source, LiquidMotion.ButtonPressScale)
+            .clip(GlassDialogActionShape)
+            .indication(source, glow)
+            .pointerInput(source) {
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                    val press = androidx.compose.foundation.interaction.PressInteraction.Press(down.position)
+                    source.tryEmit(press)
+                    var released = false
+                    while (true) {
+                        val event = awaitPointerEvent(PointerEventPass.Initial)
+                        if (event.changes.none { it.pressed }) {
+                            released = true
+                            break
+                        }
+                        if (event.changes.any { it.isConsumed && it.pressed && it.positionChanged() }) break
+                    }
+                    source.tryEmit(
+                        if (released) androidx.compose.foundation.interaction.PressInteraction.Release(press)
+                        else androidx.compose.foundation.interaction.PressInteraction.Cancel(press)
+                    )
+                }
+            },
+        propagateMinConstraints = true,
+    ) {
+        content()
+    }
+}
+
+private val GlassDialogActionShape = Capsule()
 
 /**
  * The glass dialog container: window-aligned ambient, the enter (rise 96 dp → 0 and fade, lens

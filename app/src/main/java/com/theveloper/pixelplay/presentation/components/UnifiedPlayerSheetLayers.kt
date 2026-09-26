@@ -14,6 +14,9 @@ import androidx.compose.material3.ColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.CompositionLocalProvider
+import com.kyant.backdrop.backdrops.emptyBackdrop
+import com.theveloper.pixelplay.ui.glass.LocalGlassBackdrop
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -142,6 +145,10 @@ internal fun BoxScope.UnifiedPlayerMiniAndFullLayers(
                     positionProvider = currentPositionProvider,
                     durationProvider = fieldStates.totalDurationProvider,
                     progressActive = isMiniPlayerVisible,
+                    // The mini player is fully transparent from 0.5: its orbs stop sampling the
+                    // ambient then (invisible, so no visible change), instead of re-rendering two
+                    // moving lenses nobody sees.
+                    glassLive = isMiniPlayerOnScreen.value,
                     modifier = Modifier.fillMaxSize()
                 )
             } else {
@@ -228,6 +235,17 @@ internal fun BoxScope.UnifiedPlayerMiniAndFullLayers(
                 val onRepeatToggle = remember(playerViewModel) { playerViewModel::cycleRepeatMode }
                 val onFavoriteToggle = remember(playerViewModel) { playerViewModel::toggleFavorite }
 
+                // Glass mode: while the full player is fully transparent (below 25 % expansion, or
+                // covered by the queue's opaque scrim) its kit surfaces sample an empty backdrop,
+                // so a dozen invisible lenses don't re-render on every frame of the sheet motion.
+                // Invisible either way: nothing on screen changes.
+                val fullPlayerGlassLive by remember(fullPlayerVisualState, isFullPlayerCoveredProvider) {
+                    derivedStateOf { fullPlayerVisualState.contentAlpha > 0f && !isFullPlayerCoveredProvider() }
+                }
+                val liveGlassBackdrop = LocalGlassBackdrop.current
+                CompositionLocalProvider(
+                    LocalGlassBackdrop provides if (!glassMode || fullPlayerGlassLive) liveGlassBackdrop else emptyBackdrop()
+                ) {
                 FullPlayerContent(
                     currentSong = currentSongNonNull,
                     currentPlaybackQueue = currentPlaybackQueue,
@@ -266,6 +284,7 @@ internal fun BoxScope.UnifiedPlayerMiniAndFullLayers(
                     onRepeatToggle = onRepeatToggle,
                     onFavoriteToggle = onFavoriteToggle
                 )
+                }
             }
         }
     }

@@ -42,15 +42,19 @@ import kotlinx.coroutines.launch
  * page, a scrim, a hero) only glow: a swelling page would read as a zoom, not a press.
  */
 @Stable
-class GlassPressIndication(private val glowColor: Color) : IndicationNodeFactory {
+class GlassPressIndication(
+    private val glowColor: Color,
+    /** The pressed content scale; 1 = glow only (for surfaces whose container swells itself). */
+    private val swellScale: Float = RowPressScale,
+) : IndicationNodeFactory {
 
     override fun create(interactionSource: InteractionSource): DelegatableNode =
-        GlassPressIndicationNode(interactionSource, glowColor)
+        GlassPressIndicationNode(interactionSource, glowColor, swellScale)
 
     override fun equals(other: Any?): Boolean =
-        other is GlassPressIndication && other.glowColor == glowColor
+        other is GlassPressIndication && other.glowColor == glowColor && other.swellScale == swellScale
 
-    override fun hashCode(): Int = glowColor.hashCode()
+    override fun hashCode(): Int = 31 * glowColor.hashCode() + swellScale.hashCode()
 
     companion object {
         /** Largest size (either axis) that still swells; bigger surfaces only glow. */
@@ -64,6 +68,7 @@ private const val PressSpotGlow = 0.22f
 private class GlassPressIndicationNode(
     private val interactionSource: InteractionSource,
     private val glowColor: Color,
+    private val swellScale: Float,
 ) : Modifier.Node(), DrawModifierNode {
 
     private val swell = Animatable(0f, 0.001f)
@@ -106,8 +111,8 @@ private class GlassPressIndicationNode(
     override fun ContentDrawScope.draw() {
         val s = swell.value
         val maxSwell = GlassPressIndication.MaxSwellSize.toPx()
-        if (s != 0f && size.width <= maxSwell * 2.5f && size.height <= maxSwell) {
-            val k = 1f + (RowPressScale - 1f) * s
+        if (s != 0f && swellScale != 1f && size.width <= maxSwell * 2.5f && size.height <= maxSwell) {
+            val k = 1f + (swellScale - 1f) * s
             scale(k, k) { this@draw.drawContent() }
         } else {
             drawContent()

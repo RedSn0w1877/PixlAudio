@@ -18,6 +18,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -137,7 +138,16 @@ internal fun UnifiedPlayerQueueLayer(
         }
 
         if (shouldRenderQueueSheet) {
+            // Glass mode: the queue's panels bloom their lens with the queue's open progress
+            // (NexHome's sheet "lens bloom"), following the drag both ways.
+            val queueLensBloom = remember(queueScrimAlphaState) {
+                { (queueScrimAlphaState.value / QUEUE_SCRIM_MAX_ALPHA).coerceIn(0f, 1f) }
+            }
             PlayerSchemeMaterialTheme(scheme = colorScheme) {
+              CompositionLocalProvider(
+                  com.theveloper.pixelplay.ui.glass.controls.LocalLensBloom provides
+                      if (glassMode) queueLensBloom else com.theveloper.pixelplay.ui.glass.controls.LocalLensBloom.current
+              ) {
                 QueueBottomSheet(
                     modifier = Modifier
                         .fillMaxSize()
@@ -188,6 +198,7 @@ internal fun UnifiedPlayerQueueLayer(
                     predictiveBackSwipeEdge = queuePredictiveBackSwipeEdge,
                     queueSheetOffset = queueSheetOffset
                 )
+              }
             }
         }
     }

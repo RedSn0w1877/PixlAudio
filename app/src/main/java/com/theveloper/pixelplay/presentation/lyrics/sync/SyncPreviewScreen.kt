@@ -67,7 +67,7 @@ import com.theveloper.pixelplay.presentation.lyrics.rememberLyricsClock
 import com.theveloper.pixelplay.presentation.lyrics.rememberLyricsEngine
 import com.theveloper.pixelplay.presentation.viewmodel.LyricsSyncEditorStateHolder
 import com.theveloper.pixelplay.presentation.viewmodel.SyncUiState
-import androidx.compose.material3.AlertDialog
+import com.theveloper.pixelplay.presentation.components.AdaptiveAlertDialog
 import com.theveloper.pixelplay.ui.theme.LyricsDisplayFamily
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -396,7 +396,7 @@ private fun rememberLyricsFileExporter(holder: LyricsSyncEditorStateHolder): (Bo
 /** "Share lyrics file": .lrc for most apps, .ttml for the most detail. */
 @Composable
 private fun ShareDialog(onDismiss: () -> Unit, onPick: (ttml: Boolean) -> Unit) {
-    AlertDialog(
+    AdaptiveAlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.lyrics_sync_share)) },
         text = {

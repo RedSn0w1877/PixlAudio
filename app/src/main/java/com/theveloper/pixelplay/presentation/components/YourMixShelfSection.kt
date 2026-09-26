@@ -446,9 +446,11 @@ private fun YourMixShuffleFab(
     val colors = MaterialTheme.colorScheme
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
-    val pressScale by animateFloatAsState(
-        targetValue = if (isPressed) 0.86f else 1f,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium),
+    val pressScale by animatePressScaleAsState(
+        pressed = isPressed,
+        materialPressedScale = 0.86f,
+        glassPressedScale = com.theveloper.pixelplay.ui.glass.motion.LiquidMotion.OrbPressScale,
+        materialSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium),
         label = "yourMixFabPressScale"
     )
 
@@ -514,9 +516,12 @@ private fun YourMixShelfRow(
 
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
-    val pressScale by animateFloatAsState(
-        targetValue = if (isPressed) 0.97f else 1f,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium),
+    // Liquid Glass mode: no dip; the row's own glass press indication does the swell.
+    val pressScale by animatePressScaleAsState(
+        pressed = isPressed,
+        materialPressedScale = 0.97f,
+        glassPressedScale = 1f,
+        materialSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium),
         label = "yourMixRowPressScale"
     )
 

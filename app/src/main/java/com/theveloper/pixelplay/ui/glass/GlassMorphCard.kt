@@ -16,7 +16,13 @@ import com.kyant.backdrop.effects.lens
 
 /**
  * The player sheet's card in glass mode: ONE glass node that is the floating mini-player capsule
- * when collapsed and the full player's baked-ambient background when expanded.
+ * when collapsed, fading its glass out as the player expands.
+ *
+ * Put it on a SIBLING drawn behind the player content, never on the content's own chain: the
+ * library's node renders everything after it into an offscreen layer of its own size. The caller
+ * detaches it once [glassAmount] reaches 0 and draws the expanded card as a plain ambient copy
+ * (`GlassPlayerCardBackground`); pass an already quantised [glassAmount] so the lens is rebuilt only
+ * when a step changes.
  *
  * [glassAmount] (1 = collapsed, 0 = expanded; read only inside the node's effect/draw lambdas)
  * scales the NexHome light-panel recipe of the mini player — `vibrancy()` + light lens 12/24 +

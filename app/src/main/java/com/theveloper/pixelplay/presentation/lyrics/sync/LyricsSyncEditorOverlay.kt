@@ -48,7 +48,7 @@ import com.theveloper.pixelplay.presentation.viewmodel.LyricsSyncEditorStateHold
 import com.theveloper.pixelplay.presentation.viewmodel.SyncDialog
 import com.theveloper.pixelplay.presentation.viewmodel.SyncPhase
 import com.theveloper.pixelplay.presentation.viewmodel.SyncUiState
-import androidx.compose.material3.AlertDialog
+import com.theveloper.pixelplay.presentation.components.AdaptiveAlertDialog
 
 /**
  * Host of the "sync it yourself" editor: a full-screen layer over the lyrics sheet inside the
@@ -220,7 +220,7 @@ private tailrec fun Context.findActivity(): Activity? = when (this) {
 private fun SyncDialogs(dialog: SyncDialog, endedEarlyWords: Int, holder: LyricsSyncEditorStateHolder) {
     when (dialog) {
         SyncDialog.NONE -> Unit
-        SyncDialog.LEAVE -> AlertDialog(
+        SyncDialog.LEAVE -> AdaptiveAlertDialog(
             onDismissRequest = holder::dismissDialog,
             title = { Text(stringResource(R.string.lyrics_sync_leave_title)) },
             text = { Text(stringResource(R.string.lyrics_sync_leave_body)) },
@@ -231,7 +231,7 @@ private fun SyncDialogs(dialog: SyncDialog, endedEarlyWords: Int, holder: Lyrics
                 TextButton(onClick = holder::dismissDialog) { Text(stringResource(R.string.lyrics_sync_stay)) }
             },
         )
-        SyncDialog.SONG_CHANGED -> AlertDialog(
+        SyncDialog.SONG_CHANGED -> AdaptiveAlertDialog(
             onDismissRequest = holder::dismissDialog,
             title = { Text(stringResource(R.string.lyrics_sync_song_changed_title)) },
             text = { Text(stringResource(R.string.lyrics_sync_song_changed_body)) },
@@ -239,7 +239,7 @@ private fun SyncDialogs(dialog: SyncDialog, endedEarlyWords: Int, holder: Lyrics
                 TextButton(onClick = holder::dismissDialog) { Text(stringResource(R.string.common_ok)) }
             },
         )
-        SyncDialog.ENDED_EARLY -> AlertDialog(
+        SyncDialog.ENDED_EARLY -> AdaptiveAlertDialog(
             onDismissRequest = holder::dismissDialog,
             text = { Text(stringResource(R.string.lyrics_sync_ended_early, endedEarlyWords)) },
             confirmButton = {
@@ -249,7 +249,7 @@ private fun SyncDialogs(dialog: SyncDialog, endedEarlyWords: Int, holder: Lyrics
                 TextButton(onClick = holder::endedTimeRest) { Text(stringResource(R.string.lyrics_sync_time_rest)) }
             },
         )
-        SyncDialog.SAVE_FAILED -> AlertDialog(
+        SyncDialog.SAVE_FAILED -> AdaptiveAlertDialog(
             onDismissRequest = holder::dismissDialog,
             text = { Text(stringResource(R.string.lyrics_sync_save_failed)) },
             confirmButton = {

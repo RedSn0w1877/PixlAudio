@@ -56,15 +56,31 @@ import com.theveloper.pixelplay.R
 import com.theveloper.pixelplay.presentation.viewmodel.LyricsSyncEditorStateHolder
 import com.theveloper.pixelplay.presentation.viewmodel.SyncNotice
 import com.theveloper.pixelplay.presentation.viewmodel.SyncNoticeKind
+import com.kyant.shapes.Capsule
+import com.kyant.shapes.RoundedRectangle
+import com.theveloper.pixelplay.ui.glass.LocalGlassModeEnabled
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.spring
+import androidx.compose.foundation.IndicationNodeFactory
+import androidx.compose.foundation.interaction.InteractionSource
+import androidx.compose.foundation.interaction.PressInteraction
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.drawscope.ContentDrawScope
+import androidx.compose.ui.node.DelegatableNode
+import androidx.compose.ui.node.DrawModifierNode
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /**
  * Colours for the editor. Everything sits on the animated artwork (dark, graded), so text is
- * white; the controls are tonal/primary containers from the album scheme, with round shapes.
- * [rim] is always null today; the sync screens still draw it when set.
+ * white; the controls follow the theme mode:
+ * - Material 3 Expressive: tonal/primary containers from the album scheme, round shapes.
+ * - Liquid Glass: translucent white fills with a thin rim ("fills on glass", no extra backdrop
+ *   nodes over an animated background), continuous-corner shapes and a soft press glow.
  */
 @Immutable
 internal class SyncEditorPalette(
+    val glass: Boolean,
     /** Highlight colour that reads on the dark artwork (the word being sung, selections). */
     val accent: Color,
     val onAccent: Color,
@@ -87,13 +103,43 @@ internal class SyncEditorPalette(
 @Composable
 internal fun rememberSyncEditorPalette(): SyncEditorPalette {
     val scheme = MaterialTheme.colorScheme
-    return remember(scheme) { buildPalette(scheme) }
+    val glass = LocalGlassModeEnabled.current
+    return remember(scheme, glass) { buildPalette(scheme, glass) }
 }
 
-private fun buildPalette(scheme: ColorScheme): SyncEditorPalette {
+// The glass-mode shapes: continuous corners, created once.
+private val GlassEditorCapsule: Shape = Capsule()
+private val GlassEditorPadShape: Shape = RoundedRectangle(36.dp)
+private val GlassEditorPanelShape: Shape = RoundedRectangle(32.dp)
+
+private fun buildPalette(scheme: ColorScheme, glass: Boolean): SyncEditorPalette {
     val accent = if (scheme.primary.luminance() > 0.30f) scheme.primary else scheme.inversePrimary
     val onAccent = if (accent.luminance() > 0.45f) Color(0xFF111114) else Color.White
+    if (glass) {
+        // Liquid Glass mode: translucent white fills with a thin rim ("fills on glass", no
+        // backdrop nodes over the animated artwork), continuous corners — exactly as before.
+        return SyncEditorPalette(
+            glass = true,
+            accent = accent,
+            onAccent = onAccent,
+            padContainer = Color.White.copy(alpha = 0.16f),
+            onPad = Color.White,
+            chipContainer = Color.White.copy(alpha = 0.12f),
+            onChip = Color.White,
+            rim = Color.White.copy(alpha = 0.24f),
+            panelContainer = Color.Black.copy(alpha = 0.32f),
+            onPanel = Color.White,
+            panelButton = Color.White.copy(alpha = 0.12f),
+            onPanelButton = Color.White,
+            prominent = accent,
+            onProminent = onAccent,
+            capsule = GlassEditorCapsule,
+            padShape = GlassEditorPadShape,
+            panelShape = GlassEditorPanelShape,
+        )
+    }
     return SyncEditorPalette(
+        glass = false,
         accent = accent,
         onAccent = onAccent,
         padContainer = scheme.primaryContainer,
@@ -113,10 +159,55 @@ private fun buildPalette(scheme: ColorScheme): SyncEditorPalette {
     )
 }
 
-/** Press feedback for the editor's controls: the Material ripple. */
-@Suppress("UNUSED_PARAMETER")
+/** Press feedback that matches the theme mode: a soft glass glow or the Material ripple. */
 @Composable
-internal fun editorIndication(palette: SyncEditorPalette): Indication = ripple()
+internal fun editorIndication(palette: SyncEditorPalette): Indication =
+    if (palette.glass) SyncEditorPressGlow else ripple()
+
+/**
+ * Glass-mode press feedback for the editor: a white wash added with [BlendMode.Plus] that fades in
+ * on press and out on release, drawn under the content so labels stay crisp. The editor's own
+ * glow (it keeps its look in both modes), not the kit's swell.
+ */
+private object SyncEditorPressGlow : IndicationNodeFactory {
+    override fun create(interactionSource: InteractionSource): DelegatableNode =
+        SyncEditorPressGlowNode(interactionSource)
+
+    override fun equals(other: Any?): Boolean = other === this
+    override fun hashCode(): Int = javaClass.hashCode()
+}
+
+private class SyncEditorPressGlowNode(
+    private val interactionSource: InteractionSource
+) : Modifier.Node(), DrawModifierNode {
+
+    private val progress = Animatable(0f, 0.001f)
+    private val spec = spring(0.5f, 300f, 0.001f)
+
+    override fun onAttach() {
+        coroutineScope.launch {
+            var pressed = 0
+            interactionSource.interactions.collect { interaction ->
+                when (interaction) {
+                    is PressInteraction.Press -> pressed++
+                    is PressInteraction.Release, is PressInteraction.Cancel ->
+                        pressed = (pressed - 1).coerceAtLeast(0)
+                    else -> return@collect
+                }
+                val target = if (pressed > 0) 1f else 0f
+                launch { progress.animateTo(target, spec) }
+            }
+        }
+    }
+
+    override fun ContentDrawScope.draw() {
+        val p = progress.value
+        if (p > 0f) {
+            drawRect(Color.White.copy(alpha = 0.14f * p), blendMode = BlendMode.Plus)
+        }
+        drawContent()
+    }
+}
 
 /**
  * The editor's one button shape: a 56 dp capsule. [prominent] is the primary action;

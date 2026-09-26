@@ -48,7 +48,7 @@ import com.theveloper.pixelplay.data.lyrics.sync.SyncDraftOrigin
 import com.theveloper.pixelplay.presentation.viewmodel.LyricsSyncEditorStateHolder
 import com.theveloper.pixelplay.presentation.viewmodel.SyncPhase
 import com.theveloper.pixelplay.presentation.viewmodel.SyncUiState
-import androidx.compose.material3.AlertDialog
+import com.theveloper.pixelplay.presentation.components.AdaptiveAlertDialog
 import kotlinx.coroutines.delay
 
 /** Shared frame for the short screens: top bar, content centred, actions at the bottom. */
@@ -262,7 +262,7 @@ internal fun SyncManageScreen(
         Body(ui.title)
     }
     if (confirmRemove) {
-        AlertDialog(
+        AdaptiveAlertDialog(
             onDismissRequest = { confirmRemove = false },
             title = { Text(stringResource(R.string.lyrics_sync_remove)) },
             text = { Text(stringResource(R.string.lyrics_sync_remove_body)) },

@@ -193,9 +193,9 @@ private fun GlassGreetingHero(
     content: @Composable () -> Unit
 ) {
     val palette = LocalGlassPalette.current
-    val washA = remember(colors.primary) { AccentWash(colors.primary, centerX = 0.12f, centerY = 0.1f) }
+    val washA = remember(colors.primary) { AccentWash(colors.primary, centerX = 0.08f, centerY = 0.05f, radiusFraction = 1f) }
     val washB = remember(colors.tertiary) {
-        AccentWash(colors.tertiary, centerX = 0.92f, centerY = 0.95f, radiusFraction = 0.8f)
+        AccentWash(colors.tertiary, centerX = 0.95f, centerY = 0.95f, radiusFraction = 0.8f)
     }
     GlassPanel(
         modifier = modifier.fillMaxWidth(),

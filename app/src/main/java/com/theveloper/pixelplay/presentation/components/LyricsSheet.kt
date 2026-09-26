@@ -44,6 +44,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.Spring
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -882,8 +883,9 @@ fun LyricsSheet(
                     isLoading = isLoadingLyrics,
                     song = currentSong,
                     colorScheme = colorScheme,
-                    accent = chrome.accent,
-                    accentTrack = chrome.accentTrack,
+                    // Not chrome: in glass mode the status content keeps its white accent.
+                    accent = if (glassChrome) Color.White else chrome.accent,
+                    accentTrack = if (glassChrome) LyricsGlassStatusTrack else chrome.accentTrack,
                     contentPadding = listPadding,
                     studioInstrumentalActive = studioInstrumentalActive,
                     onPlayInstrumental = onPlayInstrumental,
@@ -955,7 +957,8 @@ fun LyricsSheet(
                 ) {
                     LyricsSyncChip(
                         onClick = { onSyncYourself?.invoke() },
-                        onDismiss = onDismissSyncChip
+                        onDismiss = onDismissSyncChip,
+                        glass = glassChrome
                     )
                 }
             }
@@ -1226,7 +1229,7 @@ private fun LyricsHeaderContainer(
 
 /**
  * The control cluster's container: a plain column in Material 3; in Liquid Glass one heavy
- * NexHome section panel (radius 32, depth lens 20/40) over the artwork, with the same bright-art
+ * NexHome panel (radius 32 with its lens 24/48, depth, as NexHome's sheet header) over the artwork, with the same bright-art
  * darkening as the header. One glass node.
  */
 @Composable
@@ -1241,11 +1244,9 @@ private fun LyricsClusterContainer(
         GlassPanel(
             modifier = Modifier.fillMaxWidth(),
             backdrop = glassBackdrop,
-            shape = com.kyant.shapes.RoundedRectangle(32.dp),
+            shape = LyricsClusterShape,
             tint = if (brightArt) LyricsGlassTintBright else LyricsGlassTint,
             heavy = true,
-            refractionHeight = 20.dp,
-            refractionAmount = 40.dp,
         ) {
             Column(
                 modifier = Modifier
@@ -1257,12 +1258,20 @@ private fun LyricsClusterContainer(
     }
 }
 
+private val LyricsClusterShape = com.kyant.shapes.RoundedRectangle(32.dp)
+
 /** NexHome's floating-bar tint over the lyrics artwork, and its raise over bright art. */
 private val LyricsGlassTint = Color.Black.copy(alpha = 0.22f)
 private val LyricsGlassTintBright = Color.Black.copy(alpha = 0.35f)
 
 /** The pills inside the glass panel: NexHome's subtle row tint (White@0.08). */
 private val LyricsGlassPillTint = Color.White.copy(alpha = 0.08f)
+
+/** Glass-mode looks kept from before for the non-panel pieces (status accent, sync chip, toggle). */
+private val LyricsGlassStatusTrack = Color.White.copy(alpha = 0.28f)
+private val LyricsGlassToggleFill = Color.White.copy(alpha = 0.12f)
+private val LyricsGlassRim = Color.White.copy(alpha = 0.24f)
+private val LyricsGlassCapsule = com.kyant.shapes.Capsule()
 
 /**
  * The bottom control cluster: the familiar tonal pills over a soft scrim, sliding and fading with
@@ -1316,12 +1325,14 @@ private fun LyricsControlCluster(
                     .padding(bottom = 8.dp),
                 contentAlignment = Alignment.CenterEnd
             ) {
+                val glassToggle = glassBackdrop != null
                 FloatingInstrumentalToggle(
                     active = studioInstrumentalActive,
                     onToggle = onToggleStudioInstrumental,
-                    accentColor = chrome.accent,
-                    backgroundColor = chrome.container,
-                    onBackgroundColor = chrome.content
+                    accentColor = if (glassToggle) Color.White else chrome.accent,
+                    backgroundColor = if (glassToggle) LyricsGlassToggleFill else chrome.container,
+                    onBackgroundColor = if (glassToggle) Color.White else chrome.content,
+                    glass = glassToggle
                 )
             }
         }
@@ -1606,6 +1617,7 @@ private fun FloatingInstrumentalToggle(
     accentColor: Color,
     backgroundColor: Color,
     onBackgroundColor: Color,
+    glass: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val width by animateDpAsState(
@@ -1620,6 +1632,10 @@ private fun FloatingInstrumentalToggle(
             .width(width)
             .clip(RoundedCornerShape(22.dp))
             .background(backgroundColor)
+            .then(
+                if (glass) Modifier.border(0.75.dp, LyricsGlassRim, RoundedCornerShape(22.dp))
+                else Modifier
+            )
             .clickable { onToggle() },
         contentAlignment = Alignment.Center
     ) {
@@ -1796,13 +1812,15 @@ private const val LOADER_DELAY_MS = 400L
 private fun accentTrackFor(accent: Color): Color = accent.copy(alpha = accent.alpha * 0.26f)
 
 @Composable
-private fun LyricsSyncChip(onClick: () -> Unit, onDismiss: () -> Unit) {
+private fun LyricsSyncChip(onClick: () -> Unit, onDismiss: () -> Unit, glass: Boolean = false) {
+    val shape: androidx.compose.ui.graphics.Shape = if (glass) LyricsGlassCapsule else CircleShape
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .height(40.dp)
-            .clip(CircleShape)
-            .background(Color.White.copy(alpha = 0.16f))
+            .clip(shape)
+            .background(Color.White.copy(alpha = if (glass) 0.14f else 0.16f))
+            .then(if (glass) Modifier.border(0.75.dp, LyricsGlassRim, shape) else Modifier)
             .clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = onClick)
             .padding(start = 14.dp)
     ) {

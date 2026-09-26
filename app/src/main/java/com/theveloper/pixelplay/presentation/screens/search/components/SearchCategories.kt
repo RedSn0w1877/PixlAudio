@@ -97,9 +97,12 @@ fun SearchCategoryCard(
 
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
-    val pressScale by animateFloatAsState(
-        targetValue = if (isPressed) 0.96f else 1f,
-        animationSpec = spring(
+    // Liquid Glass mode: NexHome's tile swell instead of the dip.
+    val pressScale by com.theveloper.pixelplay.presentation.components.animatePressScaleAsState(
+        pressed = isPressed,
+        materialPressedScale = 0.96f,
+        glassPressedScale = com.theveloper.pixelplay.ui.glass.motion.LiquidMotion.TilePressScale,
+        materialSpec = spring(
             dampingRatio = Spring.DampingRatioMediumBouncy,
             stiffness = Spring.StiffnessMediumLow
         ),

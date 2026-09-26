@@ -69,6 +69,18 @@ import com.theveloper.pixelplay.ui.glass.theme.LocalGlassPalette
 import com.theveloper.pixelplay.ui.theme.GoogleSansRounded
 import androidx.compose.ui.util.fastCoerceIn
 import kotlinx.coroutines.delay
+import androidx.compose.runtime.State
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
+import com.theveloper.pixelplay.ui.glass.LocalGlassBackdrop
+import com.kyant.backdrop.backdrops.emptyBackdrop
+import com.theveloper.pixelplay.ui.glass.LocalGlassCapability
+import com.theveloper.pixelplay.ui.glass.glassMorphCard
+import com.theveloper.pixelplay.ui.theme.QuantizedCornerShapeCache
 
 internal val LocalMaterialTheme = compositionLocalOf<ColorScheme> { error("No ColorScheme provided") }
 
@@ -247,17 +259,65 @@ internal fun MiniPlayerContentInternal(
 /** The collapsed glass player card's corner radius: a capsule for the 64 dp mini player. */
 internal val GlassMiniPlayerCorner = MiniPlayerHeight / 2
 
+/** NexHome's wide-bar press swell, for the glass mini player capsule. */
+internal const val GlassMiniPlayerPressScale = 1.04f
+
+/** Steps the glass card's glass amount is quantised to. */
+internal const val GlassCardAmountSteps = 16
+
+/**
+ * The glass player card's background, drawn as a SIBLING behind the player content (never around
+ * it, see the call site). While [amountState] (1 = collapsed, 0 = expanded, already quantised) is
+ * above 0 it is the one glass node of [glassMorphCard]: the mini player's floating capsule fading
+ * its glass out. At 0 the glass node detaches and the card is a plain copy of the baked ambient,
+ * lined up with the ambient layer and clipped to [clipShape] (no offscreen layer, no RenderEffect),
+ * which draws nothing while [coveredByBase] (the same ambient already shows behind it).
+ */
+@Composable
+internal fun GlassPlayerCardBackground(
+    modifier: Modifier,
+    cornerProvider: () -> Dp,
+    clipShape: Shape,
+    tint: Color,
+    amountState: State<Float>,
+    coveredByBase: () -> Boolean,
+) {
+    val detached by remember(amountState) { derivedStateOf { amountState.value <= 0f } }
+    if (!detached) {
+        val backdrop = LocalGlassBackdrop.current
+        val capability = LocalGlassCapability.current
+        val glassModifier = remember(backdrop, capability, tint, cornerProvider, amountState) {
+            val shapes = QuantizedCornerShapeCache()
+            Modifier.glassMorphCard(
+                backdrop = backdrop,
+                shape = { shapes.get(cornerProvider()) },
+                capability = capability,
+                tint = tint,
+                glassAmount = { amountState.value },
+            )
+        }
+        Box(modifier.then(glassModifier))
+    } else {
+        val fillAlpha: () -> Float = remember(coveredByBase) { { if (coveredByBase()) 0f else 1f } }
+        Box(
+            modifier
+                .clip(clipShape)
+                .glassAmbientFill(fillAlpha)
+        )
+    }
+}
+
 /**
  * Glass mode's mini player (research-nexhome-design §10.2): the content of NexHome's floating
- * capsule. The capsule itself is the player sheet's card
- * ([com.theveloper.pixelplay.ui.glass.glassMorphCard]), so this draws no background. Art 44 dp at
+ * capsule. The capsule itself is drawn behind the player sheet's card ([GlassPlayerCardBackground]),
+ * so this draws no background. Art 44 dp at
  * radius 12 (a plain image), title in BodyStrong, artist in Caption Secondary, then two quick orbs:
  * play/pause (lit with the accent at 0.55 while playing) and next (unlit). A 3 dp progress rail
  * sits along the bottom (inset 14, bottom 9) in its own layer.
  *
  * The rail's position is sampled four times a second while playing (once a second while paused,
- * to catch seeks made elsewhere) and only while [progressActive], i.e. while the mini player is on
- * screen. It is read in draw only.
+ * to catch seeks made elsewhere) and only while [progressActive] (the mini player is showing) and
+ * the app is started. It is read in draw only.
  */
 @Composable
 internal fun GlassMiniPlayerContent(
@@ -271,18 +331,26 @@ internal fun GlassMiniPlayerContent(
     durationProvider: () -> Long,
     progressActive: Boolean,
     modifier: Modifier = Modifier,
+    /** False while the mini player is invisible: its orbs then sample an empty backdrop. */
+    glassLive: Boolean = true,
 ) {
     val palette = LocalGlassPalette.current
+    val orbBackdrop = if (glassLive) LocalGlassBackdrop.current else emptyBackdrop()
     val controlsEnabled = !isCastConnecting && !isPreparingPlayback
     val latestPosition by rememberUpdatedState(positionProvider)
     val latestDuration by rememberUpdatedState(durationProvider)
     val progress = remember { mutableFloatStateOf(0f) }
-    LaunchedEffect(song.id, isPlaying, progressActive) {
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    LaunchedEffect(song.id, isPlaying, progressActive, lifecycle) {
         if (!progressActive) return@LaunchedEffect
-        while (true) {
-            val duration = latestDuration().coerceAtLeast(1L)
-            progress.floatValue = (latestPosition().toFloat() / duration.toFloat()).fastCoerceIn(0f, 1f)
-            delay(if (isPlaying) GLASS_MINI_PROGRESS_PLAYING_MS else GLASS_MINI_PROGRESS_PAUSED_MS)
+        // Only while the app is on screen: in the background (most of a music app's life) the
+        // poll stops at ON_STOP and resumes, refreshed at once, at ON_START.
+        lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (true) {
+                val duration = latestDuration().coerceAtLeast(1L)
+                progress.floatValue = (latestPosition().toFloat() / duration.toFloat()).fastCoerceIn(0f, 1f)
+                delay(if (isPlaying) GLASS_MINI_PROGRESS_PLAYING_MS else GLASS_MINI_PROGRESS_PAUSED_MS)
+            }
         }
     }
     val railTrack = if (palette.isDark) FillBarTrackDark else FillBarTrackLight
@@ -340,6 +408,7 @@ internal fun GlassMiniPlayerContent(
             GlassQuickOrb(
                 lit = isPlaying,
                 enabled = controlsEnabled,
+                backdrop = orbBackdrop,
                 contentDescription = if (isPlaying) "Pausar" else "Reproducir",
                 onClick = onPlayPause
             ) {
@@ -352,6 +421,7 @@ internal fun GlassMiniPlayerContent(
             GlassQuickOrb(
                 lit = false,
                 enabled = controlsEnabled,
+                backdrop = orbBackdrop,
                 contentDescription = "Siguiente",
                 onClick = onNext
             ) {
@@ -385,6 +455,7 @@ internal fun GlassMiniPlayerContent(
 private fun GlassQuickOrb(
     lit: Boolean,
     enabled: Boolean,
+    backdrop: com.kyant.backdrop.Backdrop,
     contentDescription: String,
     onClick: () -> Unit,
     content: @Composable () -> Unit,
@@ -408,6 +479,7 @@ private fun GlassQuickOrb(
         modifier = Modifier
             .size(40.dp)
             .semantics { this.contentDescription = contentDescription },
+        backdrop = backdrop,
         shape = CircleShape,
         tint = if (palette.isDark) GlassQuickOrbTintDark else palette.orbSurface,
         accent = accent,

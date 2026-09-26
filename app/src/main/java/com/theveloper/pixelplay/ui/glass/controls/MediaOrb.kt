@@ -70,11 +70,11 @@ fun MediaOrb(
     val glow = remember { Animatable(lit, 0.001f) }
     LaunchedEffect(lit) { glow.animateTo(lit, LiquidMotion.GlowSpring) }
     val orbSize = size
-
-    Box(
-        modifier
-            .size(orbSize)
-            .drawBackdrop(
+    // Built once per real input, never per recomposition: a fresh drawBackdrop chain re-applies
+    // its effects (a new RenderEffect, the lens re-rendered) and redraws its rim. Per-track colours
+    // are read through [currentAccent] inside the lambdas.
+    val orbGlass = remember(backdrop, capability, highlight, receiver, glow, orbSize) {
+        Modifier.drawBackdrop(
                 backdrop = backdrop,
                 shape = { CircleShape },
                 effects = {
@@ -113,6 +113,12 @@ fun MediaOrb(
                     }
                 },
             )
+    }
+
+    Box(
+        modifier
+            .size(orbSize)
+            .then(orbGlass)
             .then(receiver.modifier)
             .then(highlight.modifier)
             .then(highlight.gestureModifier)

@@ -85,7 +85,23 @@ fun Modifier.glassScreenBackground(color: Color): Modifier {
 fun Modifier.glassAmbientFill(alpha: Float = 1f): Modifier {
     val ambient = LocalGlassAmbient.current
     return if (LocalGlassModeEnabled.current && ambient != null) {
-        this then GlassAmbientFillElement(ambient, alpha)
+        this then GlassAmbientFillElement(ambient, alpha, null)
+    } else {
+        this
+    }
+}
+
+/**
+ * [glassAmbientFill] with its alpha read in draw from [alpha] (remember the lambda): an animated
+ * fill never touches composition or the modifier chain, and an alpha of 0 draws nothing. Unlike
+ * the Float form, it needs no glass-mode check at the call site's composition: it draws only when
+ * an ambient state exists.
+ */
+@Composable
+fun Modifier.glassAmbientFill(alpha: () -> Float): Modifier {
+    val ambient = LocalGlassAmbient.current
+    return if (LocalGlassModeEnabled.current && ambient != null) {
+        this then GlassAmbientFillElement(ambient, 1f, alpha)
     } else {
         this
     }
@@ -104,13 +120,17 @@ fun Modifier.glassAwareHeaderFill(color: Color, alpha: Float): Modifier =
         this.background(color.copy(alpha = alpha))
     }
 
-private data class GlassAmbientFillElement(val state: GlassAmbientState, val alpha: Float) :
-    ModifierNodeElement<GlassAmbientFillNode>() {
-    override fun create() = GlassAmbientFillNode(state, alpha)
+private data class GlassAmbientFillElement(
+    val state: GlassAmbientState,
+    val alpha: Float,
+    val alphaProvider: (() -> Float)?,
+) : ModifierNodeElement<GlassAmbientFillNode>() {
+    override fun create() = GlassAmbientFillNode(state, alpha, alphaProvider)
     override fun update(node: GlassAmbientFillNode) {
-        if (node.state !== state || node.alpha != alpha) {
+        if (node.state !== state || node.alpha != alpha || node.alphaProvider !== alphaProvider) {
             node.state = state
             node.alpha = alpha
+            node.alphaProvider = alphaProvider
             node.invalidateDraw()
         }
     }
@@ -120,8 +140,11 @@ private data class GlassAmbientFillElement(val state: GlassAmbientState, val alp
     }
 }
 
-private class GlassAmbientFillNode(var state: GlassAmbientState, var alpha: Float) :
-    Modifier.Node(), DrawModifierNode, GlobalPositionAwareModifierNode {
+private class GlassAmbientFillNode(
+    var state: GlassAmbientState,
+    var alpha: Float,
+    var alphaProvider: (() -> Float)?,
+) : Modifier.Node(), DrawModifierNode, GlobalPositionAwareModifierNode {
 
     private var offsetInRoot = Offset.Zero
 
@@ -135,9 +158,10 @@ private class GlassAmbientFillNode(var state: GlassAmbientState, var alpha: Floa
 
     override fun ContentDrawScope.draw() {
         val rootSize = state.rootSize
-        if (rootSize.width > 0 && rootSize.height > 0) {
+        val a = alphaProvider?.invoke() ?: alpha
+        if (a > 0f && rootSize.width > 0 && rootSize.height > 0) {
             translate(-offsetInRoot.x, -offsetInRoot.y) {
-                state.draw(this, rootSize.toSize(), alpha)
+                state.draw(this, rootSize.toSize(), a)
             }
         }
         drawContent()
@@ -311,3 +335,33 @@ fun Modifier.glassArtFade(): Modifier =
     } else {
         this
     }
+
+/**
+ * A press scale that follows the theme mode. Material 3 mode: exactly the caller's existing
+ * animation ([materialPressedScale] with [materialSpec]). Liquid Glass mode (NexHome's rule: a press
+ * swells, never shrinks): [glassPressedScale] with the press spring, settling back with the bouncy
+ * release spring. Read the returned state in a layer block.
+ */
+@Composable
+fun animatePressScaleAsState(
+    pressed: Boolean,
+    materialPressedScale: Float,
+    glassPressedScale: Float,
+    materialSpec: androidx.compose.animation.core.AnimationSpec<Float>,
+    label: String,
+): androidx.compose.runtime.State<Float> {
+    val glass = LocalGlassModeEnabled.current
+    return androidx.compose.animation.core.animateFloatAsState(
+        targetValue = when {
+            !pressed -> 1f
+            glass -> glassPressedScale
+            else -> materialPressedScale
+        },
+        animationSpec = when {
+            !glass -> materialSpec
+            pressed -> com.theveloper.pixelplay.ui.glass.motion.LiquidMotion.PressSpring
+            else -> com.theveloper.pixelplay.ui.glass.motion.LiquidMotion.ReleaseSpring
+        },
+        label = label,
+    )
+}

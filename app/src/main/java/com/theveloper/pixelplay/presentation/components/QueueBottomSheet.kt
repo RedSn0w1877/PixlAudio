@@ -160,6 +160,10 @@ import com.theveloper.pixelplay.ui.glass.LocalGlassModeEnabled
 import com.theveloper.pixelplay.ui.glass.components.GlassPanel
 import com.theveloper.pixelplay.ui.glass.glassLightSurface
 import com.theveloper.pixelplay.ui.glass.glassPressSwell
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.drawscope.Stroke
 import com.theveloper.pixelplay.ui.glass.theme.LocalGlassPalette
 import com.theveloper.pixelplay.ui.theme.GoogleSansRounded
 import com.theveloper.pixelplay.ui.theme.LocalShowScrollbar
@@ -1328,16 +1332,16 @@ private fun QueueHeaderSection(
         )
 
         if (glass) {
-            // NexHome's sheet header: one heavy panel at radius 32 with the strong tint.
+            // NexHome's sheet header: one heavy panel at radius 32 with the strong tint and its
+            // radius-32 lens (24/48, depth).
             GlassPanel(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 12.dp),
-                shape = com.kyant.shapes.RoundedRectangle(32.dp),
+                shape = QueueGlassHeaderShape,
                 tint = LocalGlassPalette.current.tintStrong,
                 heavy = true,
-                refractionHeight = 20.dp,
-                refractionAmount = 40.dp,
+                enterProgress = com.theveloper.pixelplay.ui.glass.controls.LocalLensBloom.current,
             ) {
                 QueueHeader(
                     queueSourceName = queueSourceName,
@@ -1479,16 +1483,13 @@ private fun QueueControlsToolbar(
     )
 
     val palette = LocalGlassPalette.current
-    // Glass: flat circles on the glass capsule, flooded with the album accent when on.
-    val glassOn = palette.accent
-    val glassOff = palette.tintSubtle
-    val glassContent = palette.primary
+    // Glass: flat kit circles on the glass capsule (not extra lens layers), flooded with the album
+    // accent when on, swelling and glowing on press like the player's toggles.
     val buttons: @Composable () -> Unit = if (glass) {
         {
-            QueueToolbarButton(
+            GlassQueueToolbarButton(
                 onClick = onToggleShuffle,
-                containerColor = if (isShuffleOn) glassOn else glassOff,
-                contentColor = glassContent
+                active = isShuffleOn,
             ) {
                 Icon(
                     imageVector = Icons.Rounded.Shuffle,
@@ -1496,10 +1497,9 @@ private fun QueueControlsToolbar(
                 )
             }
             Spacer(modifier = Modifier.width(12.dp))
-            QueueToolbarButton(
+            GlassQueueToolbarButton(
                 onClick = onToggleRepeat,
-                containerColor = if (repeatMode != Player.REPEAT_MODE_OFF) glassOn else glassOff,
-                contentColor = glassContent
+                active = repeatMode != Player.REPEAT_MODE_OFF,
             ) {
                 Icon(
                     imageVector = if (repeatMode == Player.REPEAT_MODE_ONE) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat,
@@ -1507,10 +1507,9 @@ private fun QueueControlsToolbar(
                 )
             }
             Spacer(modifier = Modifier.width(12.dp))
-            QueueToolbarButton(
+            GlassQueueToolbarButton(
                 onClick = onTimerClick,
-                containerColor = if (isTimerActive.value) glassOn else glassOff,
-                contentColor = glassContent
+                active = isTimerActive.value,
             ) {
                 Icon(
                     imageVector = Icons.Rounded.Timer,
@@ -1588,6 +1587,7 @@ private fun QueueControlsToolbar(
             modifier = modifier.fillMaxHeight(),
             shape = com.kyant.shapes.Capsule(),
             tint = palette.tintStrong,
+            enterProgress = com.theveloper.pixelplay.ui.glass.controls.LocalLensBloom.current,
         ) {
             Row(
                 modifier = Modifier
@@ -1616,6 +1616,56 @@ private fun QueueControlsToolbar(
         ) {
             buttons()
         }
+    }
+}
+
+private val QueueGlassHeaderShape = com.kyant.shapes.RoundedRectangle(32.dp)
+
+/**
+ * Glass mode's queue toolbar button: a flat 48 dp circle on the toolbar's glass capsule with
+ * NexHome's chip recipe — White@0.06 base; when [active] the accent flood (Hue 0.9 + 0.42) and an
+ * accent rim — swelling with the orb press scale and the dim white press glow instead of a ripple.
+ * The on/off change animates in draw only.
+ */
+@Composable
+private fun GlassQueueToolbarButton(
+    onClick: () -> Unit,
+    active: Boolean,
+    content: @Composable BoxScope.() -> Unit
+) {
+    val palette = LocalGlassPalette.current
+    val accent = palette.accent
+    val source = remember { MutableInteractionSource() }
+    val glow = remember { com.theveloper.pixelplay.ui.glass.GlassPressIndication(Color.White, swellScale = 1f) }
+    val lit by animateFloatAsState(
+        targetValue = if (active) 1f else 0f,
+        animationSpec = com.theveloper.pixelplay.ui.glass.motion.LiquidMotion.GlowSpring,
+        label = "queueToolbarLit"
+    )
+    CompositionLocalProvider(LocalContentColor provides palette.primary) {
+        Box(
+            modifier = Modifier
+                .size(48.dp)
+                .glassPressSwell(source, com.theveloper.pixelplay.ui.glass.motion.LiquidMotion.OrbPressScale)
+                .clip(CircleShape)
+                .clickable(interactionSource = source, indication = glow, role = Role.Button, onClick = onClick)
+                .drawBehind {
+                    drawRect(Color.White.copy(alpha = 0.06f))
+                    val l = lit.coerceIn(0f, 1f)
+                    if (l > 0.001f) {
+                        drawRect(accent.copy(alpha = 0.9f * l), blendMode = BlendMode.Hue)
+                        drawRect(accent.copy(alpha = 0.42f * l))
+                        val stroke = 1.dp.toPx()
+                        drawCircle(
+                            color = accent.copy(alpha = 0.8f * l),
+                            radius = size.minDimension / 2f - stroke / 2f,
+                            style = Stroke(width = stroke)
+                        )
+                    }
+                },
+            contentAlignment = Alignment.Center,
+            content = content
+        )
     }
 }
 

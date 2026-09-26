@@ -7,6 +7,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import com.theveloper.pixelplay.ui.glass.theme.GlassType
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
@@ -112,12 +116,15 @@ internal fun GlassPlayerToggleRow(
     modifier: Modifier = Modifier,
 ) {
     val isFavorite = isFavoriteProvider()
+    // NexHome's LiquidChipRow behaviour (horizontal scroll, 2 / 6 dp padding for the swell), kept
+    // centred while the chips fit: long localised labels or a narrow screen scroll instead of
+    // squeezing or clipping the chips.
+    Box(modifier = modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
     Row(
-        modifier = modifier
-            .fillMaxWidth()
-            // Vertical room for the chips' swell (LiquidChipRow's padding).
-            .padding(vertical = 6.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+        modifier = Modifier
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 2.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         LiquidChip(
@@ -138,6 +145,7 @@ internal fun GlassPlayerToggleRow(
             onClick = onFavoriteToggle,
             icon = if (isFavorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
         )
+    }
     }
 }
 
@@ -183,7 +191,11 @@ internal fun GlassPlayerCollapseButton(onCollapse: () -> Unit) {
         size = 42.dp,
         contentDescription = stringResource(R.string.player_cd_collapse),
     ) {
-        Icon(painterResource(R.drawable.rounded_keyboard_arrow_down_24), contentDescription = null)
+        Icon(
+            painterResource(R.drawable.rounded_keyboard_arrow_down_24),
+            contentDescription = null,
+            modifier = Modifier.size(GlassOrbIconSize)
+        )
     }
 }
 
@@ -221,7 +233,7 @@ internal fun GlassPlayerTopActions(
             else -> stringResource(R.string.player_cd_local_playback)
         }
         GlassPlayerPill(onClick = onCastClick, modifier = Modifier.widthIn(max = 190.dp)) {
-            Icon(painterResource(castIcon), contentDescription = castDescription)
+            Icon(painterResource(castIcon), contentDescription = castDescription, modifier = Modifier.size(GlassOrbIconSize))
             AnimatedVisibility(visible = showCastLabel) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Spacer(Modifier.width(8.dp))
@@ -231,7 +243,7 @@ internal fun GlassPlayerTopActions(
                             isRemotePlaybackActive && selectedRouteName != null -> selectedRouteName
                             else -> ""
                         },
-                        style = MaterialTheme.typography.labelMedium,
+                        style = GlassType.Label,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -243,7 +255,14 @@ internal fun GlassPlayerTopActions(
             size = 42.dp,
             contentDescription = stringResource(R.string.player_cd_open_queue),
         ) {
-            Icon(painterResource(R.drawable.rounded_queue_music_24), contentDescription = null)
+            Icon(
+                painterResource(R.drawable.rounded_queue_music_24),
+                contentDescription = null,
+                modifier = Modifier.size(GlassOrbIconSize)
+            )
         }
     }
 }
+
+/** NexHome top-bar orb icon size. */
+private val GlassOrbIconSize = 20.dp

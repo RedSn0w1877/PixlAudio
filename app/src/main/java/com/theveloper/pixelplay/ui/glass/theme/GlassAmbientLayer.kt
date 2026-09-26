@@ -44,7 +44,7 @@ class GlassAmbientState internal constructor(isDark: Boolean) {
     private var previous: ImageBitmap? by mutableStateOf(null)
     private val fade = Animatable(1f)
 
-    /** Painted until the first bake lands (and under a first bake while it fades in). */
+    /** Painted until the first bake lands. */
     internal var baseColor: Color by mutableStateOf(if (isDark) GlassAmbientRecipe.DarkBase else GlassAmbientRecipe.LightBase)
 
     /** The ambient root's top-left on screen (px). */
@@ -58,6 +58,15 @@ class GlassAmbientState internal constructor(isDark: Boolean) {
     /** Shows [bitmap], crossfading from whatever is on screen. Runs in the caller's (effect) scope. */
     internal suspend fun show(bitmap: ImageBitmap) {
         if (bitmap === current) return
+        if (current == null) {
+            // The first bake (cold start, or a restore): drawn at full opacity straight away (P1).
+            // A fade-in from the flat base would re-render every glass surface on screen for
+            // 450 ms during the first second after the splash, for no gain.
+            previous = null
+            fade.snapTo(1f)
+            current = bitmap
+            return
+        }
         previous = current
         current = bitmap
         fade.snapTo(0f)

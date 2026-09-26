@@ -18,6 +18,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -93,7 +94,8 @@ import com.theveloper.pixelplay.presentation.viewmodel.StablePlayerState
 import com.theveloper.pixelplay.ui.glass.LocalGlassBackdrop
 import com.theveloper.pixelplay.ui.glass.LocalGlassCapability
 import com.theveloper.pixelplay.ui.glass.LocalGlassModeEnabled
-import com.theveloper.pixelplay.ui.glass.glassMorphCard
+import com.theveloper.pixelplay.ui.glass.GlassPressIndication
+import com.theveloper.pixelplay.ui.glass.glassPressSwell
 import com.theveloper.pixelplay.ui.glass.theme.LocalGlassPalette
 import com.theveloper.pixelplay.ui.theme.LocalPixelPlayDarkTheme
 import com.theveloper.pixelplay.ui.theme.QuantizedCornerShapeCache
@@ -641,32 +643,31 @@ fun UnifiedPlayerSheetV2(
             androidx.compose.ui.unit.lerp(GlassMiniPlayerCorner, 0.dp, fraction)
         }
     }
-    val glassBackdrop = LocalGlassBackdrop.current
-    val glassCapability = LocalGlassCapability.current
-    val glassCardTint = LocalGlassPalette.current.topBar
-    val glassCardModifier = remember(glassMode, glassBackdrop, glassCapability, glassCardTint, glassCardCornerProvider) {
-        if (!glassMode) {
-            Modifier
-        } else {
-            val shapes = QuantizedCornerShapeCache()
-            Modifier.glassMorphCard(
-                backdrop = glassBackdrop,
-                shape = { shapes.get(glassCardCornerProvider()) },
-                capability = glassCapability,
-                tint = glassCardTint,
-                glassAmount = {
-                    val fraction = playerContentExpansionFraction.value *
-                        (1f - predictiveBackCollapseProgressState.value)
-                    (1f - fraction * 4f).coerceIn(0f, 1f)
-                },
-                // Same fold as MainActivity's page/scrim skip: at full expansion the ambient
-                // root shows through unobstructed, so the copy would add nothing.
-                coveredByBase = {
-                    playerContentExpansionFraction.value *
-                        (1f - predictiveBackCollapseProgressState.value) >= 1f
-                }
-            )
+    val glassPalette = LocalGlassPalette.current
+    val glassCardTint = glassPalette.topBar
+    // The glass amount in 16 steps: the lens / vibrancy are rebuilt only when a step changes, and
+    // at step 0 the glass node detaches (see GlassPlayerCardBackground).
+    val glassCardAmountState = remember(playerContentExpansionFraction, predictiveBackCollapseProgressState) {
+        derivedStateOf {
+            val fraction = playerContentExpansionFraction.value *
+                (1f - predictiveBackCollapseProgressState.value)
+            val raw = (1f - fraction * 4f).coerceIn(0f, 1f)
+            (raw * GlassCardAmountSteps).roundToInt() / GlassCardAmountSteps.toFloat()
         }
+    }
+    // Same fold as MainActivity's page/scrim skip: at full expansion the ambient root shows
+    // through unobstructed, so the card's ambient copy would add nothing.
+    val glassCardCoveredByBase: () -> Boolean = remember(playerContentExpansionFraction, predictiveBackCollapseProgressState) {
+        {
+            playerContentExpansionFraction.value *
+                (1f - predictiveBackCollapseProgressState.value) >= 1f
+        }
+    }
+    // Mini player press feedback in glass mode (NexHome's wide-bar swell and a dim accent glow),
+    // only while collapsed.
+    val miniPressSource = remember { MutableInteractionSource() }
+    val miniGlassPressGlow = remember(glassPalette.accent) {
+        GlassPressIndication(glassPalette.accent, swellScale = 1f)
     }
 
     val sheetInteractionState = rememberSheetInteractionState(
@@ -743,8 +744,8 @@ fun UnifiedPlayerSheetV2(
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
                 if (showPlayerContentArea) {
-                    Box(
-                        modifier = Modifier
+                    val cardCollapsed = currentSheetContentState == PlayerSheetState.COLLAPSED
+                    val cardOuterModifier = Modifier
                             .fillMaxWidth()
                             .graphicsLayer {
                                 val appear = miniAppearProgress.value
@@ -791,20 +792,7 @@ fun UnifiedPlayerSheetV2(
                                 shape = sheetInteractionState.playerShadowShape
                                 clip = false
                             }
-                            .then(
-                                if (glassMode) {
-                                    // One glass node: the mini player's capsule, then the full
-                                    // player's baked-ambient background.
-                                    glassCardModifier
-                                } else {
-                                    // Same pixels as .background(color, shape); the colour is read at
-                                    // draw time so the album colour fade only redraws the card.
-                                    Modifier.drawBackgroundOutline(
-                                        shape = sheetInteractionState.playerShadowShape,
-                                        color = playerAreaBackgroundProvider
-                                    )
-                                }
-                            )
+                    val cardInnerModifier = Modifier
                             .clip(sheetInteractionState.playerShadowShape)
                             // innerLayout:
                             // Measures the actual player content with full screen height targetContentHeightPx
@@ -843,15 +831,15 @@ fun UnifiedPlayerSheetV2(
                             )
                             .clickable(
                                 enabled = tapBackgroundClosesPlayer || currentSheetContentState == PlayerSheetState.COLLAPSED,
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null
+                                interactionSource = miniPressSource,
+                                indication = if (glassMode && cardCollapsed) miniGlassPressGlow else null
                             ) {
                                 playerViewModel.togglePlayerSheetState()
                             }
                             .semantics {
                                 contentDescription = playerSheetSemanticsDescription
                             }
-                    ) {
+                    val cardContent: @Composable BoxScope.() -> Unit = {
                         UnifiedPlayerMiniAndFullLayers(
                             fieldStates = playerFieldStates,
                             albumSchemeState = albumSchemeState,
@@ -880,6 +868,43 @@ fun UnifiedPlayerSheetV2(
                             onShowCastClicked = castSheetState.openCastSheet,
                             isFullPlayerCoveredProvider = glassQueueCoversPlayerProvider
                         )
+                    }
+                    if (glassMode) {
+                        // The glass is a SIBLING drawn behind the player, never a wrapper: a
+                        // drawBackdrop node renders everything after it into an offscreen layer
+                        // of its own size, which here would be the whole player, reallocated on
+                        // every frame of expand/collapse.
+                        Box(
+                            modifier = cardOuterModifier.glassPressSwell(
+                                miniPressSource,
+                                if (cardCollapsed) GlassMiniPlayerPressScale else 1f
+                            )
+                        ) {
+                            GlassPlayerCardBackground(
+                                modifier = Modifier.matchParentSize(),
+                                cornerProvider = glassCardCornerProvider,
+                                clipShape = sheetInteractionState.playerShadowShape,
+                                tint = glassCardTint,
+                                amountState = glassCardAmountState,
+                                coveredByBase = glassCardCoveredByBase,
+                            )
+                            Box(modifier = Modifier.fillMaxSize().then(cardInnerModifier)) {
+                                cardContent()
+                            }
+                        }
+                    } else {
+                        Box(
+                            modifier = cardOuterModifier
+                                // Same pixels as .background(color, shape); the colour is read at
+                                // draw time so the album colour fade only redraws the card.
+                                .drawBackgroundOutline(
+                                    shape = sheetInteractionState.playerShadowShape,
+                                    color = playerAreaBackgroundProvider
+                                )
+                                .then(cardInnerModifier)
+                        ) {
+                            cardContent()
+                        }
                     }
                 }
 

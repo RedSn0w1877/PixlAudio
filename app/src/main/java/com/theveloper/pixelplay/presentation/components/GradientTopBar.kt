@@ -286,12 +286,12 @@ private fun HomeGlassTopBar(
                 ) {
                     Text(
                         text = stringResource(R.string.topbar_beta_letter),
-                        style = MaterialTheme.typography.titleSmall,
+                        style = com.theveloper.pixelplay.ui.glass.theme.GlassType.Label,
                         fontWeight = FontWeight.Black
                     )
                     Text(
                         text = stringResource(R.string.topbar_beta_label),
-                        style = MaterialTheme.typography.titleSmall,
+                        style = com.theveloper.pixelplay.ui.glass.theme.GlassType.Label,
                         fontWeight = FontWeight.SemiBold
                     )
                 }
@@ -304,7 +304,11 @@ private fun HomeGlassTopBar(
                     contentDescription = stringResource(R.string.topbar_cd_active_jobs)
                 ) {
                     BadgedBox(badge = { Badge { Text(activeJobCount.toString()) } }) {
-                        Icon(painter = painterResource(R.drawable.rounded_hourglass_24), contentDescription = null)
+                        Icon(
+                            painter = painterResource(R.drawable.rounded_hourglass_24),
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp)
+                        )
                     }
                 }
             }
@@ -312,13 +316,21 @@ private fun HomeGlassTopBar(
                 onClick = onMoreOptionsClick,
                 contentDescription = stringResource(R.string.topbar_cd_changelog)
             ) {
-                Icon(painter = painterResource(R.drawable.round_newspaper_24), contentDescription = null)
+                Icon(
+                    painter = painterResource(R.drawable.round_newspaper_24),
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp)
+                )
             }
             GlassCircleAction(
                 onClick = onNavigationIconClick,
                 contentDescription = stringResource(R.string.common_settings)
             ) {
-                Icon(painter = painterResource(R.drawable.rounded_settings_24), contentDescription = null)
+                Icon(
+                    painter = painterResource(R.drawable.rounded_settings_24),
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp)
+                )
             }
         },
     ) {

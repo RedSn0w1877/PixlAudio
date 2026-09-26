@@ -96,6 +96,7 @@ import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
@@ -166,6 +167,9 @@ private const val EDITOR_COVER_DELAY_MS = 450L
 private const val SKIP_COMMAND_GUARD_MS = 96L
 /** While paused, how often the seek bar checks for a seek made outside the app. */
 private const val PAUSED_PROGRESS_CHECK_MS = 250L
+// Glass mode's paced progress clock: bounds for the interval between ticks.
+private const val GLASS_CLOCK_MIN_STEP_MS = 16L
+private const val GLASS_CLOCK_MAX_STEP_MS = 250L
 
 private enum class SkipDirection { PREVIOUS, NEXT }
 
@@ -1220,6 +1224,9 @@ private fun FullPlayerAlbumCoverSection(
                 }
             }
         ) {
+            // The frame goes around the centre art only (G3): with peeking neighbours the carousel
+            // is full width, so those styles keep the plain carousel.
+            val framed = glassFrame && carouselStyle == CarouselStyle.NO_PEEK
             val carousel: @Composable (Modifier, Dp) -> Unit = { carouselModifier, itemCorner ->
                 AlbumCarouselSection(
                     currentSong = song,
@@ -1235,23 +1242,33 @@ private fun FullPlayerAlbumCoverSection(
                     onAlbumClick = onAlbumClick,
                     carouselStyle = carouselStyle,
                     animateProgrammaticScroll = { expansionFractionProvider() > 0.01f },
-                    modifier = carouselModifier
-                        .graphicsLayer {
-                            scaleX = albumArtScale
-                            scaleY = albumArtScale
-                        },
+                    modifier = if (framed) {
+                        // The frame carries the pause squish for both (see below).
+                        carouselModifier
+                    } else {
+                        carouselModifier
+                            .graphicsLayer {
+                                scaleX = albumArtScale
+                                scaleY = albumArtScale
+                            }
+                    },
                     albumArtQuality = albumArtQuality,
                     itemCornerRadius = itemCorner
                 )
             }
-            if (glassFrame) {
+            if (framed) {
                 // NexHome's photo frame (CamerasScreen): a light glass panel at radius 30 with
                 // 8 dp padding, the art inside at radius 22. One static glass node: the art
-                // scrolls inside it without re-rendering the lens.
+                // scrolls inside it without re-rendering the lens. The pause squish scales the
+                // frame and the art together, so the art never shrinks inside a fixed frame.
                 GlassPanel(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(carouselHeight),
+                        .height(carouselHeight)
+                        .graphicsLayer {
+                            scaleX = albumArtScale
+                            scaleY = albumArtScale
+                        },
                     shape = RoundedRectangle(30.dp),
                     tint = LocalGlassPalette.current.tint,
                 ) {
@@ -1952,7 +1969,16 @@ private fun PlayerProgressBarSection(
     val latestIsVisible = rememberUpdatedState(isVisible)
     val latestIsCovered = rememberUpdatedState(isPlayerCovered)
     val latestIsPlayingProvider = rememberUpdatedState(isPlayingProvider)
-    LaunchedEffect(progressClock) {
+    // Glass mode's MediaScrubber only moves once per whole pixel (and the labels once a second),
+    // so the clock there ticks about twice per pixel of travel instead of on every vsync: the UI
+    // thread no longer wakes 120 times a second for the whole listening session. The wavy
+    // Material slider animates every frame and keeps the frame loop.
+    val glassPacedClock = LocalGlassModeEnabled.current
+    val scrubberWidthPx = LocalWindowInfo.current.containerSize.width.coerceAtLeast(1)
+    val latestGlassStepMs = rememberUpdatedState(
+        (durationForCalc / (scrubberWidthPx * 2L)).coerceIn(GLASS_CLOCK_MIN_STEP_MS, GLASS_CLOCK_MAX_STEP_MS)
+    )
+    LaunchedEffect(progressClock, glassPacedClock) {
         // 0 = idle (hidden or covered by the lyrics/sync editor), 1 = paused, 2 = playing.
         snapshotFlow {
             when {
@@ -1965,8 +1991,15 @@ private fun PlayerProgressBarSection(
                 2 -> {
                     progressClock.isPlaying = true
                     progressClock.rebase()
-                    while (true) {
-                        withFrameNanos { progressClock.tick(it) }
+                    if (glassPacedClock) {
+                        while (true) {
+                            withFrameNanos { progressClock.tick(it) }
+                            kotlinx.coroutines.delay(latestGlassStepMs.value)
+                        }
+                    } else {
+                        while (true) {
+                            withFrameNanos { progressClock.tick(it) }
+                        }
                     }
                 }
                 1 -> {

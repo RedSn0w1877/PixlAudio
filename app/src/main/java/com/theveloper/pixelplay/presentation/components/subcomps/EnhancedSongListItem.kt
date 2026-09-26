@@ -70,6 +70,7 @@ import com.theveloper.pixelplay.data.spotify.SpotifyMatchStateCache
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import com.theveloper.pixelplay.presentation.components.AutoScrollingText
 import com.theveloper.pixelplay.presentation.components.ShimmerBox
 import androidx.compose.ui.res.stringResource
@@ -364,13 +365,34 @@ fun EnhancedSongListItem(
                     detectTapGestures(
                         onPress = { offset ->
                             if (pressSource != null) {
-                                val press = PressInteraction.Press(offset)
-                                pressSource.emit(press)
-                                val released = tryAwaitRelease()
-                                pressSource.emit(
-                                    if (released) PressInteraction.Release(press)
-                                    else PressInteraction.Cancel(press)
-                                )
+                                // Like clickable inside a scrolling list: the press shows only
+                                // after the tap timeout, so a scroll or fling that starts on a
+                                // row never swells and glows it. A quicker tap still flashes it.
+                                kotlinx.coroutines.coroutineScope {
+                                    var shownPress: PressInteraction.Press? = null
+                                    val delayedPress = launch {
+                                        kotlinx.coroutines.delay(GlassRowPressDelayMs)
+                                        val press = PressInteraction.Press(offset)
+                                        shownPress = press
+                                        pressSource.emit(press)
+                                    }
+                                    val released = tryAwaitRelease()
+                                    if (delayedPress.isActive) {
+                                        delayedPress.cancel()
+                                        if (released) {
+                                            val press = PressInteraction.Press(offset)
+                                            pressSource.emit(press)
+                                            pressSource.emit(PressInteraction.Release(press))
+                                        }
+                                    } else {
+                                        shownPress?.let { press ->
+                                            pressSource.emit(
+                                                if (released) PressInteraction.Release(press)
+                                                else PressInteraction.Cancel(press)
+                                            )
+                                        }
+                                    }
+                                }
                             }
                         },
                         onTap = { 
@@ -523,3 +545,6 @@ fun EnhancedSongListItem(
     }
 }
 
+
+/** Glass mode: how long a row waits before showing its press (the platform tap timeout). */
+private val GlassRowPressDelayMs: Long = android.view.ViewConfiguration.getTapTimeout().toLong()

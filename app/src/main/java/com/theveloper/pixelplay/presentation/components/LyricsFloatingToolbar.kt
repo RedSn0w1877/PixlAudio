@@ -80,13 +80,21 @@ fun LyricsFloatingToolbar(
         val backInteractionSource = remember { MutableInteractionSource() }
         val isBackPressed by backInteractionSource.collectIsPressedAsState()
 
-        // Animate scale on press: shrinks on press, springs back on release.
+        // Animate scale on press: shrinks on press, springs back on release. Liquid Glass mode
+        // (NexHome's rule: presses swell, never shrink) swells it to the orb press scale with the
+        // press spring and settles back with the bouncy release spring.
+        val glassPress = com.theveloper.pixelplay.ui.glass.LocalGlassModeEnabled.current
         val backPressScale by animateFloatAsState(
-            targetValue = if (isBackPressed) 0.82f else 1f,
-            animationSpec = spring(
-                stiffness = Spring.StiffnessMedium,
-                dampingRatio = Spring.DampingRatioMediumBouncy
-            ),
+            targetValue = when {
+                !isBackPressed -> 1f
+                glassPress -> com.theveloper.pixelplay.ui.glass.motion.LiquidMotion.OrbPressScale
+                else -> 0.82f
+            },
+            animationSpec = when {
+                !glassPress -> BackPressSpring
+                isBackPressed -> com.theveloper.pixelplay.ui.glass.motion.LiquidMotion.PressSpring
+                else -> com.theveloper.pixelplay.ui.glass.motion.LiquidMotion.ReleaseSpring
+            },
             label = "backPressScale"
         )
 
@@ -170,3 +178,9 @@ fun LyricsFloatingToolbar(
         }
     }
 }
+
+// Material 3 mode: the back button press spring (unchanged).
+private val BackPressSpring = spring<Float>(
+    stiffness = Spring.StiffnessMedium,
+    dampingRatio = Spring.DampingRatioMediumBouncy
+)

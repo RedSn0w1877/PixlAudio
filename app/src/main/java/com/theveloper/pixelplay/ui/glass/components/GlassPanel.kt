@@ -99,15 +99,22 @@ fun GlassPanel(
         )
     }
     val receiver = rememberGlassLightReceiver()
-
-    Box(
-        modifier
-            .drawBackdrop(
+    // Per-track / per-call values are read through State inside the node's lambdas, so the glass
+    // modifier below is built once per real input: a fresh drawBackdrop chain on every
+    // recomposition (a keystroke in a search field, a track change) would re-apply its effects
+    // (a new RenderEffect, the lens re-rendered) and redraw its rim.
+    val currentTint by rememberUpdatedState(tint)
+    val currentEnterProgress by rememberUpdatedState(enterProgress)
+    val panelGlass = remember(
+        backdrop, shape, capability, heavy, interactive, showHighlight,
+        refractionHeight, refractionAmount, pressScale, interactiveHighlight, receiver, sensor,
+    ) {
+        Modifier.drawBackdrop(
                 backdrop = backdrop,
                 shape = { shape },
                 effects = {
                     val press = if (interactive) interactiveHighlight.pressProgress.fastCoerceIn(0f, 1f) else 0f
-                    val k = lerp(1f, LiquidMotion.LensThicken, press) * enterProgress().fastCoerceIn(0f, 1f)
+                    val k = lerp(1f, LiquidMotion.LensThicken, press) * currentEnterProgress().fastCoerceIn(0f, 1f)
                     // Gate: skip the shader passes when the lens bloom hasn't started yet (a
                     // sheet/panel still at enterProgress() == 0) instead of paying for a no-op lens.
                     if (k > 0.001f) {
@@ -161,10 +168,16 @@ fun GlassPanel(
                 // that re-records the refraction layer, so an animated aura / ring / fill in here
                 // would re-render the lens every frame. Those are drawn by child layers below.
                 onDrawSurface = {
-                    if (tint.isSpecified) drawRect(tint)
+                    val t = currentTint
+                    if (t.isSpecified) drawRect(t)
                 },
                 onDrawFront = null,
             )
+    }
+
+    Box(
+        modifier
+            .then(panelGlass)
             .then(receiver.modifier)
             .then(
                 if (interactive) {

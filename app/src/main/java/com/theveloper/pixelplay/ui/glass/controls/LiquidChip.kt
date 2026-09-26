@@ -76,11 +76,12 @@ fun LiquidChip(
         selection.animateTo(if (selected) 1f else 0f, LiquidMotion.ReleaseSpring)
     }
 
-    Row(
-        modifier
-            .drawBackdrop(
+    // Built once per real input, never per recomposition (a fresh chain re-renders the lens and
+    // redraws the rim); the accent is read through [currentAccent] inside the lambdas.
+    val chipGlass = remember(backdrop, capability, highlight, receiver, selection) {
+        Modifier.drawBackdrop(
                 backdrop = backdrop,
-                shape = { Capsule() },
+                shape = { ChipShape },
                 effects = {
                     val k = kitLensFactor(highlight)
                     // Small capsule: a shallow lens already reads as glass.
@@ -116,6 +117,11 @@ fun LiquidChip(
                     }
                 },
             )
+    }
+
+    Row(
+        modifier
+            .then(chipGlass)
             .then(receiver.modifier)
             .then(highlight.modifier)
             .then(highlight.gestureModifier)
@@ -133,6 +139,8 @@ fun LiquidChip(
         GlassText(label, style = GlassType.Label, color = if (selected) palette.primary else palette.secondary, maxLines = 1)
     }
 }
+
+private val ChipShape = Capsule()
 
 /**
  * Horizontally scrolling row of [LiquidChip]s. Vertical padding leaves room for the chips' swell

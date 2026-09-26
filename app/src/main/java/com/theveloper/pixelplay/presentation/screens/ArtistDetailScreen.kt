@@ -1231,6 +1231,7 @@ private fun CustomCollapsingTopBar(
     ) {
         PixelPlayStatusBarStyle(color = fallbackStatusBarColor)
 
+        val glassHeader = com.theveloper.pixelplay.ui.glass.LocalGlassModeEnabled.current
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -1249,8 +1250,13 @@ private fun CustomCollapsingTopBar(
                             .build(),
                         contentDescription = artist.name,
                         contentScale = ContentScale.Crop,
-                        alpha = headerContentAlpha,
-                        modifier = Modifier.fillMaxSize().glassArtFade()
+                        // Glass: the fade is a layer alpha above glassArtFade's offscreen layer, so
+                        // collapsing never re-renders that layer (its content stays static).
+                        alpha = if (glassHeader) 1f else headerContentAlpha,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .then(if (glassHeader) Modifier.graphicsLayer { alpha = headerContentAlpha } else Modifier)
+                            .glassArtFade()
                     )
                 } else {
                     MusicIconPattern(
