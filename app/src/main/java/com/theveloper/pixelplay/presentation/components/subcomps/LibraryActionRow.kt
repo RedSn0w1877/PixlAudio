@@ -16,9 +16,6 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.clickable
-import com.theveloper.pixelplay.ui.glass.GlassButton
-import com.theveloper.pixelplay.ui.glass.GlassIconButton
-import com.theveloper.pixelplay.ui.glass.isGlassEnabled
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -163,92 +160,48 @@ fun LibraryActionRow(
                     val buttonContainerColor = MaterialTheme.colorScheme.tertiaryContainer
                     val buttonContentColor = MaterialTheme.colorScheme.onTertiaryContainer
                     
-                    if (isGlassEnabled) {
-                        GlassButton(
-                            onClick = onMainActionClick,
-                            shape = RoundedCornerShape(
-                                topStart = 26.dp, bottomStart = 26.dp,
-                                topEnd = newButtonEndCorner, bottomEnd = newButtonEndCorner
-                            ),
+                    FilledTonalButton(
+                        onClick = onMainActionClick,
+                        shape = RoundedCornerShape(
+                            topStart = 26.dp, bottomStart = 26.dp,
+                            topEnd =  newButtonEndCorner, bottomEnd = newButtonEndCorner
+                        ),
+                        colors = ButtonDefaults.buttonColors(
                             containerColor = buttonContainerColor,
-                            contentColor = buttonContentColor,
-                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
-                            modifier = Modifier.height(genHeight)
-                        ) {
-                            val icon = if (isPlaylistTab) Icons.AutoMirrored.Rounded.PlaylistAdd else Icons.Rounded.Shuffle
-                            val text = if (isPlaylistTab) {
-                                stringResource(R.string.library_action_new)
-                            } else {
-                                stringResource(R.string.common_shuffle)
-                            }
-                            val contentDesc = if (isPlaylistTab) {
-                                stringResource(R.string.library_cd_create_new_playlist)
-                            } else {
-                                stringResource(R.string.common_shuffle_play)
-                            }
-
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Icon(
-                                    imageVector = icon,
-                                    contentDescription = contentDesc,
-                                    modifier = Modifier.size(20.dp).rotate(iconRotation)
-                                )
-                                Text(
-                                    modifier = Modifier.animateContentSize(),
-                                    text = text,
-                                    overflow = TextOverflow.Ellipsis,
-                                    style = MaterialTheme.typography.labelLarge,
-                                    fontWeight = FontWeight.Medium
-                                )
-                            }
+                            contentColor = buttonContentColor
+                        ),
+                        elevation = ButtonDefaults.buttonElevation(defaultElevation = 4.dp, pressedElevation = 6.dp),
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
+                        modifier = Modifier.height(genHeight)
+                    ) {
+                        val icon = if (isPlaylistTab) Icons.AutoMirrored.Rounded.PlaylistAdd else Icons.Rounded.Shuffle
+                        val text = if (isPlaylistTab) {
+                            stringResource(R.string.library_action_new)
+                        } else {
+                            stringResource(R.string.common_shuffle)
                         }
-                    } else {
-                        FilledTonalButton(
-                            onClick = onMainActionClick,
-                            shape = RoundedCornerShape(
-                                topStart = 26.dp, bottomStart = 26.dp,
-                                topEnd =  newButtonEndCorner, bottomEnd = newButtonEndCorner
-                            ),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = buttonContainerColor,
-                                contentColor = buttonContentColor
-                            ),
-                            elevation = ButtonDefaults.buttonElevation(defaultElevation = 4.dp, pressedElevation = 6.dp),
-                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
-                            modifier = Modifier.height(genHeight)
-                        ) {
-                            val icon = if (isPlaylistTab) Icons.AutoMirrored.Rounded.PlaylistAdd else Icons.Rounded.Shuffle
-                            val text = if (isPlaylistTab) {
-                                stringResource(R.string.library_action_new)
-                            } else {
-                                stringResource(R.string.common_shuffle)
-                            }
-                            val contentDesc = if (isPlaylistTab) {
-                                stringResource(R.string.library_cd_create_new_playlist)
-                            } else {
-                                stringResource(R.string.common_shuffle_play)
-                            }
+                        val contentDesc = if (isPlaylistTab) {
+                            stringResource(R.string.library_cd_create_new_playlist)
+                        } else {
+                            stringResource(R.string.common_shuffle_play)
+                        }
 
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Icon(
-                                    imageVector = icon,
-                                    contentDescription = contentDesc,
-                                    modifier = Modifier.size(20.dp).rotate(iconRotation)
-                                )
-                                Text(
-                                    modifier = Modifier.animateContentSize(),
-                                    text = text,
-                                    overflow = TextOverflow.Ellipsis,
-                                    style = MaterialTheme.typography.labelLarge,
-                                    fontWeight = FontWeight.Medium
-                                )
-                            }
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(
+                                imageVector = icon,
+                                contentDescription = contentDesc,
+                                modifier = Modifier.size(20.dp).rotate(iconRotation)
+                            )
+                            Text(
+                                modifier = Modifier.animateContentSize(),
+                                text = text,
+                                overflow = TextOverflow.Ellipsis,
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.Medium
+                            )
                         }
                     }
 

@@ -39,7 +39,7 @@ fun rememberCollapseFraction(
 /**
  * Reads the header's current height and collapse fraction in its own small restart scope and hands
  * them to [content] (the header). While the header collapses, only this call and the header
- * recompose — the screen scope around it, with its list and glass layer, does not.
+ * recompose — the screen scope around it, with its list, does not.
  */
 @Composable
 fun WithCollapsingHeader(

@@ -130,19 +130,9 @@ class LyricsSheetLogicTest {
     }
 
     @Test
-    fun chromeColors_glass_isClearWithWhiteGlyphs_andOnlyPlayPauseTinted() {
-        val scheme = androidx.compose.material3.darkColorScheme()
-        val c = lyricsChromeColors(scheme, glass = true)
-        assertEquals(androidx.compose.ui.graphics.Color.White, c.content)
-        assertTrue("fills on glass stay translucent", c.container.alpha < 0.3f)
-        assertTrue("selected is a brighter fill, not a tint", c.selected.alpha > c.container.alpha)
-        assertEquals(scheme.primaryFixedDim, c.playPause)
-    }
-
-    @Test
     fun chromeColors_material_usesFixedRoles_soLightAndDarkSchemesMatch() {
-        val light = lyricsChromeColors(androidx.compose.material3.lightColorScheme(), glass = false)
-        val dark = lyricsChromeColors(androidx.compose.material3.darkColorScheme(), glass = false)
+        val light = lyricsChromeColors(androidx.compose.material3.lightColorScheme())
+        val dark = lyricsChromeColors(androidx.compose.material3.darkColorScheme())
         val lightScheme = androidx.compose.material3.lightColorScheme()
         assertEquals(lightScheme.primaryFixed, light.content)
         assertEquals(lightScheme.tertiaryFixedDim, light.playPause)
@@ -154,9 +144,7 @@ class LyricsSheetLogicTest {
     @Test
     fun chromeColors_highContrast_makesFillsHeavier() {
         val scheme = androidx.compose.material3.darkColorScheme()
-        assertTrue(lyricsChromeColors(scheme, glass = true, highContrast = true).container.alpha >
-            lyricsChromeColors(scheme, glass = true).container.alpha)
-        assertTrue(lyricsChromeColors(scheme, glass = false, highContrast = true).container.alpha >
-            lyricsChromeColors(scheme, glass = false).container.alpha)
+        assertTrue(lyricsChromeColors(scheme, highContrast = true).container.alpha >
+            lyricsChromeColors(scheme).container.alpha)
     }
 }

@@ -2,10 +2,7 @@
 
 package com.theveloper.pixelplay.presentation.screens
 
-import com.theveloper.pixelplay.ui.glass.GlassChrome
-import com.theveloper.pixelplay.ui.glass.glassScreenContent
-import com.theveloper.pixelplay.ui.glass.rememberGlassScreenBackdrop
-import androidx.compose.material3.IconButton
+import com.theveloper.pixelplay.presentation.components.ScreenChrome
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
@@ -272,7 +269,6 @@ fun StatsScreen(
             )
         }
     ) {
-        val screenGlass = rememberGlassScreenBackdrop()
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -289,8 +285,7 @@ fun StatsScreen(
                 LazyColumn(
                     state = lazyListState,
                     modifier = Modifier
-                        .fillMaxSize()
-                        .glassScreenContent(screenGlass),
+                        .fillMaxSize(),
                     contentPadding = listContentPadding,
                     verticalArrangement = Arrangement.spacedBy(24.dp)
                 ) {
@@ -350,11 +345,7 @@ fun StatsScreen(
                 }
             }
 
-            GlassChrome(
-                backdrop = screenGlass,
-                // Title plus range tabs: frost down past the tabs so they stay legible.
-                scrollEdgeHeight = minTopBarHeight + tabsHeight + tabIndicatorExtraSpacing + 24.dp
-            ) {
+            ScreenChrome {
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopCenter)
@@ -362,10 +353,7 @@ fun StatsScreen(
                         .zIndex(5f)
                 ) {
                     val solidAlpha = (collapseFraction * 2f).coerceIn(0f, 1f)
-                    // Glass mode: no solid band — the scroll edge below frosts the list under the
-                    // title and range tabs, and the bar's buttons are glass chrome.
-                    val backgroundColor = if (screenGlass != null) Color.Transparent
-                        else MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = solidAlpha)
+                    val backgroundColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = solidAlpha)
 
                     Column(
                         modifier = Modifier
@@ -380,33 +368,20 @@ fun StatsScreen(
                             containerColor = Color.Transparent,
                             actions = {
                                 val refreshEnabled = !uiState.isLoading && !uiState.isRefreshing && !isPullRefreshAnimating
-                                if (screenGlass != null) {
-                                    // A glyph on the bar's single glass action group.
-                                    IconButton(
-                                        onClick = statsViewModel::requestStatsRefresh,
-                                        enabled = refreshEnabled
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Rounded.Refresh,
-                                            contentDescription = stringResource(R.string.stats_cd_refresh)
-                                        )
-                                    }
-                                } else {
-                                    FilledIconButton(
-                                        modifier = Modifier
-                                            .padding(end = 12.dp),
-                                        onClick = statsViewModel::requestStatsRefresh,
-                                        enabled = refreshEnabled,
-                                        colors = IconButtonDefaults.filledIconButtonColors(
-                                            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-                                            contentColor = MaterialTheme.colorScheme.onSurface
-                                        )
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Rounded.Refresh,
-                                            contentDescription = stringResource(R.string.stats_cd_refresh)
-                                        )
-                                    }
+                                FilledIconButton(
+                                    modifier = Modifier
+                                        .padding(end = 12.dp),
+                                    onClick = statsViewModel::requestStatsRefresh,
+                                    enabled = refreshEnabled,
+                                    colors = IconButtonDefaults.filledIconButtonColors(
+                                        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                                        contentColor = MaterialTheme.colorScheme.onSurface
+                                    )
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Refresh,
+                                        contentDescription = stringResource(R.string.stats_cd_refresh)
+                                    )
                                 }
                             }
                         )

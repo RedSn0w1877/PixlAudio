@@ -28,6 +28,7 @@ import androidx.compose.runtime.withFrameNanos
 
 
 import androidx.compose.foundation.clickable
+import androidx.compose.material3.ripple
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.lazy.LazyColumn
@@ -68,8 +69,6 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import com.theveloper.pixelplay.ui.glass.glassClickable
-import com.theveloper.pixelplay.ui.glass.glassFill
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
@@ -1077,8 +1076,8 @@ private fun RingtoneActionButton(
     if (showText) {
         Row(
             modifier = modifier
-                .actionButtonGlassSurface(CircleShape, MaterialTheme.colorScheme.secondaryContainer)
-                .glassClickable(onClick = onClick, enabled = true, shape = CircleShape, interactionSource = source)
+                .actionButtonSurface(CircleShape, MaterialTheme.colorScheme.secondaryContainer)
+                .actionButtonClickable(onClick = onClick, enabled = true, shape = CircleShape, interactionSource = source)
                 .padding(horizontal = if (compactText) 12.dp else 18.dp),
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically
@@ -1102,8 +1101,8 @@ private fun RingtoneActionButton(
     } else {
         Box(
             modifier = modifier
-                .actionButtonGlassSurface(CircleShape, MaterialTheme.colorScheme.secondaryContainer)
-                .glassClickable(onClick = onClick, enabled = true, shape = CircleShape, interactionSource = source),
+                .actionButtonSurface(CircleShape, MaterialTheme.colorScheme.secondaryContainer)
+                .actionButtonClickable(onClick = onClick, enabled = true, shape = CircleShape, interactionSource = source),
             contentAlignment = Alignment.Center
         ) {
             Icon(
@@ -1179,26 +1178,26 @@ private fun SongInfoSegmentedListItem(
 /**
  * The surface for the sheet's action buttons, sized/shaped exactly like the button it replaces
  * (arbitrary [Shape]) so the existing weight-squish press animation keeps working unchanged.
- *
- * The buttons sit *on* the glass sheet, so in Liquid Glass mode they are fills, never a second
- * layer of glass: the button's own colour as a translucent fill ([glassFill], prominent — these
- * are coloured actions, not neutral chrome), no `drawBackdrop`. Material 3: the plain fill.
  */
-@Composable
-private fun Modifier.actionButtonGlassSurface(
+private fun Modifier.actionButtonSurface(
     shape: Shape,
     color: Color
-): Modifier {
-    if (!com.theveloper.pixelplay.ui.glass.isGlassEnabled) {
-        return this.clip(shape).background(color)
-    }
-    // A fill has nothing behind it to refract, so the colour carries all the readability: keep
-    // it mostly opaque, easing further toward solid as the user asks for more frost.
-    val alpha = androidx.compose.ui.util.lerp(
-        0.72f, 0.96f, com.theveloper.pixelplay.ui.glass.glassTransparency()
+): Modifier = this.clip(shape).background(color)
+
+/** The action buttons' click: clipped to [shape], with a ripple. */
+private fun Modifier.actionButtonClickable(
+    onClick: () -> Unit,
+    enabled: Boolean,
+    shape: Shape,
+    interactionSource: MutableInteractionSource
+): Modifier = this
+    .clip(shape)
+    .clickable(
+        interactionSource = interactionSource,
+        indication = ripple(),
+        enabled = enabled,
+        onClick = onClick
     )
-    return this.glassFill(shape = shape, color = color.copy(alpha = alpha), prominent = true)
-}
 
 @Composable
 private fun Row1Actions(
@@ -1306,8 +1305,8 @@ private fun Row1Actions(
             modifier = Modifier
                 .weight(weightPlay)
                 .heightIn(min = 80.dp)
-                .actionButtonGlassSurface(playButtonShape, MaterialTheme.colorScheme.primaryContainer)
-                .glassClickable(
+                .actionButtonSurface(playButtonShape, MaterialTheme.colorScheme.primaryContainer)
+                .actionButtonClickable(
                     onClick = {
                         if (!clickPending) {
                             clickPending = true
@@ -1350,8 +1349,8 @@ private fun Row1Actions(
             modifier = Modifier
                 .weight(weightFavorite)
                 .fillMaxHeight()
-                .actionButtonGlassSurface(favoriteButtonShape, favoriteButtonContainerColor)
-                .glassClickable(
+                .actionButtonSurface(favoriteButtonShape, favoriteButtonContainerColor)
+                .actionButtonClickable(
                     onClick = {
                         if (!clickPending) {
                             clickPending = true
@@ -1385,8 +1384,8 @@ private fun Row1Actions(
             modifier = Modifier
                 .weight(weightShare)
                 .fillMaxHeight()
-                .actionButtonGlassSurface(CircleShape, MaterialTheme.colorScheme.secondaryContainer)
-                .glassClickable(
+                .actionButtonSurface(CircleShape, MaterialTheme.colorScheme.secondaryContainer)
+                .actionButtonClickable(
                     onClick = {
                         if (!clickPending) {
                             clickPending = true
@@ -1478,8 +1477,8 @@ private fun Row2Actions(
             modifier = Modifier
                 .weight(weightQueue)
                 .heightIn(min = 66.dp)
-                .actionButtonGlassSurface(CircleShape, MaterialTheme.colorScheme.tertiaryContainer)
-                .glassClickable(
+                .actionButtonSurface(CircleShape, MaterialTheme.colorScheme.tertiaryContainer)
+                .actionButtonClickable(
                     onClick = {
                         if (!clickPending) {
                             clickPending = true
@@ -1521,8 +1520,8 @@ private fun Row2Actions(
             modifier = Modifier
                 .weight(weightNext)
                 .heightIn(min = 66.dp)
-                .actionButtonGlassSurface(CircleShape, MaterialTheme.colorScheme.tertiary)
-                .glassClickable(
+                .actionButtonSurface(CircleShape, MaterialTheme.colorScheme.tertiary)
+                .actionButtonClickable(
                     onClick = {
                         if (!clickPending) {
                             clickPending = true
@@ -1624,8 +1623,8 @@ private fun Row3Actions(
             modifier = Modifier
                 .weight(weightPlaylist)
                 .heightIn(min = 66.dp)
-                .actionButtonGlassSurface(CircleShape, MaterialTheme.colorScheme.secondaryContainer)
-                .glassClickable(
+                .actionButtonSurface(CircleShape, MaterialTheme.colorScheme.secondaryContainer)
+                .actionButtonClickable(
                     onClick = {
                         if (!clickPending) {
                             clickPending = true
@@ -1667,8 +1666,8 @@ private fun Row3Actions(
             modifier = Modifier
                 .weight(weightDelete)
                 .heightIn(min = 66.dp)
-                .actionButtonGlassSurface(CircleShape, MaterialTheme.colorScheme.errorContainer)
-                .glassClickable(
+                .actionButtonSurface(CircleShape, MaterialTheme.colorScheme.errorContainer)
+                .actionButtonClickable(
                     onClick = {
                         if (!clickPending) {
                             clickPending = true
@@ -1829,8 +1828,8 @@ private fun Row4Actions(
             modifier = Modifier
                 .weight(weightWatch)
                 .fillMaxHeight()
-                .actionButtonGlassSurface(CircleShape, watchContainerColor)
-                .glassClickable(
+                .actionButtonSurface(CircleShape, watchContainerColor)
+                .actionButtonClickable(
                     onClick = {
                         if (!clickPending) {
                             clickPending = true

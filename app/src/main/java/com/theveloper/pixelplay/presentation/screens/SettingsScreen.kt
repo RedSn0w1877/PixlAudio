@@ -1,8 +1,6 @@
 package com.theveloper.pixelplay.presentation.screens
 
-import com.theveloper.pixelplay.ui.glass.GlassChrome
-import com.theveloper.pixelplay.ui.glass.glassScreenContent
-import com.theveloper.pixelplay.ui.glass.rememberGlassScreenBackdrop
+import com.theveloper.pixelplay.presentation.components.ScreenChrome
 import com.theveloper.pixelplay.presentation.navigation.navigateSafely
 
 import androidx.compose.animation.core.Animatable
@@ -191,7 +189,6 @@ fun SettingsScreen(
         }
     }
 
-    val screenGlass = rememberGlassScreenBackdrop()
     Box(
             modifier =
                     Modifier.nestedScroll(nestedScrollConnection).fillMaxSize().graphicsLayer {
@@ -211,7 +208,7 @@ fun SettingsScreen(
                 state = lazyListState,
                 contentPadding = listContentPadding,
                 verticalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxSize().glassScreenContent(screenGlass)
+                modifier = Modifier.fillMaxSize()
         ) {
             item {
                 PlusSettingsItem(onClick = { navController.navigateSafely(Screen.Plus.route) })
@@ -307,7 +304,7 @@ fun SettingsScreen(
                 Spacer(modifier = Modifier.height(32.dp))
             }
         }
-        GlassChrome(screenGlass) {
+        ScreenChrome {
             CollapsibleCommonTopBar(
                     title = stringResource(R.string.common_settings),
                     collapseFraction = collapseFraction,

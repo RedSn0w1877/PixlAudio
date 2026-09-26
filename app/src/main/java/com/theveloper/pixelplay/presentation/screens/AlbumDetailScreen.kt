@@ -2,8 +2,7 @@
 
 package com.theveloper.pixelplay.presentation.screens
 
-import com.theveloper.pixelplay.ui.glass.GlassScreenLayer
-import com.theveloper.pixelplay.ui.glass.rememberGlassScreenBackdrop
+import com.theveloper.pixelplay.presentation.components.ScreenLayer
 import com.theveloper.pixelplay.presentation.navigation.navigateSafely
 import com.theveloper.pixelplay.presentation.navigation.navigateSafelyReplacing
 
@@ -222,7 +221,7 @@ fun AlbumDetailScreen(
 
                 val topBarHeight = remember { Animatable(maxTopBarHeightPx) }
                 // Read only inside derivedStateOf and WithCollapsingHeader: the per-frame header
-                // height never recomposes the list or the glass layer.
+                // height never recomposes the list.
                 val collapseFractionState =
                     rememberCollapseFraction(topBarHeight, minTopBarHeightPx, maxTopBarHeightPx)
                 val collapseFraction by collapseFractionState
@@ -288,7 +287,6 @@ fun AlbumDetailScreen(
                     }
                 }
 
-                val screenGlass = rememberGlassScreenBackdrop()
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -297,9 +295,7 @@ fun AlbumDetailScreen(
                         )
                         .nestedScroll(nestedScrollConnection)
                 ) {
-                    // Glass mode: the list AND the artwork header are recorded, and the back
-                    // button floats above both as glass chrome. Material 3: unchanged.
-                    GlassScreenLayer(screenGlass) {
+                    ScreenLayer {
                         val isScrollbarEnabled = LocalShowScrollbar.current
                         val showScrollBar by remember(isScrollbarEnabled) {
                             derivedStateOf {

@@ -91,11 +91,9 @@ internal fun resolveNavBarOccupiedHeight(
  * How far the *visible* nav bar sits from the left/right screen edge, so page content can line up
  * with it instead of picking its own arbitrary margin.
  *
- * The numbers mirror MainActivity's nav bar call site exactly; keep them in sync. With glass the
- * Surface is pulled in to 4dp and [com.theveloper.pixelplay.ui.glass.LiquidGlassNavBar] re-adds
- * 16dp inside it (slack for the pill's press overshoot), so the glass you actually see starts at
- * 20dp. FULL_WIDTH has no outer margin at all — content still needs *some* gutter, so it falls
- * back to the 12dp the nav items themselves use.
+ * The numbers mirror MainActivity's nav bar call site exactly; keep them in sync. FULL_WIDTH has
+ * no outer margin at all — content still needs *some* gutter, so it falls back to the 12dp the nav
+ * items themselves use.
  */
 @Composable
 internal fun navBarEdgeInset(navBarStyle: String): Dp {
@@ -103,7 +101,6 @@ internal fun navBarEdgeInset(navBarStyle: String): Dp {
         WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     )
     return when {
-        com.theveloper.pixelplay.ui.glass.isGlassEnabled -> 20.dp
         navBarStyle == NavBarStyle.DEFAULT -> if (systemNavBarInset > 30.dp) 16.dp else 14.dp
         else -> 12.dp
     }

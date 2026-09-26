@@ -1371,11 +1371,9 @@ suspend fun markDirectoryRulesVersionApplied(version: Int) {
     }
 
     /**
-     * The Liquid Glass transparency dial, 0f..1f: how much of each glass surface's tint shows
-     * (0 = see straight through, 1 = fully frosted). It does not change blur or refraction, which
-     * are fixed per surface in `ui/glass/GlassTokens.kt`. Defaults to 0.55, which must match
-     * `DefaultGlassIntensity` in `ui/glass/GlassTheme.kt`, so the material is visible without
-     * burying the artwork.
+     * The old Liquid Glass transparency dial, 0f..1f (0 = see straight through, 1 = fully frosted),
+     * default 0.55. Kept so the value existing installs saved survives; no UI uses it since the
+     * old glass was removed, and the settings slider for it is gone.
      */
     val liquidGlassIntensityFlow: Flow<Float> =
         pref { (it[PreferencesKeys.LIQUID_GLASS_INTENSITY] ?: 0.55f).coerceIn(0f, 1f) }
@@ -1385,10 +1383,11 @@ suspend fun markDirectoryRulesVersionApplied(version: Int) {
     }
 
     /**
-     * Which visual language the app renders in — `"LiquidGlass"` or `"Material3"` (the names of
-     * `AppUiStyle`'s entries). Stored as the enum name rather than an ordinal so reordering or
-     * adding a style later can't silently repoint everyone's saved preference at a different one.
-     * Defaults to LiquidGlass.
+     * Which visual language the app renders in — `"LiquidGlass"` or `"Material3"`
+     * ([com.theveloper.pixelplay.ui.theme.VisualStyle]). Stored as a name rather than an ordinal so
+     * reordering or adding a style later can't silently repoint everyone's saved preference at a
+     * different one. Defaults to LiquidGlass. [com.theveloper.pixelplay.ui.theme.VisualStyle.isGlassMode]
+     * decides what is actually drawn.
      */
     val appUiStyleFlow: Flow<String> =
         pref { it[PreferencesKeys.APP_UI_STYLE] ?: "LiquidGlass" }

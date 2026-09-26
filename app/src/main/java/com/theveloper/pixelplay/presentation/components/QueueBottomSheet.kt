@@ -21,6 +21,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -49,22 +50,6 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.CompositionLocalProvider
-import com.theveloper.pixelplay.ui.glass.RecordedContent
-import com.theveloper.pixelplay.ui.glass.GlassGroup
-import com.theveloper.pixelplay.ui.glass.GlassPlacement
-import com.theveloper.pixelplay.ui.glass.GlassRole
-import com.theveloper.pixelplay.ui.glass.InteractiveHighlight
-import com.theveloper.pixelplay.ui.glass.LocalGlassReduceMotion
-import com.theveloper.pixelplay.ui.glass.applyGlassPress
-import com.theveloper.pixelplay.ui.glass.glassPlacement
-import com.theveloper.pixelplay.ui.glass.liquidGlass
-import com.theveloper.pixelplay.ui.glass.resolveRecipe
-import com.theveloper.pixelplay.ui.glass.rememberPageBackdrop
-import com.theveloper.pixelplay.ui.glass.GlassIconButton
-import com.theveloper.pixelplay.ui.glass.LocalAppBackdrop
-import com.theveloper.pixelplay.ui.glass.glassClickable
-import com.theveloper.pixelplay.ui.glass.glassPanel
-import com.theveloper.pixelplay.ui.glass.isGlassEnabled
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.DragIndicator
@@ -93,6 +78,8 @@ import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.LocalContentColor
+import androidx.compose.material3.ripple
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
@@ -113,7 +100,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
-import androidx.compose.ui.graphics.GraphicsLayerScope
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableLongStateOf
@@ -776,14 +762,6 @@ fun QueueBottomSheet(
         Box(
             modifier = Modifier.fillMaxSize()
         ) {
-            // What the floating toolbar/FAB (drawn after, below) refract. Recorded from the
-            // song list specifically — not the page behind the whole sheet — because the
-            // toolbar visually floats over the scrolling queue, not over whatever screen was
-            // open before the sheet appeared. Sibling of that list Box, never an ancestor of it,
-            // so this can't hit the self-reference recursion that crashed the nav bar/full
-            // player before (see LiquidNavBar.kt's doc comment for the full story).
-            val queueListBackdrop = rememberPageBackdrop()
-
             Column {
                 val headerTopPadding = WindowInsets.statusBars
                     .asPaddingValues()
@@ -827,14 +805,10 @@ fun QueueBottomSheet(
                         )
                     }
                 } else {
-                    // RecordedContent: the list is the content layer (rows render tonal, never
-                    // glass) and nothing inside can sample its own recording.
-                    RecordedContent(
-                        backdrop = queueListBackdrop,
+                    Box(
                         modifier = Modifier
                             .weight(1f)
-                            .fillMaxWidth(),
-                        enabled = isGlassEnabled
+                            .fillMaxWidth()
                     ) {
                         LazyColumn(
                             state = listState,
@@ -986,65 +960,48 @@ fun QueueBottomSheet(
 
                 val navigationBarHeight = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
 
-                // Scoped to the list's own recording rather than the ambient page backdrop, so
-                // the toolbar and FAB refract the queue scrolling directly behind them.
-                CompositionLocalProvider(LocalAppBackdrop provides queueListBackdrop) {
-                    Row(
+                Row(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = fabSpacing + navigationBarHeight)
+                        .height(70.dp)
+                        .then(directSheetDragModifier),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    val isTimerActiveDerived = remember {
+                        derivedStateOf { activeTimerValueDisplay.value != null }
+                    }
+                    QueueControlsToolbar(
+                        isShuffleOn = isShuffleOn,
+                        repeatMode = repeatMode,
+                        isTimerActive = isTimerActiveDerived,
+                        onToggleShuffle = onToggleShuffle,
+                        onToggleRepeat = onToggleRepeat,
+                        onTimerClick = { showTimerOptions = true }
+                    )
+
+                    Spacer(modifier = Modifier.width(4.dp))
+
+                    Box(
                         modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .padding(bottom = fabSpacing + navigationBarHeight)
-                            .height(70.dp)
-                            .then(directSheetDragModifier),
-                        horizontalArrangement = Arrangement.Center,
-                        verticalAlignment = Alignment.CenterVertically
+                            .fillMaxHeight()
+                            .aspectRatio(1f)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.tertiaryContainer)
+                            .clip(CircleShape)
+                            .clickable(
+                                interactionSource = null,
+                                indication = ripple(),
+                                onClick = { isFabExpanded = !isFabExpanded }
+                            ),
+                        contentAlignment = Alignment.Center
                     ) {
-                        val isTimerActiveDerived = remember {
-                            derivedStateOf { activeTimerValueDisplay.value != null }
-                        }
-                        QueueControlsToolbar(
-                            isShuffleOn = isShuffleOn,
-                            repeatMode = repeatMode,
-                            isTimerActive = isTimerActiveDerived,
-                            onToggleShuffle = onToggleShuffle,
-                            onToggleRepeat = onToggleRepeat,
-                            onTimerClick = { showTimerOptions = true }
+                        Icon(
+                            imageVector = Icons.Rounded.MoreHoriz,
+                            contentDescription = stringResource(R.string.queue_cd_more_action),
+                            tint = MaterialTheme.colorScheme.onTertiaryContainer
                         )
-
-                        Spacer(modifier = Modifier.width(4.dp))
-
-                        val fabGlassShape = CircleShape
-                        if (glassPlacement() == GlassPlacement.Glass) {
-                            QueueFloatingGlassAction(
-                                onClick = { isFabExpanded = !isFabExpanded },
-                                modifier = Modifier
-                                    .fillMaxHeight()
-                                    .aspectRatio(1f)
-                            )
-                        } else {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxHeight()
-                                    .aspectRatio(1f)
-                                    .glassPanel(
-                                        shape = fabGlassShape,
-                                        color = MaterialTheme.colorScheme.tertiaryContainer,
-                                        effectScale = 0.5f,
-                                        tintAlpha = 0.55f
-                                    )
-                                    .glassClickable(
-                                        onClick = { isFabExpanded = !isFabExpanded },
-                                        enabled = true,
-                                        shape = fabGlassShape
-                                    ),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Rounded.MoreHoriz,
-                                    contentDescription = stringResource(R.string.queue_cd_more_action),
-                                    tint = MaterialTheme.colorScheme.onTertiaryContainer
-                                )
-                            }
-                        }
                     }
                 }
 
@@ -1464,7 +1421,7 @@ private fun QueueControlsToolbar(
     )
 
     val buttons: @Composable () -> Unit = {
-        GlassIconButton(
+        QueueToolbarButton(
             onClick = onToggleShuffle,
             containerColor = if (isShuffleOn) {
                 MaterialTheme.colorScheme.primary
@@ -1483,7 +1440,7 @@ private fun QueueControlsToolbar(
             )
         }
         Spacer(modifier = Modifier.width(12.dp))
-        GlassIconButton(
+        QueueToolbarButton(
             onClick = onToggleRepeat,
             containerColor = if (repeatMode != Player.REPEAT_MODE_OFF) {
                 MaterialTheme.colorScheme.primary
@@ -1506,7 +1463,7 @@ private fun QueueControlsToolbar(
             )
         }
         Spacer(modifier = Modifier.width(12.dp))
-        GlassIconButton(
+        QueueToolbarButton(
             onClick = onTimerClick,
             containerColor = if (isTimerActive.value) {
                 MaterialTheme.colorScheme.primary
@@ -1526,28 +1483,12 @@ private fun QueueControlsToolbar(
         }
     }
 
-    if (glassPlacement() == GlassPlacement.Glass) {
-        // One piece of glass for the whole toolbar (spec §2 "Top-bar group"): the buttons inside
-        // see OnGlass and render as fills, and "on" states keep the prominent primary fill.
-        GlassGroup(
-            modifier = modifier.fillMaxHeight(),
-            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.Center
-        ) {
-            buttons()
-        }
-        return
-    }
-
     val toolbarShape = RoundedCornerShape(percent = 50)
     Box(
         modifier = modifier
             .fillMaxHeight()
-            .glassPanel(
-                shape = toolbarShape,
-                color = MaterialTheme.colorScheme.surfaceContainerHighest,
-                effectScale = 0.5f
-            )
+            .clip(toolbarShape)
+            .background(MaterialTheme.colorScheme.surfaceContainerHighest)
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
@@ -1560,45 +1501,28 @@ private fun QueueControlsToolbar(
 }
 
 /**
- * The queue's floating more-options action in glass mode (spec §2 "Floating action"): refracts
- * the list recording it floats over, prominent in the tertiary container colour it has always
- * had, with the press light and squash instead of a ripple.
+ * A circular toolbar button: a tonal [Surface] with a ripple. The Surface keeps its default
+ * `contentColorFor(containerColor)`, so an inactive `surfaceContainer` button shows `onSurface`
+ * icons, as it always has; [contentColor] only reaches colours outside the scheme.
  */
 @Composable
-private fun QueueFloatingGlassAction(
+private fun QueueToolbarButton(
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    containerColor: Color,
+    contentColor: Color,
+    content: @Composable BoxScope.() -> Unit
 ) {
-    val scope = rememberCoroutineScope()
-    val highlight = remember(scope) { InteractiveHighlight(scope) }
-    val reduceMotion = LocalGlassReduceMotion.current
-    val layerBlock: GraphicsLayerScope.() -> Unit = remember(highlight, reduceMotion) {
-        { applyGlassPress(highlight, reduceMotion) }
-    }
-    Box(
-        modifier = modifier
-            .liquidGlass(
-                recipe = resolveRecipe(GlassRole.FloatingAction),
-                shape = CircleShape,
-                prominent = true,
-                accent = MaterialTheme.colorScheme.tertiaryContainer,
-                layerBlock = layerBlock
-            )
-            .then(highlight.modifier)
-            .then(highlight.gestureModifier)
-            .glassClickable(
-                onClick = onClick,
-                enabled = true,
-                shape = CircleShape,
-                indication = null
-            ),
-        contentAlignment = Alignment.Center
-    ) {
-        Icon(
-            imageVector = Icons.Rounded.MoreHoriz,
-            contentDescription = stringResource(R.string.queue_cd_more_action),
-            tint = MaterialTheme.colorScheme.onTertiaryContainer
-        )
+    CompositionLocalProvider(LocalContentColor provides contentColor) {
+        Surface(
+            modifier = Modifier
+                .size(48.dp)
+                .clip(CircleShape)
+                .clickable(interactionSource = null, indication = ripple(), onClick = onClick),
+            shape = CircleShape,
+            color = containerColor
+        ) {
+            Box(contentAlignment = Alignment.Center, content = content)
+        }
     }
 }
 

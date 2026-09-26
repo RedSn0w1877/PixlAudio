@@ -496,11 +496,6 @@
     <string name="settings_exp_ui_style_subtitle">Liquid Glass makes surfaces refract what\'s behind them. Material 3 keeps them solid and tonal.</string>
     <string name="settings_exp_ui_style_glass">Liquid Glass</string>
     <string name="settings_exp_ui_style_m3">Material 3</string>
-    <string name="settings_exp_liquid_glass_title">Liquid Glass</string>
-    <string name="settings_exp_liquid_glass_subtitle">How see-through the glass is on the nav bar, player, top bars and sheets. Left is clear, right is frosted.</string>
-    <string name="settings_exp_liquid_glass_needs_android12">Liquid Glass needs Android 12 or newer, so this device shows Material 3.</string>
-    <string name="settings_exp_liquid_glass_blur_only">On Android 12 the glass is frosted only. The bending edges need Android 13.</string>
-    <string name="settings_exp_liquid_glass_value">%1$d%%</string>
     <string name="settings_exp_step1_delay_header">Step 1 · Choose what to delay</string>
     <string name="settings_exp_delay_everything_title">Delay everything</string>
     <string name="settings_exp_delay_everything_subtitle">Hold the full player content until the sheet background is fully expanded.</string>

@@ -13,7 +13,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp
 import com.theveloper.pixelplay.data.preferences.NavBarStyle
 import com.theveloper.pixelplay.presentation.viewmodel.PlayerSheetState
-import com.theveloper.pixelplay.ui.glass.isGlassEnabled
 
 private const val PREDICTIVE_BACK_SWIPE_EDGE_LEFT = 0
 private const val PREDICTIVE_BACK_SWIPE_EDGE_RIGHT = 1
@@ -99,8 +98,6 @@ internal fun rememberSheetVisualState(
         }
     }
 
-    val isGlass = isGlassEnabled
-
     val overallSheetTopCornerRadiusProvider: () -> Dp = remember(
         showPlayerContentArea,
         playerContentExpansionFraction,
@@ -109,11 +106,10 @@ internal fun rememberSheetVisualState(
         navBarCornerRadiusDp,
         isNavBarHidden,
         swipeDismissProgress,
-        currentSheetContentState,
-        isGlass
+        currentSheetContentState
     ) {
         {
-            val collapsedCornerTarget = if (isGlass || isNavBarHidden) {
+            val collapsedCornerTarget = if (isNavBarHidden) {
                 32.dp
             } else if (navBarStyle == NavBarStyle.DEFAULT) {
                 navBarCornerRadiusDp
@@ -159,11 +155,10 @@ internal fun rememberSheetVisualState(
         swipeDismissProgress,
         isNavBarHidden,
         navBarCornerRadiusDp,
-        currentSheetContentState,
-        isGlass
+        currentSheetContentState
     ) {
         {
-            val collapsedRadius = if (isGlass || isNavBarHidden) {
+            val collapsedRadius = if (isNavBarHidden) {
                 32.dp
             } else if (navBarStyle == NavBarStyle.DEFAULT) {
                 10.dp

@@ -353,13 +353,3 @@ License: https://www.apache.org/licenses/LICENSE-2.0
 The app links the published `io.github.kyant0:backdrop` and `io.github.kyant0:shapes` libraries,
 which draw the optional Liquid Glass theme (backdrop sampling, blur, lens refraction, highlights,
 shadows, and continuous-corner capsule and rounded-rectangle shapes).
-
-The following files in `app/src/main/java/com/theveloper/pixelplay/ui/glass/` contain code
-ported and modified from the project's catalog app and library, under the same licence:
-
-- `PageBackdrop.kt`: the layer backdrop and its inverse-transform scope, changed to record once per frame.
-- `GlassDragPhysics.kt`: `DampedDragAnimation`, the slop-free drag detector and `InteractiveHighlight`.
-- `LiquidNavBar.kt`: after the catalog's `LiquidBottomTabs`.
-- `LiquidGlassSliders.kt`: after the catalog's `LiquidSlider`.
-- `LiquidGlassToggles.kt`: after the catalog's `LiquidToggle`.
-- `GlassComponents.kt`: the button press transform and prominent tint, after the catalog's `LiquidButton`.

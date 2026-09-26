@@ -10,6 +10,7 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.border
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -18,6 +19,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.ripple
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -57,9 +59,6 @@ import com.theveloper.pixelplay.data.model.Song
 import com.theveloper.pixelplay.presentation.components.subcomps.EnhancedSongListItem
 import com.theveloper.pixelplay.presentation.viewmodel.PlayerViewModel
 import com.theveloper.pixelplay.presentation.viewmodel.PlaylistViewModel
-import com.theveloper.pixelplay.ui.glass.glassClickable
-import com.theveloper.pixelplay.ui.glass.glassTonal
-import com.theveloper.pixelplay.ui.glass.isGlassEnabled
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.launch
@@ -460,23 +459,13 @@ private fun YourMixShuffleFab(
                 scaleX = entranceScale.value * pressScale
                 scaleY = entranceScale.value * pressScale
             }
-            // The shelf is content, not chrome: in Liquid Glass mode this is a tonal surface (its
-            // own colour plus the glass rim), never `drawBackdrop` — there is nothing under a feed
-            // item to refract. "On" stays prominent in primary. Material 3: the plain fill.
-            .then(
-                if (isGlassEnabled) {
-                    Modifier.glassTonal(CircleShape, if (isShuffleEnabled) colors.primary else colors.tertiaryContainer)
-                } else {
-                    Modifier
-                        .clip(CircleShape)
-                        .background(if (isShuffleEnabled) colors.primary else colors.tertiaryContainer)
-                }
-            )
-            .glassClickable(
-                onClick = onClick,
-                enabled = true,
-                shape = CircleShape,
-                interactionSource = interactionSource
+            .clip(CircleShape)
+            .background(if (isShuffleEnabled) colors.primary else colors.tertiaryContainer)
+            .clip(CircleShape)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = ripple(),
+                onClick = onClick
             ),
         contentAlignment = Alignment.Center
     ) {

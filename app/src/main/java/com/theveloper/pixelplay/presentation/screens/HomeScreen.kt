@@ -39,7 +39,7 @@ import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.SnackbarHost
-import com.theveloper.pixelplay.ui.glass.GlassScaffold
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -339,17 +339,13 @@ fun HomeScreen(
         settingsUiState.beta05CleanInstallDisclaimerDismissed == false &&
             !cleanInstallDisclaimerDismissedThisSession
 
-    // Glass mode: GlassScaffold records the feed into the screen's own backdrop and makes the top
-    // bar chrome over it, so the one action group and the scroll edge refract the feed. In
-    // Material 3 mode it is exactly the Scaffold this screen always used.
-
     Box(
         modifier = Modifier.fillMaxSize()
     ) {
-        GlassScaffold(
+        Scaffold(
             snackbarHost = { SnackbarHost(discoverySnackbar) },
             modifier = Modifier.fillMaxSize(),
-            topChrome = {
+            topBar = {
                 HomeGradientTopBar(
                     onNavigationIconClick = {
                         navController.navigateSafely(Screen.Settings.route)

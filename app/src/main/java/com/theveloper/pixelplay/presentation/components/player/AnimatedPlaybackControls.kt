@@ -16,23 +16,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import com.theveloper.pixelplay.ui.glass.GlassPlacement
-import com.theveloper.pixelplay.ui.glass.GlassRole
-import com.theveloper.pixelplay.ui.glass.GlassShapes
-import com.theveloper.pixelplay.ui.glass.InteractiveHighlight
-import com.theveloper.pixelplay.ui.glass.LocalGlassReduceMotion
-import com.theveloper.pixelplay.ui.glass.QuantizedCornerShapeCache
-import com.theveloper.pixelplay.ui.glass.applyGlassPress
-import com.theveloper.pixelplay.ui.glass.glassIsDark
-import com.theveloper.pixelplay.ui.glass.glassPanel
-import com.theveloper.pixelplay.ui.glass.glassPlacement
-import com.theveloper.pixelplay.ui.glass.liquidGlass
-import com.theveloper.pixelplay.ui.glass.resolveRecipe
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.layout.BoxScope
-import androidx.compose.ui.graphics.GraphicsLayerScope
-import androidx.compose.ui.graphics.Shape
-import androidx.compose.ui.semantics.Role
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
@@ -101,7 +84,6 @@ fun AnimatedPlaybackControls(
     tintNextIcon: Color = tintOtherIcons,
     playPauseIconSize: Dp = 36.dp,
     iconSize: Dp = 32.dp,
-    glassGlyphTint: Color = LocalMaterialTheme.current.onPrimaryContainer,
 ) {
     val isPlaying = isPlayingProvider()
     var lastClicked by remember { mutableStateOf<PlaybackButtonType?>(null) }
@@ -117,9 +99,6 @@ fun AnimatedPlaybackControls(
 
     val motionScheme = remember { MotionScheme.expressive() }
     val defaultSpatialDpSpec = remember { motionScheme.defaultSpatialSpec<Dp>() }
-    // Real glass only where there is something to refract (the full player provides its static
-    // background backdrop). Material 3 and the tonal/fill fallbacks keep the original buttons.
-    val glass = glassPlacement() == GlassPlacement.Glass
 
     LaunchedEffect(lastClicked, clickTrigger) {
         if (lastClicked != null) {
@@ -201,34 +180,20 @@ fun AnimatedPlaybackControls(
                     }
                     Unit
                 }
-                if (glass) {
-                    TransientGlassButton(
-                        onClick = onPreviousClick,
-                        modifier = Modifier
-                            .fillMaxHeight()
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.SkipPrevious,
-                            contentDescription = "Anterior",
-                            tint = glassGlyphTint,
-                            modifier = Modifier.size(iconSize)
-                        )
-                    }
-                } else {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxHeight()
-                            .glassPanel(CircleShape, colorPreviousButton, effectScale = 0.35f)
-                            .clickable(onClick = onPreviousClick),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.SkipPrevious,
-                            contentDescription = "Anterior",
-                            tint = tintPreviousIcon,
-                            modifier = Modifier.size(iconSize)
-                        )
-                    }
+                Box(
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .clip(CircleShape)
+                        .background(colorPreviousButton)
+                        .clickable(onClick = onPreviousClick),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.SkipPrevious,
+                        contentDescription = "Anterior",
+                        tint = tintPreviousIcon,
+                        modifier = Modifier.size(iconSize)
+                    )
                 }
 
                 val playCornerState = animateDpAsState(
@@ -242,74 +207,38 @@ fun AnimatedPlaybackControls(
                     hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                     onPlayPause()
                 }
-                if (glass) {
-                    // Persistent, prominent glass. Its corner morph is read in the draw phase through
-                    // playCornerState, so the morph never recomposes this row.
-                    PlayPauseGlassButton(
-                        onClick = onPlayPauseClick,
-                        cornerRadius = { playCornerState.value },
-                        accent = colorPlayPause,
-                        modifier = Modifier
-                            .fillMaxHeight()
-                    ) {
-                        MorphingPlayPauseIcon(
-                            isPlaying = playPauseVisualState,
-                            tint = tintPlayPauseIcon,
-                            size = playPauseIconSize,
-                            motionScheme = motionScheme
-                        )
-                    }
-                } else {
-                    // The corner morph is read in the layer blocks below, never in composition.
-                    val material = glassPlacement() == GlassPlacement.Material
-                    Box(
-                        modifier = Modifier
-                            .fillMaxHeight()
-                            .graphicsLayer {
-                                val playCorner = playCornerState.value
-                                clip = true
-                                shape = AbsoluteSmoothCornerShape(
-                                    cornerRadiusTL = playCorner,
-                                    smoothnessAsPercentTR = 60,
-                                    cornerRadiusBL = playCorner,
-                                    smoothnessAsPercentTL = 60,
-                                    cornerRadiusTR = playCorner,
-                                    smoothnessAsPercentBL = 60,
-                                    cornerRadiusBR = playCorner,
-                                    smoothnessAsPercentBR = 60
-                                )
-                            }
-                            // In Material 3 this is exactly glassPanel's `clip + background` inside
-                            // the squircle clip above (`clip` is a graphicsLayer with shape + clip),
-                            // with the radius read in the layer block. The tonal/fill fallbacks of
-                            // glass mode keep glassPanel; the real glass path is PlayPauseGlassButton.
-                            .then(
-                                if (material) {
-                                    Modifier
-                                        .graphicsLayer {
-                                            clip = true
-                                            shape = RoundedCornerShape(playCornerState.value)
-                                        }
-                                        .background(colorPlayPause)
-                                } else {
-                                    Modifier.glassPanel(
-                                        shape = RoundedCornerShape(playCornerState.value),
-                                        color = colorPlayPause,
-                                        effectScale = 0.4f,
-                                        tintAlpha = 0.55f
-                                    )
-                                }
+                // The corner morph is read in the layer blocks below, never in composition.
+                Box(
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .graphicsLayer {
+                            val playCorner = playCornerState.value
+                            clip = true
+                            shape = AbsoluteSmoothCornerShape(
+                                cornerRadiusTL = playCorner,
+                                smoothnessAsPercentTR = 60,
+                                cornerRadiusBL = playCorner,
+                                smoothnessAsPercentTL = 60,
+                                cornerRadiusTR = playCorner,
+                                smoothnessAsPercentBL = 60,
+                                cornerRadiusBR = playCorner,
+                                smoothnessAsPercentBR = 60
                             )
-                            .clickable(onClick = onPlayPauseClick),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        MorphingPlayPauseIcon(
-                            isPlaying = playPauseVisualState,
-                            tint = tintPlayPauseIcon,
-                            size = playPauseIconSize,
-                            motionScheme = motionScheme
-                        )
-                    }
+                        }
+                        .graphicsLayer {
+                            clip = true
+                            shape = RoundedCornerShape(playCornerState.value)
+                        }
+                        .background(colorPlayPause)
+                        .clickable(onClick = onPlayPauseClick),
+                    contentAlignment = Alignment.Center
+                ) {
+                    MorphingPlayPauseIcon(
+                        isPlaying = playPauseVisualState,
+                        tint = tintPlayPauseIcon,
+                        size = playPauseIconSize,
+                        motionScheme = motionScheme
+                    )
                 }
 
                 val onNextClick = {
@@ -321,34 +250,20 @@ fun AnimatedPlaybackControls(
                     }
                     Unit
                 }
-                if (glass) {
-                    TransientGlassButton(
-                        onClick = onNextClick,
-                        modifier = Modifier
-                            .fillMaxHeight()
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.SkipNext,
-                            contentDescription = "Siguiente",
-                            tint = glassGlyphTint,
-                            modifier = Modifier.size(iconSize)
-                        )
-                    }
-                } else {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxHeight()
-                            .glassPanel(CircleShape, colorNextButton, effectScale = 0.35f)
-                            .clickable(onClick = onNextClick),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.SkipNext,
-                            contentDescription = "Siguiente",
-                            tint = tintNextIcon,
-                            modifier = Modifier.size(iconSize)
-                        )
-                    }
+                Box(
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .clip(CircleShape)
+                        .background(colorNextButton)
+                        .clickable(onClick = onNextClick),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.SkipNext,
+                        contentDescription = "Siguiente",
+                        tint = tintNextIcon,
+                        modifier = Modifier.size(iconSize)
+                    )
                 }
             }
         )
@@ -424,107 +339,6 @@ private fun weightedControlsMeasurePolicy(
 }
 
 private val ControlsSpacing = 6.dp
-
-/**
- * Prev/next in glass mode (spec §2, "Prev/next"): only the glyph at rest; the glass *materialises*
- * under the finger — lens, highlight and a faint white body grow in with the press. Apple's rule:
- * glass appears by adding lensing, not by fading a panel in.
- *
- * The drawBackdrop node stays attached but draws nothing of its own while no press is in progress
- * (`drawWhile`), and the press transform is identity then too — exactly what a detached node shows.
- * Attaching it per press instead cost a recomposition, a node attach and two AGSL compiles (lens
- * and highlight, cleared again on detach) in the first frames of every press.
- */
-@Composable
-private fun TransientGlassButton(
-    onClick: () -> Unit,
-    modifier: Modifier,
-    content: @Composable BoxScope.() -> Unit
-) {
-    val scope = rememberCoroutineScope()
-    val highlight = remember(scope) { InteractiveHighlight(scope) }
-    val reduceMotion = LocalGlassReduceMotion.current
-    val recipe = resolveRecipe(GlassRole.TransientControl)
-    val pressProgress = remember(highlight) { { highlight.pressProgress } }
-    // Read in the draw phase only: composition never hears about the press.
-    val pressed = remember(highlight) { { highlight.pressProgress > 0f } }
-    val layerBlock: GraphicsLayerScope.() -> Unit = remember(highlight, reduceMotion) {
-        { if (highlight.pressProgress > 0f) applyGlassPress(highlight, reduceMotion) }
-    }
-    Box(
-        modifier = modifier
-            // Gesture + click first, outside the glass's clip and press transform.
-            .then(highlight.gestureModifier)
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                role = Role.Button,
-                onClick = onClick
-            )
-            .liquidGlass(
-                recipe = recipe,
-                shape = GlassShapes.Capsule,
-                materialize = pressProgress,
-                layerBlock = layerBlock,
-                drawWhile = pressed
-            )
-            .then(highlight.modifier),
-        contentAlignment = Alignment.Center,
-        content = content
-    )
-}
-
-/**
- * Play/pause in glass mode: persistent glass with the prominent recipe in the album accent, the
- * press light and squash, and the pause-to-play corner morph. The morph goes through
- * [QuantizedCornerShapeCache] because drawBackdrop only re-derives its outline when the shape it
- * is given stops being equal; a plain RoundedCornerShape (not a kyant shape) keeps the highlight
- * shader's corner radii right, since it only reads a CornerBasedShape's radii.
- *
- * Over a bright album background it adds Apple's "Clear" dimming under the tint.
- */
-@Composable
-private fun PlayPauseGlassButton(
-    onClick: () -> Unit,
-    cornerRadius: () -> Dp,
-    accent: Color,
-    modifier: Modifier,
-    content: @Composable BoxScope.() -> Unit
-) {
-    val scope = rememberCoroutineScope()
-    val highlight = remember(scope) { InteractiveHighlight(scope) }
-    val reduceMotion = LocalGlassReduceMotion.current
-    val recipe = resolveRecipe(GlassRole.PlayPause)
-    val shapes = remember { QuantizedCornerShapeCache() }
-    val latestCornerRadius by rememberUpdatedState(cornerRadius)
-    val shape: () -> Shape = remember(shapes) { { shapes.get(latestCornerRadius()) } }
-    val layerBlock: GraphicsLayerScope.() -> Unit = remember(highlight, reduceMotion) {
-        { applyGlassPress(highlight, reduceMotion) }
-    }
-    val dim = if (!glassIsDark()) 0.35f else 0f
-    Box(
-        modifier = modifier
-            .liquidGlass(
-                recipe = recipe,
-                shape = GlassShapes.Capsule,
-                dynamicShape = shape,
-                prominent = true,
-                accent = accent,
-                layerBlock = layerBlock,
-                backdropDim = dim
-            )
-            .then(highlight.modifier)
-            .then(highlight.gestureModifier)
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                role = Role.Button,
-                onClick = onClick
-            ),
-        contentAlignment = Alignment.Center,
-        content = content
-    )
-}
 
 @Composable
 private fun MorphingPlayPauseIcon(

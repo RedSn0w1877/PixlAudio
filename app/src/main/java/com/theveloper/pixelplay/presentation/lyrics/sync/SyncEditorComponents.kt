@@ -56,21 +56,15 @@ import com.theveloper.pixelplay.R
 import com.theveloper.pixelplay.presentation.viewmodel.LyricsSyncEditorStateHolder
 import com.theveloper.pixelplay.presentation.viewmodel.SyncNotice
 import com.theveloper.pixelplay.presentation.viewmodel.SyncNoticeKind
-import com.theveloper.pixelplay.ui.glass.GlassPressGlow
-import com.theveloper.pixelplay.ui.glass.GlassShapes
-import com.theveloper.pixelplay.ui.glass.isGlassEnabled
 import kotlinx.coroutines.delay
 
 /**
  * Colours for the editor. Everything sits on the animated artwork (dark, graded), so text is
- * white; the controls follow the theme mode:
- * - Material 3 Expressive: tonal/primary containers from the album scheme, round shapes.
- * - Liquid Glass: translucent white fills with a thin rim ("fills on glass", no extra backdrop
- *   nodes over an animated background), continuous-corner shapes and the glass press glow.
+ * white; the controls are tonal/primary containers from the album scheme, with round shapes.
+ * [rim] is always null today; the sync screens still draw it when set.
  */
 @Immutable
 internal class SyncEditorPalette(
-    val glass: Boolean,
     /** Highlight colour that reads on the dark artwork (the word being sung, selections). */
     val accent: Color,
     val onAccent: Color,
@@ -93,60 +87,36 @@ internal class SyncEditorPalette(
 @Composable
 internal fun rememberSyncEditorPalette(): SyncEditorPalette {
     val scheme = MaterialTheme.colorScheme
-    val glass = isGlassEnabled
-    return remember(scheme, glass) { buildPalette(scheme, glass) }
+    return remember(scheme) { buildPalette(scheme) }
 }
 
-private fun buildPalette(scheme: ColorScheme, glass: Boolean): SyncEditorPalette {
+private fun buildPalette(scheme: ColorScheme): SyncEditorPalette {
     val accent = if (scheme.primary.luminance() > 0.30f) scheme.primary else scheme.inversePrimary
     val onAccent = if (accent.luminance() > 0.45f) Color(0xFF111114) else Color.White
-    return if (glass) {
-        SyncEditorPalette(
-            glass = true,
-            accent = accent,
-            onAccent = onAccent,
-            padContainer = Color.White.copy(alpha = 0.16f),
-            onPad = Color.White,
-            chipContainer = Color.White.copy(alpha = 0.12f),
-            onChip = Color.White,
-            rim = Color.White.copy(alpha = 0.24f),
-            panelContainer = Color.Black.copy(alpha = 0.32f),
-            onPanel = Color.White,
-            panelButton = Color.White.copy(alpha = 0.12f),
-            onPanelButton = Color.White,
-            prominent = accent,
-            onProminent = onAccent,
-            capsule = GlassShapes.Capsule,
-            padShape = GlassShapes.rounded(36.dp),
-            panelShape = GlassShapes.rounded(32.dp),
-        )
-    } else {
-        SyncEditorPalette(
-            glass = false,
-            accent = accent,
-            onAccent = onAccent,
-            padContainer = scheme.primaryContainer,
-            onPad = scheme.onPrimaryContainer,
-            chipContainer = scheme.secondaryContainer,
-            onChip = scheme.onSecondaryContainer,
-            rim = null,
-            panelContainer = scheme.surfaceContainer,
-            onPanel = scheme.onSurface,
-            panelButton = scheme.secondaryContainer,
-            onPanelButton = scheme.onSecondaryContainer,
-            prominent = scheme.primary,
-            onProminent = scheme.onPrimary,
-            capsule = CircleShape,
-            padShape = RoundedCornerShape(36.dp),
-            panelShape = RoundedCornerShape(28.dp),
-        )
-    }
+    return SyncEditorPalette(
+        accent = accent,
+        onAccent = onAccent,
+        padContainer = scheme.primaryContainer,
+        onPad = scheme.onPrimaryContainer,
+        chipContainer = scheme.secondaryContainer,
+        onChip = scheme.onSecondaryContainer,
+        rim = null,
+        panelContainer = scheme.surfaceContainer,
+        onPanel = scheme.onSurface,
+        panelButton = scheme.secondaryContainer,
+        onPanelButton = scheme.onSecondaryContainer,
+        prominent = scheme.primary,
+        onProminent = scheme.onPrimary,
+        capsule = CircleShape,
+        padShape = RoundedCornerShape(36.dp),
+        panelShape = RoundedCornerShape(28.dp),
+    )
 }
 
-/** Press feedback that matches the theme mode: glass glow or the Material ripple. */
+/** Press feedback for the editor's controls: the Material ripple. */
+@Suppress("UNUSED_PARAMETER")
 @Composable
-internal fun editorIndication(palette: SyncEditorPalette): Indication =
-    if (palette.glass) GlassPressGlow else ripple()
+internal fun editorIndication(palette: SyncEditorPalette): Indication = ripple()
 
 /**
  * The editor's one button shape: a 56 dp capsule. [prominent] is the primary action;

@@ -3,9 +3,7 @@
 package com.theveloper.pixelplay.presentation.screens
 
 import androidx.compose.material3.AlertDialog
-import com.theveloper.pixelplay.ui.glass.GlassIconButton
-import com.theveloper.pixelplay.ui.glass.GlassScaffold
-import com.theveloper.pixelplay.ui.glass.isGlassEnabled
+import androidx.compose.material3.Scaffold
 import com.theveloper.pixelplay.presentation.navigation.navigateSafely
 import com.theveloper.pixelplay.presentation.navigation.navigateSafelyReplacing
 
@@ -840,12 +838,9 @@ fun LibraryScreen(
 
     val headerContainerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
 
-    // Glass mode: the tab pages are recorded and the header is chrome over them (its settings
-    // button is prominent glass). The pages start below the header, so there is no scroll edge.
-    GlassScaffold(
+    Scaffold(
         modifier = Modifier.background(brush = gradientBrush),
-        scrollEdge = false,
-        topChrome = {
+        topBar = {
             Column(
                 modifier = Modifier.background(headerContainerColor)
             ) {
@@ -913,35 +908,20 @@ fun LibraryScreen(
                                 }
                             }
                         }
-                        if (isGlassEnabled) {
-                            GlassIconButton(
-                                onClick = { navController.navigateSafely(Screen.Settings.route) },
-                                modifier = Modifier.padding(end = 14.dp),
-                                size = 40.dp,
+                        FilledIconButton(
+                            modifier = Modifier.padding(end = 14.dp),
+                            colors = IconButtonDefaults.filledIconButtonColors(
                                 containerColor = MaterialTheme.colorScheme.primaryContainer,
                                 contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                            ) {
-                                Icon(
-                                    painter = painterResource(R.drawable.rounded_settings_24),
-                                    contentDescription = stringResource(R.string.library_cd_open_settings)
-                                )
+                            ),
+                            onClick = {
+                                navController.navigateSafely(Screen.Settings.route)
                             }
-                        } else {
-                            FilledIconButton(
-                                modifier = Modifier.padding(end = 14.dp),
-                                colors = IconButtonDefaults.filledIconButtonColors(
-                                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                                ),
-                                onClick = {
-                                    navController.navigateSafely(Screen.Settings.route)
-                                }
-                            ) {
-                                Icon(
-                                    painter = painterResource(R.drawable.rounded_settings_24),
-                                    contentDescription = stringResource(R.string.library_cd_open_settings)
-                                )
-                            }
+                        ) {
+                            Icon(
+                                painter = painterResource(R.drawable.rounded_settings_24),
+                                contentDescription = stringResource(R.string.library_cd_open_settings)
+                            )
                         }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(

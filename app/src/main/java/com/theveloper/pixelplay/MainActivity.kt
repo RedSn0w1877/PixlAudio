@@ -83,7 +83,6 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalView
@@ -137,39 +136,9 @@ import com.theveloper.pixelplay.presentation.navigation.Screen
 import com.theveloper.pixelplay.presentation.screens.SetupScreen
 import com.theveloper.pixelplay.presentation.viewmodel.MainViewModel
 import com.theveloper.pixelplay.presentation.viewmodel.PlayerViewModel
-import com.theveloper.pixelplay.ui.glass.AppUiStyle
-import com.theveloper.pixelplay.ui.glass.LiquidGlassNavBar
-import com.theveloper.pixelplay.ui.glass.LiquidNavItem
-import com.theveloper.pixelplay.ui.glass.LocalAppBackdrop
-import com.theveloper.pixelplay.ui.glass.LocalAppUiStyle
-import com.theveloper.pixelplay.ui.glass.LocalPageBackdrop
-import com.theveloper.pixelplay.ui.glass.LocalGlassIntensity
-import com.theveloper.pixelplay.ui.glass.DefaultGlassIntensity
-import com.theveloper.pixelplay.ui.glass.GlassCapability
-import com.theveloper.pixelplay.ui.glass.GlassLayer
-import com.theveloper.pixelplay.ui.glass.LocalGlassCapability
-import com.theveloper.pixelplay.ui.glass.LocalGlassHighContrast
-import com.theveloper.pixelplay.ui.glass.LocalGlassIsDark
-import com.theveloper.pixelplay.ui.glass.LocalGlassLayer
-import com.theveloper.pixelplay.ui.glass.LocalGlassReduceMotion
-import com.theveloper.pixelplay.ui.glass.LocalRecordingBackdrops
-import com.theveloper.pixelplay.ui.glass.captureWindowSnapshot
-import com.theveloper.pixelplay.ui.glass.clearWindowSnapshot
-import com.theveloper.pixelplay.ui.glass.glassSnapshotSource
-import com.theveloper.pixelplay.ui.glass.readGlassHighContrast
-import com.theveloper.pixelplay.ui.glass.readGlassReduceMotion
-import androidx.compose.runtime.withFrameNanos
-import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.lifecycle.compose.LifecycleResumeEffect
-import com.kyant.backdrop.backdrops.emptyBackdrop
-import com.theveloper.pixelplay.ui.glass.pageBackdrop
-import com.theveloper.pixelplay.ui.glass.rememberPageBackdrop
-import com.kyant.backdrop.drawBackdrop
-import com.kyant.backdrop.effects.blur
-import com.kyant.backdrop.effects.lens
-import com.kyant.backdrop.effects.vibrancy
-import com.kyant.backdrop.highlight.Highlight
-import com.kyant.backdrop.shadow.InnerShadow
+import com.theveloper.pixelplay.ui.theme.LocalHighContrastText
+import com.theveloper.pixelplay.ui.theme.readHighContrastText
 import com.theveloper.pixelplay.ui.theme.PixelPlayTheme
 import com.theveloper.pixelplay.ui.theme.LocalShowScrollbar
 import com.theveloper.pixelplay.utils.CrashHandler
@@ -178,11 +147,6 @@ import com.theveloper.pixelplay.utils.LogUtils
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.coroutines.delay
-import androidx.compose.runtime.snapshotFlow
-import kotlinx.coroutines.flow.collectLatest
-import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.ui.graphics.layer.GraphicsLayer
-import com.theveloper.pixelplay.ui.glass.PageBackdrop
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.LayoutDirection
 import kotlinx.coroutines.launch
@@ -333,9 +297,7 @@ class MainActivity : ComponentActivity() {
             }
 
             CompositionLocalProvider(
-                LocalShowScrollbar provides showScrollbar,
-                // Glass follows the app's own light/dark choice, not the system one.
-                LocalGlassIsDark provides useDarkTheme
+                LocalShowScrollbar provides showScrollbar
             ) {
                 PixelPlayTheme(
                     darkTheme = useDarkTheme
@@ -732,67 +694,13 @@ class MainActivity : ComponentActivity() {
         val disableBlurAllOver by playerViewModel.disableBlurAllOver.collectAsStateWithLifecycle()
         val predictiveBackCollapseFraction by playerViewModel.predictiveBackCollapseFraction.collectAsStateWithLifecycle()
 
-        // ─── Liquid Glass ─────────────────────────────────────────────────────
-        // Uses Kyant0/AndroidLiquidGlass (io.github.kyant0:backdrop) rather than a hand-rolled
-        // shader stack. Its refraction is a real SDF of the rounded rect with per-channel
-        // dispersion, which is what actually makes the edges read as glass.
-        //
-        // One shared recording of the page content, which the chrome (nav bar, mini player) samples.
-        val liquidGlassIntensity by userPreferencesRepository.liquidGlassIntensityFlow
-            .collectAsStateWithLifecycle(initialValue = DefaultGlassIntensity)
-        // Record-once backdrop (see PageBackdrop.kt) instead of the library's stock
-        // rememberLayerBackdrop, which records the whole page subtree twice per frame.
-        val glassBackdrop = rememberPageBackdrop()
-        val appUiStyleName by userPreferencesRepository.appUiStyleFlow
-            .collectAsStateWithLifecycle(initialValue = AppUiStyle.Default.name)
-        // What this device can draw: API 33+ everything, 31-32 blur only, 30 nothing (glass then
-        // resolves to Material 3, but the saved preference is kept).
-        // Battery saver drops the full lens/shader recipes to the cheaper blur-only tier.
-        val powerSave by com.theveloper.pixelplay.ui.glass.rememberPowerSaveMode()
-        val glassCapability = remember(powerSave) { GlassCapability.forDevice(powerSave = powerSave) }
-        // "Disable blur all over" wins over the style choice: it is an existing accessibility /
-        // performance escape hatch, and glass is the single most expensive thing to draw here.
-        val appUiStyle = AppUiStyle.resolve(appUiStyleName, disableBlurAllOver, glassCapability)
-        val glassEnabled = appUiStyle.isGlass
-
-        // System accessibility settings glass adapts to, re-read whenever the app comes back.
-        val glassContext = LocalContext.current
-        var glassReduceMotion by remember { mutableStateOf(readGlassReduceMotion(glassContext)) }
-        var glassHighContrast by remember { mutableStateOf(readGlassHighContrast(glassContext)) }
-        LifecycleResumeEffect(glassContext) {
-            glassReduceMotion = readGlassReduceMotion(glassContext)
-            glassHighContrast = readGlassHighContrast(glassContext)
+        // System high-contrast text, re-read whenever the app comes back. The lyrics chrome uses it
+        // for heavier fills.
+        val a11yContext = LocalContext.current
+        var highContrastText by remember { mutableStateOf(readHighContrastText(a11yContext)) }
+        LifecycleResumeEffect(a11yContext) {
+            highContrastText = readHighContrastText(a11yContext)
             onPauseOrDispose { }
-        }
-
-        // Bottom sheets render into their own Android window (ModalBottomSheet's internal
-        // Dialog), so they cannot draw the live page layer. Instead, while at least one glass sheet
-        // is registered (PageBackdrop.snapshotRequests), the whole Scaffold — page, nav bar and
-        // mini player — is recorded into `glassWindowLayer` (see glassSnapshotSource on the
-        // Scaffold) and rasterised at half size: once as soon as that recording exists, once more
-        // after the sheet's enter animation has settled. Nothing runs on a timer, and the bitmap is
-        // dropped as soon as the last sheet closes. Captured here, in the main window's own
-        // composition, because it is the window that owns the layer.
-        val glassWindowLayer = rememberGraphicsLayer()
-        val glassSnapshotScratch = rememberGraphicsLayer()
-        // The request count is observed here and in glassSnapshotSource's draw, never in this
-        // composition, so opening or closing a sheet doesn't recompose the whole main UI.
-        val glassEnabledState = rememberUpdatedState(glassEnabled)
-        val snapshotDensity = LocalDensity.current
-        val snapshotLayoutDirection = LocalLayoutDirection.current
-        LaunchedEffect(glassBackdrop) {
-            snapshotFlow { glassEnabledState.value && glassBackdrop.snapshotRequests > 0 }
-                .collectLatest { captureWindowSnapshot ->
-                    syncGlassWindowSnapshot(
-                        captureWindowSnapshot = captureWindowSnapshot,
-                        glassEnabled = glassEnabledState.value,
-                        glassBackdrop = glassBackdrop,
-                        glassWindowLayer = glassWindowLayer,
-                        glassSnapshotScratch = glassSnapshotScratch,
-                        snapshotDensity = snapshotDensity,
-                        snapshotLayoutDirection = snapshotLayoutDirection
-                    )
-                }
         }
 
         val rootView = LocalView.current
@@ -813,16 +721,7 @@ class MainActivity : ComponentActivity() {
             rootView.rootView?.isHapticFeedbackEnabled = hapticsEnabled
         }
 
-        // Glass mode keeps the Surface itself closer to the screen edge than Material3 does,
-        // trading that space for slack inside the Surface's own clip bounds — see the
-        // LiquidGlassNavBar call site below, which re-adds the same amount as inset so the bar's
-        // resting position looks unchanged. Without that slack the pill's press-scale overshoot
-        // at the leftmost/rightmost tab has nowhere to go and gets clipped by the Surface's own
-        // shape, the same class of bug the vertical overshoot had before the Surface was made
-        // taller than the visible bar.
-        val horizontalPadding = if (glassEnabled) {
-            4.dp
-        } else if (navBarStyle == NavBarStyle.DEFAULT) {
+        val horizontalPadding = if (navBarStyle == NavBarStyle.DEFAULT) {
             if (systemNavBarInset > 30.dp) 16.dp else 14.dp
         } else {
             0.dp
@@ -908,17 +807,7 @@ class MainActivity : ComponentActivity() {
         CompositionLocalProvider(
             LocalAppHapticsConfig provides appHapticsConfig,
             LocalHapticFeedback provides scopedHapticFeedback,
-            // Every glass component reads these instead of taking the style, backdrop and
-            // intensity as parameters threaded down through dozens of composables.
-            LocalAppUiStyle provides appUiStyle,
-            LocalAppBackdrop provides glassBackdrop,
-            // Same recording, on a channel that is never re-scoped to empty further down, so
-            // sheets/dialogs/popups can still refract the page. See LocalPageBackdrop's doc.
-            LocalPageBackdrop provides glassBackdrop,
-            LocalGlassIntensity provides liquidGlassIntensity,
-            LocalGlassCapability provides glassCapability,
-            LocalGlassReduceMotion provides glassReduceMotion,
-            LocalGlassHighContrast provides glassHighContrast
+            LocalHighContrastText provides highContrastText
         ) {
             AppSidebarDrawer(
                 drawerState = drawerState,
@@ -937,17 +826,7 @@ class MainActivity : ComponentActivity() {
 
                 Scaffold(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .then(
-                        if (glassEnabled) {
-                            Modifier.glassSnapshotSource(
-                                backdrop = glassBackdrop,
-                                windowLayer = glassWindowLayer
-                            )
-                        } else {
-                            Modifier
-                        }
-                    ),
+                    .fillMaxSize(),
                 bottomBar = {
                     if (shouldRenderNavigationBar) {
                         val currentSongId by remember {
@@ -987,40 +866,28 @@ class MainActivity : ComponentActivity() {
                         }
                         val navBarShapeCache = remember { NavBarShapeCache() }
 
-                        // Top/bottom corner radii, read in the DRAW phase by both the clip
-                        // layer and the glass shape so the two can never drift apart. Kept as a
-                        // lambda (not a remembered value) on purpose: it reads animated state,
+                        // Top/bottom corner radii, read in the DRAW phase by the clip layer. Kept as
+                        // a lambda (not a remembered value) on purpose: it reads animated state,
                         // and evaluating it during draw is what lets the radius animate without
                         // recomposing or re-laying-out the bar.
                         val navBarCorners: () -> Pair<Dp, Dp> = {
-                            // Liquid Glass reads as a floating pill/capsule (the reference
-                            // design this whole thing is copying), not as a rounded rect at
-                            // whatever radius the user dialed in for the Material3 bar. Force a
-                            // full capsule off the bar's own height whenever glass is on, unless
-                            // the user chose edge-to-edge FULL_WIDTH, whose square bottom is a
-                            // deliberate, unrelated choice.
-                            if (glassEnabled && navBarStyle != NavBarStyle.FULL_WIDTH) {
-                                val capsule = navBarHeight / 2
-                                capsule to capsule
-                            } else {
-                                val fraction = playerViewModel.playerContentExpansionFraction.value
-                                val safeFraction = fraction.coerceIn(0f, 1f)
-                                val topDp = when {
-                                    navBarStyle == NavBarStyle.DEFAULT -> animatedDefaultTopCornerRadius.value
-                                    navBarStyle == NavBarStyle.FULL_WIDTH -> lerp(navBarCornerRadius.dp, 26.dp, safeFraction)
-                                    showPlayerContentArea -> if (fraction < 0.2f) {
-                                        lerp(navBarCornerRadius.dp, 26.dp, (fraction / 0.2f).coerceIn(0f, 1f))
-                                    } else {
-                                        26.dp
-                                    }
-                                    else -> navBarCornerRadius.dp
+                            val fraction = playerViewModel.playerContentExpansionFraction.value
+                            val safeFraction = fraction.coerceIn(0f, 1f)
+                            val topDp = when {
+                                navBarStyle == NavBarStyle.DEFAULT -> animatedDefaultTopCornerRadius.value
+                                navBarStyle == NavBarStyle.FULL_WIDTH -> lerp(navBarCornerRadius.dp, 26.dp, safeFraction)
+                                showPlayerContentArea -> if (fraction < 0.2f) {
+                                    lerp(navBarCornerRadius.dp, 26.dp, (fraction / 0.2f).coerceIn(0f, 1f))
+                                } else {
+                                    26.dp
                                 }
-                                val bottomDp = when (navBarStyle) {
-                                    NavBarStyle.FULL_WIDTH -> 0.dp
-                                    else -> animatedNavBarCornerRadius.value
-                                }
-                                topDp to bottomDp
+                                else -> navBarCornerRadius.dp
                             }
+                            val bottomDp = when (navBarStyle) {
+                                NavBarStyle.FULL_WIDTH -> 0.dp
+                                else -> animatedNavBarCornerRadius.value
+                            }
+                            topDp to bottomDp
                         }
 
                         Box(
@@ -1061,91 +928,20 @@ class MainActivity : ComponentActivity() {
                                         val (topDp, bottomDp) = navBarCorners()
                                         shape = navBarShapeCache.get(this, topDp.toPx(), bottomDp.toPx(), useSmoothCorners)
                                         clip = true
-                                        // Stronger, softer shadow with glass enabled: a piece
-                                        // of glass reads as a physical object mainly through
-                                        // separation from the page beneath it, and the default
-                                        // elevation here was tuned for an opaque bar sitting
-                                        // nearly flush against the background. Kept here rather
-                                        // than using drawBackdrop's own `shadow`, because that
-                                        // one draws OUTSIDE the shape and `clip = true` above
-                                        // would cut it away entirely.
-                                        shadowElevation = if (glassEnabled) {
-                                            navBarElevationPx * 2.2f
-                                        } else {
-                                            navBarElevationPx
-                                        }
-                                        if (glassEnabled) {
-                                            ambientShadowColor = Color.Black.copy(alpha = 0.22f)
-                                            spotShadowColor = Color.Black.copy(alpha = 0.35f)
-                                        }
-                                    }
-                                    .then(Modifier),
-                                // The glass supplies the surface, so the opaque container
-                                // colour would sit on top of it and hide it entirely.
-                                color = if (glassEnabled) {
-                                    Color.Transparent
-                                } else {
-                                    NavigationBarDefaults.containerColor
-                                }
+                                        shadowElevation = navBarElevationPx
+                                    },
+                                color = NavigationBarDefaults.containerColor
                             ) {
-                                if (glassEnabled) {
-                                    // The selected tab becomes its own draggable piece of glass
-                                    // sitting on the bar's glass — drag it between tabs and it
-                                    // stretches, overshoots and settles on spring physics.
-                                    val liquidNavItems = remember(commonNavItems) {
-                                        commonNavItems.map { item ->
-                                            LiquidNavItem(
-                                                label = item.label,
-                                                iconRes = item.iconResId,
-                                                selectedIconRes = item.selectedIconResId
-                                                    ?: item.iconResId
-                                            )
-                                        }
-                                    }
-                                    val selectedNavIndex = remember(currentRoute, commonNavItems) {
-                                        commonNavItems.indexOfFirst { it.screen.route == currentRoute }
-                                            .coerceAtLeast(0)
-                                    }
-                                    LiquidGlassNavBar(
-                                        items = liquidNavItems,
-                                        selectedIndex = selectedNavIndex,
-                                        onSelected = { index ->
-                                            val target = commonNavItems.getOrNull(index)
-                                            if (target != null) {
-                                                if (target.screen.route == currentRoute) {
-                                                    navController.popBackStack(target.screen.route, inclusive = false)
-                                                } else {
-                                                    navController.navigateSafely(target.screen.route) {
-                                                        popUpTo(navController.graph.startDestinationId) {
-                                                            saveState = true
-                                                        }
-                                                        launchSingleTop = true
-                                                        restoreState = true
-                                                    }
-                                                }
-                                            }
-                                        },
-                                        showLabels = !navBarCompactMode,
-                                        // The extra 16dp here is slack for the pill's press-scale
-                                        // overshoot at the leftmost/rightmost tab, not visual
-                                        // styling — it offsets the reduced horizontalPadding above
-                                        // so the bar's resting position/width looks the same, but
-                                        // now has room inside the Surface's own clip bounds before
-                                        // it gets cut off. See the horizontalPadding comment.
-                                        modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)
-                                    )
-                                } else {
-                                    PlayerInternalNavigationBar(
-                                        navController = navController,
-                                        navItems = commonNavItems,
-                                        currentRoute = currentRoute,
-                                        navBarStyle = navBarStyle,
-                                        compactMode = navBarCompactMode,
-                                        bottomBarPadding = bottomBarPadding,
-                                        onSearchIconDoubleTap = onSearchIconDoubleTap,
-                                        modifier = Modifier.fillMaxSize()
-                                    )
-                                }
+                                PlayerInternalNavigationBar(
+                                    navController = navController,
+                                    navItems = commonNavItems,
+                                    currentRoute = currentRoute,
+                                    navBarStyle = navBarStyle,
+                                    compactMode = navBarCompactMode,
+                                    bottomBarPadding = bottomBarPadding,
+                                    onSearchIconDoubleTap = onSearchIconDoubleTap,
+                                    modifier = Modifier.fillMaxSize()
+                                )
                             }
                         }
                     }
@@ -1218,48 +1014,15 @@ class MainActivity : ComponentActivity() {
                                         }
                                     }
                                 }
-                                // Records the page content so the glass chrome has something to
-                                // refract. This sits *inside* the expansion-blur layer above (the
-                                // RenderEffect applies to the whole layer, after this records), so
-                                // the recording — and every glass surface sampling it — sees the
-                                // page unblurred.
-                                .then(
-                                    if (glassEnabled) {
-                                        Modifier.pageBackdrop(glassBackdrop)
-                                    } else {
-                                        Modifier
-                                    }
-                                )
                         ) {
-                            // This Box is what `glassBackdrop` records (see `.pageBackdrop`
-                            // above). Anything inside AppNavigation is therefore a descendant of
-                            // that recording — if it sampled `glassBackdrop` too (the default via
-                            // LocalAppBackdrop), rendering the backdrop's offscreen copy would
-                            // have to redraw this same descendant, which would sample the backdrop
-                            // again, forever. That self-reference is what was crashing the app
-                            // (native stack overflow in RenderNode::prepareTreeImpl) — it wasn't
-                            // the nav bar or full player, it was every inline glass button/card/
-                            // sheet inside a screen (e.g. HomeScreen's shuffle FAB) sampling the
-                            // very backdrop their own ancestor was busy recording. Re-scoping to
-                            // `emptyBackdrop()` here breaks the cycle; inline glass components
-                            // then render their tonal content-layer look instead.
-                            CompositionLocalProvider(
-                                LocalAppBackdrop provides emptyBackdrop(),
-                                // Everything in a screen is the content layer: glass components
-                                // render tonal there (see glassPlacement), and anything that tries
-                                // to sample the page recording from inside it trips the guard.
-                                LocalGlassLayer provides GlassLayer.Content,
-                                LocalRecordingBackdrops provides setOf(glassBackdrop)
-                            ) {
-                                AppNavigation(
-                                    playerViewModel = playerViewModel,
-                                    navController = navController,
-                                    paddingValues = innerPadding,
-                                    userPreferencesRepository = userPreferencesRepository,
-                                    onSearchBarActiveChange = { isSearchBarActive = it },
-                                    onOpenSidebar = { scope.launch { drawerState.open() } }
-                                )
-                            }
+                            AppNavigation(
+                                playerViewModel = playerViewModel,
+                                navController = navController,
+                                paddingValues = innerPadding,
+                                userPreferencesRepository = userPreferencesRepository,
+                                onSearchBarActiveChange = { isSearchBarActive = it },
+                                onOpenSidebar = { scope.launch { drawerState.open() } }
+                            )
                         }
 
                         val isExpandedOrExpanding by remember {
@@ -1552,55 +1315,4 @@ private class DynamicSmoothCornerShape(
             cachedOutline = it
         }
     }
-}
-
-/** A glass window snapshot this recent is reused by the next sheet instead of re-captured. */
-private const val GLASS_SNAPSHOT_REUSE_MS = 1_500L
-
-/** Past a bottom sheet's enter animation: the refresh capture waits this long. */
-private const val GLASS_SHEET_SETTLE_MS = 600L
-
-/**
- * One step of the glass sheet snapshot lifecycle, run for each change of "a glass sheet wants a
- * window snapshot" (a newer change cancels it). Wanted: the whole window is rasterised at half size
- * once as soon as the recording exists (unless a fresh snapshot is on hand), and once more after the
- * sheet's enter animation has settled. Not wanted: the last capture is kept briefly so a sheet
- * opened right after another one closed (common) reuses it instead of stalling its enter animation
- * on a new capture, then dropped. Nothing runs on a timer.
- */
-private suspend fun syncGlassWindowSnapshot(
-    captureWindowSnapshot: Boolean,
-    glassEnabled: Boolean,
-    glassBackdrop: PageBackdrop,
-    glassWindowLayer: GraphicsLayer,
-    glassSnapshotScratch: GraphicsLayer,
-    snapshotDensity: Density,
-    snapshotLayoutDirection: LayoutDirection
-) {
-    if (!captureWindowSnapshot) {
-        if (glassEnabled) delay(GLASS_SNAPSHOT_REUSE_MS)
-        glassBackdrop.clearWindowSnapshot()
-        return
-    }
-    suspend fun captureOnce() {
-        // The window layer is attached this frame; give it up to a few frames to record.
-        repeat(4) {
-            withFrameNanos { }
-            val captured = runCatching {
-                glassBackdrop.captureWindowSnapshot(
-                    windowLayer = glassWindowLayer,
-                    scratchLayer = glassSnapshotScratch,
-                    density = snapshotDensity,
-                    layoutDirection = snapshotLayoutDirection
-                )
-            }.getOrDefault(false)
-            if (captured) return
-        }
-    }
-    // Each capture blocks the main thread while RenderThread rasterises the window, so never
-    // during the sheet's enter motion when avoidable: the first one only if there is no fresh
-    // snapshot to show, the refresh only once the sheet has settled.
-    if (!glassBackdrop.hasFreshWindowSnapshot(GLASS_SNAPSHOT_REUSE_MS)) captureOnce()
-    delay(GLASS_SHEET_SETTLE_MS)
-    captureOnce()
 }

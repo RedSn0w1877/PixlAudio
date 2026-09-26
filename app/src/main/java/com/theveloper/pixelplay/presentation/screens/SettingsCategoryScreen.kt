@@ -2,9 +2,7 @@ package com.theveloper.pixelplay.presentation.screens
 
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Switch
-import com.theveloper.pixelplay.ui.glass.GlassChrome
-import com.theveloper.pixelplay.ui.glass.glassScreenContent
-import com.theveloper.pixelplay.ui.glass.rememberGlassScreenBackdrop
+import com.theveloper.pixelplay.presentation.components.ScreenChrome
 import com.theveloper.pixelplay.presentation.navigation.navigateSafely
 import com.theveloper.pixelplay.presentation.components.BackupModuleSelectionDialog
 import com.theveloper.pixelplay.data.preferences.AiPreferencesRepository
@@ -410,7 +408,6 @@ fun SettingsCategoryScreen(
         }
     }
 
-    val screenGlass = rememberGlassScreenBackdrop()
     Box(
         modifier =
             Modifier.nestedScroll(nestedScrollConnection).fillMaxSize()
@@ -426,7 +423,7 @@ fun SettingsCategoryScreen(
 
         LazyColumn(
             state = lazyListState,
-            modifier = Modifier.fillMaxSize().glassScreenContent(screenGlass),
+            modifier = Modifier.fillMaxSize(),
             contentPadding = listContentPadding
         ) {
             item {
@@ -1692,7 +1689,7 @@ fun SettingsCategoryScreen(
             }
         }
 
-        GlassChrome(screenGlass) {
+        ScreenChrome {
             CollapsibleCommonTopBar(
                 collapseFraction = collapseFraction,
                 headerHeight = with(density) { topBarHeight.value.toDp() },

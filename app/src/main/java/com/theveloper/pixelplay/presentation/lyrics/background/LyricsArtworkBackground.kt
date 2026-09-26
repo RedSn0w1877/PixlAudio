@@ -24,10 +24,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
-import androidx.compose.runtime.State
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -35,23 +33,17 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
-import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.GraphicsLayerScope
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.drawscope.translate
-import androidx.compose.ui.layout.LayoutCoordinates
-import androidx.compose.ui.layout.onPlaced
-import androidx.compose.ui.unit.Density
-import com.kyant.backdrop.Backdrop
+import com.theveloper.pixelplay.ui.theme.rememberPowerSaveMode
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.platform.LocalConfiguration
@@ -103,68 +95,6 @@ class LyricsBackgroundState {
 
     /** True when the art is bright enough that the lyrics should use normal blending. */
     val isBrightArt: Boolean get() = bright.value
-
-    internal val source = BackdropSource()
-
-    /**
-     * The artwork background as a glass backdrop (`lyricsBgBackdrop`): the same sprites, grade
-     * and overlays, drawn straight from a canvas into each glass surface at that surface's
-     * offset. It never samples the lyric lines, and it re-draws only on the background's own
-     * 30 fps tick — lyric animation never touches it.
-     */
-    val backdrop: Backdrop = LyricsBackgroundBackdrop(source)
-}
-
-/** What [LyricsArtworkBackground] hands its backdrop: the live painter, the art and its bounds. */
-internal class BackdropSource {
-    var animator: BackgroundAnimator? = null
-    var painter: BackgroundPainter? = null
-    var brightArtScrim: Boolean = true
-    var baseFill: Color = Color.Black
-    /** No-art stand-in for the flowing gradient, with its crossfade alpha. */
-    var fallbackBrush: Brush? = null
-    var fallbackAlpha: State<Float>? = null
-    var coordinates: LayoutCoordinates? = null
-}
-
-private class LyricsBackgroundBackdrop(private val source: BackdropSource) : Backdrop {
-    override val isCoordinatesDependent: Boolean get() = true
-
-    override fun DrawScope.drawBackdrop(
-        density: Density,
-        coordinates: LayoutCoordinates?,
-        layerBlock: (GraphicsLayerScope.() -> Unit)?
-    ) {
-        val src = source.coordinates?.takeIf { it.isAttached }
-        val bgSize = src?.size ?: return
-        val w = bgSize.width.toFloat()
-        val h = bgSize.height.toFloat()
-        if (w <= 0f || h <= 0f) return
-        val origin = if (coordinates != null && coordinates.isAttached) {
-            // Different hierarchies (another window) cannot be related: draw unshifted.
-            try {
-                src.localPositionOf(coordinates, Offset.Zero)
-            } catch (_: IllegalArgumentException) {
-                Offset.Zero
-            }
-        } else {
-            Offset.Zero
-        }
-        translate(-origin.x, -origin.y) {
-            drawRect(source.baseFill, size = Size(w, h))
-            val fallback = source.fallbackBrush
-            val fallbackAlpha = source.fallbackAlpha?.value ?: 0f
-            if (fallback != null && fallbackAlpha > 0f) {
-                drawRect(fallback, size = Size(w, h), alpha = fallbackAlpha)
-            }
-            val animator = source.animator ?: return@translate
-            val painter = source.painter ?: return@translate
-            animator.tick.intValue // Same 30 fps subscription as the background itself.
-            drawIntoCanvas { canvas ->
-                painter.drawOn(canvas.nativeCanvas, w, h, animator, source.brightArtScrim)
-            }
-        }
-    }
 }
 
 @Composable
@@ -226,7 +156,7 @@ fun LyricsArtworkBackground(
     val started by remember(lifecycleState) {
         derivedStateOf { lifecycleState.value.isAtLeast(Lifecycle.State.STARTED) }
     }
-    val powerSave by com.theveloper.pixelplay.ui.glass.rememberPowerSaveMode()
+    val powerSave by rememberPowerSaveMode()
     val onScreen = visible && started
 
     // Bake (or fetch) the sprites whenever the art or the view's aspect changes.
@@ -290,34 +220,8 @@ fun LyricsArtworkBackground(
     )
     val gradientPresent by remember(gradientAlpha) { derivedStateOf { gradientAlpha.value > 0f } }
 
-    // Feed the glass backdrop. The no-art gradient is a composable, so glass gets a still,
-    // blurred-looking stand-in in the same album colours instead.
-    val fallbackBrush = remember(colorScheme.primaryContainer, colorScheme.primary, baseFill) {
-        Brush.verticalGradient(
-            0f to androidx.compose.ui.graphics.lerp(colorScheme.primary, Color.Black, 0.45f),
-            0.55f to androidx.compose.ui.graphics.lerp(colorScheme.primaryContainer, Color.Black, 0.35f),
-            1f to baseFill
-        )
-    }
-    SideEffect {
-        state.source.animator = animator
-        state.source.painter = painter
-        state.source.brightArtScrim = brightArtScrim
-        state.source.baseFill = baseFill
-        state.source.fallbackBrush = fallbackBrush
-        state.source.fallbackAlpha = gradientAlpha
-    }
-    DisposableEffect(state) {
-        onDispose {
-            state.source.animator = null
-            state.source.painter = null
-            state.source.coordinates = null
-        }
-    }
-
     Box(
         modifier = modifier
-            .onPlaced { state.source.coordinates = it }
             .drawBehind { drawRect(baseFill) }
     ) {
         if (onScreen && (showGradient || gradientPresent)) {
@@ -516,7 +420,7 @@ internal class BackgroundPainter {
         }
     }
 
-    /** Draws the background into [nc] as a `w × h` surface (also used by the glass backdrop). */
+    /** Draws the background into [nc] as a `w × h` surface. */
     fun drawOn(nc: android.graphics.Canvas, w: Float, h: Float, animator: BackgroundAnimator, brightArtScrim: Boolean) {
         if (w <= 0f || h <= 0f) return
         val current = animator.current

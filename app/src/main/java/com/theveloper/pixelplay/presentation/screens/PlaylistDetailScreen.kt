@@ -1,10 +1,7 @@
 package com.theveloper.pixelplay.presentation.screens
 
 import androidx.compose.material3.AlertDialog
-import com.theveloper.pixelplay.ui.glass.GlassGroup
-import com.theveloper.pixelplay.ui.glass.GlassIconButton
-import com.theveloper.pixelplay.ui.glass.GlassScaffold
-import com.theveloper.pixelplay.ui.glass.isGlassEnabled
+import androidx.compose.material3.Scaffold
 import com.theveloper.pixelplay.presentation.navigation.navigateSafely
 import com.theveloper.pixelplay.presentation.navigation.navigateSafelyReplacing
 
@@ -267,14 +264,10 @@ fun PlaylistDetailScreen(
 
     val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior(rememberTopAppBarState())
 
-    // Glass mode: the playlist body is recorded and the bar is chrome over it — a glass back
-    // button and one glass group for the actions. The body starts below the bar: no scroll edge.
-    val glassBar = isGlassEnabled
-    GlassScaffold(
+    Scaffold(
         modifier = Modifier
             .nestedScroll(scrollBehavior.nestedScrollConnection),
-        scrollEdge = false,
-        topChrome = {
+        topBar = {
             LargeFlexibleTopAppBar(
                 title = {
                     Text(
@@ -302,66 +295,37 @@ fun PlaylistDetailScreen(
                     )
                 },
                 navigationIcon = {
-                    if (glassBar) {
-                        GlassIconButton(
-                            onClick = onBackClick,
-                            modifier = Modifier.padding(start = 10.dp),
-                            size = 40.dp
-                        ) {
-                            Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.common_back))
+                    FilledTonalIconButton(
+                        modifier = Modifier.padding(start = 10.dp),
+                        colors = IconButtonDefaults.filledIconButtonColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            contentColor = MaterialTheme.colorScheme.onSurface
+                        ),
+                        onClick = onBackClick
+                    ) {
+                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.common_back))
+                    }
+                },
+                actions = {
+                    IconButton(
+                        onClick = {
+                            playerViewModel.showSortingSheet() 
                         }
-                    } else {
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Rounded.Sort,
+                            contentDescription = sortSongsLabel
+                        )
+                    }
+                    if (!isFolderPlaylist) {
                         FilledTonalIconButton(
-                            modifier = Modifier.padding(start = 10.dp),
+                            modifier = Modifier.padding(end = 10.dp),
                             colors = IconButtonDefaults.filledIconButtonColors(
                                 containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
                                 contentColor = MaterialTheme.colorScheme.onSurface
                             ),
-                            onClick = onBackClick
-                        ) {
-                            Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.common_back))
-                        }
-                    }
-                },
-                actions = {
-                    if (glassBar) {
-                        GlassGroup(
-                            modifier = Modifier.padding(end = 10.dp),
-                            horizontalArrangement = Arrangement.spacedBy(2.dp)
-                        ) {
-                            IconButton(onClick = { playerViewModel.showSortingSheet() }) {
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Rounded.Sort,
-                                    contentDescription = sortSongsLabel
-                                )
-                            }
-                            if (!isFolderPlaylist) {
-                                IconButton(onClick = { showPlaylistOptionsSheet = true }) {
-                                    Icon(Icons.Filled.MoreVert, moreOptionsLabel)
-                                }
-                            }
-                        }
-                    } else {
-                        IconButton(
-                            onClick = {
-                                playerViewModel.showSortingSheet() 
-                            }
-                        ) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Rounded.Sort,
-                                contentDescription = sortSongsLabel
-                            )
-                        }
-                        if (!isFolderPlaylist) {
-                            FilledTonalIconButton(
-                                modifier = Modifier.padding(end = 10.dp),
-                                colors = IconButtonDefaults.filledIconButtonColors(
-                                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                                    contentColor = MaterialTheme.colorScheme.onSurface
-                                ),
-                                onClick = { showPlaylistOptionsSheet = true }
-                            ) { Icon(Icons.Filled.MoreVert, moreOptionsLabel) }
-                        }
+                            onClick = { showPlaylistOptionsSheet = true }
+                        ) { Icon(Icons.Filled.MoreVert, moreOptionsLabel) }
                     }
                 },
                 scrollBehavior = scrollBehavior

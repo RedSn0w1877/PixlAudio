@@ -1,7 +1,6 @@
 package com.theveloper.pixelplay.presentation.screens
 
-import com.theveloper.pixelplay.ui.glass.GlassCapability
-import com.theveloper.pixelplay.ui.glass.LocalGlassCapability
+import com.theveloper.pixelplay.ui.theme.VisualStyle
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.material3.Slider
 import androidx.annotation.OptIn
@@ -110,10 +109,6 @@ fun ExperimentalSettingsScreen(
     settingsViewModel: SettingsViewModel = hiltViewModel()
 ) {
     val uiState by settingsViewModel.uiState.collectAsStateWithLifecycle()
-    val glassCapability = LocalGlassCapability.current
-    var glassIntensityDraft by remember(uiState.liquidGlassIntensity) {
-        mutableFloatStateOf(uiState.liquidGlassIntensity)
-    }
     val taisVocalAttenuation by playerViewModel.vocalAttenuation.collectAsStateWithLifecycle()
     // Sliders that still apply every change live, but whose thumb (and value label) follow the
     // finger on the first frame instead of waiting for each DataStore write to round-trip.
@@ -365,26 +360,12 @@ fun ExperimentalSettingsScreen(
                                         style = MaterialTheme.typography.bodyMedium,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
-                                    // The saved choice is kept either way; this only explains
-                                    // what the device can actually draw.
-                                    val capabilityNote = when (glassCapability) {
-                                        GlassCapability.None -> R.string.settings_exp_liquid_glass_needs_android12
-                                        GlassCapability.BlurOnly -> R.string.settings_exp_liquid_glass_blur_only
-                                        GlassCapability.Full -> null
-                                    }
-                                    if (capabilityNote != null) {
-                                        Text(
-                                            text = stringResource(capabilityNote),
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.tertiary
-                                        )
-                                    }
                                     SingleChoiceSegmentedButtonRow(
                                         modifier = Modifier.fillMaxWidth()
                                     ) {
                                         val styles = listOf(
-                                            "LiquidGlass" to R.string.settings_exp_ui_style_glass,
-                                            "Material3" to R.string.settings_exp_ui_style_m3
+                                            VisualStyle.LIQUID_GLASS to R.string.settings_exp_ui_style_glass,
+                                            VisualStyle.MATERIAL3 to R.string.settings_exp_ui_style_m3
                                         )
                                         styles.forEachIndexed { index, (value, labelRes) ->
                                             SegmentedButton(
@@ -403,84 +384,6 @@ fun ExperimentalSettingsScreen(
                                             )
                                         }
                                     }
-                                }
-                            }
-
-                            Surface(
-                                color = MaterialTheme.colorScheme.surfaceContainer,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(10.dp))
-                            ) {
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(16.dp),
-                                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                                ) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Rounded.BlurOn,
-                                            contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.secondary
-                                        )
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                                Text(
-                                                    text = stringResource(R.string.settings_exp_liquid_glass_title),
-                                                    style = MaterialTheme.typography.titleMedium,
-                                                    color = MaterialTheme.colorScheme.onSurface,
-                                                    modifier = Modifier.padding(end = 8.dp)
-                                                )
-                                                Surface(
-                                                    color = MaterialTheme.colorScheme.secondaryContainer,
-                                                    shape = RoundedCornerShape(16.dp),
-                                                    modifier = Modifier.height(24.dp)
-                                                ) {
-                                                    Text(
-                                                        text = stringResource(
-                                                            R.string.settings_exp_liquid_glass_value,
-                                                            (glassIntensityDraft * 100f).roundToInt()
-                                                        ),
-                                                        style = MaterialTheme.typography.labelSmall,
-                                                        color = MaterialTheme.colorScheme.onSecondaryContainer,
-                                                        modifier = Modifier.padding(
-                                                            horizontal = 8.dp,
-                                                            vertical = 4.dp
-                                                        )
-                                                    )
-                                                }
-                                            }
-                                            Text(
-                                                text = stringResource(R.string.settings_exp_liquid_glass_subtitle),
-                                                style = MaterialTheme.typography.bodyMedium,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                        }
-                                    }
-
-                                    // Drag moves only the local draft (and the % label); the
-                                    // value is saved — and the glass re-themed — once, on
-                                    // release. The dial feeds a static composition local, so
-                                    // committing every drag frame would recompose the whole app
-                                    // and write DataStore 60+ times a second.
-                                    Slider(
-                                        value = glassIntensityDraft,
-                                        onValueChange = { glassIntensityDraft = it },
-                                        onValueChangeFinished = {
-                                            settingsViewModel.setLiquidGlassIntensity(glassIntensityDraft)
-                                        },
-                                        valueRange = 0f..1f,
-                                        steps = 19,
-                                        // "Disable blur all over" overrides this outright, and a
-                                        // device without glass can't show it: grey it out rather
-                                        // than let it look live but do nothing.
-                                        enabled = !uiState.disableBlurAllOver &&
-                                            glassCapability != GlassCapability.None
-                                    )
                                 }
                             }
 

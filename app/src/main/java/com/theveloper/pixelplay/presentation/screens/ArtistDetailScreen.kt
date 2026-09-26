@@ -2,8 +2,7 @@
 
 package com.theveloper.pixelplay.presentation.screens
 
-import com.theveloper.pixelplay.ui.glass.GlassScreenLayer
-import com.theveloper.pixelplay.ui.glass.rememberGlassScreenBackdrop
+import com.theveloper.pixelplay.presentation.components.ScreenLayer
 import com.theveloper.pixelplay.presentation.navigation.navigateSafely
 import com.theveloper.pixelplay.presentation.navigation.navigateSafelyReplacing
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -190,7 +189,7 @@ fun ArtistDetailScreen(
 
     val topBarHeight = remember { Animatable(maxTopBarHeightPx) }
     // Read only inside derivedStateOf and WithCollapsingHeader: the per-frame header height never
-    // recomposes the screen body, its list or its glass layer.
+    // recomposes the screen body or its list.
     val collapseFractionState = rememberCollapseFraction(topBarHeight, minTopBarHeightPx, maxTopBarHeightPx)
     val collapseFraction by collapseFractionState
 
@@ -302,10 +301,7 @@ fun ArtistDetailScreen(
                         }
                     }
 
-                    // Glass mode: the list AND the artwork header are recorded, and the back
-                    // and edit buttons float above both as glass chrome. Material 3: unchanged.
-                    val screenGlass = rememberGlassScreenBackdrop()
-                    GlassScreenLayer(screenGlass) {
+                    ScreenLayer {
                         LazyColumn(
                             state = lazyListState,
                             modifier = Modifier

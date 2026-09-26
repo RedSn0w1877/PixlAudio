@@ -2,9 +2,7 @@
 
 package com.theveloper.pixelplay.presentation.screens
 
-import com.theveloper.pixelplay.ui.glass.GlassChrome
-import com.theveloper.pixelplay.ui.glass.glassScreenContent
-import com.theveloper.pixelplay.ui.glass.rememberGlassScreenBackdrop
+import com.theveloper.pixelplay.presentation.components.ScreenChrome
 import android.content.Context
 import android.content.Intent
 import android.widget.Toast
@@ -158,7 +156,6 @@ fun AccountsScreen(
         }
     }
 
-    val screenGlass = rememberGlassScreenBackdrop()
     Box(modifier = Modifier.nestedScroll(nestedScrollConnection).fillMaxSize()) {
         // Top padding follows the header height, read by the list's measure pass (layout only).
         val listContentPadding = rememberCollapsingHeaderContentPadding(
@@ -171,7 +168,7 @@ fun AccountsScreen(
 
         LazyColumn(
             state = lazyListState,
-            modifier = Modifier.fillMaxSize().glassScreenContent(screenGlass),
+            modifier = Modifier.fillMaxSize(),
             contentPadding = listContentPadding,
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
@@ -219,7 +216,7 @@ fun AccountsScreen(
             }
         }
 
-        GlassChrome(screenGlass) {
+        ScreenChrome {
             CollapsibleCommonTopBar(
                 title = stringResource(R.string.settings_category_accounts_title),
                 collapseFraction = collapseFraction,

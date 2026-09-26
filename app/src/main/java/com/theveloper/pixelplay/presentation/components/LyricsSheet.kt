@@ -170,7 +170,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import androidx.compose.material.icons.rounded.TouchApp
 import androidx.compose.material.icons.rounded.Close
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.animation.core.FastOutLinearInEasing
@@ -179,28 +178,16 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.changedToDown
 import androidx.compose.ui.layout.onSizeChanged
-import com.kyant.backdrop.Backdrop
-import com.theveloper.pixelplay.ui.glass.GlassRecipe
-import com.theveloper.pixelplay.ui.glass.GlassRole
-import com.theveloper.pixelplay.ui.glass.GlassShapes
-import com.theveloper.pixelplay.ui.glass.LocalGlassHighContrast
-import com.theveloper.pixelplay.ui.glass.QuantizedCornerShapeCache
-import com.theveloper.pixelplay.ui.glass.glassTransparency
-import com.theveloper.pixelplay.ui.glass.isGlassEnabled
-import com.theveloper.pixelplay.ui.glass.liquidGlass
-import com.theveloper.pixelplay.ui.glass.readGlassReduceMotion
-import com.theveloper.pixelplay.ui.glass.resolveRecipe
+import com.theveloper.pixelplay.ui.theme.LocalHighContrastText
+import com.theveloper.pixelplay.ui.theme.QuantizedCornerShapeCache
+import com.theveloper.pixelplay.ui.theme.readReduceMotion
 import kotlin.math.max
 
 /**
  * Colours of the lyrics screen's chrome (header, controls). The chrome always sits over the
- * dark, graded artwork background, so both looks are built for a dark backdrop regardless of the
- * app's light/dark setting:
- *
- * - Material 3 Expressive: tonal pills from the album's *fixed* roles (identical in light and
- *   dark schemes): a translucent tone-30 container with tone-90 glyphs, tone-80 accents.
- * - Liquid Glass: the chrome is clear glass, so controls on it are white fills and white glyphs;
- *   only play/pause keeps a tint (the album accent).
+ * dark, graded artwork background, so it is built for a dark backdrop regardless of the app's
+ * light/dark setting: tonal pills from the album's *fixed* roles (identical in light and dark
+ * schemes), a translucent tone-30 container with tone-90 glyphs and tone-80 accents.
  */
 @androidx.compose.runtime.Immutable
 internal data class LyricsChromeColors(
@@ -219,41 +206,22 @@ internal data class LyricsChromeColors(
     val onEmphasis: Color,
 )
 
-internal fun lyricsChromeColors(colorScheme: ColorScheme, glass: Boolean, highContrast: Boolean = false): LyricsChromeColors =
-    if (glass) {
-        val fill = Color.White.copy(alpha = if (highContrast) 0.22f else 0.12f)
-        LyricsChromeColors(
-            container = fill,
-            content = Color.White,
-            contentVariant = Color.White.copy(alpha = 0.72f),
-            accent = Color.White,
-            accentTrack = Color.White.copy(alpha = 0.28f),
-            selected = Color.White.copy(alpha = if (highContrast) 0.40f else 0.26f),
-            onSelected = Color.White,
-            playPause = colorScheme.primaryFixedDim,
-            onPlayPause = colorScheme.onPrimaryFixed,
-            syncAccent = Color.White.copy(alpha = 0.18f),
-            onSyncAccent = Color.White,
-            emphasis = colorScheme.primaryFixedDim,
-            onEmphasis = colorScheme.onPrimaryFixed,
-        )
-    } else {
-        LyricsChromeColors(
-            container = colorScheme.onPrimaryFixedVariant.copy(alpha = if (highContrast) 0.92f else 0.62f),
-            content = colorScheme.primaryFixed,
-            contentVariant = colorScheme.primaryFixed.copy(alpha = 0.74f),
-            accent = colorScheme.primaryFixedDim,
-            accentTrack = colorScheme.primaryFixedDim.copy(alpha = 0.26f),
-            selected = colorScheme.primaryFixedDim,
-            onSelected = colorScheme.onPrimaryFixed,
-            playPause = colorScheme.tertiaryFixedDim,
-            onPlayPause = colorScheme.onTertiaryFixed,
-            syncAccent = colorScheme.secondaryFixedDim,
-            onSyncAccent = colorScheme.onSecondaryFixed,
-            emphasis = colorScheme.primaryFixedDim,
-            onEmphasis = colorScheme.onPrimaryFixed,
-        )
-    }
+internal fun lyricsChromeColors(colorScheme: ColorScheme, highContrast: Boolean = false): LyricsChromeColors =
+    LyricsChromeColors(
+        container = colorScheme.onPrimaryFixedVariant.copy(alpha = if (highContrast) 0.92f else 0.62f),
+        content = colorScheme.primaryFixed,
+        contentVariant = colorScheme.primaryFixed.copy(alpha = 0.74f),
+        accent = colorScheme.primaryFixedDim,
+        accentTrack = colorScheme.primaryFixedDim.copy(alpha = 0.26f),
+        selected = colorScheme.primaryFixedDim,
+        onSelected = colorScheme.onPrimaryFixed,
+        playPause = colorScheme.tertiaryFixedDim,
+        onPlayPause = colorScheme.onTertiaryFixed,
+        syncAccent = colorScheme.secondaryFixedDim,
+        onSyncAccent = colorScheme.onSecondaryFixed,
+        emphasis = colorScheme.primaryFixedDim,
+        onEmphasis = colorScheme.onPrimaryFixed,
+    )
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -683,22 +651,19 @@ fun LyricsSheet(
 
     
 
-    // ─── Chrome: colours, glass, immersive show/hide ────────────────────────
-    val glass = isGlassEnabled
-    val glassHighContrast = LocalGlassHighContrast.current
-    val chrome = remember(colorScheme, glass, glassHighContrast, highContrast) {
-        lyricsChromeColors(colorScheme, glass, glassHighContrast || highContrast)
+    // ─── Chrome: colours, immersive show/hide ───────────────────────────────
+    val highContrastText = LocalHighContrastText.current
+    val chrome = remember(colorScheme, highContrastText, highContrast) {
+        lyricsChromeColors(colorScheme, highContrastText || highContrast)
     }
-    val reduceMotion = remember(context) { readGlassReduceMotion(context) }
+    val reduceMotion = remember(context) { readReduceMotion(context) }
     val density = LocalDensity.current
     // Plain lyrics start at the top for every song.
     val staticListState = remember(currentSong?.id) { LazyListState() }
 
     // Immersive show/hide is one progress value per element, read only in draw / layer blocks, so
-    // nothing re-lays out and the lyrics viewport never changes size. In Liquid Glass the panel
-    // and the "show controls" button materialise by lensing and never coexist: header + one of
-    // them = at most two glass nodes.
-    // Starts hidden, so on first open the controls rise in (M3) or lens into being (glass).
+    // nothing re-lays out and the lyrics viewport never changes size.
+    // Starts hidden, so on first open the controls rise in.
     val controlsVisibility = remember { Animatable(0f) }
     val showButtonVisibility = remember { Animatable(0f) }
     LaunchedEffect(immersiveMode, reduceMotion) {
@@ -833,32 +798,29 @@ fun LyricsSheet(
                 colorScheme = colorScheme
             )
 
-            // Material 3: a soft scrim grounds the control cluster over bright or busy art.
-            // (Liquid Glass needs none: the glass samples the art itself.)
-            if (!glass) {
-                Spacer(
-                    modifier = Modifier
-                        .matchParentSize()
-                        .drawWithCache {
-                            val scrimHeight = (controlsHeightPx + M3ScrimExtra.toPx()).coerceAtMost(size.height)
-                            val top = size.height - scrimHeight
-                            val brush = Brush.verticalGradient(
-                                0f to Color.Transparent,
-                                1f to Color.Black.copy(alpha = M3ScrimAlpha),
-                                startY = top,
-                                endY = size.height
+            // A soft scrim grounds the control cluster over bright or busy art.
+            Spacer(
+                modifier = Modifier
+                    .matchParentSize()
+                    .drawWithCache {
+                        val scrimHeight = (controlsHeightPx + M3ScrimExtra.toPx()).coerceAtMost(size.height)
+                        val top = size.height - scrimHeight
+                        val brush = Brush.verticalGradient(
+                            0f to Color.Transparent,
+                            1f to Color.Black.copy(alpha = M3ScrimAlpha),
+                            startY = top,
+                            endY = size.height
+                        )
+                        onDrawBehind {
+                            drawRect(
+                                brush,
+                                topLeft = Offset(0f, top),
+                                size = Size(size.width, scrimHeight),
+                                alpha = controlsVisibility.value
                             )
-                            onDrawBehind {
-                                drawRect(
-                                    brush,
-                                    topLeft = Offset(0f, top),
-                                    size = Size(size.width, scrimHeight),
-                                    alpha = controlsVisibility.value
-                                )
-                            }
                         }
-                )
-            }
+                    }
+            )
 
             // ─── Lyrics (full-bleed, under the chrome) ───────────────────────
             val karaoke = shownPrepared
@@ -970,9 +932,6 @@ fun LyricsSheet(
                     song = currentSong,
                     isPlaying = isPlaying,
                     chrome = chrome,
-                    glass = glass,
-                    backdrop = backgroundState.backdrop,
-                    brightArt = backgroundState.isBrightArt
                 )
                 // "Make the words light up - Sync it yourself": line-only or plain lyrics only.
                 androidx.compose.animation.AnimatedVisibility(
@@ -997,9 +956,6 @@ fun LyricsSheet(
                     progress = controlsProgress,
                     navBottom = navBottom,
                     chrome = chrome,
-                    glass = glass,
-                    backdrop = backgroundState.backdrop,
-                    brightArt = backgroundState.isBrightArt,
                     showSyncControls = showSyncedLyrics == true && lyrics?.synced != null && showSyncControls,
                     lyricsSyncOffset = lyricsSyncOffset,
                     onLyricsSyncOffsetChange = onLyricsSyncOffsetChange,
@@ -1030,9 +986,6 @@ fun LyricsSheet(
                     onClick = { resetImmersiveTimer() },
                     progress = showButtonProgress,
                     chrome = chrome,
-                    glass = glass,
-                    backdrop = backgroundState.backdrop,
-                    brightArt = backgroundState.isBrightArt,
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .padding(bottom = navBottom + ShowControlsBottomGap)
@@ -1185,66 +1138,18 @@ private class LyricsListPadding(
     override fun calculateBottomPadding(): Dp = bottom()
 }
 
-/**
- * The glass recipe for the lyrics chrome: the Group role, but clear (Apple's rule over media) —
- * the art shows through, glyphs stay white. [materializes] lets the lens, frost, rim and shadow
- * grow with a progress value (immersive show/hide).
- */
-@Composable
-private fun rememberLyricsGlassRecipe(role: GlassRole, materializes: Boolean): GlassRecipe {
-    val base = resolveRecipe(role)
-    return remember(base, materializes) {
-        if (materializes) base.copy(materializes = true) else base
-    }
-}
-
-/**
- * Tint for the lyrics chrome glass, drawn over the refracted artwork: a clear white wash scaled by
- * the transparency dial (a dark one under high contrast), plus the 35 % dimming over bright art.
- * Both follow the materialise progress so a dematerialised surface draws exactly the backdrop.
- */
-@Composable
-private fun rememberLyricsGlassSurface(brightArt: Boolean): androidx.compose.ui.graphics.drawscope.DrawScope.(Float) -> Unit {
-    val t = glassTransparency()
-    val highContrast = LocalGlassHighContrast.current
-    return remember(t, highContrast, brightArt) {
-        val tint = if (highContrast) {
-            Color.Black.copy(alpha = 0.45f)
-        } else {
-            Color.White.copy(alpha = lerp(0.05f, 0.16f, t))
-        }
-        val dim = if (brightArt) BRIGHT_ART_GLASS_DIM else 0f
-        val surface: androidx.compose.ui.graphics.drawscope.DrawScope.(Float) -> Unit = { p ->
-            if (dim > 0f) drawRect(Color.Black.copy(alpha = dim * p))
-            drawRect(tint.copy(alpha = tint.alpha * p))
-        }
-        surface
-    }
-}
-
 @Composable
 private fun LyricsHeader(
     song: Song?,
     isPlaying: Boolean,
     chrome: LyricsChromeColors,
-    glass: Boolean,
-    backdrop: Backdrop,
-    brightArt: Boolean,
     modifier: Modifier = Modifier
 ) {
     if (song == null) return
-    val container = if (glass) {
-        val recipe = rememberLyricsGlassRecipe(GlassRole.Group, materializes = false)
-        val surface = rememberLyricsGlassSurface(brightArt)
-        Modifier.liquidGlass(recipe = recipe, shape = GlassShapes.Capsule, backdrop = backdrop, surface = surface)
-    } else {
-        Modifier
-            .clip(CircleShape)
-            .background(chrome.container)
-    }
     Box(
         modifier = modifier
-            .then(container)
+            .clip(CircleShape)
+            .background(chrome.container)
             .animateContentSize()
     ) {
         AnimatedContent(
@@ -1268,9 +1173,8 @@ private fun LyricsHeader(
 }
 
 /**
- * The bottom control cluster. Material 3: the familiar tonal pills over a soft scrim, sliding and
- * fading with [progress]. Liquid Glass: one glass panel (one node) sampling the artwork, whose
- * lens, frost and rim grow with [progress] while its controls fade in as white fills.
+ * The bottom control cluster: the familiar tonal pills over a soft scrim, sliding and fading with
+ * [progress].
  */
 @Composable
 private fun LyricsControlCluster(
@@ -1278,9 +1182,6 @@ private fun LyricsControlCluster(
     progress: () -> Float,
     navBottom: Dp,
     chrome: LyricsChromeColors,
-    glass: Boolean,
-    backdrop: Backdrop,
-    brightArt: Boolean,
     showSyncControls: Boolean,
     lyricsSyncOffset: Int,
     onLyricsSyncOffsetChange: (Int) -> Unit,
@@ -1306,19 +1207,16 @@ private fun LyricsControlCluster(
             .fillMaxWidth()
             .padding(bottom = navBottom + 10.dp, start = 16.dp, end = 16.dp)
             .graphicsLayer {
-                if (!glass) {
-                    val p = progress()
-                    alpha = p.coerceIn(0f, 1f)
-                    translationY = (1f - p) * slidePx
-                }
+                val p = progress()
+                alpha = p.coerceIn(0f, 1f)
+                translationY = (1f - p) * slidePx
             }
     ) {
         if (studioInstrumentalAvailable) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(bottom = 8.dp)
-                    .graphicsLayer { if (glass) alpha = progress().coerceIn(0f, 1f) },
+                    .padding(bottom = 8.dp),
                 contentAlignment = Alignment.CenterEnd
             ) {
                 FloatingInstrumentalToggle(
@@ -1326,32 +1224,15 @@ private fun LyricsControlCluster(
                     onToggle = onToggleStudioInstrumental,
                     accentColor = chrome.accent,
                     backgroundColor = chrome.container,
-                    onBackgroundColor = chrome.content,
-                    glass = glass
+                    onBackgroundColor = chrome.content
                 )
             }
         }
 
-        val panel = if (glass) {
-            val recipe = rememberLyricsGlassRecipe(GlassRole.Group, materializes = true)
-            val surface = rememberLyricsGlassSurface(brightArt)
-            Modifier
-                .liquidGlass(
-                    recipe = recipe,
-                    shape = LyricsPanelShape,
-                    backdrop = backdrop,
-                    materialize = progress,
-                    surface = surface
-                )
-                .padding(12.dp)
-        } else {
-            Modifier
-        }
-        Column(modifier = Modifier.fillMaxWidth().then(panel)) {
+        Column(modifier = Modifier.fillMaxWidth()) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .graphicsLayer { if (glass) alpha = progress().coerceIn(0f, 1f) }
             ) {
                 AnimatedVisibility(
                     visible = showSyncControls,
@@ -1397,7 +1278,7 @@ private fun LyricsControlCluster(
                     )
                 }
 
-                Spacer(modifier = Modifier.height(if (glass) 12.dp else 16.dp))
+                Spacer(modifier = Modifier.height(16.dp))
 
                 LyricsFloatingToolbar(
                     showSyncedLyrics = showSyncedLyrics,
@@ -1459,32 +1340,18 @@ private fun LyricsPlayPauseButton(
 }
 
 /**
- * Brings the controls back in immersive mode. Liquid Glass: a clear glass disc that materialises
- * by lensing once the panel has gone (never both at once). Material 3: an accent disc that fades
- * and scales in.
+ * Brings the controls back in immersive mode: an accent disc that fades and scales in.
  */
 @Composable
 private fun LyricsShowControlsButton(
     onClick: () -> Unit,
     progress: () -> Float,
     chrome: LyricsChromeColors,
-    glass: Boolean,
-    backdrop: Backdrop,
-    brightArt: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    val background = if (glass) {
-        val recipe = rememberLyricsGlassRecipe(GlassRole.IconButton, materializes = true)
-        val surface = rememberLyricsGlassSurface(brightArt)
-        Modifier.liquidGlass(
-            recipe = recipe,
-            shape = CircleShape,
-            backdrop = backdrop,
-            materialize = progress,
-            surface = surface
-        )
-    } else {
-        Modifier
+    Box(
+        modifier = modifier
+            .size(ShowControlsSize)
             .graphicsLayer {
                 val p = progress().coerceIn(0f, 1f)
                 alpha = p
@@ -1494,11 +1361,6 @@ private fun LyricsShowControlsButton(
             }
             .clip(CircleShape)
             .background(chrome.emphasis)
-    }
-    Box(
-        modifier = modifier
-            .size(ShowControlsSize)
-            .then(background)
             .clip(CircleShape)
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center
@@ -1506,8 +1368,7 @@ private fun LyricsShowControlsButton(
         Icon(
             imageVector = Icons.Rounded.KeyboardArrowUp,
             contentDescription = "Show Controls",
-            tint = if (glass) Color.White else chrome.onEmphasis,
-            modifier = Modifier.graphicsLayer { if (glass) alpha = progress().coerceIn(0f, 1f) }
+            tint = chrome.onEmphasis
         )
     }
 }
@@ -1639,9 +1500,7 @@ private fun LyricsPlaybackSeekBar(
  * living only on a settings screen. Collapsed, it's a 44dp circular sparkle-adjacent icon
  * button; tapping it expands the pill horizontally (spring animation) while the collapsed
  * icon blurs+fades out and the slider blurs+fades in — the "expands with blur outwards"
- * effect from the spec. Uses the app's existing Liquid Glass slider
- * ([com.theveloper.pixelplay.ui.glass.GlassSlider]) so it already matches whichever visual
- * style (Liquid Glass vs Material 3) the user has picked elsewhere.
+ * effect from the spec.
  */
 @Composable
 private fun FloatingInstrumentalToggle(
@@ -1650,7 +1509,6 @@ private fun FloatingInstrumentalToggle(
     accentColor: Color,
     backgroundColor: Color,
     onBackgroundColor: Color,
-    glass: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val width by animateDpAsState(
@@ -1665,10 +1523,6 @@ private fun FloatingInstrumentalToggle(
             .width(width)
             .clip(RoundedCornerShape(22.dp))
             .background(backgroundColor)
-            .then(
-                if (glass) Modifier.border(0.75.dp, Color.White.copy(alpha = 0.24f), RoundedCornerShape(22.dp))
-                else Modifier
-            )
             .clickable { onToggle() },
         contentAlignment = Alignment.Center
     ) {
@@ -1834,12 +1688,6 @@ private val ControlsSlide = 24.dp
 private val M3ScrimExtra = 72.dp
 private const val M3ScrimAlpha = 0.38f
 
-/** Apple's "Clear" rule: glass over bright art gets a 35 % dark layer under its tint. */
-private const val BRIGHT_ART_GLASS_DIM = 0.35f
-
-/** The glass control panel's corners (kyant continuous corners). */
-private val LyricsPanelShape = GlassShapes.rounded(32.dp)
-
 /** Play/pause corner radius: a squircle while playing, a full circle (78 dp / 2) while paused. */
 private const val PlayingCornerDp = 18f
 private const val PausedCornerDp = 39f
@@ -1852,18 +1700,12 @@ private fun accentTrackFor(accent: Color): Color = accent.copy(alpha = accent.al
 
 @Composable
 private fun LyricsSyncChip(onClick: () -> Unit, onDismiss: () -> Unit) {
-    val glass = com.theveloper.pixelplay.ui.glass.isGlassEnabled
-    val shape: androidx.compose.ui.graphics.Shape =
-        if (glass) com.theveloper.pixelplay.ui.glass.GlassShapes.Capsule else CircleShape
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .height(40.dp)
-            .clip(shape)
-            .background(Color.White.copy(alpha = if (glass) 0.14f else 0.16f))
-            .then(
-                if (glass) Modifier.border(0.75.dp, Color.White.copy(alpha = 0.24f), shape) else Modifier
-            )
+            .clip(CircleShape)
+            .background(Color.White.copy(alpha = 0.16f))
             .clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = onClick)
             .padding(start = 14.dp)
     ) {

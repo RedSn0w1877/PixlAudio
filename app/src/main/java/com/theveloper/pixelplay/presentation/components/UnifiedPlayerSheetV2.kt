@@ -40,15 +40,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import com.theveloper.pixelplay.ui.glass.LocalAppBackdrop
-import com.theveloper.pixelplay.ui.glass.isGlassEnabled
-import com.theveloper.pixelplay.ui.glass.GlassRole
-import com.theveloper.pixelplay.ui.glass.QuantizedCornerShapeCache
-import com.theveloper.pixelplay.ui.glass.liquidGlass
-import com.theveloper.pixelplay.ui.glass.resolveRecipe
-import androidx.compose.ui.graphics.Shape
-import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.util.lerp
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.shadow
@@ -582,63 +573,6 @@ fun UnifiedPlayerSheetV2(
     val miniAppearScale = sheetThemeState.miniAppearScale
     val playerAreaBackground = sheetThemeState.playerAreaBackground
 
-    // Glass for the player card (spec §2 "Mini player", §4). Only the collapsed card is glass: by
-    // half expansion the tint has reached fully opaque, and above that the drawBackdrop node is
-    // detached outright rather than left running with zeroed effects — the full player is a solid
-    // surface, and a full-screen refraction would be the most expensive thing the app draws.
-    val playerGlassEnabled = isGlassEnabled
-    val playerBackdrop = LocalAppBackdrop.current
-    // 1 while collapsed, 0 from half open. Quantised to 1/16 so the effect chain rebuilds at most
-    // 16 times over a drag instead of every frame.
-    val miniGlassCollapsed = remember(playerContentExpansionFraction) {
-        derivedStateOf {
-            val collapsed = (1f - playerContentExpansionFraction.value * 2f).coerceIn(0f, 1f)
-            (collapsed * 16f).roundToInt() / 16f
-        }
-    }
-    // Composition only sees the crossing, never the per-frame value.
-    val miniGlassAttached by remember(miniGlassCollapsed) {
-        derivedStateOf { miniGlassCollapsed.value > 0f }
-    }
-    val miniGlassProgress = remember(miniGlassCollapsed) { { miniGlassCollapsed.value } }
-    // lens() needs a CornerBasedShape (PlayerSheetDynamicShape is a bare Shape), and the library
-    // re-derives its outline only when the shape it is handed stops being equal — so the radii are
-    // quantised to 0.5dp and each step's RoundedCornerShape is created once and reused.
-    val miniGlassShapes = remember { QuantizedCornerShapeCache() }
-    val miniGlassShape: () -> Shape = remember(
-        miniGlassShapes,
-        overallSheetTopCornerRadiusProvider,
-        playerContentActualBottomRadiusProvider
-    ) {
-        {
-            miniGlassShapes.get(
-                top = overallSheetTopCornerRadiusProvider(),
-                bottom = playerContentActualBottomRadiusProvider()
-            )
-        }
-    }
-    val miniGlassRecipe = resolveRecipe(GlassRole.MiniPlayer)
-    // The mini player's recipe materialises with the collapse: lens and highlight fade out with it.
-    val miniGlassMaterialRecipe = remember(miniGlassRecipe) { miniGlassRecipe.copy(materializes = true) }
-    val miniGlassWash = miniPlayerScheme.primary
-    val miniGlassTintAlpha = miniGlassRecipe.tintAlpha
-    // Colours are read in the draw phase, so the per-frame colour lerp of a song change only
-    // redraws the card rather than handing liquidGlass a new surface (and a new glass modifier).
-    val miniGlassBackgroundState = rememberUpdatedState(playerAreaBackground)
-    val miniGlassWashState = rememberUpdatedState(miniGlassWash)
-    val miniGlassTintAlphaState = rememberUpdatedState(miniGlassTintAlpha)
-    val miniGlassSurface: DrawScope.(Float) -> Unit = remember {
-        { collapsed ->
-            // The card's own colour at the recipe's tint while collapsed, climbing to opaque by
-            // half expansion so the hand-off to the solid full player is invisible.
-            drawRect(
-                miniGlassBackgroundState.value.copy(
-                    alpha = lerp(1f, miniGlassTintAlphaState.value, collapsed)
-                )
-            )
-            if (collapsed > 0f) drawRect(miniGlassWashState.value.copy(alpha = 0.08f * collapsed))
-        }
-    }
     // Elevation is only visible in the mini/collapsed state (expansion < 0.18).
     // miniReadyAlpha fades the shadow in during the initial song-appear animation.
     val isDragging = sheetBackAndDragState.isDragging
@@ -777,30 +711,8 @@ fun UnifiedPlayerSheetV2(
                                 shape = sheetInteractionState.playerShadowShape,
                                 clip = false
                             )
-                            // Glass on the player card while it is (mostly) collapsed; see
-                            // miniGlassAttached above. The shadow comes from Modifier.shadow.
-                            .then(
-                                if (playerGlassEnabled && miniGlassAttached) {
-                                    Modifier.liquidGlass(
-                                        recipe = miniGlassMaterialRecipe,
-                                        shape = sheetInteractionState.playerShadowShape,
-                                        dynamicShape = miniGlassShape,
-                                        materialize = miniGlassProgress,
-                                        backdrop = playerBackdrop,
-                                        shadowEnabled = false,
-                                        surface = miniGlassSurface
-                                    )
-                                } else {
-                                    Modifier
-                                }
-                            )
                             .background(
-                                // The glass path draws its own surface (miniGlassSurface).
-                                color = if (playerGlassEnabled && miniGlassAttached) {
-                                    Color.Transparent
-                                } else {
-                                    playerAreaBackground
-                                },
+                                color = playerAreaBackground,
                                 shape = sheetInteractionState.playerShadowShape
                             )
                             .clip(sheetInteractionState.playerShadowShape)
