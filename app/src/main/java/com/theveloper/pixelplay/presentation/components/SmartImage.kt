@@ -1,5 +1,16 @@
 package com.theveloper.pixelplay.presentation.components
 
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.Paint
+import kotlin.math.roundToInt
+import androidx.compose.ui.geometry.isSpecified
+import androidx.compose.ui.geometry.Size as GeometrySize
+import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.runtime.mutableStateOf
 import android.graphics.Bitmap
 import androidx.annotation.DrawableRes
 import androidx.compose.foundation.Image
@@ -40,7 +51,6 @@ import com.theveloper.pixelplay.R
 
 val SmartImageCompactListTargetSize = Size(96, 96)
 val SmartImageListTargetSize = Size(128, 128)
-private val DefaultSmartImageSize = Size(300, 300)
 
 @Composable
 fun SmartImage(
@@ -68,7 +78,10 @@ fun SmartImage(
     // MediaSession artwork, PlayerAmbientEffects, CreatePlaylistScreen's collage capture),
     // so flipping the default only affects display-only surfaces.
     allowHardware: Boolean = true,
-    targetSize: Size = DefaultSmartImageSize,
+    // null = decode at the size the image is laid out at (Coil reads it from the layout
+    // constraints). It used to default to a fixed 300x300, which over-decoded 48 dp rows about
+    // 4x and left 120-136 dp cards blurry. Pass an explicit size only when it must be fixed.
+    targetSize: Size? = null,
     colorFilter: ColorFilter? = null,
     alpha: Float = 1f,
     placeholderModel: Any? = null,
@@ -78,7 +91,7 @@ fun SmartImage(
     val context = LocalContext.current
     val clippedModifier = modifier.clip(shape)
     val requestTargetSize = remember(targetSize) {
-        safeAlbumArtTargetSize(targetSize)
+        targetSize?.let { safeAlbumArtTargetSize(it) }
     }
 
     // Handle direct models (Bitmap, Vector, etc) early to avoid ImageRequest overhead
@@ -115,9 +128,13 @@ fun SmartImage(
         requestTargetSize
     ) {
         if (model is ImageRequest) {
-            model.newBuilder(context)
-                .size(requestTargetSize)
-                .build()
+            if (requestTargetSize == null) {
+                model
+            } else {
+                model.newBuilder(context)
+                    .size(requestTargetSize)
+                    .build()
+            }
         } else {
             ImageRequest.Builder(context)
                 .data(model)
@@ -125,12 +142,53 @@ fun SmartImage(
                 .diskCachePolicy(if (useDiskCache) CachePolicy.ENABLED else CachePolicy.DISABLED)
                 .memoryCachePolicy(if (useMemoryCache) CachePolicy.ENABLED else CachePolicy.DISABLED)
                 .allowHardware(allowHardware)
-                .size(requestTargetSize)
+                .apply { if (requestTargetSize != null) size(requestTargetSize) }
                 .build()
         }
     }
 
-    if (onState != null || placeholderModel != null) {
+    if (onState != null && placeholderModel == null) {
+        // Same look as the subcompose path below (placeholder while loading or on error, then the
+        // image crossfades in over nothing), without a subcomposition per image: the placeholder
+        // is drawn behind the image and the load state is read only in draw.
+        var loadState by remember(request) {
+            mutableStateOf<AsyncImagePainter.State>(AsyncImagePainter.State.Empty)
+        }
+        val placeholderPainter = painterResource(placeholderResId)
+        val errorPainter = painterResource(errorResId)
+        val iconColor = MaterialTheme.colorScheme.onSurfaceVariant
+        val iconFilter = remember(iconColor) { ColorFilter.tint(iconColor) }
+        // Placeholder() fades the background and icon together as one layer; do the same here.
+        val placeholderLayerPaint = remember(alpha) { Paint().apply { this.alpha = alpha } }
+        AsyncImage(
+            model = request,
+            contentDescription = contentDescription,
+            modifier = clippedModifier.drawBehind {
+                val state = loadState
+                if (state !is AsyncImagePainter.State.Success) {
+                    val iconPainter = if (state is AsyncImagePainter.State.Error) errorPainter else placeholderPainter
+                    if (alpha < 1f) {
+                        drawIntoCanvas { canvas ->
+                            canvas.saveLayer(Rect(Offset.Zero, size), placeholderLayerPaint)
+                            drawRect(color = placeHolderBackgroundColor)
+                            drawPlaceholderIcon(iconPainter, iconFilter, 1f)
+                            canvas.restore()
+                        }
+                    } else {
+                        drawRect(color = placeHolderBackgroundColor)
+                        drawPlaceholderIcon(iconPainter, iconFilter, 1f)
+                    }
+                }
+            },
+            onState = { state ->
+                loadState = state
+                onState(state)
+            },
+            contentScale = contentScale,
+            colorFilter = colorFilter,
+            alpha = alpha
+        )
+    } else if (placeholderModel != null) {
         SubcomposeAsyncImage(
             model = request,
             contentDescription = contentDescription,
@@ -192,6 +250,27 @@ fun SmartImage(
             placeholder = painterResource(placeholderResId),
             error = painterResource(errorResId)
         )
+    }
+}
+
+private val PlaceholderIconSize = 32.dp
+
+/** Draws [painter] centred, fitted into a 32 dp box, exactly like [Placeholder]'s icon. */
+private fun DrawScope.drawPlaceholderIcon(painter: Painter, colorFilter: ColorFilter, alpha: Float) {
+    val boxPx = PlaceholderIconSize.toPx()
+    val boxSize = GeometrySize(minOf(boxPx, size.width), minOf(boxPx, size.height))
+    val intrinsic = painter.intrinsicSize
+    val drawSize = if (intrinsic.isSpecified && intrinsic.width > 0f && intrinsic.height > 0f) {
+        val scale = ContentScale.Fit.computeScaleFactor(intrinsic, boxSize)
+        GeometrySize(intrinsic.width * scale.scaleX, intrinsic.height * scale.scaleY)
+    } else {
+        boxSize
+    }
+    translate(
+        left = ((size.width - drawSize.width) / 2f).roundToInt().toFloat(),
+        top = ((size.height - drawSize.height) / 2f).roundToInt().toFloat()
+    ) {
+        with(painter) { draw(drawSize, alpha, colorFilter) }
     }
 }
 

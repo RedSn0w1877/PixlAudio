@@ -1,5 +1,7 @@
 package com.theveloper.pixelplay.presentation.screens
 
+import com.theveloper.pixelplay.presentation.components.rememberAppListState
+import com.theveloper.pixelplay.presentation.components.rememberPlaybackRowState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -24,6 +26,7 @@ import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -81,7 +84,7 @@ fun LibrarySongsTab(
     storageFilter: StorageFilter = StorageFilter.ALL,
     hasCurrentSong: Boolean = false
 ) {
-    val listState = rememberLazyListState()
+    val listState = rememberAppListState()
     val dummyListState = rememberLazyListState()
     val pullToRefreshState = rememberPullToRefreshState()
     val coroutineScope = rememberCoroutineScope()
@@ -98,25 +101,29 @@ fun LibrarySongsTab(
     var lastHandledSongSortKey by remember { mutableStateOf(sortOption.storageKey) }
     var pendingSongSortScrollReset by remember { mutableStateOf(false) }
     var songSortSawRefreshLoading by remember { mutableStateOf(false) }
-    val currentSongId by remember(playerViewModel) {
-        playerViewModel.stablePlayerState
-            .map { it.currentSong?.id }
-            .distinctUntilChanged()
-    }.collectAsStateWithLifecycle(initialValue = null)
+    val playbackRowState = rememberPlaybackRowState(playerViewModel.stablePlayerState)
+    val currentSongId by remember(playbackRowState) {
+        derivedStateOf { playbackRowState.value.currentSongId }
+    }
 
     // Check if list is effectively empty (based on Paging state)
     // val isListEmpty = songs.itemCount == 0 && songs.loadState.refresh is LoadState.NotLoading
     
     // Calculate current song index for button visibility
-    val currentSongListIndex = remember(songs.itemSnapshotList, currentSongId) {
-        if (currentSongId == null) -1
-        else {
-            val snapshot = songs.itemSnapshotList
-            val indexInSnapshot = snapshot.items.indexOfFirst { it.id == currentSongId }
-            if (indexInSnapshot != -1) {
-                indexInSnapshot + snapshot.placeholdersBefore
-            } else {
-                -1
+    // derivedStateOf: the loaded snapshot changes on every page load while scrolling, but the tab
+    // only needs to recompose when the current song's index actually changes.
+    val currentSongListIndex by remember(songs) {
+        derivedStateOf {
+            val songId = currentSongId
+            if (songId == null) -1
+            else {
+                val snapshot = songs.itemSnapshotList
+                val indexInSnapshot = snapshot.items.indexOfFirst { it.id == songId }
+                if (indexInSnapshot != -1) {
+                    indexInSnapshot + snapshot.placeholdersBefore
+                } else {
+                    -1
+                }
             }
         }
     }
@@ -343,7 +350,7 @@ fun LibrarySongsTab(
 
                                     LibraryPlaybackAwareSongItem(
                                         song = song,
-                                        playerViewModel = playerViewModel,
+                                        playback = playbackRowState,
                                         isSelected = isSelected,
                                         //albumArtSize = 46.dp,
                                         isSelectionMode = isSelectionMode,

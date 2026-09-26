@@ -1,5 +1,8 @@
 package com.theveloper.pixelplay.presentation.screens
 
+import com.theveloper.pixelplay.presentation.components.rememberCollapsingHeaderContentPadding
+import com.theveloper.pixelplay.presentation.components.WithCollapsingHeader
+import com.theveloper.pixelplay.presentation.components.rememberCollapseFraction
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
@@ -177,13 +180,9 @@ fun AboutScreen(
     val maxTopBarHeightPx = with(density) { maxTopBarHeight.toPx() }
 
     val topBarHeight = remember { Animatable(maxTopBarHeightPx) }
-    var collapseFraction by remember { mutableStateOf(0f) }
-
-    LaunchedEffect(topBarHeight.value) {
-        collapseFraction = 1f - (
-            (topBarHeight.value - minTopBarHeightPx) / (maxTopBarHeightPx - minTopBarHeightPx)
-            ).coerceIn(0f, 1f)
-    }
+    // Read only by the top bar (WithCollapsingHeader below): the per-frame header height never
+    // recomposes the screen body or its list.
+    val collapseFractionState = rememberCollapseFraction(topBarHeight, minTopBarHeightPx, maxTopBarHeightPx)
 
     val nestedScrollConnection = remember {
         object : NestedScrollConnection {
@@ -238,11 +237,11 @@ fun AboutScreen(
                 translationY = contentOffset.toPx()
             },
     ) {
-        val currentTopBarHeightDp = with(density) { topBarHeight.value.toDp() }
         LazyColumn(
             state = lazyListState,
-            contentPadding = PaddingValues(
-                top = currentTopBarHeightDp + 8.dp,
+            contentPadding = rememberCollapsingHeaderContentPadding(
+                height = topBarHeight,
+                extraTop = 8.dp,
                 bottom = MiniPlayerHeight +
                     WindowInsets.navigationBars
                         .asPaddingValues()
@@ -317,14 +316,16 @@ fun AboutScreen(
             }
         }
 
-        CollapsibleCommonTopBar(
-            title = stringResource(R.string.about_screen_title),
-            collapseFraction = collapseFraction,
-            headerHeight = currentTopBarHeightDp,
-            onBackClick = onNavigationIconClick,
-            expandedTitleStartPadding = 20.dp,
-            collapsedTitleStartPadding = 68.dp
-        )
+        WithCollapsingHeader(topBarHeight, collapseFractionState) { fraction, headerHeight ->
+            CollapsibleCommonTopBar(
+                title = stringResource(R.string.about_screen_title),
+                collapseFraction = fraction,
+                headerHeight = headerHeight,
+                onBackClick = onNavigationIconClick,
+                expandedTitleStartPadding = 20.dp,
+                collapsedTitleStartPadding = 68.dp
+            )
+        }
     }
 }
 

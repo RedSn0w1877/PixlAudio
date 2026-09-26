@@ -233,9 +233,15 @@ fun SettingsCategoryScreen(
     val isExplorerReady by settingsViewModel.isExplorerReady.collectAsStateWithLifecycle()
     val isCurrentDirectoryResolved by settingsViewModel.isCurrentDirectoryResolved.collectAsStateWithLifecycle()
     val isSyncing by settingsViewModel.isSyncing.collectAsStateWithLifecycle()
-    val syncProgress by settingsViewModel.syncProgress.collectAsStateWithLifecycle()
-    val dataTransferProgress by settingsViewModel.dataTransferProgress.collectAsStateWithLifecycle()
-    val paletteRegenerateTargets by playerViewModel.paletteRegenerationTargets.collectAsStateWithLifecycle()
+    // Sync and backup progress tick many times a second; they are collected only where they are
+    // shown (the scanning subsection and the progress dialog) so a tick doesn't recompose the
+    // whole category. The palette targets are a full-library Room query that re-runs on every
+    // library write: only the Developer category (and the sheet it opens) uses them.
+    val paletteRegenerateTargets = if (category == SettingsCategory.DEVELOPER) {
+        playerViewModel.paletteRegenerationTargets.collectAsStateWithLifecycle().value
+    } else {
+        emptyList()
+    }
     val explorerRoot = settingsViewModel.explorerRoot()
 
     // Local State
@@ -501,7 +507,7 @@ fun SettingsCategoryScreen(
                             SettingsSubsection(title = stringResource(R.string.settings_sync_scanning_section)) {
                                 RefreshLibraryItem(
                                     isSyncing = isSyncing,
-                                    syncProgress = syncProgress,
+                                    syncProgress = settingsViewModel.syncProgress.collectAsStateWithLifecycle().value,
                                     activeOperationLabel = if (isSyncing) syncIndicatorLabel else null,
                                     onFullSync = {
                                         if (isSyncing) return@RefreshLibraryItem
@@ -1699,28 +1705,9 @@ fun SettingsCategoryScreen(
             )
         }
 
-        // Block interaction during transition
-        var isTransitioning by remember { mutableStateOf(true) }
-        LaunchedEffect(Unit) {
-            kotlinx.coroutines.delay(com.theveloper.pixelplay.presentation.navigation.TRANSITION_DURATION.toLong())
-            isTransitioning = false
-        }
-        
-        if (isTransitioning) {
-            Box(modifier = Modifier
-                .fillMaxSize()
-                .pointerInput(Unit) {
-                   awaitPointerEventScope {
-                        while (true) {
-                            awaitPointerEvent()
-                        }
-                    }
-                }
-            )
-        }
     }
 
-    BackupTransferProgressDialogHost(progress = dataTransferProgress)
+    SettingsBackupTransferProgressHost(settingsViewModel)
 
     // Dialogs
     FileExplorerDialog(
@@ -2534,6 +2521,12 @@ private fun BackupSectionSelectableCard(
 }
 
 private const val BackupTransferDialogMinimumVisibilityMs = 1500L
+
+@Composable
+private fun SettingsBackupTransferProgressHost(settingsViewModel: SettingsViewModel) {
+    val progress by settingsViewModel.dataTransferProgress.collectAsStateWithLifecycle()
+    BackupTransferProgressDialogHost(progress = progress)
+}
 
 @Composable
 private fun BackupTransferProgressDialogHost(progress: BackupTransferProgressUpdate?) {

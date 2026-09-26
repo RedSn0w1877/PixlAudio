@@ -6,6 +6,10 @@
 
 package com.theveloper.pixelplay.presentation.screens
 
+import com.theveloper.pixelplay.presentation.viewmodel.ThemeStateHolder
+import androidx.compose.runtime.DisposableEffect
+import com.theveloper.pixelplay.presentation.components.rememberAppGridState
+import com.theveloper.pixelplay.presentation.components.rememberAppListState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -103,12 +107,11 @@ fun LibraryAlbumsTab(
             .distinctUntilChanged()
     }.collectAsStateWithLifecycle(initialValue = false)
 
-    val gridState = rememberLazyGridState()
-    val listState = rememberLazyListState()
+    val gridState = rememberAppGridState()
+    val listState = rememberAppListState()
     val dummyListState = rememberLazyListState()
     val dummyGridState = rememberLazyGridState()
     val context = LocalContext.current
-    val imageLoader = context.imageLoader
 
     val albumFastScrollLabelProvider = remember(albums, currentAlbumSortOption) {
         { index: Int ->
@@ -153,69 +156,9 @@ fun LibraryAlbumsTab(
         pendingAlbumSortScrollReset = false
     }
 
-    // P2-3: Debounce 150ms to avoid firing on every scroll frame.
-    // Reduced prefetchCount from 10 to 4 to lower memory/IO pressure.
-    LaunchedEffect(albums, gridState, listState, isListView) {
-        if (isListView) {
-            snapshotFlow { listState.layoutInfo }
-                .debounce(150)
-                .distinctUntilChanged()
-                .collect { layoutInfo ->
-                    val visibleItemsInfo = layoutInfo.visibleItemsInfo
-                    if (visibleItemsInfo.isNotEmpty() && albums.itemCount > 0) {
-                        val lastVisibleItemIndex = visibleItemsInfo.last().index
-                        val totalItemsCount = albums.itemCount
-                        val prefetchThreshold = 5
-                        val prefetchCount = 4
-
-                        if (totalItemsCount > lastVisibleItemIndex + 1 && lastVisibleItemIndex + prefetchThreshold >= totalItemsCount - prefetchCount) {
-                            val startIndexToPrefetch = lastVisibleItemIndex + 1
-                            val endIndexToPrefetch = (startIndexToPrefetch + prefetchCount).coerceAtMost(totalItemsCount)
-
-                            (startIndexToPrefetch until endIndexToPrefetch).forEach { indexToPrefetch ->
-                                val album = albums.peek(indexToPrefetch)
-                                album?.albumArtUriString?.let { uri ->
-                                    val request = ImageRequest.Builder(context)
-                                        .data(uri)
-                                        .size(Size(256, 256))
-                                        .build()
-                                    imageLoader.enqueue(request)
-                                }
-                            }
-                        }
-                    }
-                }
-        } else {
-            snapshotFlow { gridState.layoutInfo }
-                .debounce(150)
-                .distinctUntilChanged()
-                .collect { layoutInfo ->
-                    val visibleItemsInfo = layoutInfo.visibleItemsInfo
-                    if (visibleItemsInfo.isNotEmpty() && albums.itemCount > 0) {
-                        val lastVisibleItemIndex = visibleItemsInfo.last().index
-                        val totalItemsCount = albums.itemCount
-                        val prefetchThreshold = 5
-                        val prefetchCount = 4
-
-                        if (totalItemsCount > lastVisibleItemIndex + 1 && lastVisibleItemIndex + prefetchThreshold >= totalItemsCount - prefetchCount) {
-                            val startIndexToPrefetch = lastVisibleItemIndex + 1
-                            val endIndexToPrefetch = (startIndexToPrefetch + prefetchCount).coerceAtMost(totalItemsCount)
-
-                            (startIndexToPrefetch until endIndexToPrefetch).forEach { indexToPrefetch ->
-                                val album = albums.peek(indexToPrefetch)
-                                album?.albumArtUriString?.let { uri ->
-                                    val request = ImageRequest.Builder(context)
-                                        .data(uri)
-                                        .size(Size(256, 256))
-                                        .build()
-                                    imageLoader.enqueue(request)
-                                }
-                            }
-                        }
-                    }
-            }
-        }
-    }
+    // Look-ahead image loading comes from the list/grid cache window (rememberAppListState /
+    // rememberAppGridState): tiles 600 dp ahead are composed during idle frames and start their
+    // own, correctly sized requests. The old prefetch only fired within 9 items of the end.
 
     val refreshState = albums.loadState.refresh
     val reachedEndOfPagination = albums.loadState.append.endOfPaginationReached
@@ -354,8 +297,9 @@ fun LibraryAlbumsTab(
                                         // wrapper per call, which would stop the item skipping and
                                         // restart its collector on every recomposition.
                                         val albumSpecificColorSchemeFlow = remember(album.albumArtUriString) {
-                                            playerViewModel.themeStateHolder.getAlbumColorSchemeFlow(album.albumArtUriString ?: "")
+                                            playerViewModel.themeStateHolder.getAlbumColorSchemeFlow(album.albumArtUriString ?: "", droppable = true)
                                         }
+                                        RetainAlbumColorSchemeTile(playerViewModel.themeStateHolder, album.albumArtUriString)
                                         val rememberedOnClick = remember(album.id, onAlbumClick) {
                                             { onAlbumClick(album.id) }
                                         }
@@ -428,8 +372,9 @@ fun LibraryAlbumsTab(
                                         // wrapper per call, which would stop the item skipping and
                                         // restart its collector on every recomposition.
                                         val albumSpecificColorSchemeFlow = remember(album.albumArtUriString) {
-                                            playerViewModel.themeStateHolder.getAlbumColorSchemeFlow(album.albumArtUriString ?: "")
+                                            playerViewModel.themeStateHolder.getAlbumColorSchemeFlow(album.albumArtUriString ?: "", droppable = true)
                                         }
+                                        RetainAlbumColorSchemeTile(playerViewModel.themeStateHolder, album.albumArtUriString)
                                         val rememberedOnClick = remember(album.id, onAlbumClick) {
                                             { onAlbumClick(album.id) }
                                         }
@@ -500,7 +445,7 @@ fun LibraryArtistsTab(
             .distinctUntilChanged()
     }.collectAsStateWithLifecycle(initialValue = false)
 
-    val listState = rememberLazyListState()
+    val listState = rememberAppListState()
     val dummyListState = rememberLazyListState()
     val artistFastScrollLabelProvider = remember(artists, currentArtistSortOption) {
         { index: Int ->
@@ -706,4 +651,17 @@ fun LibraryPlaylistsTab(
         onPlaylistSelectionToggle = onPlaylistSelectionToggle,
         onReorderPlaylists = onReorderPlaylists
     )
+}
+
+/**
+ * Tells [ThemeStateHolder] this tile is composed, so a palette request that is still queued when
+ * the tile scrolls away can be skipped (see ThemeStateHolder.getAlbumColorSchemeFlow's droppable).
+ */
+@Composable
+private fun RetainAlbumColorSchemeTile(themeStateHolder: ThemeStateHolder, albumArtUri: String?) {
+    DisposableEffect(themeStateHolder, albumArtUri) {
+        val uri = albumArtUri.orEmpty()
+        themeStateHolder.retainAlbumColorSchemeTile(uri)
+        onDispose { themeStateHolder.releaseAlbumColorSchemeTile(uri) }
+    }
 }

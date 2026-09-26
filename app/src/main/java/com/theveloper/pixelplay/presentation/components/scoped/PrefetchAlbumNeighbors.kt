@@ -3,7 +3,6 @@ package com.theveloper.pixelplay.presentation.components.scoped
 import androidx.compose.foundation.pager.PagerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.platform.LocalContext
@@ -15,43 +14,6 @@ import com.theveloper.pixelplay.presentation.components.safeAlbumArtTargetSize
 import com.theveloper.pixelplay.utils.LocalArtworkUri
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.coroutines.flow.distinctUntilChanged
-
-@Composable
-fun PrefetchAlbumNeighborsImg(
-    current: Song?,
-    queue: ImmutableList<Song>,
-    radius: Int = 1
-) {
-    if (current == null) return
-    val context = LocalContext.current
-    val loader = remember { coil.ImageLoader(context) }
-    val index = remember(current, queue) { queue.indexOfFirst { it.id == current.id } }
-    LaunchedEffect(index, queue) {
-        if (index == -1) return@LaunchedEffect
-        val bounds = (maxOf(0, index - radius))..(minOf(queue.lastIndex, index + radius))
-        for (i in bounds) {
-            if (i == index) continue
-            queue[i].albumArtUriString?.let { data ->
-                val diskPolicy = if (LocalArtworkUri.isLocalArtworkUri(data)) CachePolicy.DISABLED else CachePolicy.ENABLED
-                val targetSize = safeAlbumArtTargetSize(Size.ORIGINAL)
-                val memoryCacheKey = albumArtMemoryCacheKey(data, targetSize)
-                val req = coil.request.ImageRequest.Builder(context)
-                    .data(data)
-                    .apply {
-                        if (memoryCacheKey != null) {
-                            memoryCacheKey(memoryCacheKey)
-                        }
-                    }
-                    .diskCacheKey(if (diskPolicy == CachePolicy.DISABLED) null else memoryCacheKey)
-                    .diskCachePolicy(diskPolicy)
-                    .size(targetSize)
-                    .build()
-                loader.enqueue(req)
-            }
-        }
-    }
-}
-
 
 @Composable
 fun PrefetchAlbumNeighbors(

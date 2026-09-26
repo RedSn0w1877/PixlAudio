@@ -240,22 +240,19 @@ object AppModule {
             .allowHardware(true) // Re-enable hardware bitmaps for better performance
             .memoryCache {
                 MemoryCache.Builder(context)
-                    // Hard 40 MB cap instead of 20%-of-heap. Rationale:
-                    //  - On large-heap devices (Pixel 8 etc.) the percentage
-                    //    expanded to ~80–100 MB, far beyond what an album-art
-                    //    workload needs.
-                    //  - allowHardware(true) keeps most decoded pixels in GPU
-                    //    memory, so the MemoryCache mostly tracks Bitmap
-                    //    references — 40 MB still buffers ~100+ album arts.
-                    //  - Tighter cap = less GC pressure and less thermal
-                    //    headroom spent on memory pressure during long sessions.
-                    .maxSizeBytes(40 * 1024 * 1024)
+                    // Hard 96 MB cap. Coil 2 sizes every entry by its
+                    // allocationByteCount, which for HARDWARE bitmaps is still
+                    // w x h x 4, so the old 40 MB cap held only ~45 display-sized
+                    // grid tiles and scrolling back re-decoded them from disk.
+                    // Hardware pixels live in graphics memory, not the Java heap,
+                    // so the larger cap costs no GC pressure.
+                    .maxSizeBytes(96 * 1024 * 1024)
                     .build()
             }
             .diskCache {
                 DiskCache.Builder()
                     .directory(context.cacheDir.resolve("image_cache"))
-                    .maxSizeBytes(100L * 1024 * 1024) // 100 MB disk cache
+                    .maxSizeBytes(256L * 1024 * 1024) // 256 MB disk cache
                     .build()
             }
             .respectCacheHeaders(false) // Ignore server cache headers, always cache

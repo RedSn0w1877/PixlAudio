@@ -1,5 +1,7 @@
 package com.theveloper.pixelplay.presentation.screens
 
+import com.theveloper.pixelplay.presentation.components.rememberNotCoveredByPlayer
+import kotlinx.coroutines.Job
 import com.theveloper.pixelplay.presentation.navigation.navigateSafely
 import com.theveloper.pixelplay.presentation.navigation.navigateSafelyReplacing
 
@@ -143,9 +145,19 @@ fun HomeScreen(
         .beta05CleanInstallDisclaimerDismissed.collectAsStateWithLifecycle()
     val discoverySnackbar = remember { SnackbarHostState() }
     LaunchedEffect(homeMixPreviewSongs.isNotEmpty()) { discoveryViewModel.refresh() }
+    val discoveryRefreshScope = rememberCoroutineScope()
     DisposableEffect(lifecycleOwner, discoveryViewModel) {
+        var pendingStartRefresh: Job? = null
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_START) discoveryViewModel.refresh()
+            if (event == Lifecycle.Event.ON_START) {
+                // Coming back to Home is a pop transition: start the whole-library pass once it
+                // has settled instead of during it (the holder still throttles repeat passes).
+                pendingStartRefresh?.cancel()
+                pendingStartRefresh = discoveryRefreshScope.launch {
+                    delay(HomeDiscoveryStartRefreshDelayMs)
+                    discoveryViewModel.refresh()
+                }
+            }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
@@ -332,6 +344,8 @@ fun HomeScreen(
         needsScrollRestore = false
     }
 
+    val homeAmbientMotionEnabled = rememberNotCoveredByPlayer(playerViewModel)
+
     // Drawer state for sidebar
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val shouldShowCleanInstallDisclaimer =
@@ -382,6 +396,7 @@ fun HomeScreen(
                 ) {
                     HomeGreetingCard(
                         greeting = homeGreeting,
+                        ambientMotionEnabled = homeAmbientMotionEnabled,
                         cornerRadius = navBarCornerRadius.dp,
                         expandedInsight = homeGreetingExpandedInsight,
                         isLoadingInsight = isLoadingHomeGreetingInsight,
@@ -830,4 +845,5 @@ fun SongListItemFavsWrapper(
     )
 }
 
-
+/** A little longer than the 350 ms shared-axis pop into Home. */
+private const val HomeDiscoveryStartRefreshDelayMs = 450L

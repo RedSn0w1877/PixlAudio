@@ -264,11 +264,13 @@ fun ExpressiveScrollBar(
             label = "WidthAnimation"
         )
         
-        val iconAlpha by animateFloatAsState(
+        val iconAlphaState = animateFloatAsState(
             targetValue = if (isInteracting) 1f else 0f,
             animationSpec = tween(durationMillis = 200),
             label = "IconAlpha"
         )
+        val iconAlpha by iconAlphaState
+        val showIcon by remember(iconAlphaState) { derivedStateOf { iconAlphaState.value > 0f } }
         val density = LocalDensity.current
         val constraintsMaxWidth = maxWidth
         val constraintsMaxHeight = maxHeight
@@ -422,6 +424,13 @@ fun ExpressiveScrollBar(
             )
         }
 
+        // Draw and offset only need the handle's travel, which depends on the bar's height alone.
+        // Reading it this way keeps layoutInfo out of draw, so scrolling doesn't invalidate the
+        // Canvas and the metrics pass runs once per frame (in the snapshotFlow) instead of 4 times.
+        val handleTravelPx = with(density) {
+            (constraintsMaxHeight.toPx() - minHeight.toPx()).coerceAtLeast(1f)
+        }
+
         fun updateProgressFromTouch(touchY: Float, grabOffset: Float) {
             val stats = getScrollStats()
             val scrollableHeight = stats.scrollableHeight
@@ -493,18 +502,19 @@ fun ExpressiveScrollBar(
             }
         }
 
-        val dragLabelTargetIndex = when {
-            pendingScrollIndex >= 0 -> pendingScrollIndex
-            listState != null -> listState.firstVisibleItemIndex
-            gridState != null -> gridState.firstVisibleItemIndex
-            else -> -1
-        }
-        val activeDragLabel =
-            if (isDragging && dragLabelProvider != null && dragLabelTargetIndex >= 0) {
-                dragLabelProvider(dragLabelTargetIndex)
-            } else {
-                null
+        // Only read the first visible index while dragging; otherwise every row crossing the top
+        // edge would recompose the whole scrollbar.
+        val activeDragLabel = if (isDragging && dragLabelProvider != null) {
+            val dragLabelTargetIndex = when {
+                pendingScrollIndex >= 0 -> pendingScrollIndex
+                listState != null -> listState.firstVisibleItemIndex
+                gridState != null -> gridState.firstVisibleItemIndex
+                else -> -1
             }
+            if (dragLabelTargetIndex >= 0) dragLabelProvider(dragLabelTargetIndex) else null
+        } else {
+            null
+        }
         val showDragLabel = isDragging && !activeDragLabel.isNullOrBlank()
 
         LaunchedEffect(activeDragLabel) {
@@ -513,11 +523,15 @@ fun ExpressiveScrollBar(
             }
         }
 
-        val dragLabelAlpha by animateFloatAsState(
+        val dragLabelAlphaState = animateFloatAsState(
             targetValue = if (showDragLabel) 1f else 0f,
             animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing),
             label = "DragLabelAlpha"
         )
+        val dragLabelAlpha by dragLabelAlphaState
+        val dragLabelVisible by remember(dragLabelAlphaState) {
+            derivedStateOf { dragLabelAlphaState.value > 0f }
+        }
         val dragLabelScale by animateFloatAsState(
             targetValue = if (showDragLabel) 1f else 0.82f,
             animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing),
@@ -595,8 +609,7 @@ fun ExpressiveScrollBar(
             val trackX = rightAnchorX - with(density) { thickness.toPx() / 2 }
 
             Canvas(modifier = Modifier.fillMaxSize()) {
-                val stats = getScrollStats()
-                val scrollableHeight = stats.scrollableHeight
+                val scrollableHeight = handleTravelPx
 
                 val visualProgress = displayedProgress.value
                 val displayProgress = if (isDragging && dragProgress >= 0f) dragProgress else visualProgress
@@ -652,12 +665,11 @@ fun ExpressiveScrollBar(
                 )
             }
             
-            if (iconAlpha > 0f) {
+            if (showIcon) {
                Box(
                    modifier = Modifier
                        .offset {
-                           val stats = getScrollStats()
-                           val scrollableHeight = stats.scrollableHeight
+                           val scrollableHeight = handleTravelPx
                            val visualProgress = displayedProgress.value
                            val displayProgress = if (isDragging && dragProgress >= 0f) dragProgress else visualProgress
                            val handleY = displayProgress * scrollableHeight
@@ -690,12 +702,11 @@ fun ExpressiveScrollBar(
             }
 
             val displayedDragLabel = activeDragLabel ?: retainedDragLabel
-            if (dragLabelAlpha > 0f && !displayedDragLabel.isNullOrBlank()) {
+            if (dragLabelVisible && !displayedDragLabel.isNullOrBlank()) {
                 Surface(
                     modifier = Modifier
                         .offset {
-                            val stats = getScrollStats()
-                            val scrollableHeight = stats.scrollableHeight
+                            val scrollableHeight = handleTravelPx
                             val visualProgress = displayedProgress.value
                             val displayProgress = if (isDragging && dragProgress >= 0f) dragProgress else visualProgress
                             val handleY = displayProgress * scrollableHeight

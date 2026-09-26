@@ -1,5 +1,8 @@
 package com.theveloper.pixelplay.presentation.screens
 
+import com.theveloper.pixelplay.presentation.components.rememberCollapsingHeaderContentPadding
+import com.theveloper.pixelplay.presentation.components.WithCollapsingHeader
+import com.theveloper.pixelplay.presentation.components.rememberCollapseFraction
 import android.widget.Toast
 import androidx.compose.ui.res.stringResource
 import com.theveloper.pixelplay.R
@@ -101,13 +104,12 @@ fun WordDelimiterConfigScreen(
     val maxTopBarHeightPx = with(density) { maxTopBarHeight.toPx() }
 
     val topBarHeight = remember { Animatable(maxTopBarHeightPx) }
-    var collapseFraction by remember { mutableStateOf(0f) }
+    // Read only by the top bar (WithCollapsingHeader below): the per-frame header height never
+    // recomposes the screen body or its list.
+    val collapseFractionState = rememberCollapseFraction(topBarHeight, minTopBarHeightPx, maxTopBarHeightPx)
     
     var showResetDialog by remember { mutableStateOf(false) }
 
-    LaunchedEffect(topBarHeight.value) {
-        collapseFraction = 1f - ((topBarHeight.value - minTopBarHeightPx) / (maxTopBarHeightPx - minTopBarHeightPx)).coerceIn(0f, 1f)
-    }
 
     val nestedScrollConnection = remember {
         object : NestedScrollConnection {
@@ -156,12 +158,10 @@ fun WordDelimiterConfigScreen(
             .background(MaterialTheme.colorScheme.surface)
             .nestedScroll(nestedScrollConnection)
     ) {
-        val currentTopBarHeightDp = with(density) { topBarHeight.value.toDp() }
-
         LazyColumn(
             state = lazyListState,
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(top = currentTopBarHeightDp + 8.dp, start = 16.dp, end = 16.dp, bottom = 100.dp),
+            contentPadding = rememberCollapsingHeaderContentPadding(height = topBarHeight, extraTop = 8.dp, start = 16.dp, end = 16.dp, bottom = 100.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             // Current Word Delimiters
@@ -350,38 +350,40 @@ fun WordDelimiterConfigScreen(
             }
         }
 
-        CollapsibleCommonTopBar(
-            title = stringResource(R.string.word_delimiters_screen_title),
-            collapseFraction = collapseFraction,
-            headerHeight = currentTopBarHeightDp,
-            onBackClick = { navController.popBackStack() },
-            actions = {
-                Box(
-                    modifier = Modifier
-                        .height(48.dp)
-                        .padding(end = 16.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    FilledIconButton(
-                        onClick = { showResetDialog = true },
-                        colors = IconButtonDefaults.filledIconButtonColors(
-                            containerColor = MaterialTheme.colorScheme.errorContainer,
-                            contentColor = MaterialTheme.colorScheme.onErrorContainer
-                        ),
+        WithCollapsingHeader(topBarHeight, collapseFractionState) { fraction, headerHeight ->
+            CollapsibleCommonTopBar(
+                title = stringResource(R.string.word_delimiters_screen_title),
+                collapseFraction = fraction,
+                headerHeight = headerHeight,
+                onBackClick = { navController.popBackStack() },
+                actions = {
+                    Box(
                         modifier = Modifier
-                            .width(52.dp)
-                            .height(36.dp),
-                        shape = CircleShape
+                            .height(48.dp)
+                            .padding(end = 16.dp),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Icon(
-                            imageVector = Icons.Rounded.RestartAlt,
-                            contentDescription = stringResource(R.string.common_reset_defaults),
-                            modifier = Modifier.size(20.dp)
-                        )
+                        FilledIconButton(
+                            onClick = { showResetDialog = true },
+                            colors = IconButtonDefaults.filledIconButtonColors(
+                                containerColor = MaterialTheme.colorScheme.errorContainer,
+                                contentColor = MaterialTheme.colorScheme.onErrorContainer
+                            ),
+                            modifier = Modifier
+                                .width(52.dp)
+                                .height(36.dp),
+                            shape = CircleShape
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.RestartAlt,
+                                contentDescription = stringResource(R.string.common_reset_defaults),
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
                     }
                 }
-            }
-        )
+            )
+        }
 
         if (showResetDialog) {
             AlertDialog(

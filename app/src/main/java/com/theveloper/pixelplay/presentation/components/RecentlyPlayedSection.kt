@@ -1,5 +1,6 @@
 package com.theveloper.pixelplay.presentation.components
 
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
@@ -250,8 +251,13 @@ private fun RecentlyPlayedPill(
 ) {
     val isDark = isSystemInDarkTheme()
     val albumColorSchemeState by remember(item.song.albumArtUriString, themeStateHolder) {
-        themeStateHolder.getAlbumColorSchemeFlow(item.song.albumArtUriString.orEmpty())
+        themeStateHolder.getAlbumColorSchemeFlow(item.song.albumArtUriString.orEmpty(), droppable = true)
     }.collectAsStateWithLifecycle()
+    DisposableEffect(item.song.albumArtUriString, themeStateHolder) {
+        val uri = item.song.albumArtUriString.orEmpty()
+        themeStateHolder.retainAlbumColorSchemeTile(uri)
+        onDispose { themeStateHolder.releaseAlbumColorSchemeTile(uri) }
+    }
 
     val albumColorScheme = remember(albumColorSchemeState, isDark) {
         albumColorSchemeState?.let { if (isDark) it.dark else it.light }

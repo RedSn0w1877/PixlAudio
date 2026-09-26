@@ -110,10 +110,15 @@ class MusicRepositoryImpl @Inject constructor(
 
     private val directoryScanMutex = Mutex()
     private val repositoryScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    // maxSize 1000 (a Song is ~1-2 KB): at 250 only five pages stayed loaded, so scrolling back
+    // turned rows into placeholders and recreated them. jumpThreshold lets a far fast-scroller
+    // drag load around the target instead of paging through everything in between (Room's
+    // paging source supports jumping).
     private val defaultLibraryPagingConfig = PagingConfig(
         pageSize = 50,
         enablePlaceholders = true,
-        maxSize = 250
+        maxSize = 1000,
+        jumpThreshold = 150
     )
     // Tracks the active prefetch job so a new flow emission cancels the previous one.
     @Volatile private var prefetchJob: Job? = null

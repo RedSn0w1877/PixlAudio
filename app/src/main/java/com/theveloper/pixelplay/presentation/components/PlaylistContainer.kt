@@ -1,5 +1,6 @@
 package com.theveloper.pixelplay.presentation.components
 
+import com.theveloper.pixelplay.presentation.components.rememberAppListState
 import com.theveloper.pixelplay.presentation.navigation.navigateSafely
 
 import androidx.compose.animation.animateColorAsState
@@ -277,7 +278,7 @@ fun PlaylistItems(
             .map { it.currentSong != null && it.currentSong != Song.emptySong() }
             .distinctUntilChanged()
     }.collectAsStateWithLifecycle(initialValue = false)
-    val listState = rememberLazyListState()
+    val listState = rememberAppListState()
     val playlistFastScrollLabelProvider = remember(displayedPlaylists, currentSortOption) {
         { index: Int ->
             playlistFastScrollLabel(

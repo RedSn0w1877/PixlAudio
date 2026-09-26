@@ -264,6 +264,18 @@ class SongInfoBottomSheetViewModel @Inject constructor(
         return transferStateStore.isSongSavedOnAllReachableWatches(songId)
     }
 
+    /**
+     * [isSongEditable] without touching the file system: a local path is assumed to exist. Used
+     * for the first frame of the sheet while the real check runs off the main thread.
+     */
+    fun isSongLikelyEditable(song: Song): Boolean {
+        if (getCloudProviderLabel(song.contentUriString) != null) return false
+        if (song.path.isNotBlank()) return true
+        val uri = song.contentUriString
+        return uri.startsWith("content://") || uri.startsWith("file://")
+    }
+
+    /** Stats the song's file (a FUSE call that can take milliseconds): call it off the main thread. */
     fun isSongEditable(song: Song): Boolean {
         if (getCloudProviderLabel(song.contentUriString) != null) return false
 

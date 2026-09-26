@@ -1,5 +1,15 @@
 package com.theveloper.pixelplay.presentation.components
 
+import androidx.compose.ui.text.font.Typeface as ComposeTypeface
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.Dispatchers
+import kotlin.math.ceil
+import java.util.concurrent.ConcurrentHashMap
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.runtime.LaunchedEffect
+import android.graphics.Paint
+import android.content.Context
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -19,9 +29,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontVariation
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.Dp
@@ -29,7 +37,6 @@ import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp
 import androidx.compose.ui.util.lerp
-import androidx.compose.ui.text.ExperimentalTextApi
 import androidx.compose.ui.text.style.TextOverflow
 import com.theveloper.pixelplay.R
 import kotlin.math.roundToInt
@@ -79,6 +86,7 @@ fun ExpressiveTopBarContent(
     val subtitleMaxLines = if (clampedFraction < 0.5f) expandedSubtitleMaxLines else collapsedSubtitleMaxLines
     val titleFontSize = (titleFontSizeRange?.let { lerp(it.first, it.second, clampedFraction) } ?: titleStyle.fontSize) * titleScale
     val density = LocalDensity.current
+    val context = LocalContext.current
     val textMeasurer = rememberTextMeasurer()
     val sanitizedMinWidthAxis = titleMinWidthAxis.coerceIn(1f, DefaultTopBarTitleWidthAxis)
     val expandedMinWidthAxis = if (enableExpandedTitleWidthCompression) sanitizedMinWidthAxis else DefaultTopBarTitleWidthAxis
@@ -96,23 +104,64 @@ fun ExpressiveTopBarContent(
         val compressionTargetWidthPx = thresholdWidthPx
             ?.coerceAtMost(availableTitleWidthPx)
             ?: availableTitleWidthPx
+        val naturalWidthFontFamily = TopBarTitleFonts.fontFamily(
+            context = context,
+            fontWeight = titleFontWeight,
+            widthAxis = DefaultTopBarTitleWidthAxis
+        )
         val baseTitleStyle = titleStyle.copy(
             fontSize = titleFontSize,
             lineHeight = titleFontSize * 1.1f,
             fontWeight = titleFontWeight,
-            fontFamily = rememberGoogleSansFlexFontFamily(
-                fontWeight = titleFontWeight,
-                widthAxis = DefaultTopBarTitleWidthAxis
-            )
+            fontFamily = naturalWidthFontFamily
         )
-        val naturalTitleWidthPx = remember(title, baseTitleStyle) {
-            textMeasurer.measure(
+        // The title's natural (uncompressed) width is measured once per title at the two ends of
+        // the collapse, then interpolated for the current font size. Glyph advances scale linearly
+        // with the size, so this matches a fresh measurement to within a pixel, and scrolling no
+        // longer runs a full paragraph layout on every frame.
+        val expandedTitleFontSize = (titleFontSizeRange?.first ?: titleStyle.fontSize) * titleScaleRange.first
+        val collapsedTitleFontSize = (titleFontSizeRange?.second ?: titleStyle.fontSize) * titleScaleRange.second
+        val naturalWidthModel = remember(
+            title, titleStyle, expandedTitleFontSize, collapsedTitleFontSize, naturalWidthFontFamily, textMeasurer
+        ) {
+            fun measureAt(size: TextUnit): Float = textMeasurer.measure(
                 text = AnnotatedString(title),
-                style = baseTitleStyle,
+                style = titleStyle.copy(
+                    fontSize = size,
+                    lineHeight = size * 1.1f,
+                    fontWeight = titleFontWeight,
+                    fontFamily = naturalWidthFontFamily
+                ),
                 overflow = TextOverflow.Clip,
                 softWrap = false,
                 maxLines = 1
-            ).size.width
+            ).multiParagraph.intrinsics.maxIntrinsicWidth
+            val expandedWidth = measureAt(expandedTitleFontSize)
+            val collapsedWidth = if (collapsedTitleFontSize == expandedTitleFontSize) {
+                expandedWidth
+            } else {
+                measureAt(collapsedTitleFontSize)
+            }
+            TitleNaturalWidthModel(
+                startSize = expandedTitleFontSize.value,
+                startWidthPx = expandedWidth,
+                endSize = collapsedTitleFontSize.value,
+                endWidthPx = collapsedWidth
+            )
+        }
+        val naturalTitleWidthPx = naturalWidthModel.widthPxAt(titleFontSize.value)
+
+        // Long titles sweep the width axis while collapsing; build those typefaces off the main
+        // thread up front so the first collapse doesn't create them one per frame.
+        val mayCompressTitle = expandedMinWidthAxis < DefaultTopBarTitleWidthAxis ||
+            collapsedMinWidthAxis < DefaultTopBarTitleWidthAxis
+        val titleCanOverflow = mayCompressTitle && availableTitleWidthPx > 0 &&
+            naturalWidthModel.maxWidthPx > compressionTargetWidthPx
+        if (titleCanOverflow) {
+            val warmFromAxis = minOf(expandedMinWidthAxis, collapsedMinWidthAxis)
+            LaunchedEffect(warmFromAxis, titleFontWeight) {
+                TopBarTitleFonts.warmUp(context.applicationContext, titleFontWeight, warmFromAxis)
+            }
         }
         val shouldCompressTitle = currentMinWidthAxis < DefaultTopBarTitleWidthAxis &&
                 availableTitleWidthPx > 0 &&
@@ -126,7 +175,8 @@ fun ExpressiveTopBarContent(
             DefaultTopBarTitleWidthAxis
         }
         val resolvedTitleStyle = baseTitleStyle.copy(
-            fontFamily = rememberGoogleSansFlexFontFamily(
+            fontFamily = TopBarTitleFonts.fontFamily(
+                context = context,
                 fontWeight = titleFontWeight,
                 widthAxis = resolvedWidthAxis
             )
@@ -174,27 +224,70 @@ fun ExpressiveTopBarContent(
     }
 }
 
-@OptIn(ExperimentalTextApi::class)
-@Composable
-private fun rememberGoogleSansFlexFontFamily(
-    fontWeight: FontWeight,
-    widthAxis: Float
-): FontFamily {
-    val sanitizedWidthAxis = widthAxis.coerceIn(1f, DefaultTopBarTitleWidthAxis).roundToInt().toFloat()
-    return remember(fontWeight, sanitizedWidthAxis) {
-        FontFamily(
-            Font(
-                resId = R.font.gflex_variable,
-                weight = fontWeight,
-                variationSettings = FontVariation.Settings(
-                    FontVariation.weight(fontWeight.weight),
-                    FontVariation.width(sanitizedWidthAxis),
-                    FontVariation.Setting("ROND", TopBarTitleRoundedAxis),
-                    FontVariation.Setting("XTRA", TopBarTitleXtraAxis),
-                    FontVariation.Setting("YOPQ", TopBarTitleYopqAxis),
-                    FontVariation.Setting("YTLC", TopBarTitleYtlcAxis)
-                )
-            )
-        )
+/** Natural title width as a linear function of font size, from two measured points. */
+private class TitleNaturalWidthModel(
+    private val startSize: Float,
+    private val startWidthPx: Float,
+    private val endSize: Float,
+    private val endWidthPx: Float,
+) {
+    val maxWidthPx: Int get() = ceil(maxOf(startWidthPx, endWidthPx)).toInt()
+
+    fun widthPxAt(size: Float): Int {
+        val width = if (endSize == startSize) {
+            startWidthPx
+        } else {
+            startWidthPx + (endWidthPx - startWidthPx) * (size - startSize) / (endSize - startSize)
+        }
+        return ceil(width).toInt()
+    }
+}
+
+/**
+ * Process-wide cache of the title's Google Sans Flex instances, one per (weight, integer width axis).
+ *
+ * Compose keeps only a small LRU of resolved typefaces, so sweeping the width axis 78..100 while a
+ * long title collapses used to re-create variable-font typefaces on the main thread every time.
+ * Each instance here is built the way Compose loads a variable [androidx.compose.ui.text.font.Font]
+ * resource (the resource typeface with the variation settings applied through a Paint), so the
+ * glyphs are identical, and it is built only once per process.
+ */
+private object TopBarTitleFonts {
+    private val cache = ConcurrentHashMap<Int, FontFamily>()
+
+    private fun key(fontWeight: FontWeight, axis: Int): Int = fontWeight.weight * 1000 + axis
+
+    fun fontFamily(context: Context, fontWeight: FontWeight, widthAxis: Float): FontFamily {
+        val axis = widthAxis.coerceIn(1f, DefaultTopBarTitleWidthAxis).roundToInt()
+        return cache.getOrPut(key(fontWeight, axis)) { build(context, fontWeight, axis) }
+    }
+
+    suspend fun warmUp(context: Context, fontWeight: FontWeight, fromAxis: Float) {
+        val start = fromAxis.coerceIn(1f, DefaultTopBarTitleWidthAxis).roundToInt()
+        withContext(Dispatchers.Default) {
+            for (axis in DefaultTopBarTitleWidthAxis.toInt() downTo start) {
+                ensureActive()
+                val cacheKey = key(fontWeight, axis)
+                if (!cache.containsKey(cacheKey)) {
+                    cache.putIfAbsent(cacheKey, build(context, fontWeight, axis))
+                }
+            }
+        }
+    }
+
+    private fun build(context: Context, fontWeight: FontWeight, axis: Int): FontFamily {
+        val variationSettings = listOf(
+            "wght" to fontWeight.weight.toFloat(),
+            "wdth" to axis.toFloat(),
+            "ROND" to TopBarTitleRoundedAxis,
+            "XTRA" to TopBarTitleXtraAxis,
+            "YOPQ" to TopBarTitleYopqAxis,
+            "YTLC" to TopBarTitleYtlcAxis
+        ).joinToString(", ") { (tag, value) -> "'" + tag + "' " + value }
+        val baseTypeface = context.resources.getFont(R.font.gflex_variable)
+        val paint = Paint()
+        paint.typeface = baseTypeface
+        paint.setFontVariationSettings(variationSettings)
+        return FontFamily(ComposeTypeface(paint.typeface ?: baseTypeface))
     }
 }

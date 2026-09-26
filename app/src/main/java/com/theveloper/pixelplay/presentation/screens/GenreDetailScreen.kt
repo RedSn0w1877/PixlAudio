@@ -1,5 +1,12 @@
 package com.theveloper.pixelplay.presentation.screens
 
+import com.theveloper.pixelplay.presentation.components.rememberAppListState
+import com.theveloper.pixelplay.presentation.components.PlaybackRowState
+import androidx.compose.runtime.State
+import androidx.compose.runtime.derivedStateOf
+import com.theveloper.pixelplay.presentation.components.rememberIsSongPlaying
+import com.theveloper.pixelplay.presentation.components.rememberIsCurrentSong
+import com.theveloper.pixelplay.presentation.components.rememberPlaybackRowState
 import com.theveloper.pixelplay.presentation.components.ScreenChrome
 import com.theveloper.pixelplay.presentation.navigation.navigateSafely
 import com.theveloper.pixelplay.presentation.navigation.navigateSafelyReplacing
@@ -107,7 +114,7 @@ fun GenreDetailScreen(
     playlistViewModel: com.theveloper.pixelplay.presentation.viewmodel.PlaylistViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    val stablePlayerState by playerViewModel.stablePlayerState.collectAsStateWithLifecycle()
+    val playbackRowState = rememberPlaybackRowState(playerViewModel.stablePlayerState)
     val favoriteSongIds by playerViewModel.favoriteSongIds.collectAsStateWithLifecycle()
     val playlistUiState by playlistViewModel.uiState.collectAsStateWithLifecycle()
     val libraryGenres by playerViewModel.genres.collectAsStateWithLifecycle()
@@ -143,7 +150,7 @@ fun GenreDetailScreen(
     val darkMode = LocalPixelPlayDarkTheme.current
 
     val coroutineScope = rememberCoroutineScope()
-    val lazyListState = rememberLazyListState()
+    val lazyListState = rememberAppListState()
 
     val statusBarHeight = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val systemNavBarInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
@@ -278,7 +285,9 @@ fun GenreDetailScreen(
     val genrePaletteStyle by playerViewModel.albumArtPaletteStyle.collectAsStateWithLifecycle(
         initialValue = AlbumArtPaletteStyle.default
     )
-    val isMiniPlayerVisible = stablePlayerState.currentSong != null
+    val isMiniPlayerVisible by remember(playbackRowState) {
+        derivedStateOf { playbackRowState.value.hasCurrentSong }
+    }
     val fabBottomPadding by animateDpAsState(
         targetValue = if (isMiniPlayerVisible) MiniPlayerHeight + systemNavBarInset + 16.dp else systemNavBarInset + 16.dp,
         label = "fabPadding"
@@ -354,7 +363,7 @@ fun GenreDetailScreen(
                             val selectionIndex = multiSelectionState.getSelectionIndex(item.song.id)
                             GenreSongItemWrapper(
                                 item = item,
-                                stablePlayerState = stablePlayerState,
+                                playback = playbackRowState,
                                 onSongClick = { song ->
                                     playerViewModel.showAndPlaySong(song, uiState.sortedSongs, genreDisplayName)
                                 },
@@ -1000,7 +1009,7 @@ fun GenreAlbumHeader(
 @Composable
 fun GenreSongItemWrapper(
     item: com.theveloper.pixelplay.presentation.viewmodel.GenreDetailListItem.SongItem,
-    stablePlayerState: StablePlayerState,
+    playback: State<PlaybackRowState>,
     onSongClick: (Song) -> Unit,
     onMoreOptionsClick: (Song) -> Unit,
     isSelectionMode: Boolean = false,
@@ -1047,9 +1056,10 @@ fun GenreSongItemWrapper(
         Column {
             if (!isFirstInAlbum) Spacer(Modifier.height(2.dp))
             
-            // Optimization: De-reference stable state values to avoid observing the whole object
-            val isCurrent = stablePlayerState.currentSong?.id == song.id
-            val isPlaying = stablePlayerState.isPlaying
+            // Only this row's own answers are observed, so play/pause or a track change
+            // recomposes just the rows whose state flipped.
+            val isCurrent by rememberIsCurrentSong(playback, song.id)
+            val isPlaying by rememberIsSongPlaying(playback, song.id)
 
             EnhancedSongListItem(
                  song = song,

@@ -170,18 +170,17 @@ fun EnhancedSongListItem(
     // suena sin conexión y no necesita indicador. Se filtra a la clave de ESTA canción y se
     // aplica distinctUntilChanged para que un cambio en otra canción no recomponga toda la lista.
     val spotifyId = song.spotifyId
-    val offlineState by remember(spotifyId) {
-        if (spotifyId == null) flowOf(null)
-        else SongCacheStateCache.states.map { it[spotifyId] }.distinctUntilChanged()
-    }.collectAsState(initial = null)
+    // Las canciones locales no lanzan ningún colector (antes eran dos corrutinas por fila).
+    val offlineState = if (spotifyId == null) null else remember(spotifyId) {
+        SongCacheStateCache.states.map { it[spotifyId] }.distinctUntilChanged()
+    }.collectAsState(initial = null).value
 
     // Una pista sin vídeo emparejado no se puede reproducir en absoluto, así que pesa más que
     // cualquier estado de descarga. Hasta ahora esto solo se veía como un contador global en el
     // panel de Spotify: no había forma de saber, mirando la lista, CUÁL canción era la que fallaba.
-    val matchState by remember(spotifyId) {
-        if (spotifyId == null) flowOf(null)
-        else SpotifyMatchStateCache.states.map { it[spotifyId] }.distinctUntilChanged()
-    }.collectAsState(initial = null)
+    val matchState = if (spotifyId == null) null else remember(spotifyId) {
+        SpotifyMatchStateCache.states.map { it[spotifyId] }.distinctUntilChanged()
+    }.collectAsState(initial = null).value
 
     val isHighlighted = isCurrentSong && !isLoading
     val transition = updateTransition(

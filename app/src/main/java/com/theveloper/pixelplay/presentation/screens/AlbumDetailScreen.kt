@@ -2,6 +2,10 @@
 
 package com.theveloper.pixelplay.presentation.screens
 
+import com.theveloper.pixelplay.presentation.components.rememberAppListState
+import com.theveloper.pixelplay.presentation.components.rememberIsSongPlaying
+import com.theveloper.pixelplay.presentation.components.rememberIsCurrentSong
+import com.theveloper.pixelplay.presentation.components.rememberPlaybackRowState
 import com.theveloper.pixelplay.presentation.components.ScreenLayer
 import com.theveloper.pixelplay.presentation.navigation.navigateSafely
 import com.theveloper.pixelplay.presentation.navigation.navigateSafelyReplacing
@@ -128,7 +132,7 @@ fun AlbumDetailScreen(
     playlistViewModel: PlaylistViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    val stablePlayerState by playerViewModel.stablePlayerState.collectAsStateWithLifecycle()
+    val playbackRowState = rememberPlaybackRowState(playerViewModel.stablePlayerState)
     val favoriteIds by playerViewModel.favoriteSongIds.collectAsStateWithLifecycle()
     val navBarCompactMode by playerViewModel.navBarCompactMode.collectAsStateWithLifecycle()
 
@@ -166,7 +170,9 @@ fun AlbumDetailScreen(
         shapes = MaterialTheme.shapes
     ) {
 
-        val isMiniPlayerVisible = stablePlayerState.currentSong != null
+        val isMiniPlayerVisible by remember(playbackRowState) {
+            derivedStateOf { playbackRowState.value.hasCurrentSong }
+        }
         val fabBottomPadding by animateDpAsState(
             targetValue = if (isMiniPlayerVisible) MiniPlayerHeight + 16.dp else 16.dp,
             label = "fabPadding"
@@ -200,7 +206,7 @@ fun AlbumDetailScreen(
                 val songsByDisc = remember(songs) {
                     songs.groupBy { it.discNumber ?: 1 }
                 }
-                val lazyListState = rememberLazyListState()
+                val lazyListState = rememberAppListState()
 
                 val statusBarHeight = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
                 val minTopBarHeight = 64.dp + statusBarHeight
@@ -342,8 +348,8 @@ fun AlbumDetailScreen(
                                 ) { song ->
                                     EnhancedSongListItem(
                                         song = song,
-                                        isCurrentSong = stablePlayerState.currentSong?.id == song.id,
-                                        isPlaying = stablePlayerState.isPlaying,
+                                        isCurrentSong = rememberIsCurrentSong(playbackRowState, song.id).value,
+                                        isPlaying = rememberIsSongPlaying(playbackRowState, song.id).value,
                                         showAlbumArt = false,
                                         onMoreOptionsClick = {
                                             playerViewModel.selectSongForInfo(song)

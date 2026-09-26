@@ -210,7 +210,7 @@ private fun rememberBatchAnimatedColorScheme(target: ColorScheme): ColorScheme {
  * Manually interpolates every field of two [ColorScheme]s by [t] ∈ [0, 1].
  * Called once per animation frame (inside [derivedStateOf]) — O(29) lerp ops, negligible CPU.
  */
-private fun lerpColorScheme(from: ColorScheme, to: ColorScheme, t: Float): ColorScheme =
+internal fun lerpColorScheme(from: ColorScheme, to: ColorScheme, t: Float): ColorScheme =
     to.copy(
         primary                = lerp(from.primary, to.primary, t),
         onPrimary              = lerp(from.onPrimary, to.onPrimary, t),

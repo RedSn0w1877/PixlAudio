@@ -1,5 +1,11 @@
 package com.theveloper.pixelplay.presentation.screens
 
+import com.theveloper.pixelplay.presentation.components.rememberAppListState
+import com.theveloper.pixelplay.presentation.components.PlaybackRowState
+import androidx.compose.runtime.State
+import com.theveloper.pixelplay.presentation.components.rememberIsSongPlaying
+import com.theveloper.pixelplay.presentation.components.rememberIsCurrentSong
+import com.theveloper.pixelplay.presentation.components.rememberPlaybackRowState
 import com.theveloper.pixelplay.presentation.navigation.navigateSafely
 import com.theveloper.pixelplay.presentation.navigation.navigateSafelyReplacing
 
@@ -241,7 +247,7 @@ fun SearchScreen(
     }.collectAsStateWithLifecycle(initialValue = SearchUiSlice())
     val currentFilter = searchUiState.selectedSearchFilter
     val genres by playerViewModel.genres.collectAsStateWithLifecycle()
-    val stablePlayerState by playerViewModel.stablePlayerState.collectAsStateWithLifecycle()
+    val playbackRowState = rememberPlaybackRowState(playerViewModel.stablePlayerState)
     val favoriteSongIds by playerViewModel.favoriteSongIds.collectAsStateWithLifecycle()
     val selectedSongForInfo by playerViewModel.selectedSongForInfo.collectAsStateWithLifecycle()
     var showSongInfoBottomSheet by remember { mutableStateOf(false) }
@@ -618,8 +624,7 @@ fun SearchScreen(
                                                 playerViewModel.onSearchQuerySubmitted(searchQuery)
                                             }
                                         },
-                                        currentPlayingSongId = stablePlayerState.currentSong?.id,
-                                        isPlaying = stablePlayerState.isPlaying,
+                                        playback = playbackRowState,
                                         onSongMoreOptionsClick = handleSongMoreOptionsClick,
                                         navController = navController,
                                         isSelectionMode = isSongSelectionMode,
@@ -1265,8 +1270,7 @@ fun SearchResultsList(
     searchQuery: String,
     playerViewModel: PlayerViewModel,
     onItemSelected: () -> Unit,
-    currentPlayingSongId: String?,
-    isPlaying: Boolean,
+    playback: State<PlaybackRowState>,
     onSongMoreOptionsClick: (Song) -> Unit,
     navController: NavHostController,
     isSelectionMode: Boolean = false,
@@ -1285,7 +1289,6 @@ fun SearchResultsList(
     getPlaylistSelectionIndex: (String) -> Int? = { null }
 ) {
     val localDensity = LocalDensity.current
-    val playerStableState by playerViewModel.stablePlayerState.collectAsStateWithLifecycle()
 
     if (results.isEmpty()) {
         Box(
@@ -1353,6 +1356,7 @@ fun SearchResultsList(
     val systemBarPaddingBottom = WindowInsets.systemBars.asPaddingValues().calculateBottomPadding() + 94.dp
 
     LazyColumn(
+        state = rememberAppListState(),
         modifier = Modifier
             .fillMaxSize()
             .clip(
@@ -1416,8 +1420,8 @@ fun SearchResultsList(
                                 val selectionIndex = getSelectionIndex(item.song.id)
                                 EnhancedSongListItem(
                                     song = item.song,
-                                    isPlaying = isPlaying,
-                                    isCurrentSong = currentPlayingSongId == item.song.id,
+                                    isPlaying = rememberIsSongPlaying(playback, item.song.id).value,
+                                    isCurrentSong = rememberIsCurrentSong(playback, item.song.id).value,
                                     onMoreOptionsClick = onSongMoreOptionsClick,
                                     onClick = { onSongResultClick(item.song) },
                                     isSelected = isSelected,
@@ -1504,7 +1508,7 @@ fun SearchResultsList(
                                                 songs.first(),
                                                 item.playlist.name
                                             )
-                                            if (playerStableState.isShuffleEnabled) playerViewModel.toggleShuffle()
+                                            if (playerViewModel.stablePlayerState.value.isShuffleEnabled) playerViewModel.toggleShuffle()
                                         } else {
                                             playerViewModel.sendToast("Empty playlist")
                                         }

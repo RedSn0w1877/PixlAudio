@@ -1,5 +1,8 @@
 package com.theveloper.pixelplay.presentation.components
 
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import androidx.compose.runtime.produceState
 import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.content.Context
@@ -423,7 +426,14 @@ fun SongInfoBottomSheet(
                                     text = song.title
                                 )
                             }
-                            val isEditable = remember(song) { songInfoViewModel.isSongEditable(song) }
+                            // The file check stats storage, so it runs on IO; the first frame uses the
+                            // same answer minus the stat (a listed local file almost always exists).
+                            val isEditable by produceState(
+                                initialValue = remember(song) { songInfoViewModel.isSongLikelyEditable(song) },
+                                song
+                            ) {
+                                value = withContext(Dispatchers.IO) { songInfoViewModel.isSongEditable(song) }
+                            }
                             if (isEditable) {
                                 FilledTonalIconButton(
                                     modifier = Modifier

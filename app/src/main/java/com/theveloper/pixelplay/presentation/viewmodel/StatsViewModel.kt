@@ -1,5 +1,7 @@
 package com.theveloper.pixelplay.presentation.viewmodel
 
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.Mutex
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.theveloper.pixelplay.data.model.Song
@@ -45,6 +47,10 @@ class StatsViewModel @Inject constructor(
 
     @Volatile
     private var cachedSongs: List<Song>? = null
+
+    // init starts the WEEK summary and the Home overview at the same time; without this both
+    // raced past the empty cache and loaded the whole library twice.
+    private val songsLoadMutex = Mutex()
 
     init {
         observeStatsRefreshFlow()
@@ -171,9 +177,10 @@ class StatsViewModel @Inject constructor(
         cachedSongs?.let { existing ->
             if (existing.isNotEmpty()) return existing
         }
-        val songs = musicRepository.getAllSongsOnce()
-        cachedSongs = songs
-        return songs
+        return songsLoadMutex.withLock {
+            cachedSongs?.takeIf { it.isNotEmpty() }
+                ?: musicRepository.getAllSongsOnce().also { cachedSongs = it }
+        }
     }
 
     private fun PlaybackStatsSummary.hasListeningActivity(): Boolean {

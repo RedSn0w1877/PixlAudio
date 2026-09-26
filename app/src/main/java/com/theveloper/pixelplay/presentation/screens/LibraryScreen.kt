@@ -2,6 +2,8 @@
 
 package com.theveloper.pixelplay.presentation.screens
 
+import com.theveloper.pixelplay.presentation.components.rememberAppListState
+import com.theveloper.pixelplay.presentation.components.rememberPlaybackRowState
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Scaffold
 import com.theveloper.pixelplay.presentation.navigation.navigateSafely
@@ -2754,6 +2756,7 @@ fun LibraryFoldersTab(
     onClearPendingLocate: () -> Unit = {},
     onRequestCrossFolderLocate: (String) -> Unit = {}
 ) {
+    val playbackRowState = rememberPlaybackRowState(playerViewModel.stablePlayerState)
     // List state moved inside AnimatedContent to prevent state sharing issues during transitions
 
 
@@ -2777,7 +2780,7 @@ fun LibraryFoldersTab(
         }
     ) { (playlistMode, targetPath) ->
         // Each navigation destination gets its own independant ListState
-        val listState = rememberLazyListState()
+        val listState = rememberAppListState()
         val coroutineScope = rememberCoroutineScope()
         val visibilityCallback by rememberUpdatedState(onLocateCurrentSongVisibilityChanged)
         val registerActionCallback by rememberUpdatedState(onRegisterLocateCurrentSongAction)
@@ -2796,12 +2799,14 @@ fun LibraryFoldersTab(
                 showPlaylistCards -> flattenedFolders
                 activeFolder != null -> sortMusicFoldersByOption(activeFolder.subFolders, currentSortOption)
                 else -> sortMusicFoldersByOption(folders, currentSortOption)
-            }
-        }.toImmutableList()
+            }.toImmutableList()
+        }
 
+        // toImmutableList inside remember: outside it copied the list on every recomposition and
+        // handed the LazyColumn a new list each time.
         val songsToShow = remember(activeFolder, currentSortOption) {
-            sortSongsForFolderView(activeFolder?.songs ?: emptyList(), currentSortOption)
-        }.toImmutableList()
+            sortSongsForFolderView(activeFolder?.songs ?: emptyList(), currentSortOption).toImmutableList()
+        }
         val currentSong by remember(playerViewModel) {
             playerViewModel.stablePlayerState
                 .map { it.currentSong }
@@ -2994,7 +2999,7 @@ fun LibraryFoldersTab(
                                 items(songsToShow, key = { it.id }, contentType = { "song" }) { song ->
                                     LibraryPlaybackAwareSongItem(
                                         song = song,
-                                        playerViewModel = playerViewModel,
+                                        playback = playbackRowState,
                                         isSelected = selectedSongIds.contains(song.id),
                                         selectionIndex = if (isSelectionMode) getSelectionIndex(song.id) else null,
                                         isSelectionMode = isSelectionMode,
@@ -3295,9 +3300,8 @@ fun AlbumGridItemRedesigned(
                             model = album.albumArtUriString,
                             contentDescription = stringResource(R.string.common_album_art_for_title, album.title),
                             contentScale = ContentScale.Crop,
-                            // Reducido el tamaño para mejorar el rendimiento del scroll, como se sugiere en el informe.
-                            // ContentScale.Crop se encargará de ajustar la imagen al aspect ratio.
-                            targetSize = Size(256, 256),
+                            // Sin targetSize: se decodifica al tamaño real de la tarjeta (~560x375 px).
+                            // Un 256x256 fijo se ampliaba ~2,2x y se veía borroso.
                             modifier = Modifier
                                 .aspectRatio(3f / 2f)
                                 .fillMaxSize(),
@@ -3414,12 +3418,16 @@ fun ArtistListItem(artist: Artist, onClick: () -> Unit, isLoading: Boolean = fal
                     contentAlignment = Alignment.Center
                 ) {
                     if (!artist.effectiveImageUrl.isNullOrEmpty()) {
-                        AsyncImage(
-                            model = ImageRequest.Builder(LocalContext.current)
+                        val context = LocalContext.current
+                        val artistImageRequest = remember(context, artist.effectiveImageUrl) {
+                            ImageRequest.Builder(context)
                                 .data(artist.effectiveImageUrl)
                                 .crossfade(true)
                                 .size(Size(128, 128))
-                                .build(),
+                                .build()
+                        }
+                        AsyncImage(
+                            model = artistImageRequest,
                             contentDescription = artist.name,
                             contentScale = ContentScale.Crop,
                             modifier = Modifier.fillMaxSize()

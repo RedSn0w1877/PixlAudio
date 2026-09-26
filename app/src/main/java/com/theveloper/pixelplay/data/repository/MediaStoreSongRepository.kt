@@ -456,10 +456,14 @@ class MediaStoreSongRepository @Inject constructor(
         )
     }
 
+    // maxSize 1000 (a Song is ~1-2 KB): at 250 only five pages stayed loaded, so scrolling back
+    // turned rows into placeholders and recreated them. jumpThreshold lets a far fast-scroller
+    // drag load around the target instead of paging through everything in between.
     private val defaultPagingConfig = androidx.paging.PagingConfig(
         pageSize = 50,
         enablePlaceholders = true,
-        maxSize = 250
+        maxSize = 1000,
+        jumpThreshold = 150
     )
 
     @OptIn(ExperimentalCoroutinesApi::class)

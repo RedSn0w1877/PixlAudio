@@ -1,5 +1,6 @@
 package com.theveloper.pixelplay.presentation.viewmodel
 
+import android.os.SystemClock
 import android.net.Uri
 import android.content.ComponentCallbacks2
 import android.os.Trace
@@ -82,7 +83,7 @@ class ThemeStateHolder @Inject constructor(
                         colorAccuracyLevel = accuracy
                     )
                     _currentAlbumArtColorSchemePair.value = refreshedScheme
-                    individualAlbumColorSchemes[uri]?.value = refreshedScheme
+                    synchronized(individualAlbumColorSchemes) { individualAlbumColorSchemes[uri] }?.value = refreshedScheme
                 }
         }
 
@@ -133,7 +134,9 @@ class ThemeStateHolder @Inject constructor(
         }
     }
 
-    // LRU Cache for individual album schemes
+    // LRU Cache for individual album schemes. Access-ordered, so even get() mutates it: every
+    // access goes through synchronized(individualAlbumColorSchemes) because it is touched from
+    // composition (main) and from background collectors.
     private val individualAlbumColorSchemes = object : LinkedHashMap<String, MutableStateFlow<ColorSchemePair?>>(
         32, 0.75f, true
     ) {
@@ -146,13 +149,53 @@ class ThemeStateHolder @Inject constructor(
     private val pendingAlbumColorSchemeLock = Any()
     private val pendingAlbumColorSchemeTargets = mutableMapOf<String, MutableSet<MutableStateFlow<ColorSchemePair?>>>()
 
+    // How many composed tiles currently show each album's scheme (see retainAlbumColorSchemeTile).
+    // Composition lifetime, not collection: a collector pauses while the app is in the
+    // background, but a composed tile still needs its colours when the app comes back.
+    private val composedTileCounts = HashMap<String, Int>()
+
+    /** Called by a list/grid tile when it enters composition; pair with [releaseAlbumColorSchemeTile]. */
+    fun retainAlbumColorSchemeTile(uriString: String) {
+        if (uriString.isBlank()) return
+        synchronized(pendingAlbumColorSchemeLock) {
+            composedTileCounts[uriString] = (composedTileCounts[uriString] ?: 0) + 1
+        }
+    }
+
+    fun releaseAlbumColorSchemeTile(uriString: String) {
+        if (uriString.isBlank()) return
+        synchronized(pendingAlbumColorSchemeLock) {
+            val remaining = (composedTileCounts[uriString] ?: 0) - 1
+            if (remaining > 0) composedTileCounts[uriString] = remaining else composedTileCounts.remove(uriString)
+        }
+    }
+
+    // Pending requests that a non-droppable caller also waits for; never skipped.
+    private val pinnedAlbumColorSchemeRequests = HashSet<String>()
+
+    /** True while a composed tile still shows [uriString], or a non-droppable caller waits for it. */
+    private fun isAlbumColorSchemeStillWanted(uriString: String): Boolean =
+        synchronized(pendingAlbumColorSchemeLock) {
+            uriString in pinnedAlbumColorSchemeRequests || (composedTileCounts[uriString] ?: 0) > 0
+        }
+
+    /**
+     * @param droppable true for list/grid tiles that call [retainAlbumColorSchemeTile] while
+     * composed: if the request waited for a generation slot for longer than a frame or two and no
+     * composed tile shows it any more (it scrolled away), the decode + quantization is skipped.
+     * The flow stays null, so a tile that is composed again asks again.
+     */
     private fun requestAlbumColorSchemeGeneration(
         uriString: String,
-        targetFlow: MutableStateFlow<ColorSchemePair?>
+        targetFlow: MutableStateFlow<ColorSchemePair?>,
+        droppable: Boolean = false
     ) {
         if (uriString.isBlank()) return
 
         val shouldStartRequest = synchronized(pendingAlbumColorSchemeLock) {
+            // Anyone who can't be dropped (album detail, the metadata editor...) pins the request,
+            // even if it joined one a grid tile started.
+            if (!droppable) pinnedAlbumColorSchemeRequests.add(uriString)
             val existingTargets = pendingAlbumColorSchemeTargets[uriString]
             if (existingTargets != null) {
                 existingTargets.add(targetFlow)
@@ -169,22 +212,37 @@ class ThemeStateHolder @Inject constructor(
         if (requestScope == null) {
             synchronized(pendingAlbumColorSchemeLock) {
                 pendingAlbumColorSchemeTargets.remove(uriString)
+                pinnedAlbumColorSchemeRequests.remove(uriString)
             }
             return
         }
 
+        val requestedAtMs = SystemClock.uptimeMillis()
         requestScope.launch(Dispatchers.IO) {
             var scheme: ColorSchemePair? = null
             try {
                 scheme = colorSchemeProcessor.getOrGenerateColorScheme(
                     albumArtUri = uriString,
                     paletteStyle = currentPaletteStyle,
-                    colorAccuracyLevel = currentPaletteAccuracy
+                    colorAccuracyLevel = currentPaletteAccuracy,
+                    throttled = true,
+                    stillWanted = if (droppable) {
+                        {
+                            // A tile registers (retainAlbumColorSchemeTile) within a frame of
+                            // asking, so only a request that has waited well past that can be
+                            // judged abandoned.
+                            SystemClock.uptimeMillis() - requestedAtMs < DROPPABLE_REQUEST_GRACE_MS ||
+                                isAlbumColorSchemeStillWanted(uriString)
+                        }
+                    } else {
+                        null
+                    }
                 )
             } catch (_: Exception) {
                 // Ignore or log
             } finally {
                 val targets = synchronized(pendingAlbumColorSchemeLock) {
+                    pinnedAlbumColorSchemeRequests.remove(uriString)
                     pendingAlbumColorSchemeTargets.remove(uriString)?.toList().orEmpty()
                 }
                 targets.forEach { it.value = scheme }
@@ -192,40 +250,46 @@ class ThemeStateHolder @Inject constructor(
         }
     }
 
+    /**
+     * @param droppable pass true only from list/grid tiles that also call
+     * [retainAlbumColorSchemeTile] / [releaseAlbumColorSchemeTile] around their composition;
+     * see [requestAlbumColorSchemeGeneration].
+     */
     fun getAlbumColorSchemeFlow(
         uriString: String,
-        eager: Boolean = true
+        eager: Boolean = true,
+        droppable: Boolean = false
     ): StateFlow<ColorSchemePair?> {
         if (uriString.isBlank()) return emptyAlbumColorScheme
 
-        val existingFlow = individualAlbumColorSchemes[uriString]
-        if (existingFlow != null) {
-            if (eager && existingFlow.value == null) {
-                requestAlbumColorSchemeGeneration(uriString, existingFlow)
-            }
-            return existingFlow.asStateFlow()
+        val flow = synchronized(individualAlbumColorSchemes) {
+            individualAlbumColorSchemes.getOrPut(uriString) { MutableStateFlow(null) }
         }
-
-        val newFlow = MutableStateFlow<ColorSchemePair?>(null)
-        individualAlbumColorSchemes[uriString] = newFlow
-
-        if (eager) {
-            requestAlbumColorSchemeGeneration(uriString, newFlow)
+        if (eager && flow.value == null) {
+            requestAlbumColorSchemeGeneration(uriString, flow, droppable)
         }
-
-        return newFlow.asStateFlow()
+        return flow.asStateFlow()
     }
 
     fun ensureAlbumColorScheme(uriString: String) {
         if (uriString.isBlank()) return
 
-        val targetFlow = individualAlbumColorSchemes[uriString]
-            ?: MutableStateFlow<ColorSchemePair?>(null).also { individualAlbumColorSchemes[uriString] = it }
+        val targetFlow = synchronized(individualAlbumColorSchemes) {
+            individualAlbumColorSchemes.getOrPut(uriString) { MutableStateFlow(null) }
+        }
 
         if (targetFlow.value != null) return
         requestAlbumColorSchemeGeneration(uriString, targetFlow)
     }
     
+    /** The scheme for [uriString] from the memory or Room cache only; never decodes or generates. */
+    suspend fun peekCachedColorScheme(uriString: String): ColorSchemePair? =
+        colorSchemeProcessor.peekCachedColorScheme(
+            albumArtUri = uriString,
+            paletteStyle = currentPaletteStyle,
+            colorAccuracyLevel = currentPaletteAccuracy
+        )
+
     suspend fun getOrGenerateColorScheme(uriString: String): ColorSchemePair? {
          return colorSchemeProcessor.getOrGenerateColorScheme(
              albumArtUri = uriString,
@@ -273,7 +337,7 @@ class ThemeStateHolder @Inject constructor(
          }
 
          // Iterate if there is an active flow for this URI and update it
-         val activeFlow = individualAlbumColorSchemes[uriString]
+         val activeFlow = synchronized(individualAlbumColorSchemes) { individualAlbumColorSchemes[uriString] }
          if (activeFlow != null) {
              activeFlow.value = newScheme
          }
@@ -290,15 +354,19 @@ class ThemeStateHolder @Inject constructor(
 
     @Suppress("DEPRECATION")
     fun trimMemory(level: Int) {
+        // Going to the launcher (UI_HIDDEN) is not memory pressure. The scheme caches are tiny
+        // (a scheme pair is ~100 longs), and dropping them there made every visible tile re-read
+        // Room and re-parse its colours on the way back.
+        if (level == ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN) return
+
         colorSchemeProcessor.clearMemoryCache()
         clearExtractedColorCache()
 
         if (
             level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW ||
-            level >= ComponentCallbacks2.TRIM_MEMORY_BACKGROUND ||
-            level == ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN
+            level >= ComponentCallbacks2.TRIM_MEMORY_BACKGROUND
         ) {
-            individualAlbumColorSchemes.clear()
+            synchronized(individualAlbumColorSchemes) { individualAlbumColorSchemes.clear() }
         }
 
         if (
@@ -307,12 +375,17 @@ class ThemeStateHolder @Inject constructor(
         ) {
             synchronized(pendingAlbumColorSchemeLock) {
                 pendingAlbumColorSchemeTargets.clear()
+                pinnedAlbumColorSchemeRequests.clear()
             }
         }
     }
 
     fun onCleared() {
         scope = null
+    }
+
+    private companion object {
+        const val DROPPABLE_REQUEST_GRACE_MS = 120L
     }
 
 }

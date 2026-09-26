@@ -1,5 +1,8 @@
 package com.theveloper.pixelplay.presentation.screens
 
+import com.theveloper.pixelplay.presentation.components.rememberCollapsingHeaderContentPadding
+import com.theveloper.pixelplay.presentation.components.WithCollapsingHeader
+import com.theveloper.pixelplay.presentation.components.rememberCollapseFraction
 import androidx.compose.material3.Slider
 import android.annotation.SuppressLint
 import androidx.compose.animation.core.Animatable
@@ -234,11 +237,10 @@ fun EqualizerScreen(
     val maxTopBarHeightPx = with(density) { maxTopBarHeight.toPx() }
     
     val topBarHeight = remember { Animatable(maxTopBarHeightPx) }
-    var collapseFraction by remember { mutableFloatStateOf(0f) }
+    // Read only by the top bar (WithCollapsingHeader below): the per-frame header height never
+    // recomposes the screen body or its list.
+    val collapseFractionState = rememberCollapseFraction(topBarHeight, minTopBarHeightPx, maxTopBarHeightPx)
     
-    LaunchedEffect(topBarHeight.value) {
-        collapseFraction = 1f - ((topBarHeight.value - minTopBarHeightPx) / (maxTopBarHeightPx - minTopBarHeightPx)).coerceIn(0f, 1f)
-    }
     
     val nestedScrollConnection = remember {
         object : NestedScrollConnection {
@@ -288,12 +290,11 @@ fun EqualizerScreen(
                 translationY = contentOffset.toPx()
             }
     ) {
-        val currentTopBarHeightDp = with(density) { topBarHeight.value.toDp() }
-        
         LazyColumn(
             state = lazyListState,
-            contentPadding = PaddingValues(
-                top = currentTopBarHeightDp + 8.dp,
+            contentPadding = rememberCollapsingHeaderContentPadding(
+                height = topBarHeight,
+                extraTop = 8.dp,
                 bottom = MiniPlayerHeight + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 20.dp
             ),
             modifier = Modifier.fillMaxSize(),
@@ -373,65 +374,67 @@ fun EqualizerScreen(
             }
         }
         
-        CollapsibleCommonTopBar(
-            title = stringResource(R.string.settings_category_equalizer_title),
-            collapseFraction = collapseFraction,
-            headerHeight = currentTopBarHeightDp,
-            onBackClick = { navController.popBackStack() },
-            expandedTitleStartPadding = 20.dp,
-            collapsedTitleStartPadding = 72.dp,
-            actions = {
-                // View Mode Toggle
-                FilledIconButton(
-                    onClick = { equalizerViewModel.cycleViewMode() },
-                    colors = IconButtonDefaults.filledIconButtonColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-                        contentColor = MaterialTheme.colorScheme.onSurface
-                    )
-                ) {
-                    Icon(
-                        imageVector = when(uiState.viewMode) {
-                            EqualizerViewMode.SLIDERS -> Icons.Rounded.GraphicEq
-                            EqualizerViewMode.GRAPH -> Icons.AutoMirrored.Rounded.ShowChart
-                            EqualizerViewMode.HYBRID -> Icons.AutoMirrored.Rounded.ViewQuilt
-                        },
-                        contentDescription = stringResource(R.string.equalizer_change_view_mode_cd)
-                    )
-                }
+        WithCollapsingHeader(topBarHeight, collapseFractionState) { fraction, headerHeight ->
+            CollapsibleCommonTopBar(
+                title = stringResource(R.string.settings_category_equalizer_title),
+                collapseFraction = fraction,
+                headerHeight = headerHeight,
+                onBackClick = { navController.popBackStack() },
+                expandedTitleStartPadding = 20.dp,
+                collapsedTitleStartPadding = 72.dp,
+                actions = {
+                    // View Mode Toggle
+                    FilledIconButton(
+                        onClick = { equalizerViewModel.cycleViewMode() },
+                        colors = IconButtonDefaults.filledIconButtonColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                            contentColor = MaterialTheme.colorScheme.onSurface
+                        )
+                    ) {
+                        Icon(
+                            imageVector = when(uiState.viewMode) {
+                                EqualizerViewMode.SLIDERS -> Icons.Rounded.GraphicEq
+                                EqualizerViewMode.GRAPH -> Icons.AutoMirrored.Rounded.ShowChart
+                                EqualizerViewMode.HYBRID -> Icons.AutoMirrored.Rounded.ViewQuilt
+                            },
+                            contentDescription = stringResource(R.string.equalizer_change_view_mode_cd)
+                        )
+                    }
 
-                Spacer(modifier = Modifier.width(12.dp))
+                    Spacer(modifier = Modifier.width(12.dp))
 
-                // Power toggle
-                val isEnabled = uiState.isEnabled
-                val powerButtonCorner by animateIntAsState(
-                    targetValue = if (isEnabled) 50 else 12,
-                    label = "PowerButtonShape"
-                )
+                    // Power toggle
+                    val isEnabled = uiState.isEnabled
+                    val powerButtonCorner by animateIntAsState(
+                        targetValue = if (isEnabled) 50 else 12,
+                        label = "PowerButtonShape"
+                    )
 
-                FilledIconToggleButton(
-                    checked = isEnabled,
-                    onCheckedChange = { equalizerViewModel.toggleEqualizer() },
-                    shape = RoundedCornerShape(powerButtonCorner),
-                    colors = IconButtonDefaults.filledIconToggleButtonColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-                        contentColor = MaterialTheme.colorScheme.onSurface,
-                        checkedContainerColor = MaterialTheme.colorScheme.primary,
-                        checkedContentColor = MaterialTheme.colorScheme.onPrimary
-                    )
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.PowerSettingsNew,
-                        contentDescription = if (isEnabled) {
-                            stringResource(R.string.equalizer_disable_cd)
-                        } else {
-                            stringResource(R.string.equalizer_enable_cd)
-                        }
-                    )
-                }
+                    FilledIconToggleButton(
+                        checked = isEnabled,
+                        onCheckedChange = { equalizerViewModel.toggleEqualizer() },
+                        shape = RoundedCornerShape(powerButtonCorner),
+                        colors = IconButtonDefaults.filledIconToggleButtonColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                            contentColor = MaterialTheme.colorScheme.onSurface,
+                            checkedContainerColor = MaterialTheme.colorScheme.primary,
+                            checkedContentColor = MaterialTheme.colorScheme.onPrimary
+                        )
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.PowerSettingsNew,
+                            contentDescription = if (isEnabled) {
+                                stringResource(R.string.equalizer_disable_cd)
+                            } else {
+                                stringResource(R.string.equalizer_enable_cd)
+                            }
+                        )
+                    }
                 
-                Spacer(modifier = Modifier.width(12.dp))
-            }
-        )
+                    Spacer(modifier = Modifier.width(12.dp))
+                }
+            )
+        }
     }
 }
 

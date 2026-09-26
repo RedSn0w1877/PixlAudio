@@ -1,5 +1,9 @@
 package com.theveloper.pixelplay.presentation.components
 
+import androidx.compose.runtime.State
+import com.theveloper.pixelplay.presentation.components.rememberIsSongPlaying
+import com.theveloper.pixelplay.presentation.components.rememberIsCurrentSong
+import com.theveloper.pixelplay.presentation.components.rememberPlaybackRowState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.Spring
@@ -86,9 +90,10 @@ fun YourMixShelfSection(
     onNavigateToGenre: (Song) -> Unit = {},
 ) {
     val playlistViewModel: PlaylistViewModel = hiltViewModel()
+    // Kept subscribed (a WhileSubscribed flow that starts empty), so the favourite state is right
+    // on the sheet's first frame.
     val favoriteSongIds by playerViewModel.favoriteSongIds.collectAsStateWithLifecycle()
     val selectedSongForInfo by playerViewModel.selectedSongForInfo.collectAsStateWithLifecycle()
-    val playlistUiState by playlistViewModel.uiState.collectAsStateWithLifecycle()
     val navBarCompactMode by playerViewModel.navBarCompactMode.collectAsStateWithLifecycle()
     val systemNavBarInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     val bottomBarHeightDp = resolveNavBarOccupiedHeight(systemNavBarInset, navBarCompactMode)
@@ -116,6 +121,9 @@ fun YourMixShelfSection(
 
     if (showSongInfoSheet && selectedSongForInfo != null) {
         val song = selectedSongForInfo!!
+        // Collected only while the sheet is open: on Home it used to recompose the shelf on
+        // every playlist change even with no sheet showing.
+        val playlistUiState by playlistViewModel.uiState.collectAsStateWithLifecycle()
         SongInfoBottomSheet(
             song = song,
             isFavorite = favoriteSongIds.contains(song.id),
@@ -185,6 +193,7 @@ private fun YourMixShelfCard(
     onCheckOutMix: () -> Unit
 ) {
     val colors = MaterialTheme.colorScheme
+    val ambientMotionEnabled = rememberNotCoveredByPlayer(playerViewModel)
     val headerSongs = remember(songs) { songs.take(3).toImmutableList() }
     val visibleSongs = remember(songs) { songs.take(4).toImmutableList() }
     val cornerRadius = 32.dp
@@ -228,7 +237,7 @@ private fun YourMixShelfCard(
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(modifier = Modifier.fillMaxWidth()) {
-                YourMixShelfHeader(thumbnails = headerSongs)
+                YourMixShelfHeader(thumbnails = headerSongs, ambientMotionEnabled = ambientMotionEnabled)
                 Spacer(Modifier.height(28.dp)) // room for the shuffle FAB overlapping the seam
                 Column(
                     modifier = Modifier
@@ -314,16 +323,16 @@ private fun CheckOutYourMixButton(
 }
 
 @Composable
-private fun YourMixShelfHeader(thumbnails: ImmutableList<Song>) {
+private fun YourMixShelfHeader(thumbnails: ImmutableList<Song>, ambientMotionEnabled: State<Boolean>) {
     val titleStyle = rememberYourMixShelfTitleStyle()
     val colors = MaterialTheme.colorScheme
 
-    val infiniteTransition = rememberInfiniteTransition(label = "YourMixShelfSweep")
-    val sweep by infiniteTransition.animateFloat(
+    // Parks while the expanded player covers Home, so the app can idle behind it.
+    val sweep by rememberAmbientLinearLoop(
         initialValue = -0.4f,
         targetValue = 1.4f,
-        animationSpec = infiniteRepeatable(animation = tween(durationMillis = 6000, easing = LinearEasing)),
-        label = "sweep"
+        durationMillis = 6000,
+        enabled = ambientMotionEnabled
     )
 
     // Hoisted so the drawWithCache block below isn't invalidated by a fresh list identity, and
@@ -487,7 +496,7 @@ private fun YourMixShelfRow(
     onClick: () -> Unit,
     onMoreOptionsClick: (Song) -> Unit
 ) {
-    val stablePlayerState by playerViewModel.stablePlayerState.collectAsStateWithLifecycle()
+    val playbackRowState = rememberPlaybackRowState(playerViewModel.stablePlayerState)
     val itemContainerColor = MaterialTheme.colorScheme.surfaceContainerLow
 
     val entranceAlpha = remember(song.id) { Animatable(0f) }
@@ -513,8 +522,8 @@ private fun YourMixShelfRow(
 
     EnhancedSongListItem(
         song = song,
-        isCurrentSong = stablePlayerState.currentSong?.id == song.id,
-        isPlaying = stablePlayerState.isPlaying && stablePlayerState.currentSong?.id == song.id,
+        isCurrentSong = rememberIsCurrentSong(playbackRowState, song.id).value,
+        isPlaying = rememberIsSongPlaying(playbackRowState, song.id).value,
         containerColorOverride = itemContainerColor,
         onMoreOptionsClick = onMoreOptionsClick,
         customShape = androidx.compose.foundation.shape.RoundedCornerShape(10.dp),

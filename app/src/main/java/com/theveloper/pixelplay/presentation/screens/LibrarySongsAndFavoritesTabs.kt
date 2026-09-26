@@ -2,6 +2,8 @@
 
 package com.theveloper.pixelplay.presentation.screens
 
+import com.theveloper.pixelplay.presentation.components.rememberAppListState
+import com.theveloper.pixelplay.presentation.components.rememberPlaybackRowState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -30,6 +32,7 @@ import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -89,7 +92,7 @@ fun LibraryFavoritesTab(
     storageFilter: StorageFilter = StorageFilter.ALL,
     hasCurrentSong: Boolean = false
 ) {
-    val listState = rememberLazyListState()
+    val listState = rememberAppListState()
     val coroutineScope = rememberCoroutineScope()
     val visibilityCallback by rememberUpdatedState(onLocateCurrentSongVisibilityChanged)
     val registerActionCallback by rememberUpdatedState(onRegisterLocateCurrentSongAction)
@@ -104,11 +107,10 @@ fun LibraryFavoritesTab(
     var lastHandledFavoriteSortKey by remember { mutableStateOf(sortOption.storageKey) }
     var pendingFavoriteSortScrollReset by remember { mutableStateOf(false) }
     var favoriteSortSawRefreshLoading by remember { mutableStateOf(false) }
-    val currentSongId by remember(playerViewModel) {
-        playerViewModel.stablePlayerState
-            .map { it.currentSong?.id }
-            .distinctUntilChanged()
-    }.collectAsStateWithLifecycle(initialValue = null)
+    val playbackRowState = rememberPlaybackRowState(playerViewModel.stablePlayerState)
+    val currentSongId by remember(playbackRowState) {
+        derivedStateOf { playbackRowState.value.currentSongId }
+    }
 
     val currentSongListIndex = remember(favoriteSongs.itemCount, currentSongId) {
         if (currentSongId == null) -1
@@ -248,7 +250,7 @@ fun LibraryFavoritesTab(
                             if (song != null) {
                                 LibraryPlaybackAwareSongItem(
                                     song = song,
-                                    playerViewModel = playerViewModel,
+                                    playback = playbackRowState,
                                     onMoreOptionsClick = { onMoreOptionsClick(song) },
                                     isSelected = selectedSongIds.contains(song.id),
                                     selectionIndex = if (isSelectionMode) getSelectionIndex(song.id) else null,
@@ -304,7 +306,7 @@ fun LibrarySongsTabPaginated(
     isRefreshing: Boolean,
     onRefresh: () -> Unit
 ) {
-    val listState = rememberLazyListState()
+    val listState = rememberAppListState()
     val dummyListState = rememberLazyListState()
     val pullToRefreshState = rememberPullToRefreshState()
 

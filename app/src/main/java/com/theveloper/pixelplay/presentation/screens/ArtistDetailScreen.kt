@@ -2,6 +2,19 @@
 
 package com.theveloper.pixelplay.presentation.screens
 
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
+import com.theveloper.pixelplay.presentation.components.scoped.lerpColorScheme
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.material3.ColorScheme
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.SideEffect
+import com.theveloper.pixelplay.presentation.components.rememberAppListState
+import com.theveloper.pixelplay.presentation.components.rememberIsSongPlaying
+import com.theveloper.pixelplay.presentation.components.rememberIsCurrentSong
+import com.theveloper.pixelplay.presentation.components.rememberPlaybackRowState
 import com.theveloper.pixelplay.presentation.components.ScreenLayer
 import com.theveloper.pixelplay.presentation.navigation.navigateSafely
 import com.theveloper.pixelplay.presentation.navigation.navigateSafelyReplacing
@@ -126,7 +139,7 @@ fun ArtistDetailScreen(
     playlistViewModel: PlaylistViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    val stablePlayerState by playerViewModel.stablePlayerState.collectAsStateWithLifecycle()
+    val playbackRowState = rememberPlaybackRowState(playerViewModel.stablePlayerState)
     
     // Optimization: Defer heavy list rendering until navigation transition settles
     var isTransitionFinished by remember { mutableStateOf(false) }
@@ -135,7 +148,7 @@ fun ArtistDetailScreen(
         isTransitionFinished = true
     }
 
-    val lazyListState = rememberLazyListState()
+    val lazyListState = rememberAppListState()
     val favoriteIds by playerViewModel.favoriteSongIds.collectAsStateWithLifecycle()
     val navBarCompactMode by playerViewModel.navBarCompactMode.collectAsStateWithLifecycle()
     var showSongInfoBottomSheet by remember { mutableStateOf(false) }
@@ -149,14 +162,29 @@ fun ArtistDetailScreen(
     val isDarkTheme = LocalPixelPlayDarkTheme.current
     val baseColorScheme = MaterialTheme.colorScheme
 
-    // --- Dynamic color palette from pre-warmed ViewModel state ---
-    // artistColorScheme is set by the ViewModel BEFORE isLoading becomes false,
-    // so the very first composition already has the correct palette — no flash.
+    // --- Dynamic color palette from the ViewModel ---
+    // A cached palette is published together with the content, so it is there on the first
+    // frame. On a first visit the content shows at once in the base colours and the palette
+    // crossfades in when it is ready (it used to wait behind a spinner).
     val artistColorSchemePair by viewModel.artistColorScheme.collectAsStateWithLifecycle()
-    val artistColorScheme = remember(artistColorSchemePair, isDarkTheme) {
+    val targetArtistColorScheme = remember(artistColorSchemePair, isDarkTheme, baseColorScheme) {
         artistColorSchemePair?.let { pair -> if (isDarkTheme) pair.dark else pair.light }
             ?: baseColorScheme
     }
+    val artistContentShown = remember { ArtistContentShownFlag() }
+    val artistContentVisible = !uiState.isLoading && uiState.artist != null
+    SideEffect {
+        artistContentShown.shown = artistContentVisible
+        artistContentShown.darkTheme = isDarkTheme
+    }
+    val artistColorScheme = rememberCrossfadedArtistColorScheme(
+        target = targetArtistColorScheme,
+        // Only a palette that arrives after the content is already on screen fades in; one
+        // published together with the content (or a light/dark switch) applies at once, as before.
+        animateChange = remember(targetArtistColorScheme) {
+            artistContentShown.shown && artistContentShown.darkTheme == isDarkTheme
+        }
+    )
 
     // --- Image picker for custom artist image ---
     val imagePickerLauncher = rememberLauncherForActivityResult(
@@ -343,8 +371,8 @@ fun ArtistDetailScreen(
                                         song = song,
                                         songIndex = songIndex,
                                         songCount = topSongs.size,
-                                        isCurrentSong = stablePlayerState.currentSong?.id == song.id,
-                                        isPlaying = stablePlayerState.isPlaying,
+                                        isCurrentSong = rememberIsCurrentSong(playbackRowState, song.id).value,
+                                        isPlaying = rememberIsSongPlaying(playbackRowState, song.id).value,
                                         onSongClick = {
                                             playerViewModel.showAndPlaySong(song, topSongs)
                                         },
@@ -417,8 +445,8 @@ fun ArtistDetailScreen(
                                             song = song,
                                             songIndex = songIndex,
                                             songCount = section.songs.size,
-                                            isCurrentSong = stablePlayerState.currentSong?.id == song.id,
-                                            isPlaying = stablePlayerState.isPlaying,
+                                            isCurrentSong = rememberIsCurrentSong(playbackRowState, song.id).value,
+                                            isPlaying = rememberIsSongPlaying(playbackRowState, song.id).value,
                                             onSongClick = {
                                                 playerViewModel.showAndPlaySong(song, section.songs)
                                             },
@@ -1427,4 +1455,42 @@ private fun MusicIconPattern(modifier: Modifier = Modifier) {
                 .graphicsLayer { rotationZ = -8f }
         )
     }
+}
+
+/** Plain holder (not state): whether the artist content was on screen in the previous frame. */
+private class ArtistContentShownFlag {
+    var shown: Boolean = false
+    var darkTheme: Boolean? = null
+}
+
+/**
+ * Returns [target] as is, except when [animateChange] is set for this target: then it crossfades
+ * from the colours on screen to [target] over 450 ms with one Animatable. Only consumers of the
+ * scheme recompose during the fade, and only on a first visit.
+ */
+@Composable
+private fun rememberCrossfadedArtistColorScheme(target: ColorScheme, animateChange: Boolean): ColorScheme {
+    val progress = remember { Animatable(1f) }
+    var fromScheme by remember { mutableStateOf(target) }
+    var toScheme by remember { mutableStateOf(target) }
+    val animate by rememberUpdatedState(animateChange)
+
+    LaunchedEffect(target) {
+        if (toScheme == target) return@LaunchedEffect
+        if (!animate) {
+            fromScheme = target
+            toScheme = target
+            progress.snapTo(1f)
+            return@LaunchedEffect
+        }
+        fromScheme = lerpColorScheme(fromScheme, toScheme, progress.value)
+        toScheme = target
+        progress.snapTo(0f)
+        progress.animateTo(1f, animationSpec = tween(durationMillis = 450, easing = FastOutSlowInEasing))
+    }
+
+    val interpolated by remember {
+        derivedStateOf { lerpColorScheme(fromScheme, toScheme, progress.value) }
+    }
+    return if (animateChange || progress.isRunning) interpolated else target
 }

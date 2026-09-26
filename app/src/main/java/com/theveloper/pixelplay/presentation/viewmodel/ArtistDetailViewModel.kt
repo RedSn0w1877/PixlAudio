@@ -1,5 +1,6 @@
 package com.theveloper.pixelplay.presentation.viewmodel
 
+import kotlinx.coroutines.CancellationException
 import android.content.Context
 import android.net.Uri
 import android.util.Log
@@ -101,13 +102,13 @@ class ArtistDetailViewModel @Inject constructor(
     val uiState: StateFlow<ArtistDetailUiState> = _uiState.asStateFlow()
 
     /**
-     * Pre-warmed color scheme for the current artist image.
-     * This is populated synchronously (from the processor's LRU/DB cache) before [uiState]
-     * marks [ArtistDetailUiState.isLoading] = false, so the screen has the correct palette
-     * on its very first composition — no flash from system colors.
+     * Color scheme for the current artist image.
+     * When the processor's memory/Room cache already has it, it is published together with
+     * [uiState] (isLoading = false), so the screen has the right palette on its first frame.
+     * On a first visit the content is published straight away and the scheme follows once the
+     * image URL and palette are resolved in the background; the screen crossfades to it.
      *
-     * Consumers should read this directly instead of calling [ThemeStateHolder.getAlbumColorSchemeFlow]
-     * in order to avoid the initial-null-emission that causes the flash.
+     * Consumers should read this directly instead of calling [ThemeStateHolder.getAlbumColorSchemeFlow].
      */
     private val _artistColorScheme = MutableStateFlow<ColorSchemePair?>(null)
     val artistColorScheme: StateFlow<ColorSchemePair?> = _artistColorScheme.asStateFlow()
@@ -130,9 +131,11 @@ class ArtistDetailViewModel @Inject constructor(
     }
 
     private var currentLoadJob: Job? = null
+    private var artistImageResolveJob: Job? = null
 
     private fun loadArtistData(id: Long) {
         currentLoadJob?.cancel()
+        artistImageResolveJob?.cancel()
         currentLoadJob = viewModelScope.launch {
             Log.d("ArtistDebug", "loadArtistData: id=$id")
             _uiState.update { it.copy(isLoading = true, error = null) }
@@ -164,43 +167,77 @@ class ArtistDetailViewModel @Inject constructor(
                         val orderedSongs = albumSections.flatMap { it.songs }
                         val topSongs = loadTopSongs(orderedSongs)
 
-                        // 1) Resolve effective image URL (custom > Deezer, may fetch from API)
-                        val effectiveUrl = try {
-                            artistImageRepository.getEffectiveArtistImageUrl(
-                                artistId = artist.id,
-                                artistName = artist.name
-                            )
-                        } catch (e: Exception) {
-                            Log.w("ArtistDebug", "Failed to resolve effective artist image: ${e.message}")
-                            artist.effectiveImageUrl
-                        }
-
-                        // 2) Pre-warm the color scheme BEFORE emitting isLoading = false.
-                        //    getOrGenerateColorScheme checks the in-memory LRU first (≈0 ms if cached),
-                        //    then the DB cache (fast), and only generates from scratch ~on first visit.
-                        //    Either way, the scheme is ready before the screen first renders.
-                        val newScheme = if (!effectiveUrl.isNullOrBlank()) {
+                        // 1) Publish the content at once. The image URL is whatever is already known
+                        //    (the one resolved earlier on this screen, else the stored one), and the
+                        //    palette only comes from the memory/Room cache: no network and no
+                        //    generation stand between the tap and the screen.
+                        val previousState = _uiState.value
+                        val knownImageUrl = previousState.effectiveImageUrl
+                            ?.takeIf { previousState.artist?.id == artist.id }
+                            ?: artist.effectiveImageUrl
+                        val cachedScheme = if (!knownImageUrl.isNullOrBlank()) {
                             try {
-                                themeStateHolder.getOrGenerateColorScheme(effectiveUrl)
+                                themeStateHolder.peekCachedColorScheme(knownImageUrl)
                             } catch (e: Exception) {
-                                Log.w("ArtistDebug", "Color scheme pre-warm failed: ${e.message}")
+                                Log.w("ArtistDebug", "Color scheme cache read failed: ${e.message}")
                                 null
                             }
                         } else null
-
-                        // 3) Atomically publish state + pre-warmed color scheme.
-                        //    Both flows update before the Compose frame runs, so no intermediate null frame.
-                        _artistColorScheme.value = newScheme
+                        if (cachedScheme != null) {
+                            _artistColorScheme.value = cachedScheme
+                        }
                         _uiState.value = ArtistDetailUiState(
                             artist = artist.copy(
-                                imageUrl = if (artist.customImageUri.isNullOrBlank()) effectiveUrl else artist.imageUrl
+                                imageUrl = if (artist.customImageUri.isNullOrBlank()) knownImageUrl else artist.imageUrl
                             ),
                             songs = orderedSongs,
                             albumSections = albumSections,
                             topSongs = topSongs,
-                            effectiveImageUrl = effectiveUrl,
+                            effectiveImageUrl = knownImageUrl,
                             isLoading = false
                         )
+
+                        // 2) Resolve the effective image URL (custom > Deezer, may hit the network)
+                        //    and its palette in the background; the screen crossfades to it.
+                        artistImageResolveJob?.cancel()
+                        artistImageResolveJob = launch {
+                            val effectiveUrl = try {
+                                artistImageRepository.getEffectiveArtistImageUrl(
+                                    artistId = artist.id,
+                                    artistName = artist.name
+                                )
+                            } catch (e: CancellationException) {
+                                throw e
+                            } catch (e: Exception) {
+                                Log.w("ArtistDebug", "Failed to resolve effective artist image: ${e.message}")
+                                artist.effectiveImageUrl
+                            }
+                            if (effectiveUrl != knownImageUrl) {
+                                _uiState.update { state ->
+                                    val shownArtist = state.artist
+                                    if (shownArtist == null || shownArtist.id != artist.id) return@update state
+                                    state.copy(
+                                        artist = shownArtist.copy(
+                                            imageUrl = if (artist.customImageUri.isNullOrBlank()) effectiveUrl else artist.imageUrl
+                                        ),
+                                        effectiveImageUrl = effectiveUrl
+                                    )
+                                }
+                            }
+                            val resolvedScheme = if (!effectiveUrl.isNullOrBlank()) {
+                                try {
+                                    themeStateHolder.getOrGenerateColorScheme(effectiveUrl)
+                                } catch (e: CancellationException) {
+                                    throw e
+                                } catch (e: Exception) {
+                                    Log.w("ArtistDebug", "Color scheme generation failed: ${e.message}")
+                                    null
+                                }
+                            } else null
+                            if (resolvedScheme != null || effectiveUrl != knownImageUrl) {
+                                _artistColorScheme.value = resolvedScheme
+                            }
+                        }
                         loadMoreFromArtist(artist.name, orderedSongs)
                     }
 
@@ -322,6 +359,8 @@ class ArtistDetailViewModel @Inject constructor(
      */
     fun setCustomImage(sourceUri: Uri) {
         val artistId = _uiState.value.artist?.id ?: return
+        // A background resolve of the previous image must not land after (and over) this one.
+        artistImageResolveJob?.cancel()
         viewModelScope.launch {
             try {
                 val internalPath = artistImageRepository.setCustomArtistImage(context, artistId, sourceUri)
@@ -361,6 +400,7 @@ class ArtistDetailViewModel @Inject constructor(
      */
     fun clearCustomImage() {
         val artist = _uiState.value.artist ?: return
+        artistImageResolveJob?.cancel()
         viewModelScope.launch {
             try {
                 val oldEffectiveUrl = _uiState.value.effectiveImageUrl

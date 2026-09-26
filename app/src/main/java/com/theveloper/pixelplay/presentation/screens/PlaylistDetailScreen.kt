@@ -1,5 +1,9 @@
 package com.theveloper.pixelplay.presentation.screens
 
+import com.theveloper.pixelplay.presentation.components.rememberAppListState
+import com.theveloper.pixelplay.presentation.components.rememberIsSongPlaying
+import com.theveloper.pixelplay.presentation.components.rememberIsCurrentSong
+import com.theveloper.pixelplay.presentation.components.rememberPlaybackRowState
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Scaffold
 import com.theveloper.pixelplay.presentation.navigation.navigateSafely
@@ -161,7 +165,10 @@ fun PlaylistDetailScreen(
     navController: NavController
 ) {
     val uiState by playlistViewModel.uiState.collectAsStateWithLifecycle()
-    val playerStableState by playerViewModel.stablePlayerState.collectAsStateWithLifecycle()
+    val playbackRowState = rememberPlaybackRowState(playerViewModel.stablePlayerState)
+    val hasCurrentSong by remember(playbackRowState) {
+        derivedStateOf { playbackRowState.value.hasCurrentSong }
+    }
     val context = LocalContext.current
     val fallbackPlaylistName = stringResource(R.string.common_playlist)
     val sortSongsLabel = stringResource(R.string.playlist_sort_songs_title)
@@ -229,7 +236,7 @@ fun PlaylistDetailScreen(
     var showPlaylistBottomSheet by remember { mutableStateOf(false) }
     var localReorderableSongs by remember(playlistId) { mutableStateOf(songsInPlaylist) }
 
-    val listState = rememberLazyListState()
+    val listState = rememberAppListState()
     val scope = rememberCoroutineScope()
     val view = LocalView.current
     val appHapticsConfig = LocalAppHapticsConfig.current
@@ -374,7 +381,7 @@ fun PlaylistDetailScreen(
                                     localReorderableSongs.first(),
                                     currentPlaylist.name
                                 )
-                                if (playerStableState.isShuffleEnabled) playerViewModel.toggleShuffle()
+                                if (playerViewModel.stablePlayerState.value.isShuffleEnabled) playerViewModel.toggleShuffle()
                             }
                         },
                         modifier = Modifier
@@ -750,8 +757,8 @@ fun PlaylistDetailScreen(
                                             )
                                         },
                                         song = song,
-                                        isCurrentSong = playerStableState.currentSong?.id == song.id,
-                                        isPlaying = playerStableState.isPlaying,
+                                        isCurrentSong = rememberIsCurrentSong(playbackRowState, song.id).value,
+                                        isPlaying = rememberIsSongPlaying(playbackRowState, song.id).value,
                                         isDragging = isDragging,
                                         onRemoveClick = {
                                             if (!isFolderPlaylist) {
@@ -804,7 +811,7 @@ fun PlaylistDetailScreen(
                             modifier = Modifier
                                 .align(Alignment.CenterEnd)
                                 .padding(
-                                    bottom = if (playerStableState.currentSong != null) MiniPlayerHeight + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 20.dp else WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 16.dp,
+                                    bottom = if (hasCurrentSong) MiniPlayerHeight + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 20.dp else WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 16.dp,
                                     end = 14.dp,
                                     top = 18.dp // Increased to 16.dp as requested
                                 )

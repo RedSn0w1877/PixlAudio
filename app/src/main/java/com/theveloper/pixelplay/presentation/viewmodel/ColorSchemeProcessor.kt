@@ -1,5 +1,8 @@
 package com.theveloper.pixelplay.presentation.viewmodel
 
+import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.sync.Semaphore
+import android.graphics.drawable.BitmapDrawable
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
@@ -48,8 +51,15 @@ class ColorSchemeProcessor @Inject constructor(
     @ApplicationContext private val context: Context,
     private val albumArtThemeDao: AlbumArtThemeDao
 ) {
-    // In-memory LRU cache for faster access (avoids DB reads for hot paths)
-    private val memoryCache = LruCache<String, ColorSchemePair>(20)
+    // In-memory LRU cache for faster access (avoids DB reads and ~100 hex parses per hit).
+    // A scheme pair is ~100 longs, so 256 entries is a few hundred KB; 20 thrashed against a
+    // two-column album grid.
+    private val memoryCache = LruCache<String, ColorSchemePair>(256)
+
+    // Generation (decode + quantization) for list/grid tiles runs at most two at a time, so a
+    // fling doesn't start dozens of parallel jobs competing with Coil's decodes and the UI
+    // thread. Cache and Room lookups stay unthrottled, and the current song never waits here.
+    private val tileGenerationPermits = Semaphore(2)
     private val processingMutex = Mutex()
     private val inProgressUris = mutableSetOf<String>()
 
@@ -75,7 +85,9 @@ class ColorSchemeProcessor @Inject constructor(
         albumArtUri: String,
         paletteStyle: AlbumArtPaletteStyle,
         colorAccuracyLevel: Int = AlbumArtColorAccuracy.DEFAULT,
-        forceRefresh: Boolean = false
+        forceRefresh: Boolean = false,
+        throttled: Boolean = false,
+        stillWanted: (() -> Boolean)? = null
     ): ColorSchemePair? {
         Trace.beginSection("ColorSchemeProcessor.getOrGenerate")
         try {
@@ -93,16 +105,42 @@ class ColorSchemeProcessor @Inject constructor(
             }
 
             // 3. Generate new color scheme
-            return generateAndCacheColorScheme(
-                albumArtUri = albumArtUri,
-                paletteStyle = paletteStyle,
-                colorAccuracyLevel = resolvedAccuracyLevel,
-                forceRefresh = forceRefresh
-            )
+            if (!throttled) {
+                return generateAndCacheColorScheme(
+                    albumArtUri = albumArtUri,
+                    paletteStyle = paletteStyle,
+                    colorAccuracyLevel = resolvedAccuracyLevel,
+                    forceRefresh = forceRefresh
+                )
+            }
+            return tileGenerationPermits.withPermit {
+                if (stillWanted?.invoke() == false) {
+                    null
+                } else {
+                    // Another tile may have produced it while this one waited.
+                    (if (forceRefresh) null else memoryCache.get(cacheKey)) ?: generateAndCacheColorScheme(
+                        albumArtUri = albumArtUri,
+                        paletteStyle = paletteStyle,
+                        colorAccuracyLevel = resolvedAccuracyLevel,
+                        forceRefresh = forceRefresh
+                    )
+                }
+            }
         } finally {
             Trace.endSection()
         }
     }
+
+    /** Memory LRU, then Room; returns null instead of generating when neither has it. */
+    suspend fun peekCachedColorScheme(
+        albumArtUri: String,
+        paletteStyle: AlbumArtPaletteStyle,
+        colorAccuracyLevel: Int = AlbumArtColorAccuracy.DEFAULT
+    ): ColorSchemePair? = loadCachedColorScheme(
+        albumArtUri = albumArtUri,
+        paletteStyle = paletteStyle,
+        colorAccuracyLevel = AlbumArtColorAccuracy.clamp(colorAccuracyLevel)
+    )
 
     suspend fun getPreviewColorScheme(
         albumArtUri: String,
@@ -194,11 +232,27 @@ class ColorSchemeProcessor @Inject constructor(
                 .allowHardware(false) // Required for pixel access
                 .size(Size(128, 128)) // Small size for fast processing
                 .bitmapConfig(Bitmap.Config.ARGB_8888)
-                .memoryCachePolicy(cachePolicy)
+                // Never through the shared memory cache: these throwaway 128 px software bitmaps
+                // only crowded out display bitmaps, and keeping them out means the decoded bitmap
+                // is ours alone, so it can be used (and recycled) directly below.
+                .memoryCachePolicy(CachePolicy.DISABLED)
                 .diskCachePolicy(diskCachePolicy)
                 .build()
             
             val drawable = context.imageLoader.execute(request).drawable ?: return null
+
+            // Skip the copy when Coil already produced an ARGB_8888 software bitmap drawn 1:1;
+            // copying it through a Canvas gave exactly the same pixels.
+            val decoded = (drawable as? BitmapDrawable)?.bitmap
+            if (
+                decoded != null &&
+                !decoded.isRecycled &&
+                decoded.config == Bitmap.Config.ARGB_8888 &&
+                decoded.width == drawable.intrinsicWidth &&
+                decoded.height == drawable.intrinsicHeight
+            ) {
+                return decoded
+            }
             
             createBitmap(
                 drawable.intrinsicWidth.coerceAtLeast(1),

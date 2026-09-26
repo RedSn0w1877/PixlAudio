@@ -120,6 +120,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import coil.ImageLoader
+import coil.imageLoader
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.theveloper.pixelplay.data.model.Song
@@ -341,10 +342,16 @@ private fun CreatePlaylistContent(
 
     LaunchedEffect(selectedImageUri) {
          if (selectedImageUri != null) {
-             val loader = ImageLoader(context)
+             // The shared loader (no second cache/OkHttp per pick), and at most 2048 px like the
+             // song-art cropper: an unsized request decoded the photo at full resolution (a 12 MP
+             // shot is ~48 MB). Kept out of the memory cache: it is a one-off software bitmap.
+             val loader = context.imageLoader
              val request = ImageRequest.Builder(context)
                  .data(selectedImageUri)
                  .allowHardware(false)
+                 .size(2048)
+                 .precision(coil.size.Precision.INEXACT)
+                 .memoryCachePolicy(coil.request.CachePolicy.DISABLED)
                  .build()
              
              val result = loader.execute(request)
@@ -787,10 +794,16 @@ fun EditPlaylistContent(
     // Image Loader
     LaunchedEffect(selectedImageUri) {
          if (selectedImageUri != null) {
-             val loader = ImageLoader(context)
+             // The shared loader (no second cache/OkHttp per pick), and at most 2048 px like the
+             // song-art cropper: an unsized request decoded the photo at full resolution (a 12 MP
+             // shot is ~48 MB). Kept out of the memory cache: it is a one-off software bitmap.
+             val loader = context.imageLoader
              val request = ImageRequest.Builder(context)
                  .data(selectedImageUri)
                  .allowHardware(false)
+                 .size(2048)
+                 .precision(coil.size.Precision.INEXACT)
+                 .memoryCachePolicy(coil.request.CachePolicy.DISABLED)
                  .build()
              val result = loader.execute(request)
              val drawable = result.drawable

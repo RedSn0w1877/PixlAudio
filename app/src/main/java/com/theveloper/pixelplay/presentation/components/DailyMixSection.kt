@@ -1,5 +1,8 @@
 package com.theveloper.pixelplay.presentation.components
 
+import com.theveloper.pixelplay.presentation.components.rememberIsSongPlaying
+import com.theveloper.pixelplay.presentation.components.rememberIsCurrentSong
+import com.theveloper.pixelplay.presentation.components.rememberPlaybackRowState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -331,7 +334,7 @@ private fun DailyMixSongList(
     onMoreOptionsClick: (Song) -> Unit
 ) {
     val dailyMixQueueName = stringResource(R.string.home_daily_mix_queue_name)
-    val stablePlayerState by playerViewModel.stablePlayerState.collectAsStateWithLifecycle()
+    val playbackRowState = rememberPlaybackRowState(playerViewModel.stablePlayerState)
     val itemContainerColor = MaterialTheme.colorScheme.surfaceContainerLow
 
     Column(
@@ -344,8 +347,8 @@ private fun DailyMixSongList(
         songs.forEach { song ->
             EnhancedSongListItem(
                 song = song,
-                isCurrentSong = stablePlayerState.currentSong?.id == song.id,
-                isPlaying = stablePlayerState.isPlaying && stablePlayerState.currentSong?.id == song.id,
+                isCurrentSong = rememberIsCurrentSong(playbackRowState, song.id).value,
+                isPlaying = rememberIsSongPlaying(playbackRowState, song.id).value,
                 containerColorOverride = itemContainerColor,
                 onMoreOptionsClick = onMoreOptionsClick,
                 customShape = RoundedCornerShape(10.dp),

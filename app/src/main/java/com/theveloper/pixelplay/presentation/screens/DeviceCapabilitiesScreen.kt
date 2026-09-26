@@ -1,5 +1,12 @@
 package com.theveloper.pixelplay.presentation.screens
 
+import androidx.compose.ui.unit.constrainHeight
+import androidx.compose.ui.unit.constrainWidth
+import androidx.compose.ui.unit.offset
+import androidx.compose.ui.layout.layout
+import com.theveloper.pixelplay.presentation.components.rememberCollapsingHeaderContentPadding
+import com.theveloper.pixelplay.presentation.components.WithCollapsingHeader
+import com.theveloper.pixelplay.presentation.components.rememberCollapseFraction
 import android.content.Intent
 import android.text.format.Formatter
 import android.widget.Toast
@@ -131,12 +138,9 @@ fun DeviceCapabilitiesScreen(
     val maxTopBarHeightPx = with(density) { maxTopBarHeight.toPx() }
 
     val topBarHeight = remember { Animatable(maxTopBarHeightPx) }
-    var collapseFraction by remember { mutableFloatStateOf(0f) }
-
-    LaunchedEffect(topBarHeight.value) {
-        collapseFraction = 1f - ((topBarHeight.value - minTopBarHeightPx) / (maxTopBarHeightPx - minTopBarHeightPx))
-            .coerceIn(0f, 1f)
-    }
+    // Read only by the top bar (WithCollapsingHeader below): the per-frame header height never
+    // recomposes the screen body or its list.
+    val collapseFractionState = rememberCollapseFraction(topBarHeight, minTopBarHeightPx, maxTopBarHeightPx)
 
     val nestedScrollConnection = remember {
         object : NestedScrollConnection {
@@ -178,13 +182,19 @@ fun DeviceCapabilitiesScreen(
             .nestedScroll(nestedScrollConnection)
             .fillMaxSize()
     ) {
-        val currentTopBarHeightDp = with(density) { topBarHeight.value.toDp() }
-
         if (state.isLoading) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(top = currentTopBarHeightDp),
+                    // The header height is read in layout, so collapsing never recomposes this.
+                    .layout { measurable, constraints ->
+                        val topPx = topBarHeight.value.roundToInt()
+                        val placeable = measurable.measure(constraints.offset(vertical = -topPx))
+                        layout(
+                            constraints.constrainWidth(placeable.width),
+                            constraints.constrainHeight(placeable.height + topPx)
+                        ) { placeable.place(0, topPx) }
+                    },
                 contentAlignment = Alignment.Center
             ) {
                 CircularProgressIndicator()
@@ -193,7 +203,13 @@ fun DeviceCapabilitiesScreen(
             DeviceCapabilitiesContent(
                 state = state,
                 lazyListState = lazyListState,
-                topPadding = currentTopBarHeightDp,
+                contentPadding = rememberCollapsingHeaderContentPadding(
+                    height = topBarHeight,
+                    extraTop = 8.dp,
+                    start = 16.dp,
+                    end = 16.dp,
+                    bottom = MiniPlayerHeight + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 16.dp
+                ),
                 onGenerateReport = viewModel::generatePerformanceReport,
                 onAdvancedDiagnosticsChange = viewModel::setAdvancedPerformanceDiagnosticsEnabled,
                 onMarkLagNow = viewModel::markLagNow,
@@ -201,15 +217,17 @@ fun DeviceCapabilitiesScreen(
             )
         }
 
-        CollapsibleCommonTopBar(
-            title = stringResource(R.string.settings_category_device_capabilities_title),
-            collapseFraction = collapseFraction,
-            headerHeight = currentTopBarHeightDp,
-            onBackClick = { navController.popBackStack() },
-            expandedTitleStartPadding = 20.dp,
-            collapsedTitleStartPadding = 68.dp,
-            maxLines = 2
-        )
+        WithCollapsingHeader(topBarHeight, collapseFractionState) { fraction, headerHeight ->
+            CollapsibleCommonTopBar(
+                title = stringResource(R.string.settings_category_device_capabilities_title),
+                collapseFraction = fraction,
+                headerHeight = headerHeight,
+                onBackClick = { navController.popBackStack() },
+                expandedTitleStartPadding = 20.dp,
+                collapsedTitleStartPadding = 68.dp,
+                maxLines = 2
+            )
+        }
     }
 }
 
@@ -217,7 +235,7 @@ fun DeviceCapabilitiesScreen(
 private fun DeviceCapabilitiesContent(
     state: DeviceCapabilitiesState,
     lazyListState: LazyListState,
-    topPadding: Dp,
+    contentPadding: PaddingValues,
     onGenerateReport: () -> Unit,
     onAdvancedDiagnosticsChange: (Boolean) -> Unit,
     onMarkLagNow: () -> Unit,
@@ -225,12 +243,7 @@ private fun DeviceCapabilitiesContent(
 ) {
     LazyColumn(
         state = lazyListState,
-        contentPadding = PaddingValues(
-            top = topPadding + 8.dp,
-            start = 16.dp,
-            end = 16.dp,
-            bottom = MiniPlayerHeight + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 16.dp
-        ),
+        contentPadding = contentPadding,
         verticalArrangement = Arrangement.spacedBy(12.dp),
         modifier = modifier
     ) {

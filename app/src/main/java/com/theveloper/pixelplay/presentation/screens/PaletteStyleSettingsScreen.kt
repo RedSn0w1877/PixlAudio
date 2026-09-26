@@ -1,5 +1,7 @@
 package com.theveloper.pixelplay.presentation.screens
 
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -81,7 +83,9 @@ fun PaletteStyleSettingsScreen(
     onBackClick: () -> Unit
 ) {
     val uiState by settingsViewModel.uiState.collectAsStateWithLifecycle()
-    val stablePlayerState by playerViewModel.stablePlayerState.collectAsStateWithLifecycle()
+    val currentSong = remember(playerViewModel) {
+        playerViewModel.stablePlayerState.map { it.currentSong }.distinctUntilChanged()
+    }.collectAsStateWithLifecycle(initialValue = playerViewModel.stablePlayerState.value.currentSong).value
     val isDarkTheme = LocalPixelPlayDarkTheme.current
     val albumSchemePair by playerViewModel.currentAlbumArtColorSchemePair.collectAsStateWithLifecycle()
 
@@ -90,7 +94,6 @@ fun PaletteStyleSettingsScreen(
         albumSchemePair?.let { pair -> if (isDarkTheme) pair.dark else pair.light } ?: baseScheme
     }
 
-    val currentSong = stablePlayerState.currentSong
     val isMiniPlayerVisible = currentSong != null
     val seedKey = currentSong?.albumArtUriString ?: currentSong?.id ?: "system"
     var seedColor by remember(seedKey) { mutableStateOf<Color?>(null) }

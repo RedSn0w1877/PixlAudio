@@ -1,5 +1,6 @@
 package com.theveloper.pixelplay.presentation.components
 
+import androidx.compose.runtime.State
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.LinearEasing
@@ -65,7 +66,8 @@ fun HomeGreetingCard(
     cornerRadius: androidx.compose.ui.unit.Dp = 28.dp,
     expandedInsight: String? = null,
     isLoadingInsight: Boolean = false,
-    onToggleExpanded: () -> Unit = {}
+    onToggleExpanded: () -> Unit = {},
+    ambientMotionEnabled: State<Boolean>? = null
 ) {
     val colors = MaterialTheme.colorScheme
     val shape = AbsoluteSmoothCornerShape(
@@ -86,7 +88,7 @@ fun HomeGreetingCard(
             .clip(shape)
             .background(colors.surfaceContainerHigh)
     ) {
-        GreetingColorSweep(colorScheme = colors, modifier = Modifier.matchParentSize())
+        GreetingColorSweep(colorScheme = colors, enabled = ambientMotionEnabled, modifier = Modifier.matchParentSize())
 
         Column(
             modifier = Modifier
@@ -218,16 +220,17 @@ private fun GreetingExpandButton(
  * visible (same reasoning as [com.theveloper.pixelplay.presentation.components.player.PlayerAmbientEffects]'s effects).
  */
 @Composable
-private fun GreetingColorSweep(colorScheme: ColorScheme, modifier: Modifier = Modifier) {
-    val infiniteTransition = rememberInfiniteTransition(label = "GreetingColorSweep")
-    val sweep by infiniteTransition.animateFloat(
+private fun GreetingColorSweep(
+    colorScheme: ColorScheme,
+    enabled: State<Boolean>?,
+    modifier: Modifier = Modifier
+) {
+    // Parks while the expanded player covers Home, so the app can idle behind it.
+    val sweep by rememberAmbientLinearLoop(
         initialValue = -0.5f,
         targetValue = 1.5f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 7000, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "sweepOffset"
+        durationMillis = 7000,
+        enabled = enabled
     )
     val bandColors = remember(colorScheme) {
         listOf(
