@@ -89,6 +89,8 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animate
+import kotlinx.coroutines.Job
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.input.pointer.consumePositionChange
@@ -338,13 +340,16 @@ fun LyricsSheet(
         onBack = onBackClick
     )
 
-    val stablePlayerState by stablePlayerStateFlow.collectAsStateWithLifecycle()
+    // The State object is held, never read in this body: each field below is derived, so the sheet
+    // recomposes only when one it shows changes (not on buffering flips, index, shuffle, …).
+    val playerState = stablePlayerStateFlow.collectAsStateWithLifecycle()
     val studioInstrumentalAvailable by studioInstrumentalAvailableFlow.collectAsStateWithLifecycle()
     val studioInstrumentalActive by studioInstrumentalActiveFlow.collectAsStateWithLifecycle()
-    val isLoadingLyrics by remember(stablePlayerState) { derivedStateOf { stablePlayerState.isLoadingLyrics } }
-    val lyrics by remember(stablePlayerState) { derivedStateOf { stablePlayerState.lyrics } }
-    val isPlaying by remember(stablePlayerState) { derivedStateOf { stablePlayerState.isPlaying } }
-    val currentSong by remember(stablePlayerState) { derivedStateOf { stablePlayerState.currentSong } }
+    val isLoadingLyrics by remember(playerState) { derivedStateOf { playerState.value.isLoadingLyrics } }
+    val lyrics by remember(playerState) { derivedStateOf { playerState.value.lyrics } }
+    val isPlaying by remember(playerState) { derivedStateOf { playerState.value.isPlaying } }
+    val currentSong by remember(playerState) { derivedStateOf { playerState.value.currentSong } }
+    val totalDuration by remember(playerState) { derivedStateOf { playerState.value.totalDuration } }
 
     val hasTranslatedLyrics = remember(lyrics) {
         // Translated lyrics read same timestamp on the lrc, not possible in plain type lyrics
@@ -455,9 +460,12 @@ fun LyricsSheet(
     var hasTriggeredAction by remember { mutableStateOf(false) }
     val swipeThresholdPx = with(LocalDensity.current) { swipeThreshold.toPx() }
     val overlayTranslation = remember { Animatable(0f) }
-    val swipeProgress = remember { Animatable(0f) }
+    // Overlay progress, written straight from each drag event (no coroutine per move event, so
+    // the overlay moves in the finger's frame) and by the release tween below.
+    val swipeProgress = remember { mutableFloatStateOf(0f) }
+    val swipeRelease = remember { arrayOfNulls<Job>(1) }
     // Thresholds of the per-event drag state: composition only hears when they flip.
-    val swipeOverlayVisible by remember { derivedStateOf { isSwipeActive || swipeProgress.value > 0f } }
+    val swipeOverlayVisible by remember { derivedStateOf { isSwipeActive || swipeProgress.floatValue > 0f } }
     val swipeTowardsNext by remember { derivedStateOf { dragOffset < 0 } }
 
     // Reset keep-screen-on when the physical screen goes off (power button / OEM sleep gesture).
@@ -737,9 +745,8 @@ fun LyricsSheet(
                         hasTriggeredAction = false
                         dragOffset = 0f
                         resetImmersiveTimer()
-                        coroutineScope.launch {
-                            swipeProgress.snapTo(0f)
-                        }
+                        swipeRelease[0]?.cancel()
+                        swipeProgress.floatValue = 0f
                     },
                     onDragEnd = {
                         isSwipeActive = false
@@ -750,16 +757,18 @@ fun LyricsSheet(
                             hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                         }
 
-                        coroutineScope.launch {
-                             swipeProgress.animateTo(0f, tween(200))
-                             dragOffset = 0f
+                        val from = swipeProgress.floatValue
+                        swipeRelease[0] = coroutineScope.launch {
+                            animate(from, 0f, animationSpec = tween(200)) { v, _ -> swipeProgress.floatValue = v }
+                            dragOffset = 0f
                         }
                     },
                     onDragCancel = {
                         isSwipeActive = false
                         dragOffset = 0f
-                        coroutineScope.launch {
-                            swipeProgress.animateTo(0f, tween(200))
+                        val from = swipeProgress.floatValue
+                        swipeRelease[0] = coroutineScope.launch {
+                            animate(from, 0f, animationSpec = tween(200)) { v, _ -> swipeProgress.floatValue = v }
                         }
                     },
                     onDrag = { change, dragAmount ->
@@ -770,9 +779,7 @@ fun LyricsSheet(
                             dragOffset += dragAmount.x
                             val progress = (abs(dragOffset) / swipeThresholdPx).coerceIn(0f, 1f)
 
-                            coroutineScope.launch {
-                                swipeProgress.snapTo(progress)
-                            }
+                            swipeProgress.floatValue = progress
                         }
                     }
                 )
@@ -1002,7 +1009,7 @@ fun LyricsSheet(
                         onPlayPause()
                     },
                     playbackPositionFlow = playbackPositionFlow,
-                    totalDuration = stablePlayerState.totalDuration,
+                    totalDuration = totalDuration,
                     onSeekTo = onSeekTo,
                     onSeekPreviewChange = { previewSeekPositionMs = it },
                     studioInstrumentalAvailable = studioInstrumentalAvailable,
@@ -1049,9 +1056,10 @@ fun LyricsSheet(
                         .graphicsLayer {
                             val widthPx = size.width
                             val initialOffset = if (isNext) widthPx else -widthPx
-                            translationX = initialOffset * (1f - swipeProgress.value)
-                            scaleX = 0.8f + (swipeProgress.value * 0.2f)
-                            scaleY = 0.8f + (swipeProgress.value * 0.2f)
+                            val progress = swipeProgress.floatValue
+                            translationX = initialOffset * (1f - progress)
+                            scaleX = 0.8f + (progress * 0.2f)
+                            scaleY = 0.8f + (progress * 0.2f)
                         }
                         .background(
                             color = chrome.emphasis,

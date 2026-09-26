@@ -61,6 +61,7 @@ import androidx.compose.ui.unit.sp
 import com.theveloper.pixelplay.R
 import com.theveloper.pixelplay.presentation.lyrics.KaraokeLyricsAppearance
 import com.theveloper.pixelplay.presentation.lyrics.KaraokeLyricsView
+import com.theveloper.pixelplay.presentation.lyrics.LongSource
 import com.theveloper.pixelplay.presentation.lyrics.rememberLyricsAppearancePrefs
 import com.theveloper.pixelplay.presentation.lyrics.rememberLyricsClock
 import com.theveloper.pixelplay.presentation.lyrics.rememberLyricsEngine
@@ -85,7 +86,9 @@ internal fun SyncPreviewScreen(
     modifier: Modifier = Modifier,
 ) {
     val preview = ui.preview
-    val clock = rememberLyricsClock(positionProvider = holder::positionMs)
+    // A lambda, not `holder::positionMs`: the reference boxes every frame's position.
+    val positionSource = remember(holder) { LongSource { holder.positionMs() } }
+    val clock = rememberLyricsClock(positionProvider = positionSource)
     val engine = rememberLyricsEngine(clock)
     val covered = remember(ui.draft?.songId, ui.draft?.lines?.size) {
         ui.draft?.lines?.all { isCoveredByAppFont(it.text) } ?: true

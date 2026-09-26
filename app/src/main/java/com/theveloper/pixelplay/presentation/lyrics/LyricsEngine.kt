@@ -499,6 +499,26 @@ class LyricsEngine(private val clock: LyricsClock) {
     /** Current scroll-target row (-1 before the first step). */
     val scrollTargetRow: Int get() = lastScrollTarget
 
+    /**
+     * The row layout is anchored on (the frozen row during a user scroll, else the scroll
+     * target), or -1 before the first step. Plain field reads: safe in measure.
+     */
+    internal val layoutAnchorRow: Int get() = if (userScroll) frozenAnchorRow else lastScrollTarget
+
+    /** [scrollOffset] without a snapshot read, for the measure pass. */
+    internal val rawScrollOffset: Float get() = offset
+
+    /**
+     * The scroll target at lyrics time [t] before the first [step] has run (what the first
+     * layout will anchor on), or -1 with no rows. Touches only the hot-set scratch that every
+     * step recomputes.
+     */
+    internal fun predictScrollTargetRow(t: Long): Int {
+        if (prepared == null || rowCount == 0) return -1
+        updateHotSet(t)
+        return resolveScrollTargetRow(t)
+    }
+
     // ---- user scroll -----------------------------------------------------------------------
 
     private val scrollOffsetState = mutableFloatStateOf(0f)
@@ -656,7 +676,11 @@ class LyricsEngine(private val clock: LyricsClock) {
         isAtRest = false
     }
 
-    /** Measured full height of [row] in px (for interlude and background rows: the expanded height). */
+    /**
+     * Measured full height of [row] in px (for interlude and background rows: the expanded height).
+     * The view may pass an estimate for a row it has not measured yet; it only does so for rows
+     * that are off-screen, and replaces it with the real height a few frames later.
+     */
     fun setRowHeight(row: Int, heightPx: Float) {
         if (row !in 0 until rowCount) return
         rowHeight[row] = heightPx.coerceAtLeast(0f)

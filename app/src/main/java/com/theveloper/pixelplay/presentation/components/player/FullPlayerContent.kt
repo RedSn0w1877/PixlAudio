@@ -1015,10 +1015,16 @@ fun FullPlayerContent(
             animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing)
         ) + fadeOut(animationSpec = tween(durationMillis = 120))
     ) {
+        // A remembered lambda, not `playerViewModel::currentPositionForLyrics`: that reference is a
+        // `Function0<Long>` behind a SAM wrapper (boxing every frame's position) and a new wrapper
+        // on each run of this block, so LyricsSheet could never skip.
+        val lyricsPositionSource = remember(playerViewModel) {
+            com.theveloper.pixelplay.presentation.lyrics.LongSource { playerViewModel.currentPositionForLyrics() }
+        }
         LyricsSheet(
             stablePlayerStateFlow = playerViewModel.stablePlayerState,
             playbackPositionFlow = playerViewModel.currentPlaybackPosition,
-            positionProvider = playerViewModel::currentPositionForLyrics,
+            positionProvider = lyricsPositionSource,
             preparedLyricsFlow = playerViewModel.preparedLyrics,
             studioInstrumentalAvailableFlow = playerViewModel.studioInstrumentalAvailable,
             studioInstrumentalActiveFlow = playerViewModel.studioInstrumentalActive,

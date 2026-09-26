@@ -16,6 +16,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.theveloper.pixelplay.data.preferences.dataStore
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onEach
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * The user's lyrics look preferences, read once from DataStore. Shared by the lyrics sheet and
@@ -58,10 +60,20 @@ data class LyricsAppearancePrefs(
     }
 }
 
+/**
+ * The last preferences read in this process. Seeds the next collection, so a reopened lyrics
+ * sheet composes with the user's look from its first frame instead of the defaults followed a
+ * frame later by the real value (which replaced the render style and re-measured every line).
+ */
+private val lastLyricsPrefs = AtomicReference<LyricsAppearancePrefs?>(null)
+
 @Composable
 fun rememberLyricsAppearancePrefs(): State<LyricsAppearancePrefs> {
     val context = LocalContext.current
-    val initial = remember(context) { LyricsAppearancePrefs(highContrast = isIncreasedContrast(context)) }
+    val initial = remember(context) {
+        val highContrast = isIncreasedContrast(context)
+        lastLyricsPrefs.get()?.copy(highContrast = highContrast) ?: LyricsAppearancePrefs(highContrast = highContrast)
+    }
     val flow = remember(context) {
         val highContrast = initial.highContrast
         context.dataStore.data.map { p ->
@@ -74,7 +86,7 @@ fun rememberLyricsAppearancePrefs(): State<LyricsAppearancePrefs> {
                 blurStrength = p[floatPreferencesKey("animated_lyrics_blur_strength")] ?: LyricsAppearancePrefs.DEFAULT_BLUR_STRENGTH_PREF,
                 highContrast = highContrast,
             )
-        }.distinctUntilChanged()
+        }.distinctUntilChanged().onEach { lastLyricsPrefs.set(it) }
     }
     return flow.collectAsStateWithLifecycle(initialValue = initial)
 }

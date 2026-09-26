@@ -283,6 +283,78 @@ class LyricsEngineTest {
         assertFalse(engine.needsFrame)
     }
 
+    // ---- window-first measuring (the view measures the rows around the anchor first) ----------
+
+    @Test
+    fun predictedTarget_matchesTheFirstLayoutsTarget() {
+        val p = lyrics()
+        engine.setLyrics(p, animateIn = true)
+        engine.setViewport(viewport, anchor)
+        clock.isPlaying = true
+        positionMs = 25_100 // line 12 hot
+        assertEquals(-1, engine.layoutAnchorRow)
+        val predicted = engine.predictScrollTargetRow(clock.peekMs())
+        for (r in p.rows.indices) engine.setRowHeight(r, rowH)
+        frame()
+        assertEquals(12, predicted)
+        assertEquals(predicted, engine.scrollTargetRow)
+        assertEquals(predicted, engine.layoutAnchorRow)
+    }
+
+    @Test
+    fun estimatedHeightsOutsideTheWindow_leaveTheVisibleCascadeUnchanged() {
+        val margin = LyricsEngine.SNAP_MARGIN_DP // density 1
+        val real = FloatArray(30) { 40f + (it * 37 % 60) }
+        val target = 12
+        // The view's window: down past the viewport bottom (+ the anchor row), up past -margin.
+        val inWindow = BooleanArray(30)
+        var y = anchor
+        var r = target
+        while (r < 30 && y <= viewport + real[target]) { inWindow[r] = true; y += real[r]; r++ }
+        y = anchor
+        r = target - 1
+        while (r >= 0 && y >= -margin) { inWindow[r] = true; y -= real[r]; r-- }
+        assertTrue("rows are left out above and below", !inWindow[0] && !inWindow[29])
+
+        fun run(heights: (Int) -> Float): LyricsEngine {
+            var pos = 25_100L
+            val c = LyricsClock(positionProvider = { pos })
+            c.isPlaying = true
+            val e = LyricsEngine(c)
+            e.setConfig(LyricsEngineConfig(density = 1f))
+            e.setLyrics(lyrics(), animateIn = true)
+            e.setViewport(viewport, anchor)
+            for (i in 0 until 30) e.setRowHeight(i, heights(i))
+            var nanos = 1_000_000_000L
+            c.tick(nanos)
+            e.step(nanos)
+            return e.also {
+                // A few frames into the cascade, still on the estimates.
+                repeat(20) {
+                    nanos += 16_000_000L
+                    pos += 16
+                    c.tick(nanos)
+                    e.step(nanos)
+                }
+            }
+        }
+        val exact = run { real[it] }
+        val estimated = run { if (inWindow[it]) real[it] else 55f }
+        assertEquals(target, estimated.scrollTargetRow)
+        for (i in 0 until 30) {
+            if (inWindow[i]) {
+                assertEquals("row $i y", exact.rowSpringY(i), estimated.rowSpringY(i), 0.001f)
+                assertEquals("row $i delay", exact.rowPendingAtNanos(i), estimated.rowPendingAtNanos(i))
+            } else {
+                // Never on screen in either run.
+                for (e in listOf(exact, estimated)) {
+                    val top = e.rowSpringY(i)
+                    assertTrue("row $i off-screen", top + real[i] < 0f || top > viewport)
+                }
+            }
+        }
+    }
+
     // ---- clock ---------------------------------------------------------------------------------
 
     @Test
