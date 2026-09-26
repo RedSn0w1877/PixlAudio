@@ -238,6 +238,10 @@ class MusicService : MediaLibraryService() {
         )
     }
     private var playbackSnapshotPersistJob: Job? = null
+    // The last snapshot this service wrote (savedAtEpochMs cleared), so a debounced persist that
+    // would store the same queue, position and flags again is skipped. Null forces the next write.
+    @Volatile
+    private var lastPersistedPlaybackSnapshot: PlaybackQueueSnapshot? = null
     private var playbackSnapshotUnloadWriteJob: Job? = null
     private var isRestoringPlaybackSnapshot = false
     private var isPlaybackUnloadInProgress = false
@@ -1650,30 +1654,72 @@ class MusicService : MediaLibraryService() {
     private suspend fun persistPlaybackSnapshot(playWhenReadyOverride: Boolean? = null) {
         if (isRestoringPlaybackSnapshot) return
         val snapshot = capturePlaybackSnapshot(playWhenReadyOverride)
+        // Comparison and write both run off the main thread (the write's JSON encoding happens
+        // inside DataStore's own IO dispatcher).
+        val comparable = withContext(Dispatchers.Default) { snapshot?.copy(savedAtEpochMs = 0L) }
+        if (comparable != null && comparable == lastPersistedPlaybackSnapshot) return
         runCatching {
             userPreferencesRepository.setPlaybackQueueSnapshot(snapshot)
+            lastPersistedPlaybackSnapshot = comparable
         }.onFailure { e ->
             Timber.tag(TAG).w(e, "Failed to persist playback snapshot")
         }
     }
 
-    private suspend fun capturePlaybackSnapshot(playWhenReadyOverride: Boolean? = null): PlaybackQueueSnapshot? =
-        withContext(Dispatchers.Main.immediate) {
-            capturePlaybackSnapshotFromPlayer(playWhenReadyOverride)
-        }
+    /**
+     * Only the player reads happen on the main thread (the player requires it); turning the
+     * queue into snapshot items (URI canonicalisation, metadata lookups, one object per queue
+     * entry) runs on [Dispatchers.Default]. A long queue used to be walked on main about 1.5 s
+     * after every skip, often during the next skip's animation.
+     */
+    private suspend fun capturePlaybackSnapshot(playWhenReadyOverride: Boolean? = null): PlaybackQueueSnapshot? {
+        val capture = withContext(Dispatchers.Main.immediate) {
+            capturePlayerQueue(playWhenReadyOverride)
+        } ?: return null
+        return withContext(Dispatchers.Default) { buildPlaybackSnapshot(capture) }
+    }
 
     private fun capturePlaybackSnapshotFromPlayer(
         playWhenReadyOverride: Boolean? = null
-    ): PlaybackQueueSnapshot? {
+    ): PlaybackQueueSnapshot? = capturePlayerQueue(playWhenReadyOverride)?.let(::buildPlaybackSnapshot)
+
+    /** The raw player state a snapshot is built from. MediaItems are immutable. */
+    private class PlayerQueueCapture(
+        val mediaItems: List<MediaItem>,
+        val currentMediaId: String?,
+        val currentMediaItemIndex: Int,
+        val currentPositionMs: Long,
+        val playWhenReady: Boolean,
+        val repeatMode: Int,
+        val shuffleEnabled: Boolean,
+    )
+
+    /** Main thread only. */
+    private fun capturePlayerQueue(playWhenReadyOverride: Boolean?): PlayerQueueCapture? {
         val player = engine.masterPlayer
         val mediaItemCount = player.mediaItemCount
         if (mediaItemCount <= 0) {
             return null
         }
-
-        val snapshotItems = ArrayList<PlaybackQueueItemSnapshot>(mediaItemCount)
+        val mediaItems = ArrayList<MediaItem>(mediaItemCount)
         for (index in 0 until mediaItemCount) {
-            val mediaItem = player.getMediaItemAt(index)
+            mediaItems.add(player.getMediaItemAt(index))
+        }
+        return PlayerQueueCapture(
+            mediaItems = mediaItems,
+            currentMediaId = player.currentMediaItem?.mediaId,
+            currentMediaItemIndex = player.currentMediaItemIndex,
+            currentPositionMs = player.currentPosition,
+            playWhenReady = playWhenReadyOverride ?: player.playWhenReady,
+            repeatMode = player.repeatMode,
+            shuffleEnabled = isManualShuffleEnabled,
+        )
+    }
+
+    /** Pure: safe on any thread. */
+    private fun buildPlaybackSnapshot(capture: PlayerQueueCapture): PlaybackQueueSnapshot? {
+        val snapshotItems = ArrayList<PlaybackQueueItemSnapshot>(capture.mediaItems.size)
+        for (mediaItem in capture.mediaItems) {
             val metadata = mediaItem.mediaMetadata
             val uri = mediaItem.localConfiguration?.uri?.toString()
                 ?: metadata.extras?.getString(MediaItemBuilder.EXTERNAL_EXTRA_CONTENT_URI)
@@ -1706,21 +1752,21 @@ class MusicService : MediaLibraryService() {
             return null
         }
 
-        val currentMediaId = player.currentMediaItem?.mediaId
+        val currentMediaId = capture.currentMediaId
         val indexFromMediaId = currentMediaId
             ?.let { id -> snapshotItems.indexOfFirst { it.mediaId == id } }
             ?.takeIf { it >= 0 }
 
         val safeCurrentIndex = when {
             indexFromMediaId != null -> indexFromMediaId
-            player.currentMediaItemIndex in snapshotItems.indices -> player.currentMediaItemIndex
+            capture.currentMediaItemIndex in snapshotItems.indices -> capture.currentMediaItemIndex
             else -> 0
         }
 
-        val safeRepeatMode = when (player.repeatMode) {
+        val safeRepeatMode = when (capture.repeatMode) {
             Player.REPEAT_MODE_OFF,
             Player.REPEAT_MODE_ONE,
-            Player.REPEAT_MODE_ALL -> player.repeatMode
+            Player.REPEAT_MODE_ALL -> capture.repeatMode
             else -> Player.REPEAT_MODE_OFF
         }
 
@@ -1728,10 +1774,10 @@ class MusicService : MediaLibraryService() {
             items = snapshotItems,
             currentMediaId = currentMediaId,
             currentIndex = safeCurrentIndex,
-            currentPositionMs = player.currentPosition.coerceAtLeast(0L),
-            playWhenReady = playWhenReadyOverride ?: player.playWhenReady,
+            currentPositionMs = capture.currentPositionMs.coerceAtLeast(0L),
+            playWhenReady = capture.playWhenReady,
             repeatMode = safeRepeatMode,
-            shuffleEnabled = isManualShuffleEnabled,
+            shuffleEnabled = capture.shuffleEnabled,
         )
     }
 
@@ -1756,6 +1802,7 @@ class MusicService : MediaLibraryService() {
 
         val restoredItems = snapshot.items.mapNotNull(::buildMediaItemFromSnapshot)
         if (restoredItems.isEmpty()) {
+            lastPersistedPlaybackSnapshot = null
             userPreferencesRepository.setPlaybackQueueSnapshot(null)
             return
         }
@@ -2542,6 +2589,7 @@ class MusicService : MediaLibraryService() {
     }
 
     private fun writePlaybackSnapshotOnUnload(snapshot: PlaybackQueueSnapshot?) {
+        lastPersistedPlaybackSnapshot = null
         playbackSnapshotUnloadWriteJob?.cancel()
         playbackSnapshotUnloadWriteJob = appScope.launch {
             runCatching {

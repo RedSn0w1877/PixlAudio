@@ -20,3 +20,29 @@ HSPLcom/theveloper/pixelplay/presentation/viewmodel/SyncPhase**->**(**)**
 HSPLcom/theveloper/pixelplay/data/model/LyricsDoc**->**(**)**
 HSPLcom/theveloper/pixelplay/data/model/TimedLine**->**(**)**
 HSPLcom/theveloper/pixelplay/data/model/TimedSyllable**->**(**)**
+
+# App shell and first screens (cold start, first navigation). The generated profile predates the
+# fork's rewrite, so most of its rules no longer match; these wildcards cover the hot packages until
+# the profile is regenerated on a device (:baselineprofile:generateBaselineProfile).
+HSPLcom/theveloper/pixelplay/PixelPlayApplication**->**(**)**
+HSPLcom/theveloper/pixelplay/MainActivity**->**(**)**
+HSPLcom/theveloper/pixelplay/Hilt_**->**(**)**
+HSPLcom/theveloper/pixelplay/DaggerPixelPlayApplication_HiltComponents**->**(**)**
+HSPLcom/theveloper/pixelplay/di/**->**(**)**
+HSPLcom/theveloper/pixelplay/presentation/navigation/**->**(**)**
+HSPLcom/theveloper/pixelplay/presentation/components/ScreenWrapper**->**(**)**
+HSPLcom/theveloper/pixelplay/presentation/components/UnifiedPlayer**->**(**)**
+HSPLcom/theveloper/pixelplay/presentation/components/scoped/**->**(**)**
+HSPLcom/theveloper/pixelplay/presentation/components/player/**->**(**)**
+HSPLcom/theveloper/pixelplay/presentation/components/PlayerInternalNavigationBar**->**(**)**
+HSPLcom/theveloper/pixelplay/presentation/components/Home**->**(**)**
+HSPLcom/theveloper/pixelplay/presentation/screens/HomeScreen**->**(**)**
+HSPLcom/theveloper/pixelplay/presentation/screens/Library**->**(**)**
+HSPLcom/theveloper/pixelplay/presentation/screens/SearchScreen**->**(**)**
+HSPLcom/theveloper/pixelplay/presentation/viewmodel/**->**(**)**
+HSPLcom/theveloper/pixelplay/data/preferences/**->**(**)**
+HSPLcom/theveloper/pixelplay/data/repository/MusicRepositoryImpl**->**(**)**
+HSPLcom/theveloper/pixelplay/ui/theme/**->**(**)**
+Lcom/theveloper/pixelplay/presentation/navigation/**;
+Lcom/theveloper/pixelplay/presentation/viewmodel/**;
+Lcom/theveloper/pixelplay/ui/theme/**;

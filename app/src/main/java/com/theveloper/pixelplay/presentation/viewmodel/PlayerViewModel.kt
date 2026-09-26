@@ -124,6 +124,8 @@ private const val CAST_LOG_TAG = "PlayerCastTransfer"
 private const val ENABLE_FOLDERS_SOURCE_SWITCHING = true
 private const val HOME_MIX_PREVIEW_LIMIT = 48
 private const val EXTERNAL_SONG_ID_PREFIX = "external:"
+/** Cast start-up waits this long after launch (same as MusicService's deferred Cast sync). */
+private const val DEFERRED_CAST_STARTUP_DELAY_MS = 1_000L
 
 internal fun List<Song>.toPlaybackQueue(): ImmutableList<Song> = when (this) {
     is PersistentList<Song> -> this
@@ -1620,12 +1622,10 @@ class PlayerViewModel @Inject constructor(
     init {
         Log.i("PlayerViewModel", "init started.")
 
-        // Cast initialization if already connected
-        val currentSession = sessionManager?.currentCastSession
-        if (currentSession != null) {
-            castStateHolder.setCastPlayer(CastPlayer(currentSession, context.contentResolver))
-            castStateHolder.setRemotePlaybackActive(true)
-        }
+        // Cast start-up (adopting a running session, route discovery, the session listener)
+        // runs shortly after launch, not here: the first sessionManager access loads the
+        // Play-services Cast module synchronously, on the main thread, while the first frame is
+        // being built. See the deferred block at the end of init.
 
 
 
@@ -1820,9 +1820,6 @@ class PlayerViewModel @Inject constructor(
             }
         }, ContextCompat.getMainExecutor(context))
 
-
-        // Start Cast discovery
-        castStateHolder.startDiscovery()
 
         // Observe selection for HTTP server management
         viewModelScope.launch {
@@ -2039,6 +2036,26 @@ class PlayerViewModel @Inject constructor(
             getUiState = { _playerUiState.value },
             onHideDismissUndoBar = { hideDismissUndoBar() }
         )
+
+        // Deferred Cast start-up, in the order it used to run inline. MusicService defers its
+        // own Cast sync by the same amount.
+        viewModelScope.launch {
+            delay(DEFERRED_CAST_STARTUP_DELAY_MS)
+            Trace.beginSection("PlayerViewModel.deferredCastStartup")
+            try {
+                // Cast initialization if already connected
+                val currentSession = sessionManager?.currentCastSession
+                if (currentSession != null) {
+                    castStateHolder.setCastPlayer(CastPlayer(currentSession, context.contentResolver))
+                    castStateHolder.setRemotePlaybackActive(true)
+                }
+                // Start Cast discovery
+                castStateHolder.startDiscovery()
+                castTransferStateHolder.attachToCastSessions()
+            } finally {
+                Trace.endSection()
+            }
+        }
 
         Trace.endSection() // End PlayerViewModel.init
     }

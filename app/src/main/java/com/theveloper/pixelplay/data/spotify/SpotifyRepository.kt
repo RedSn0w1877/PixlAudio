@@ -79,7 +79,8 @@ class SpotifyRepository @Inject constructor(
         }
     }
 
-    val isLoggedIn: StateFlow<Boolean> = authManager.isLoggedIn
+    // A getter, so building this repository doesn't open the encrypted session prefs.
+    val isLoggedIn: StateFlow<Boolean> get() = authManager.isLoggedIn
 
     /**
      * Spotify está rechazando por permisos la lectura del contenido de las playlists.

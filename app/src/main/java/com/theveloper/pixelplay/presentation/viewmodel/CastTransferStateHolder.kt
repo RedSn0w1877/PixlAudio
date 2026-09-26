@@ -80,6 +80,8 @@ class CastTransferStateHolder @Inject constructor(
     // Callback to update color scheme
     private var onSongChanged: ((String?) -> Unit)? = null
 
+    private var sessionsAttached = false
+
     // Session Management
     private val sessionManager: SessionManager? by lazy {
         try {
@@ -236,7 +238,17 @@ class CastTransferStateHolder @Inject constructor(
                 emitCastError("Cast session resume failed (error $error).")
             }
         }
-        
+    }
+
+    /**
+     * Listens to Cast sessions and adopts one that is already running. Split from [initialize]
+     * because the first [sessionManager] access loads the Play-services Cast module
+     * (`CastContext.getSharedInstance`, main thread only): PlayerViewModel calls this shortly
+     * after launch instead of while the first frame is being built.
+     */
+    fun attachToCastSessions() {
+        if (sessionsAttached) return
+        sessionsAttached = true
         sessionManager?.addSessionManagerListener(castSessionManagerListener as SessionManagerListener<CastSession>, CastSession::class.java)
         
         // Sync initial state if session exists
@@ -1542,13 +1554,16 @@ class CastTransferStateHolder @Inject constructor(
         remoteBufferingRecoveryJob?.cancel()
         resetRemoteBufferingWatchdog()
 
-        // Unregister Cast session manager listener
-        castSessionManagerListener?.let { listener ->
-            sessionManager?.removeSessionManagerListener(
-                listener,
-                CastSession::class.java
-            )
+        // Unregister Cast session manager listener (only added once attachToCastSessions ran)
+        if (sessionsAttached) {
+            castSessionManagerListener?.let { listener ->
+                sessionManager?.removeSessionManagerListener(
+                    listener,
+                    CastSession::class.java
+                )
+            }
         }
+        sessionsAttached = false
 
         // Unregister remote media client listeners from active session
         val remoteClient = castStateHolder.castSession.value?.remoteMediaClient

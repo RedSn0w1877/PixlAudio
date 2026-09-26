@@ -7,14 +7,15 @@ import com.theveloper.pixelplay.presentation.navigation.navigateSafely
 import android.Manifest
 import android.content.ActivityNotFoundException
 import android.content.Context
-import android.content.ComponentName
 import android.content.Intent
 import android.os.Build
 import android.graphics.RenderEffect as AndroidRenderEffect
 import android.graphics.Shader as AndroidShader
 import androidx.compose.ui.graphics.asComposeRenderEffect
 import android.os.Bundle
+import android.os.SystemClock
 import android.os.Trace
+import android.view.Display
 import android.provider.Settings
 import android.util.Log
 import androidx.activity.ComponentActivity
@@ -46,6 +47,9 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.calculateEndPadding
+import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
@@ -83,6 +87,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalView
@@ -96,15 +101,11 @@ import androidx.compose.ui.unit.lerp
 import androidx.core.net.toUri
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.session.MediaController
-import androidx.media3.session.SessionToken
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.rememberMultiplePermissionsState
-import com.google.common.util.concurrent.ListenableFuture
-import com.google.common.util.concurrent.MoreExecutors
 import com.theveloper.pixelplay.data.github.GitHubAnnouncementPropertiesService
 import com.theveloper.pixelplay.data.github.PlayStoreAnnouncementRemoteConfig
 import com.theveloper.pixelplay.data.preferences.AppThemeMode
@@ -112,7 +113,6 @@ import com.theveloper.pixelplay.data.preferences.NavBarStyle
 import com.theveloper.pixelplay.data.preferences.sanitizeNavBarCornerRadius
 import com.theveloper.pixelplay.data.preferences.ThemePreferencesRepository
 import com.theveloper.pixelplay.data.preferences.UserPreferencesRepository
-import com.theveloper.pixelplay.data.service.MusicService
 import com.theveloper.pixelplay.data.worker.SyncManager
 import com.theveloper.pixelplay.data.worker.SyncProgress
 import com.theveloper.pixelplay.presentation.components.AllFilesAccessDialog
@@ -146,7 +146,9 @@ import com.theveloper.pixelplay.utils.AppLocaleManager
 import com.theveloper.pixelplay.utils.LogUtils
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.collections.immutable.persistentListOf
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.LayoutDirection
 import kotlinx.coroutines.launch
@@ -158,7 +160,7 @@ import com.theveloper.pixelplay.presentation.utils.AppHapticsConfig
 import com.theveloper.pixelplay.presentation.utils.LocalAppHapticsConfig
 import com.theveloper.pixelplay.presentation.utils.NoOpHapticFeedback
 import com.theveloper.pixelplay.utils.CrashLogData
-import javax.annotation.concurrent.Immutable
+import androidx.compose.runtime.Immutable
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 
@@ -184,7 +186,6 @@ class MainActivity : ComponentActivity() {
     private val playerViewModel: PlayerViewModel by viewModels()
     private val mainViewModel: MainViewModel by viewModels()
     private var isUIVisiblyReady = false
-    private var mediaControllerFuture: ListenableFuture<MediaController>? = null
     @Inject
     lateinit var userPreferencesRepository: UserPreferencesRepository // Inject here
     @Inject
@@ -224,10 +225,16 @@ class MainActivity : ComponentActivity() {
             window.isNavigationBarContrastEnforced = false
         }
         super.onCreate(savedInstanceState)
+        requestHighestRefreshRate()
 
-        // MD3 Optimization: Release Splash Screen immediately to render UI skeleton.
-        // Data loading is handled via optimistic UI and smooth transitions.
-        splashScreen.setKeepOnScreenCondition { false }
+        // Keep the splash only until the startup snapshot (theme, setup gate, start tab) is read,
+        // so the first frame the user sees is the real one at full opacity, never a blank or a
+        // wrong-theme frame. The deadline makes sure a slow disk can never hold the splash.
+        val startupPrefs = mainViewModel.startupPrefs
+        val splashDeadline = SystemClock.uptimeMillis() + SPLASH_MAX_HOLD_MS
+        splashScreen.setKeepOnScreenCondition {
+            startupPrefs.value == null && SystemClock.uptimeMillis() < splashDeadline
+        }
 
         // LEER SEÑAL DE BENCHMARK
         val isBenchmarkMode = intent.getBooleanExtra("is_benchmark", false)
@@ -249,15 +256,24 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val systemDarkTheme = isSystemInDarkTheme()
-            val appThemeMode by themePreferencesRepository.appThemeModeFlow.collectAsStateWithLifecycle(initialValue = AppThemeMode.FOLLOW_SYSTEM)
-            val showScrollbar by userPreferencesRepository.showScrollbarFlow.collectAsStateWithLifecycle(initialValue = true)
+            // The splash is held until the startup snapshot is known, so these start from the
+            // stored values instead of defaults that would flip a frame later.
+            val startupSnapshot = startupPrefs.value
+            val appThemeMode by themePreferencesRepository.appThemeModeFlow.collectAsStateWithLifecycle(
+                initialValue = startupSnapshot?.themeMode ?: AppThemeMode.FOLLOW_SYSTEM
+            )
+            val showScrollbar by userPreferencesRepository.showScrollbarFlow.collectAsStateWithLifecycle(
+                initialValue = startupSnapshot?.showScrollbar ?: true
+            )
             val useDarkTheme = when (appThemeMode) {
                 AppThemeMode.DARK -> true
                 AppThemeMode.LIGHT -> false
                 else -> systemDarkTheme
             }
-            val isSetupComplete by mainViewModel.isSetupComplete.collectAsStateWithLifecycle()
-            
+            val isSetupCompleteFlag by mainViewModel.isSetupComplete.collectAsStateWithLifecycle()
+            val startupState by startupPrefs.collectAsStateWithLifecycle()
+            val isSetupComplete = isSetupCompleteFlag ?: startupState?.setupDone
+
             // Crash report dialog state
             var showCrashReportDialog by remember { mutableStateOf(false) }
             var crashLogData by remember { mutableStateOf<CrashLogData?>(null) }
@@ -290,8 +306,13 @@ class MainActivity : ComponentActivity() {
 
             // Check for crash log when app starts
             LaunchedEffect(Unit) {
-                if (!isBenchmarkMode && CrashHandler.hasCrashLog()) {
-                    crashLogData = CrashHandler.getCrashLog()
+                if (isBenchmarkMode) return@LaunchedEffect
+                // SharedPreferences first read: off the main thread, after the first frame.
+                val savedCrash = withContext(Dispatchers.IO) {
+                    if (CrashHandler.hasCrashLog()) CrashHandler.getCrashLog() else null
+                }
+                if (savedCrash != null) {
+                    crashLogData = savedCrash
                     showCrashReportDialog = true
                 }
             }
@@ -302,21 +323,12 @@ class MainActivity : ComponentActivity() {
                 PixelPlayTheme(
                     darkTheme = useDarkTheme
                 ) {
-                    var contentVisible by remember { mutableStateOf(false) }
-                    val contentAlpha by animateFloatAsState(
-                        targetValue = if (contentVisible) 1f else 0f,
-                        animationSpec = tween(600, easing = LinearOutSlowInEasing),
-                        label = "AppContentAlpha"
-                    )
-
-                    LaunchedEffect(Unit) {
-                        // Delay slightly to ensure first frame layout is done behind Splash
-                        delay(100)
-                        contentVisible = true
-                    }
-
+                    // No launch fade: the splash stays up until the startup snapshot is ready,
+                    // then the app draws at full opacity. (The old 100 ms blank + 600 ms fade
+                    // also rendered the whole app into an offscreen layer during its busiest
+                    // frames.)
                     Surface(
-                        modifier = Modifier.fillMaxSize().graphicsLayer { alpha = contentAlpha }, 
+                        modifier = Modifier.fillMaxSize(),
                         color = MaterialTheme.colorScheme.background
                     ) {
                         if (showSetupScreen == null) {
@@ -632,9 +644,15 @@ class MainActivity : ComponentActivity() {
                 BottomNavItem("Library", R.string.nav_bar_library, R.drawable.rounded_library_music_24, R.drawable.round_library_music_24, Screen.Library)
             )
         }
-        val navBackStackEntry by navController.currentBackStackEntryAsState()
-        val currentRoute = navBackStackEntry?.destination?.route
+        // The route is read only where it is needed (derived states, the bar, the drawer), never
+        // in MainUI's own body: reading it here recomposed this whole shell on every navigation.
+        val currentBackStackEntryState = navController.currentBackStackEntryAsState()
+        val currentRouteProvider: () -> String? = remember(currentBackStackEntryState) {
+            { currentBackStackEntryState.value?.destination?.route }
+        }
         var isSearchBarActive by remember { mutableStateOf(false) }
+        // Read once: the start tab only matters for the NavHost's first composition.
+        val startupPrefs = remember { mainViewModel.startupPrefs.value }
 
         val routesWithHiddenNavigationBar = remember {
             setOf(
@@ -666,8 +684,9 @@ class MainActivity : ComponentActivity() {
                 Screen.SpotifyBrowse.route
             )
         }
-        val shouldHideNavigationBar by remember(currentRoute, isSearchBarActive) {
+        val shouldHideNavigationBar by remember(currentRouteProvider) {
             derivedStateOf {
+                val currentRoute = currentRouteProvider()
                 if (currentRoute == Screen.Search.route && isSearchBarActive) {
                     true
                 } else {
@@ -786,6 +805,8 @@ class MainActivity : ComponentActivity() {
                 return@LaunchedEffect
             }
 
+            // Network work stays out of the first seconds of animation.
+            delay(ANNOUNCEMENT_FETCH_DELAY_MS)
             announcementService.fetchPlayStoreAnnouncement()
                 .onSuccess { remoteConfig ->
                     val resolvedAnnouncement = remoteConfig.toUiModel(this@MainActivity)
@@ -809,9 +830,9 @@ class MainActivity : ComponentActivity() {
             LocalHapticFeedback provides scopedHapticFeedback,
             LocalHighContrastText provides highContrastText
         ) {
-            AppSidebarDrawer(
+            RouteAwareSidebarDrawer(
                 drawerState = drawerState,
-                selectedRoute = currentRoute ?: Screen.Home.route,
+                currentRouteProvider = currentRouteProvider,
                 onDestinationSelected = { destination ->
                     scope.launch { drawerState.close() }
                     when (destination) {
@@ -827,6 +848,9 @@ class MainActivity : ComponentActivity() {
                 Scaffold(
                 modifier = Modifier
                     .fillMaxSize(),
+                // The root Surface below already paints the background; a second opaque
+                // full-screen fill here was pure overdraw.
+                containerColor = Color.Transparent,
                 bottomBar = {
                     if (shouldRenderNavigationBar) {
                         val currentSongId by remember {
@@ -935,7 +959,7 @@ class MainActivity : ComponentActivity() {
                                 PlayerInternalNavigationBar(
                                     navController = navController,
                                     navItems = commonNavItems,
-                                    currentRoute = currentRoute,
+                                    currentRoute = currentRouteProvider(),
                                     navBarStyle = navBarStyle,
                                     compactMode = navBarCompactMode,
                                     bottomBarPadding = bottomBarPadding,
@@ -960,8 +984,8 @@ class MainActivity : ComponentActivity() {
                                 .distinctUntilChanged()
                         }.collectAsStateWithLifecycle(initialValue = false)
                         val routesWithHiddenMiniPlayer = remember { setOf(Screen.NavBarCrRad.route) }
-                        val shouldHideMiniPlayer by remember(currentRoute) {
-                            derivedStateOf { currentRoute in routesWithHiddenMiniPlayer }
+                        val shouldHideMiniPlayer by remember(currentRouteProvider) {
+                            derivedStateOf { currentRouteProvider() in routesWithHiddenMiniPlayer }
                         }
 
                         val miniPlayerH = with(density) { MiniPlayerHeight.toPx() }
@@ -996,16 +1020,43 @@ class MainActivity : ComponentActivity() {
                         }
                         val blurEffectCache = remember { BlurEffectCache() }
 
+                        // Main-root screens (the only ones that read this padding) always show
+                        // the nav bar, so their bottom padding is the bar's height whether or
+                        // not the bar is rendered right now. Using the Scaffold's live padding
+                        // made the exiting Home re-lay out its whole list ~220 ms into every
+                        // push to a screen that hides the bar.
+                        val layoutDirection = LocalLayoutDirection.current
+                        val innerPaddingStart = innerPadding.calculateStartPadding(layoutDirection)
+                        val innerPaddingTop = innerPadding.calculateTopPadding()
+                        val innerPaddingEnd = innerPadding.calculateEndPadding(layoutDirection)
+                        val rootScreenPadding = remember(
+                            innerPaddingStart,
+                            innerPaddingTop,
+                            innerPaddingEnd,
+                            navBarOccupiedHeight
+                        ) {
+                            PaddingValues(
+                                start = innerPaddingStart,
+                                top = innerPaddingTop,
+                                end = innerPaddingEnd,
+                                bottom = navBarOccupiedHeight
+                            )
+                        }
+
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
                                 .graphicsLayer {
+                                    val expansion = expansionFractionProvider()
+                                    val fraction = (expansion * (1f - predictiveBackCollapseFraction)).coerceIn(0f, 1f)
+                                    // Fully covered by the opaque expanded player: skip drawing
+                                    // (and re-blurring) the page. It comes back the moment the
+                                    // player moves or a back gesture starts.
+                                    alpha = if (fraction >= 1f) 0f else 1f
                                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                                         if (disableBlurAllOver) {
                                             renderEffect = null
                                         } else {
-                                            val expansion = expansionFractionProvider()
-                                            val fraction = (expansion * (1f - predictiveBackCollapseFraction)).coerceIn(0f, 1f)
                                             // Quantize to 2px steps: rebuild the RenderEffect only
                                             // when the blur crosses a step, reuse the cached object
                                             // every other frame.
@@ -1018,7 +1069,8 @@ class MainActivity : ComponentActivity() {
                             AppNavigation(
                                 playerViewModel = playerViewModel,
                                 navController = navController,
-                                paddingValues = innerPadding,
+                                paddingValues = rootScreenPadding,
+                                initialLaunchTab = startupPrefs?.launchTab,
                                 userPreferencesRepository = userPreferencesRepository,
                                 onSearchBarActiveChange = { isSearchBarActive = it },
                                 onOpenSidebar = { scope.launch { drawerState.open() } }
@@ -1039,6 +1091,13 @@ class MainActivity : ComponentActivity() {
                             Box(
                                 modifier = Modifier
                                     .fillMaxSize()
+                                    // Hidden under the opaque expanded player: skip the fill.
+                                    // Same folded fraction as the page, so it returns with it
+                                    // when a predictive back gesture starts.
+                                    .graphicsLayer {
+                                        val fraction = expansionFractionProvider() * (1f - predictiveBackCollapseFraction)
+                                        alpha = if (fraction >= 1f) 0f else 1f
+                                    }
                                     .background(
                                         MaterialTheme.colorScheme.surfaceContainerLowest.copy(
                                             alpha = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) 0.35f else 0.6f
@@ -1173,29 +1232,66 @@ class MainActivity : ComponentActivity() {
         LogUtils.d(this, "onStart")
         playerViewModel.onMainActivityStart()
 
-        if (intent.getBooleanExtra("is_benchmark", false)) {
-            // Benchmark mode no longer loads dummy data - uses real library data instead
-        }
-
-        val sessionToken = SessionToken(this, ComponentName(this, MusicService::class.java))
-        mediaControllerFuture = MediaController.Builder(this, sessionToken).buildAsync()
-        mediaControllerFuture?.addListener({
-        }, MoreExecutors.directExecutor())
+        // PlayerViewModel owns the one MediaController and keeps the service bound while the UI
+        // exists. A second controller here was never read, and each connection makes the
+        // session serialise the whole queue again.
     }
 
     override fun onStop() {
         super.onStop()
         LogUtils.d(this, "onStop")
-        mediaControllerFuture?.let {
-            MediaController.releaseFuture(it)
-        }
     }
 
     override fun onResume() {
         super.onResume()
     }
 
+    /**
+     * Without an explicit request the system parks this app at 60 Hz (its default frame-rate
+     * category), even on a 120 Hz panel. Pick the fastest mode at the current resolution.
+     * (Ported from NexHome, where it was measured on the same phone.)
+     */
+    private fun requestHighestRefreshRate() {
+        val display: Display = (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) display else null)
+            ?: @Suppress("DEPRECATION") windowManager.defaultDisplay
+        val current = display.mode
+        val fastest = display.supportedModes
+            .filter { it.physicalWidth == current.physicalWidth && it.physicalHeight == current.physicalHeight }
+            .maxByOrNull { it.refreshRate }
+            ?: return
+        window.attributes = window.attributes.apply {
+            preferredDisplayModeId = fastest.modeId
+            preferredRefreshRate = fastest.refreshRate
+        }
+    }
 
+    private companion object {
+        /** Upper bound on how long the splash may wait for the startup snapshot. */
+        const val SPLASH_MAX_HOLD_MS = 1_000L
+
+        /** The remote announcement check waits until the app has settled. */
+        const val ANNOUNCEMENT_FETCH_DELAY_MS = 5_000L
+    }
+}
+
+/**
+ * Reads the current route in its own recomposition scope, so a navigation re-runs only this
+ * wrapper (and the drawer sheet), not the shell around it. The drawer's content lambda is the
+ * same instance across these recompositions, so the app content itself is skipped.
+ */
+@Composable
+private fun RouteAwareSidebarDrawer(
+    drawerState: androidx.compose.material3.DrawerState,
+    currentRouteProvider: () -> String?,
+    onDestinationSelected: (DrawerDestination) -> Unit,
+    content: @Composable () -> Unit
+) {
+    AppSidebarDrawer(
+        drawerState = drawerState,
+        selectedRoute = currentRouteProvider() ?: Screen.Home.route,
+        onDestinationSelected = onDestinationSelected,
+        content = content
+    )
 }
 
 /**

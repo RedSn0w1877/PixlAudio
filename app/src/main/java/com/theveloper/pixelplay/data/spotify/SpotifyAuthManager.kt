@@ -42,7 +42,12 @@ class SpotifyAuthManager @Inject constructor(
 
     // EncryptedSharedPreferences.create puede fallar en dispositivos con el keystore
     // corrupto. Perder la sesión es mejor que reventar al arrancar.
-    private val prefs: SharedPreferences = try {
+    // Lazy: MasterKey/Keystore + Tink cost tens of ms cold, and this singleton is built on the
+    // main thread during startup (through PlayerViewModel's graph). The first read now happens
+    // wherever the session is first needed; PixelPlayApplication warms it on a background thread.
+    private val prefs: SharedPreferences by lazy { createPrefs() }
+
+    private fun createPrefs(): SharedPreferences = try {
         val masterKey = MasterKey.Builder(context)
             .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
             .build()
@@ -60,8 +65,8 @@ class SpotifyAuthManager @Inject constructor(
 
     private val refreshMutex = Mutex()
 
-    private val _isLoggedIn = MutableStateFlow(prefs.getString(KEY_REFRESH_TOKEN, null) != null)
-    val isLoggedIn: StateFlow<Boolean> = _isLoggedIn.asStateFlow()
+    private val _isLoggedIn by lazy { MutableStateFlow(prefs.getString(KEY_REFRESH_TOKEN, null) != null) }
+    val isLoggedIn: StateFlow<Boolean> by lazy { _isLoggedIn.asStateFlow() }
 
     private val _lastError = MutableStateFlow<String?>(null)
     val lastError: StateFlow<String?> = _lastError.asStateFlow()

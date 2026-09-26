@@ -70,6 +70,9 @@ class PixelPlayApplication : Application(), ImageLoaderFactory, Configuration.Pr
 
     private val startupScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    private val appVisibilityDispatcher = Dispatchers.Default.limitedParallelism(1)
+
     // AÑADE EL COMPANION OBJECT
     companion object {
         const val NOTIFICATION_CHANNEL_ID = "pixelplay_music_channel"
@@ -80,10 +83,16 @@ class PixelPlayApplication : Application(), ImageLoaderFactory, Configuration.Pr
     private val appLifecycleObserver = object : DefaultLifecycleObserver {
         override fun onStart(owner: LifecycleOwner) {
             libraryStateHolder.get().restoreAfterTrimIfNeeded()
-            automaticStudioManager.get().setAppVisible(true)
+            // Off the main thread (its graph is built on first use), on one serial lane so
+            // visible/hidden calls keep their order.
+            startupScope.launch(appVisibilityDispatcher) {
+                automaticStudioManager.get().setAppVisible(true)
+            }
         }
         override fun onStop(owner: LifecycleOwner) {
-            automaticStudioManager.get().setAppVisible(false)
+            startupScope.launch(appVisibilityDispatcher) {
+                automaticStudioManager.get().setAppVisible(false)
+            }
         }
     }
 
@@ -123,7 +132,12 @@ class PixelPlayApplication : Application(), ImageLoaderFactory, Configuration.Pr
         // Construir el repositorio ya arranca la colección de estados de emparejamiento
         // (ver SpotifyMatchStateCache) para que el indicador por canción esté listo desde
         // el principio, sin depender de que el usuario abra la pantalla de Spotify primero.
-        spotifyRepository.get()
+        // Built on a background thread: the session lives in EncryptedSharedPreferences, whose
+        // Keystore/Tink setup is one of the costliest things at a cold start. Reading
+        // isLoggedIn here warms it before any screen asks.
+        startupScope.launch {
+            spotifyRepository.get().isLoggedIn
+        }
 
         startupScope.launch {
             com.theveloper.pixelplay.data.worker.AiWorkerManager(this@PixelPlayApplication).ensurePeriodicDiscovery()

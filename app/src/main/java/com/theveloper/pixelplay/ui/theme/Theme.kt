@@ -18,6 +18,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
@@ -130,14 +131,20 @@ fun PixelPlayTheme(
     content: @Composable () -> Unit
 ) {
     val context = LocalContext.current
+    val uiMode = LocalConfiguration.current.uiMode
     val finalColorScheme = when {
         colorSchemePairOverride == null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
-            // Tema dinámico del sistema como prioridad si no hay override
-            try {
-                if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-            } catch (e: Exception) {
-                // Fallback a los defaults si dynamic colors falla (raro, pero posible en algunos dispositivos)
-                if (darkTheme) DarkColorScheme else LightColorScheme
+            // Tema dinámico del sistema como prioridad si no hay override.
+            // Remembered: a fresh ColorScheme on every recomposition invalidated every reader of
+            // the (static) LocalColorScheme, i.e. the whole app. A wallpaper change recreates
+            // the Activity, which resets this.
+            remember(context, darkTheme, uiMode) {
+                try {
+                    if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+                } catch (e: Exception) {
+                    // Fallback a los defaults si dynamic colors falla (raro, pero posible en algunos dispositivos)
+                    if (darkTheme) DarkColorScheme else LightColorScheme
+                }
             }
         }
         colorSchemePairOverride != null -> {

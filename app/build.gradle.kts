@@ -87,6 +87,9 @@ android {
     androidResources {
         noCompress.add("tflite")
         noCompress.add("onnx")
+        // Stored fonts are mmapped when a Typeface is built; deflated ones must be inflated
+        // into memory first, on the main thread, at the first text layout (~2.4 MB larger APK).
+        noCompress.add("ttf")
     }
 
     packaging {

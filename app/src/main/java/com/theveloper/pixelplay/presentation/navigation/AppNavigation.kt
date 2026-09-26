@@ -77,14 +77,18 @@ fun AppNavigation(
     paddingValues: PaddingValues,
     userPreferencesRepository: UserPreferencesRepository,
     onSearchBarActiveChange: (Boolean) -> Unit,
-    onOpenSidebar: () -> Unit
+    onOpenSidebar: () -> Unit,
+    /** The stored launch tab when already known (startup snapshot), so NavHost composes in the first frame. */
+    initialLaunchTab: String? = null
 ) {
-    var startDestination by remember { mutableStateOf<String?>(null) }
+    var startDestination by remember { mutableStateOf(initialLaunchTab?.toRoute()) }
 
     LaunchedEffect(Unit) {
-        startDestination = userPreferencesRepository.launchTabFlow
-            .first()
-            .toRoute()
+        if (startDestination == null) {
+            startDestination = userPreferencesRepository.launchTabFlow
+                .first()
+                .toRoute()
+        }
     }
 
     startDestination?.let { initialRoute ->

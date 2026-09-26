@@ -13,7 +13,9 @@ import com.theveloper.pixelplay.data.recommendation.MusicRecommendationEngine
 import com.theveloper.pixelplay.data.recommendation.MusicTasteRepository
 import com.theveloper.pixelplay.data.recommendation.MuselleVariant
 import com.theveloper.pixelplay.data.premium.PlusLicenseManager
+import com.theveloper.pixelplay.data.preferences.UserPreferencesRepository
 import com.theveloper.pixelplay.data.repository.MusicRepository
+import com.theveloper.pixelplay.data.worker.SyncManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.time.LocalDate
@@ -27,8 +29,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -57,6 +63,9 @@ class HomeDiscoveryStateHolder @Inject constructor(
     val state = mutableState.asStateFlow()
     private var refreshJob: Job? = null
     private var refreshPending = false
+    // Written on IO when a refresh finishes, read on Main.
+    @Volatile private var lastRefreshFinishedAt = 0L
+    @Volatile private var lastRefreshHadLibrary = false
 
     // Called on Main by the ViewModel; keep one catalog refresh in flight across Home recreation.
     fun refresh(force: Boolean = false) {
@@ -65,10 +74,17 @@ class HomeDiscoveryStateHolder @Inject constructor(
             return
         }
         val now = System.currentTimeMillis()
+        // Home asks on every ON_START (every pop back to it) and again once its mixes load, so a
+        // cold start ran this whole-library pass twice and every return re-ran it during the pop
+        // transition. A snapshot built from a non-empty library moments ago is still current.
+        if (!force && lastRefreshHadLibrary && now - lastRefreshFinishedAt < AUTO_REFRESH_MIN_INTERVAL_MS) {
+            return
+        }
         refreshJob = scope.launch {
             mutableState.update { it.copy(isRefreshing = true) }
             try {
                 val library = music.getAllSongsOnce()
+                lastRefreshHadLibrary = library.isNotEmpty()
                 val favorites = music.getFavoriteSongIdsOnce()
                 val storedSignals = taste.signals()
                 val storedHistory = engagement.getAllEngagements().associate { it.songId to MusicRecommendationEngine.History(
@@ -103,6 +119,7 @@ class HomeDiscoveryStateHolder @Inject constructor(
                 Timber.w(e, "Home recommendations unavailable; retaining the last snapshot")
                 if (force) mutableState.update { it.copy(message = "Couldn't refresh right now. Your saved picks are still here.") }
             } finally {
+                lastRefreshFinishedAt = System.currentTimeMillis()
                 mutableState.update { it.copy(isRefreshing = false) }
                 withContext(Dispatchers.Main.immediate) {
                     refreshJob = null
@@ -133,11 +150,38 @@ class HomeDiscoveryStateHolder @Inject constructor(
     }
 
     fun clearMessage() { mutableState.update { it.copy(message = null) } }
+
+    private companion object {
+        const val AUTO_REFRESH_MIN_INTERVAL_MS = 60_000L
+    }
 }
 
 @HiltViewModel
-class HomeDiscoveryViewModel @Inject constructor(private val holder: HomeDiscoveryStateHolder) : ViewModel() {
+class HomeDiscoveryViewModel @Inject constructor(
+    private val holder: HomeDiscoveryStateHolder,
+    private val userPreferencesRepository: UserPreferencesRepository,
+    private val syncManager: SyncManager
+) : ViewModel() {
     val state = holder.state
+
+    // Home used to build a whole SettingsViewModel (dozens of collectors, an AudioTrack probe)
+    // just for this flag and the library refresh below.
+    /** `null` until read, so the clean-install disclaimer never flashes. */
+    val beta05CleanInstallDisclaimerDismissed: StateFlow<Boolean?> =
+        userPreferencesRepository.beta05CleanInstallDisclaimerDismissedFlow
+            .map<Boolean, Boolean?> { it }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    fun setBeta05CleanInstallDisclaimerDismissed(dismissed: Boolean) {
+        viewModelScope.launch { userPreferencesRepository.setBeta05CleanInstallDisclaimerDismissed(dismissed) }
+    }
+
+    fun refreshLibrary() {
+        viewModelScope.launch {
+            if (syncManager.isSyncing.first()) return@launch
+            syncManager.forceRefresh()
+        }
+    }
     fun refresh(force: Boolean = false) = holder.refresh(force)
     fun play(section: HomeMusicSection, start: Song, onReady: (List<Song>, Song) -> Unit) {
         viewModelScope.launch { holder.prepare(section, start, onReady) }

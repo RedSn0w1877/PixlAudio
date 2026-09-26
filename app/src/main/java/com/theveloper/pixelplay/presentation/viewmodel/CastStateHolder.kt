@@ -182,7 +182,10 @@ class CastStateHolder @Inject constructor(
     }
     
     // MediaRouter State
-    private val mediaRouter: MediaRouter = MediaRouter.getInstance(context)
+    // Lazy: getInstance binds the media-router service. Discovery starts shortly after launch
+    // (PlayerViewModel defers it), so building this holder no longer pays for it up front.
+    // Every access is on the main thread, as MediaRouter requires.
+    private val mediaRouter: MediaRouter by lazy { MediaRouter.getInstance(context) }
     private val mediaRouterCallback = object : MediaRouter.Callback() {
         override fun onRouteAdded(router: MediaRouter, route: MediaRouter.RouteInfo) {
             updateRoutes()

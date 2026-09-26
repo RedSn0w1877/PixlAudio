@@ -36,6 +36,7 @@ import com.theveloper.pixelplay.data.worker.SyncManager
 import com.theveloper.pixelplay.data.worker.SyncProgress
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -646,12 +647,14 @@ class SettingsViewModel @Inject constructor(
             }
         }
 
-        // One-time device capability check — result is cached inside HiFiCapabilityChecker
         _uiState.update {
-            it.copy(
-                hiFiModeDeviceSupported = HiFiCapabilityChecker.isSupported(),
-                appLanguageTag = AppLocaleManager.currentLanguageTag(context)
-            )
+            it.copy(appLanguageTag = AppLocaleManager.currentLanguageTag(context))
+        }
+        // One-time device capability check — result is cached inside HiFiCapabilityChecker.
+        // It builds a real AudioTrack (an audioserver round trip), so it runs off the main thread.
+        viewModelScope.launch(Dispatchers.Default) {
+            val hiFiSupported = HiFiCapabilityChecker.isSupported()
+            _uiState.update { it.copy(hiFiModeDeviceSupported = hiFiSupported) }
         }
 
         // Consolidated collectors using combine() to reduce coroutine overhead

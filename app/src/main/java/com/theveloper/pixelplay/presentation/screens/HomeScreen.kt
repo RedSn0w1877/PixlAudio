@@ -103,7 +103,6 @@ import com.theveloper.pixelplay.presentation.components.subcomps.PlayingEqIcon
 import com.theveloper.pixelplay.presentation.navigation.Screen
 import com.theveloper.pixelplay.presentation.viewmodel.PlayerViewModel
 import com.theveloper.pixelplay.presentation.viewmodel.HomeDiscoveryViewModel
-import com.theveloper.pixelplay.presentation.viewmodel.SettingsViewModel
 import com.theveloper.pixelplay.presentation.viewmodel.StatsViewModel
 import com.theveloper.pixelplay.ui.theme.ExpTitleTypography
 import kotlinx.collections.immutable.persistentListOf
@@ -125,7 +124,6 @@ fun HomeScreen(
     navController: NavController,
     paddingValuesParent: PaddingValues,
     playerViewModel: PlayerViewModel = hiltViewModel(),
-    settingsViewModel: SettingsViewModel = hiltViewModel(),
     onOpenSidebar: () -> Unit
 ) {
     val context = LocalContext.current
@@ -134,7 +132,6 @@ fun HomeScreen(
         (context as? android.app.Activity)?.intent?.getBooleanExtra("is_benchmark", false) ?: false
     }
     val statsViewModel: StatsViewModel = hiltViewModel()
-    val settingsUiState by settingsViewModel.uiState.collectAsStateWithLifecycle()
     val dailyMixSongs by playerViewModel.dailyMixSongs.collectAsStateWithLifecycle()
     val curatedYourMixSongs by playerViewModel.yourMixSongs.collectAsStateWithLifecycle()
     val homeMixPreviewSongs by playerViewModel.homeMixPreviewSongs.collectAsStateWithLifecycle()
@@ -142,6 +139,8 @@ fun HomeScreen(
     val lifecycleOwner = LocalLifecycleOwner.current
     val discoveryViewModel: HomeDiscoveryViewModel = hiltViewModel()
     val discovery by discoveryViewModel.state.collectAsStateWithLifecycle()
+    val beta05CleanInstallDisclaimerDismissed by discoveryViewModel
+        .beta05CleanInstallDisclaimerDismissed.collectAsStateWithLifecycle()
     val discoverySnackbar = remember { SnackbarHostState() }
     LaunchedEffect(homeMixPreviewSongs.isNotEmpty()) { discoveryViewModel.refresh() }
     DisposableEffect(lifecycleOwner, discoveryViewModel) {
@@ -336,7 +335,7 @@ fun HomeScreen(
     // Drawer state for sidebar
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val shouldShowCleanInstallDisclaimer =
-        settingsUiState.beta05CleanInstallDisclaimerDismissed == false &&
+        beta05CleanInstallDisclaimerDismissed == false &&
             !cleanInstallDisclaimerDismissedThisSession
 
     Box(
@@ -436,7 +435,7 @@ fun HomeScreen(
                             YourMixEmptyPlaceholder(
                                 onRefresh = {
                                     homePlaceholderRefreshGeneration++
-                                    settingsViewModel.refreshLibrary()
+                                    discoveryViewModel.refreshLibrary()
                                     playerViewModel.forceUpdateDailyMix()
                                 }
                             )
@@ -617,7 +616,7 @@ fun HomeScreen(
             onDismiss = { dontShowAgain ->
                 cleanInstallDisclaimerDismissedThisSession = true
                 if (dontShowAgain) {
-                    settingsViewModel.setBeta05CleanInstallDisclaimerDismissed(true)
+                    discoveryViewModel.setBeta05CleanInstallDisclaimerDismissed(true)
                 }
             }
         )
