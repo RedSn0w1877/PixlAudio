@@ -206,11 +206,27 @@ private suspend inline fun AwaitPointerEventScope.awaitDragOrUp(
     }
 }
 
+/**
+ * Motion tokens for glass. One set of springs for every glass surface, so a button, the nav pill
+ * and a sheet all move with the same physical character instead of each file's own guess.
+ */
+object GlassMotion {
+    /** Finger down: fast, slightly underdamped — the glass "gives" under the touch. */
+    val press = spring(dampingRatio = 0.55f, stiffness = 420f, visibilityThreshold = 0.001f)
+
+    /** Finger up: settles back without a second bounce. */
+    val release = spring(dampingRatio = 0.72f, stiffness = 300f, visibilityThreshold = 0.001f)
+
+    /** Positional follow for the light spill / squash. */
+    val follow = spring(dampingRatio = 0.5f, stiffness = 300f, visibilityThreshold = Offset.VisibilityThreshold)
+}
+
 class InteractiveHighlight(
     val animationScope: CoroutineScope
 ) {
-    private val pressProgressAnimationSpec = spring(0.5f, 300f, 0.001f)
-    private val positionAnimationSpec = spring(0.5f, 300f, Offset.VisibilityThreshold)
+    private val pressProgressAnimationSpec = GlassMotion.press
+    private val releaseAnimationSpec = GlassMotion.release
+    private val positionAnimationSpec = GlassMotion.follow
 
     private val pressProgressAnimation = Animatable(0f, 0.001f)
     private val positionAnimation = Animatable(Offset.Zero, Offset.VectorConverter, Offset.VisibilityThreshold)
@@ -218,6 +234,9 @@ class InteractiveHighlight(
     private var startPosition = Offset.Zero
     val pressProgress: Float get() = pressProgressAnimation.value
     val offset: Offset get() = positionAnimation.value - startPosition
+
+    /** Current touch position in the element's local space. Draw-phase reads only. */
+    val position: Offset get() = positionAnimation.value
 
     val modifier: Modifier = Modifier.pointerInput(animationScope) {
         inspectDragGestures(
@@ -230,13 +249,13 @@ class InteractiveHighlight(
             },
             onDragEnd = {
                 animationScope.launch {
-                    launch { pressProgressAnimation.animateTo(0f, pressProgressAnimationSpec) }
+                    launch { pressProgressAnimation.animateTo(0f, releaseAnimationSpec) }
                     launch { positionAnimation.animateTo(startPosition, positionAnimationSpec) }
                 }
             },
             onDragCancel = {
                 animationScope.launch {
-                    launch { pressProgressAnimation.animateTo(0f, pressProgressAnimationSpec) }
+                    launch { pressProgressAnimation.animateTo(0f, releaseAnimationSpec) }
                     launch { positionAnimation.animateTo(startPosition, positionAnimationSpec) }
                 }
             }

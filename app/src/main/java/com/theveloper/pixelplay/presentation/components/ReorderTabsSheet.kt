@@ -2,6 +2,8 @@
 
 package com.theveloper.pixelplay.presentation.components
 
+import com.theveloper.pixelplay.ui.glass.GlassModalBottomSheet
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -130,7 +132,7 @@ fun ReorderTabsSheet(
     )
     var isLoading by remember { mutableStateOf(false) }
 
-    ModalBottomSheet(
+    GlassModalBottomSheet(
         onDismissRequest = { onDismiss() },
         sheetState = sheetState,
         containerColor = glassSheetContainerColor(MaterialTheme.colorScheme.surface)

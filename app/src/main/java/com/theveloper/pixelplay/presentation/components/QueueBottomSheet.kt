@@ -48,7 +48,7 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.CompositionLocalProvider
-import com.theveloper.pixelplay.ui.glass.pageBackdrop
+import com.theveloper.pixelplay.ui.glass.glassSource
 import com.theveloper.pixelplay.ui.glass.rememberPageBackdrop
 import com.theveloper.pixelplay.ui.glass.GlassIconButton
 import com.theveloper.pixelplay.ui.glass.LocalAppBackdrop
@@ -821,13 +821,7 @@ fun QueueBottomSheet(
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxWidth()
-                            .then(
-                                if (isGlassEnabled) {
-                                    Modifier.pageBackdrop(queueListBackdrop)
-                                } else {
-                                    Modifier
-                                }
-                            )
+                            .glassSource(queueListBackdrop)
                     ) {
                         LazyColumn(
                             state = listState,

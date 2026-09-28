@@ -2,6 +2,8 @@
 
 package com.theveloper.pixelplay.presentation.screens
 
+import com.theveloper.pixelplay.ui.glass.GlassModalBottomSheet
+
 import com.theveloper.pixelplay.presentation.navigation.navigateSafely
 import com.theveloper.pixelplay.presentation.navigation.navigateSafelyReplacing
 
@@ -2533,7 +2535,7 @@ private fun LibraryTabSwitcherSheet(
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
-    ModalBottomSheet(
+    GlassModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
         containerColor = glassSheetContainerColor(MaterialTheme.colorScheme.surface),
@@ -2793,17 +2795,19 @@ fun LibraryFoldersTab(
         val isRoot = targetPath == FOLDER_NAVIGATION_ROOT_KEY
         val activeFolder = if (isRoot) null else currentFolder
         val showPlaylistCards = playlistMode && activeFolder == null
-        val itemsToShow = remember(activeFolder, folders, flattenedFolders, currentSortOption) {
+        // toImmutableList() inside remember: outside it, both lists were copied on every
+        // recomposition, and the fresh list instances defeated the LazyColumn's skipping.
+        val itemsToShow = remember(activeFolder, folders, flattenedFolders, currentSortOption, showPlaylistCards) {
             when {
                 showPlaylistCards -> flattenedFolders
                 activeFolder != null -> sortMusicFoldersByOption(activeFolder.subFolders, currentSortOption)
                 else -> sortMusicFoldersByOption(folders, currentSortOption)
-            }
-        }.toImmutableList()
+            }.toImmutableList()
+        }
 
         val songsToShow = remember(activeFolder, currentSortOption) {
-            sortSongsForFolderView(activeFolder?.songs ?: emptyList(), currentSortOption)
-        }.toImmutableList()
+            sortSongsForFolderView(activeFolder?.songs ?: emptyList(), currentSortOption).toImmutableList()
+        }
         val currentSong by remember(playerViewModel) {
             playerViewModel.stablePlayerState
                 .map { it.currentSong }

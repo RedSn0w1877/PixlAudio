@@ -1,5 +1,7 @@
 package com.theveloper.pixelplay.presentation.screens
 
+import com.theveloper.pixelplay.ui.glass.GlassModalBottomSheet
+
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -427,7 +429,7 @@ fun SearchableModelSelector(
     }
 
     if (showSheet) {
-        ModalBottomSheet(
+        GlassModalBottomSheet(
             onDismissRequest = {
                 showSheet = false
                 searchQuery = ""

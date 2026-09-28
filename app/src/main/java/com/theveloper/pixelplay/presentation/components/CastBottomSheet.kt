@@ -1,5 +1,7 @@
 package com.theveloper.pixelplay.presentation.components
 
+import com.theveloper.pixelplay.ui.glass.GlassModalBottomSheet
+
 import android.Manifest
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
@@ -345,8 +347,8 @@ fun CastBottomSheet(
         onDispose { onExpansionChanged(0f) }
     }
 
-    ModalBottomSheet(
-        // NOT Modifier.glassSheetSurface() — applied to ModalBottomSheet's own `modifier`,
+    GlassModalBottomSheet(
+        // NOT Modifier — applied to ModalBottomSheet's own `modifier`,
         // that helper breaks the sheet's content-driven height (confirmed via A/B test on
         // SongInfoBottomSheet: with it, the sheet freezes at an undersized measurement and
         // silently truncates everything past the first row). GlassSheetContainer below

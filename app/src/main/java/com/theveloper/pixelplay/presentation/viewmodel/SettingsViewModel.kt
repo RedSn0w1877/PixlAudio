@@ -40,6 +40,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -622,12 +623,15 @@ class SettingsViewModel @Inject constructor(
             }
         }
 
-        // One-time device capability check — result is cached inside HiFiCapabilityChecker
         _uiState.update {
-            it.copy(
-                hiFiModeDeviceSupported = HiFiCapabilityChecker.isSupported(),
-                appLanguageTag = AppLocaleManager.currentLanguageTag(context)
-            )
+            it.copy(appLanguageTag = AppLocaleManager.currentLanguageTag(context))
+        }
+        // One-time device capability check — result is cached inside HiFiCapabilityChecker.
+        // Off main: the first check builds a real AudioTrack (an audio-server IPC round trip),
+        // and this ViewModel is created during Home's first composition.
+        viewModelScope.launch(Dispatchers.IO) {
+            val supported = HiFiCapabilityChecker.isSupported()
+            _uiState.update { it.copy(hiFiModeDeviceSupported = supported) }
         }
 
         // Consolidated collectors using combine() to reduce coroutine overhead

@@ -1,5 +1,7 @@
 package com.theveloper.pixelplay.presentation.screens
 
+import com.theveloper.pixelplay.ui.glass.GlassModalBottomSheet
+
 import com.theveloper.pixelplay.presentation.navigation.navigateSafely
 import com.theveloper.pixelplay.presentation.navigation.navigateSafelyReplacing
 
@@ -59,7 +61,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.runtime.CompositionLocalProvider
-import com.theveloper.pixelplay.ui.glass.pageBackdrop
+import com.theveloper.pixelplay.ui.glass.glassSource
 import com.theveloper.pixelplay.ui.glass.rememberPageBackdrop
 import com.theveloper.pixelplay.ui.glass.LocalAppBackdrop
 import com.theveloper.pixelplay.ui.glass.isGlassEnabled
@@ -372,10 +374,7 @@ fun HomeScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(MaterialTheme.colorScheme.background)
-                    .then(
-                        if (isGlassEnabled) Modifier.pageBackdrop(homeContentBackdrop)
-                        else Modifier
-                    ),
+                    .glassSource(homeContentBackdrop),
                 contentPadding = PaddingValues(
                     top = innerPadding.calculateTopPadding(),
                     bottom = paddingValuesParent.calculateBottomPadding()
@@ -554,7 +553,7 @@ fun HomeScreen(
         }
     }
     if (showOptionsBottomSheet) {
-        ModalBottomSheet(
+        GlassModalBottomSheet(
             // Not glassSheetSurface(): applied to the sheet's own `modifier` it breaks
             // content-driven height (see SongInfoBottomSheet fix). GlassSheetContainer draws
             // the same glass from inside the sheet's own already-correctly-sized Surface.
@@ -579,7 +578,7 @@ fun HomeScreen(
         }
     }
     if (showChangelogBottomSheet) {
-        ModalBottomSheet(
+        GlassModalBottomSheet(
             containerColor = com.theveloper.pixelplay.ui.glass.glassSheetContainerColor(),
             onDismissRequest = { showChangelogBottomSheet = false },
             sheetState = sheetState
@@ -590,7 +589,7 @@ fun HomeScreen(
         }
     }
     if (showJobsBottomSheet) {
-        ModalBottomSheet(
+        GlassModalBottomSheet(
             containerColor = com.theveloper.pixelplay.ui.glass.glassSheetContainerColor(),
             onDismissRequest = { showJobsBottomSheet = false },
             sheetState = jobsSheetState
@@ -601,7 +600,7 @@ fun HomeScreen(
         }
     }
     if (showBetaInfoBottomSheet) {
-        ModalBottomSheet(
+        GlassModalBottomSheet(
             containerColor = com.theveloper.pixelplay.ui.glass.glassSheetContainerColor(),
             onDismissRequest = { showBetaInfoBottomSheet = false },
             sheetState = betaSheetState,

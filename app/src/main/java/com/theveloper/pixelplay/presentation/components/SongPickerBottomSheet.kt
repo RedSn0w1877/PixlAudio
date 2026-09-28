@@ -1,5 +1,7 @@
 package com.theveloper.pixelplay.presentation.components
 
+import com.theveloper.pixelplay.ui.glass.GlassModalBottomSheet
+
 import androidx.annotation.OptIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -113,11 +115,11 @@ fun SongPickerBottomSheet(
         }
     }
 
-    ModalBottomSheet(
+    GlassModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
         containerColor = glassSheetContainerColor(MaterialTheme.colorScheme.surface),
-        modifier = Modifier.fillMaxSize().glassSheetSurface()
+        modifier = Modifier.fillMaxSize()
     ) {
         SongPickerContent(
             selectedSongIds = selectedSongIds,

@@ -1,5 +1,7 @@
 package com.theveloper.pixelplay.presentation.components.player
 
+import com.theveloper.pixelplay.ui.glass.GlassModalBottomSheet
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -91,7 +93,7 @@ internal fun PlayerArtistPickerBottomSheet(
         else -> stringResource(R.string.artist_picker_count_multiple, shortcutItems.size)
     }
 
-    ModalBottomSheet(
+    GlassModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
         dragHandle = {

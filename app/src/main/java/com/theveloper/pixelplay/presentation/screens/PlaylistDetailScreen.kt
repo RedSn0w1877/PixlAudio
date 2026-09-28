@@ -1,5 +1,8 @@
 package com.theveloper.pixelplay.presentation.screens
 
+import com.theveloper.pixelplay.presentation.viewmodel.rememberPlayerListSlice
+import com.theveloper.pixelplay.ui.glass.GlassModalBottomSheet
+
 import com.theveloper.pixelplay.presentation.navigation.navigateSafely
 import com.theveloper.pixelplay.presentation.navigation.navigateSafelyReplacing
 
@@ -163,7 +166,7 @@ fun PlaylistDetailScreen(
     navController: NavController
 ) {
     val uiState by playlistViewModel.uiState.collectAsStateWithLifecycle()
-    val playerStableState by playerViewModel.stablePlayerState.collectAsStateWithLifecycle()
+    val playerStableState by rememberPlayerListSlice(playerViewModel)
     val context = LocalContext.current
     val fallbackPlaylistName = stringResource(R.string.common_playlist)
     val sortSongsLabel = stringResource(R.string.playlist_sort_songs_title)
@@ -752,8 +755,8 @@ fun PlaylistDetailScreen(
                                             )
                                         },
                                         song = song,
-                                        isCurrentSong = playerStableState.currentSong?.id == song.id,
-                                        isPlaying = playerStableState.isPlaying,
+                                        isCurrentSong = playerStableState.currentSongId == song.id,
+                                        isPlaying = playerStableState.isPlayingRow(song.id),
                                         isDragging = isDragging,
                                         onRemoveClick = {
                                             if (!isFolderPlaylist) {
@@ -806,7 +809,7 @@ fun PlaylistDetailScreen(
                             modifier = Modifier
                                 .align(Alignment.CenterEnd)
                                 .padding(
-                                    bottom = if (playerStableState.currentSong != null) MiniPlayerHeight + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 20.dp else WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 16.dp,
+                                    bottom = if (playerStableState.hasCurrentSong) MiniPlayerHeight + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 20.dp else WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 16.dp,
                                     end = 14.dp,
                                     top = 18.dp // Increased to 16.dp as requested
                                 )
@@ -830,7 +833,7 @@ fun PlaylistDetailScreen(
     if (showPlaylistOptionsSheet && !isFolderPlaylist) {
         val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
-        ModalBottomSheet(
+        GlassModalBottomSheet(
             onDismissRequest = { showPlaylistOptionsSheet = false },
             sheetState = sheetState,
             containerColor = glassSheetContainerColor(MaterialTheme.colorScheme.surfaceContainerLow),

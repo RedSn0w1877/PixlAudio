@@ -2,6 +2,7 @@
 
 package com.theveloper.pixelplay.presentation.screens
 
+import com.theveloper.pixelplay.presentation.viewmodel.rememberPlayerListSlice
 import com.theveloper.pixelplay.presentation.navigation.navigateSafely
 import com.theveloper.pixelplay.presentation.navigation.navigateSafelyReplacing
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -117,7 +118,7 @@ fun ArtistDetailScreen(
     playlistViewModel: PlaylistViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    val stablePlayerState by playerViewModel.stablePlayerState.collectAsStateWithLifecycle()
+    val stablePlayerState by rememberPlayerListSlice(playerViewModel)
     
     // Optimization: Defer heavy list rendering until navigation transition settles
     var isTransitionFinished by remember { mutableStateOf(false) }
@@ -336,8 +337,8 @@ fun ArtistDetailScreen(
                                     song = song,
                                     songIndex = songIndex,
                                     songCount = topSongs.size,
-                                    isCurrentSong = stablePlayerState.currentSong?.id == song.id,
-                                    isPlaying = stablePlayerState.isPlaying,
+                                    isCurrentSong = stablePlayerState.currentSongId == song.id,
+                                    isPlaying = stablePlayerState.isPlayingRow(song.id),
                                     onSongClick = {
                                         playerViewModel.showAndPlaySong(song, topSongs)
                                     },
@@ -410,8 +411,8 @@ fun ArtistDetailScreen(
                                         song = song,
                                         songIndex = songIndex,
                                         songCount = section.songs.size,
-                                        isCurrentSong = stablePlayerState.currentSong?.id == song.id,
-                                        isPlaying = stablePlayerState.isPlaying,
+                                        isCurrentSong = stablePlayerState.currentSongId == song.id,
+                                        isPlaying = stablePlayerState.isPlayingRow(song.id),
                                         onSongClick = {
                                             playerViewModel.showAndPlaySong(song, section.songs)
                                         },

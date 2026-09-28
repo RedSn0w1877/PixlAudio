@@ -1,5 +1,7 @@
 package com.theveloper.pixelplay.presentation.components.subcomps
 
+import com.theveloper.pixelplay.ui.glass.GlassModalBottomSheet
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
@@ -109,7 +111,7 @@ fun LyricsMoreBottomSheet(
     var showResetDialog by remember { mutableStateOf(false) }
     var showDebugDialog by remember { mutableStateOf(false) }
 
-    ModalBottomSheet(
+    GlassModalBottomSheet(
         onDismissRequest = onDismissRequest,
         sheetState = sheetState,
         containerColor = com.theveloper.pixelplay.ui.glass.glassSheetContainerColor(containerColor),

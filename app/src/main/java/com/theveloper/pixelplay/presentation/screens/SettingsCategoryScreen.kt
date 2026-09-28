@@ -1,5 +1,7 @@
 package com.theveloper.pixelplay.presentation.screens
 
+import com.theveloper.pixelplay.ui.glass.GlassModalBottomSheet
+
 import com.theveloper.pixelplay.presentation.navigation.navigateSafely
 import com.theveloper.pixelplay.presentation.components.BackupModuleSelectionDialog
 import com.theveloper.pixelplay.data.preferences.AiPreferencesRepository
@@ -1698,7 +1700,7 @@ fun SettingsCategoryScreen(
     )
 
     if (showPaletteRegenerateSheet) {
-        ModalBottomSheet(
+        GlassModalBottomSheet(
             containerColor = com.theveloper.pixelplay.ui.glass.glassSheetContainerColor(),
             onDismissRequest = {
                 if (!isAnyPaletteRegenerateRunning) {

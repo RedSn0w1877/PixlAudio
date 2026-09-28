@@ -139,12 +139,10 @@ import com.theveloper.pixelplay.presentation.viewmodel.PlayerViewModel
 import com.theveloper.pixelplay.ui.glass.AppUiStyle
 import com.theveloper.pixelplay.ui.glass.LiquidGlassNavBar
 import com.theveloper.pixelplay.ui.glass.LiquidNavItem
-import com.theveloper.pixelplay.ui.glass.LocalAppBackdrop
-import com.theveloper.pixelplay.ui.glass.LocalAppUiStyle
-import com.theveloper.pixelplay.ui.glass.LocalPageBackdrop
-import com.theveloper.pixelplay.ui.glass.LocalGlassIntensity
-import com.kyant.backdrop.backdrops.emptyBackdrop
-import com.theveloper.pixelplay.ui.glass.pageBackdrop
+import com.theveloper.pixelplay.ui.glass.ProvideGlassEnvironment
+import com.theveloper.pixelplay.ui.glass.ProvideInlineGlassSource
+import com.theveloper.pixelplay.ui.glass.glassSource
+import androidx.compose.ui.graphics.luminance
 import com.theveloper.pixelplay.ui.glass.rememberPageBackdrop
 import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
@@ -540,7 +538,6 @@ class MainActivity : ComponentActivity() {
         val isSyncing by mainViewModel.isSyncing.collectAsStateWithLifecycle()
         val isLibraryEmpty by mainViewModel.isLibraryEmpty.collectAsStateWithLifecycle()
         val hasCompletedInitialSync by mainViewModel.hasCompletedInitialSync.collectAsStateWithLifecycle()
-        val syncProgress by mainViewModel.syncProgress.collectAsStateWithLifecycle()
         
         // isMediaControllerReady used below for playlist navigation gate
         val isMediaControllerReady by playerViewModel.isMediaControllerReady.collectAsStateWithLifecycle()
@@ -615,7 +612,9 @@ class MainActivity : ComponentActivity() {
 
             // Muestra el LoadingOverlay solo si las condiciones se cumplen Y el delay ha pasado
             if (canShowLoadingIndicator) {
-                LoadingOverlay(syncProgress)
+                // Collected inside the overlay: at the root, every progress tick from the
+                // sync worker recomposed all of MainAppContent.
+                LoadingOverlay(mainViewModel)
             }
         }
         Trace.endSection() // End MainActivity.MainAppContent
@@ -721,25 +720,12 @@ class MainActivity : ComponentActivity() {
         }
         val glassEnabled = appUiStyle.isGlass
 
-        // Bottom sheets render into their own Android Window (ModalBottomSheet's internal
-        // Dialog), so they can't draw the live `glassBackdrop.graphicsLayer` — a GraphicsLayer
-        // can't be drawn from a window other than the one that recorded it. A plain ImageBitmap
-        // has no such restriction, so this periodically rasterizes the same layer into one and
-        // hands it to PageBackdrop as a fallback (see PageBackdrop.snapshotBitmap) — every sheet
-        // using GlassSheetContainer picks it up automatically via LocalPageBackdrop, no per-sheet
-        // wiring needed. Captured here (MainActivity's own composition), not from inside a sheet
-        // — the earlier attempt at this triggered the capture from the sheet's own window/
-        // coroutine and silently failed every time. Throttled to 3/sec rather than every frame:
-        // a sheet's backdrop is static almost the entire time it's open, so slightly-stale reads
-        // as live, and this app already had one real jank regression from over-eager per-frame
-        // backdrop rasterization (see rememberPageBackdrop's own doc).
-        LaunchedEffect(glassBackdrop, glassEnabled) {
-            if (!glassEnabled) return@LaunchedEffect
-            while (isActive) {
-                runCatching { glassBackdrop.snapshotBitmap = glassBackdrop.graphicsLayer.toImageBitmap() }
-                delay(330)
-            }
-        }
+        // Album palette for the glass: the accent that washes the glass tint, and the ambient
+        // light that inline glass refracts. See ProvideGlassEnvironment / ProvideInlineGlassSource.
+        val albumSchemePair by playerViewModel.currentAlbumArtColorSchemePair.collectAsStateWithLifecycle()
+        val appIsDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+        val albumScheme = albumSchemePair?.let { if (appIsDark) it.dark else it.light }
+        val glassAccent = albumScheme?.primary ?: MaterialTheme.colorScheme.primary
 
         val rootView = LocalView.current
         val platformHapticFeedback = LocalHapticFeedback.current
@@ -851,15 +837,16 @@ class MainActivity : ComponentActivity() {
 
         CompositionLocalProvider(
             LocalAppHapticsConfig provides appHapticsConfig,
-            LocalHapticFeedback provides scopedHapticFeedback,
-            // Every glass component reads these instead of taking the style, backdrop and
-            // intensity as parameters threaded down through dozens of composables.
-            LocalAppUiStyle provides appUiStyle,
-            LocalAppBackdrop provides glassBackdrop,
-            // Same recording, on a channel that is never re-scoped to empty further down, so
-            // sheets/dialogs/popups can still refract the page. See LocalPageBackdrop's doc.
-            LocalPageBackdrop provides glassBackdrop,
-            LocalGlassIntensity provides liquidGlassIntensity
+            LocalHapticFeedback provides scopedHapticFeedback
+        ) {
+        // Every glass component reads its style, tier, palette, light and backdrop from here
+        // instead of taking them as parameters threaded down through dozens of composables.
+        ProvideGlassEnvironment(
+            style = appUiStyle,
+            intensity = liquidGlassIntensity,
+            darkTheme = appIsDark,
+            accent = glassAccent,
+            pageBackdrop = glassBackdrop
         ) {
             AppSidebarDrawer(
                 drawerState = drawerState,
@@ -1138,27 +1125,20 @@ class MainActivity : ComponentActivity() {
                                 // Records the page content so the glass panels have something to
                                 // refract. Chained after the expansion-blur layer so the glass
                                 // samples what is actually on screen, that blur included.
-                                .then(
-                                    if (glassEnabled) {
-                                        Modifier.pageBackdrop(glassBackdrop)
-                                    } else {
-                                        Modifier
-                                    }
-                                )
+                                .glassSource(glassBackdrop)
                         ) {
-                            // This Box is what `glassBackdrop` records (see `.pageBackdrop`
+                            // This Box is what `glassBackdrop` records (see `.glassSource`
                             // above). Anything inside AppNavigation is therefore a descendant of
-                            // that recording — if it sampled `glassBackdrop` too (the default via
-                            // LocalAppBackdrop), rendering the backdrop's offscreen copy would
-                            // have to redraw this same descendant, which would sample the backdrop
-                            // again, forever. That self-reference is what was crashing the app
-                            // (native stack overflow in RenderNode::prepareTreeImpl) — it wasn't
-                            // the nav bar or full player, it was every inline glass button/card/
-                            // sheet inside a screen (e.g. HomeScreen's shuffle FAB) sampling the
-                            // very backdrop their own ancestor was busy recording. Re-scoping to
-                            // `emptyBackdrop()` here breaks the cycle: inline glass still looks
-                            // glassy (tint/blur/highlight/shadow) but has nothing to refract.
-                            CompositionLocalProvider(LocalAppBackdrop provides emptyBackdrop()) {
+                            // that recording — if it sampled `glassBackdrop` too, rendering the
+                            // backdrop's offscreen copy would have to redraw this same descendant,
+                            // which would sample the backdrop again, forever (the native stack
+                            // overflow in RenderNode::prepareTreeImpl this app hit before).
+                            // Inline glass samples the album-lit ambient field instead, or a
+                            // screen's own local recording where it sets one up.
+                            ProvideInlineGlassSource(
+                                background = MaterialTheme.colorScheme.background,
+                                ambientScheme = albumScheme
+                            ) {
                                 AppNavigation(
                                     playerViewModel = playerViewModel,
                                     navController = navController,
@@ -1257,6 +1237,7 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             }
+        } // ProvideGlassEnvironment
         }
 
         Trace.endSection()
@@ -1264,7 +1245,8 @@ class MainActivity : ComponentActivity() {
 
     @OptIn(ExperimentalMaterial3ExpressiveApi::class)
     @Composable
-    private fun LoadingOverlay(syncProgress: SyncProgress) {
+    private fun LoadingOverlay(mainViewModel: MainViewModel) {
+        val syncProgress by mainViewModel.syncProgress.collectAsStateWithLifecycle()
         // Animate progress smoothly instead of jumping in steps
         val animatedProgress by androidx.compose.animation.core.animateFloatAsState(
             targetValue = syncProgress.progress,

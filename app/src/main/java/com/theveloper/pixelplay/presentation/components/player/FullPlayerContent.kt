@@ -65,7 +65,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import com.theveloper.pixelplay.ui.glass.pageBackdrop
+import com.theveloper.pixelplay.ui.glass.glassSource
 import com.theveloper.pixelplay.ui.glass.rememberPageBackdrop
 import com.theveloper.pixelplay.ui.glass.LocalAppBackdrop
 import androidx.compose.runtime.LaunchedEffect
@@ -935,7 +935,17 @@ fun FullPlayerContent(
                 .graphicsLayer { alpha = contentAlpha }
         ) {
             val ambientStyle by playerViewModel.playerAmbientStyle.collectAsStateWithLifecycle()
-            if (ambientStyle != com.theveloper.pixelplay.data.preferences.PlayerAmbientStyle.OFF) {
+            // Only while the player is actually showing: it stays composed after collapsing, and
+            // the flowing/mesh styles run an infinite animation (keeping the frame clock ticking
+            // at the panel's refresh rate) while the waveform style keeps a Visualizer attached.
+            val ambientVisible by remember(expansionFractionProvider) {
+                derivedStateOf { expansionFractionProvider() > 0.01f }
+            }
+            if (
+                ambientStyle != com.theveloper.pixelplay.data.preferences.PlayerAmbientStyle.OFF &&
+                ambientVisible &&
+                allowRealtimeUpdates
+            ) {
                 val ambientAudioSessionId by playerViewModel.audioSessionId.collectAsStateWithLifecycle()
                 PlayerAmbientBackground(
                     style = ambientStyle,
@@ -1465,7 +1475,7 @@ private fun FullPlayerPortraitContent(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .pageBackdrop(fullPlayerBackdrop),
+                    .glassSource(fullPlayerBackdrop),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.SpaceAround
             ) {
@@ -1537,7 +1547,7 @@ private fun FullPlayerLandscapeContent(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .pageBackdrop(metadataBackdrop),
+                        .glassSource(metadataBackdrop),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     songMetadataSection()

@@ -5,7 +5,6 @@ import androidx.compose.animation.core.EaseOut
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -35,6 +34,9 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.GraphicsLayerScope
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
@@ -63,6 +65,10 @@ import kotlin.math.sign
  * math (nav bar occupied height, corner-radius capsule sizing), which needs it outside this file. */
 val LiquidNavBarHeight = 68.dp
 
+private val PillShape = RoundedCornerShape(percent = 50)
+private val PillShapeProvider: () -> Shape = { PillShape }
+private val PillPressedFill = Color.Black.copy(alpha = 0.03f)
+
 /** One destination in [LiquidGlassNavBar]. */
 data class LiquidNavItem(
     val label: String,
@@ -84,19 +90,26 @@ fun LiquidGlassNavBar(
 ) {
     if (items.isEmpty()) return
 
-    val isLightTheme = !isSystemInDarkTheme()
+    val palette = LocalGlassPalette.current
+    val tier = LocalGlassTier.current
+    val light = LocalGlassLight.current
     val backdrop = LocalAppBackdrop.current
-    // Transparency only — this dial controls how much of the container tint shows, not how
-    // strongly the bar bends what's behind it. See the fixed refraction constants below.
-    val transparency = LocalGlassIntensity.current
-    val accentColor = MaterialTheme.colorScheme.primary
-    val activeContentColor = if (isLightTheme) Color.Black else Color.White
-    // Neutral, not theme-hued — matches the reference's own fixed 0xFFFAFAFA / 0xFF121212 (its
-    // container color is never tinted by an app's color scheme). Only the alpha is ours to tune,
-    // since this app's own settings screen exposes a transparency dial the reference doesn't have.
-    val containerAlpha = (0.08f + 0.62f * transparency).coerceIn(0.08f, 0.70f)
-    val containerColor = (if (isLightTheme) Color(0xFFFAFAFA) else Color(0xFF121212))
-        .copy(alpha = containerAlpha)
+    val accentColor = palette.accent
+    val activeContentColor = palette.content
+    val inactiveContentColor = palette.contentSecondary
+    // Neutral palette glass, not theme-hued — the bar is chrome, it shouldn't change colour with
+    // every song. The accent only shows through the selected tab.
+    val containerColor = resolveGlassFill(
+        tint = null,
+        palette = palette,
+        material = GlassMaterial.Chrome,
+        intensity = LocalGlassIntensity.current,
+        tier = tier
+    )
+    val refracts = tier.refracts
+    val samples = tier.samplesBackdrop
+    val chrome = GlassMaterial.Chrome
+    val pillRestFill = if (palette.isDark) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.08f)
 
     val tabsBackdrop = rememberPageBackdrop()
 
@@ -150,6 +163,15 @@ fun LiquidGlassNavBar(
             )
         }
 
+        val barPressScale: GraphicsLayerScope.() -> Unit = remember(dampedDragAnimation) {
+            {
+                val progress = dampedDragAnimation.pressProgress
+                val scale = lerp(1f, 1f + 12.dp.toPx() / size.width.coerceAtLeast(1f), progress)
+                scaleX = scale
+                scaleY = scale
+            }
+        }
+
         LaunchedEffect(selectedIndex) {
             if (selectedIndex != currentIndex) {
                 currentIndex = selectedIndex
@@ -161,28 +183,13 @@ fun LiquidGlassNavBar(
         Row(
             Modifier
                 .graphicsLayer { translationX = panelOffset }
-                .drawBackdrop(
+                .glass(
+                    shape = PillShape,
+                    material = chrome,
                     backdrop = backdrop,
-                    shape = { RoundedCornerShape(percent = 50) },
-                    effects = {
-                        // Values taken directly from the reference library's own LiquidBottomTabs
-                        // (AndroidLiquidGlass-kmp/app/.../components/LiquidBottomTabs.kt), not
-                        // hand-tuned. Two earlier passes both went bigger than this (52/60dp, then
-                        // 72/88dp) chasing a stronger "bend the screen" look, and both read as the
-                        // bar's own icon/label content smearing into illegible mush — the
-                        // reference doesn't use depthEffect or chromaticAberration on this layer
-                        // at all, which is what was actually causing that, not the size alone.
-                        vibrancy()
-                        blur(8.dp.toPx())
-                        lens(24.dp.toPx(), 24.dp.toPx())
-                    },
-                    layerBlock = {
-                        val progress = dampedDragAnimation.pressProgress
-                        val scale = lerp(1f, 1f + 12.dp.toPx() / size.width.coerceAtLeast(1f), progress)
-                        scaleX = scale
-                        scaleY = scale
-                    },
-                    onDrawSurface = { drawRect(containerColor) }
+                    // MainActivity's Surface casts the bar's shadow outside its clip.
+                    shadow = false,
+                    layerBlock = barPressScale
                 )
                 .height(68.dp)
                 .fillMaxWidth()
@@ -194,7 +201,7 @@ fun LiquidGlassNavBar(
                     item = item,
                     selected = index == currentIndex,
                     showLabel = showLabels,
-                    color = if (index == currentIndex) activeContentColor else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.80f),
+                    color = if (index == currentIndex) activeContentColor else inactiveContentColor,
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxHeight()
@@ -207,24 +214,29 @@ fun LiquidGlassNavBar(
             Modifier
                 .graphicsLayer { translationX = panelOffset }
                 .alpha(0f)
-                .pageBackdrop(tabsBackdrop)
-                .drawBackdrop(
-                    backdrop = backdrop,
-                    shape = { RoundedCornerShape(percent = 50) },
-                    effects = {
-                        // Matches the reference exactly: zero lens at rest, growing only while the
-                        // pill is actively pressed/dragged (progress). This layer never contributes
-                        // background bend when idle — Layer 1 above is the only "resting" bend.
-                        val progress = dampedDragAnimation.pressProgress
-                        vibrancy()
-                        blur(8.dp.toPx())
-                        lens(24.dp.toPx() * progress, 24.dp.toPx() * progress)
-                    },
-                    highlight = {
-                        val progress = dampedDragAnimation.pressProgress
-                        Highlight.Default.copy(alpha = progress)
-                    },
-                    onDrawSurface = { drawRect(containerColor) }
+                .then(if (samples) Modifier.pageBackdrop(tabsBackdrop) else Modifier)
+                .then(
+                    if (samples) {
+                        Modifier.drawBackdrop(
+                            backdrop = backdrop,
+                            shape = PillShapeProvider,
+                            effects = {
+                                // Zero lens at rest, growing only while the pill is pressed or
+                                // dragged. Layer 1 is the only resting bend.
+                                val progress = dampedDragAnimation.pressProgress
+                                vibrancy()
+                                blur(chrome.blur.toPx())
+                                if (refracts) {
+                                    lens(24.dp.toPx() * progress, 24.dp.toPx() * progress)
+                                }
+                            },
+                            highlight = null,
+                            shadow = null,
+                            onDrawSurface = { drawRect(containerColor) }
+                        )
+                    } else {
+                        Modifier
+                    }
                 )
                 .height(58.dp)
                 .fillMaxWidth()
@@ -256,9 +268,9 @@ fun LiquidGlassNavBar(
                         size.width - (dampedDragAnimation.value + 1f) * tabWidth + panelOffset
                     }
                 }
-                .drawBackdrop(
+                .then(if (samples) Modifier.drawBackdrop(
                     backdrop = rememberCombinedBackdrop(backdrop, tabsBackdrop),
-                    shape = { RoundedCornerShape(percent = 50) },
+                    shape = PillShapeProvider,
                     // Matches the reference's LiquidBottomTabs pop-out pill exactly — no
                     // depthEffect, no extra multiplier on top of progress. Two earlier passes each
                     // added their own extra strength on top of this (a *1.4 multiplier, then a
@@ -266,23 +278,25 @@ fun LiquidGlassNavBar(
                     // reference pill is essentially flat at rest and only bends while pressed.
                     effects = {
                         val progress = dampedDragAnimation.pressProgress
-                        lens(
-                            10.dp.toPx() * progress,
-                            14.dp.toPx() * progress,
-                            chromaticAberration = true
-                        )
+                        if (refracts) {
+                            lens(
+                                10.dp.toPx() * progress,
+                                14.dp.toPx() * progress,
+                                chromaticAberration = true
+                            )
+                        }
                     },
                     highlight = {
                         val progress = dampedDragAnimation.pressProgress
-                        Highlight.Default.copy(alpha = progress)
+                        if (progress > 0.01f) light.highlight(palette, alpha = progress) else null
                     },
                     shadow = {
                         val progress = dampedDragAnimation.pressProgress
-                        Shadow(alpha = progress)
+                        if (progress > 0.01f) Shadow(alpha = progress, color = palette.shadow) else null
                     },
                     innerShadow = {
                         val progress = dampedDragAnimation.pressProgress
-                        InnerShadow(radius = 8.dp * progress, alpha = progress)
+                        if (progress > 0.01f) InnerShadow(radius = 8.dp * progress, alpha = progress) else null
                     },
                     layerBlock = {
                         scaleX = dampedDragAnimation.scaleX
@@ -293,13 +307,16 @@ fun LiquidGlassNavBar(
                     },
                     onDrawSurface = {
                         val progress = dampedDragAnimation.pressProgress
-                        drawRect(
-                            if (isLightTheme) Color.Black.copy(alpha = 0.1f) else Color.White.copy(alpha = 0.1f),
-                            alpha = 1f - progress
-                        )
-                        drawRect(Color.Black.copy(alpha = 0.03f * progress))
+                        drawRect(pillRestFill, alpha = 1f - progress)
+                        drawRect(PillPressedFill, alpha = progress)
                     }
-                )
+                ) else Modifier.drawBehind {
+                    // Solid tier: a plain pill, no sampling.
+                    drawRoundRect(
+                        color = pillRestFill,
+                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(size.height / 2f)
+                    )
+                })
                 .height(58.dp)
                 .fillMaxWidth(1f / items.size)
         )

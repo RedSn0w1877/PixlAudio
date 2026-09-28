@@ -1,7 +1,6 @@
 package com.theveloper.pixelplay.ui.glass
 
 import androidx.compose.animation.core.Animatable
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.MaterialTheme
@@ -20,6 +19,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.isSpecified
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
@@ -54,7 +55,7 @@ fun GlassSwitch(
     onCheckedChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
-    accentColor: Color = Color(0xFF34C759) // Green liquid toggle color by default
+    accentColor: Color = Color.Unspecified
 ) {
     if (!isGlassEnabled) {
         Switch(
@@ -69,10 +70,10 @@ fun GlassSwitch(
     val backdrop = LocalAppBackdrop.current
     LiquidToggle(
         selected = { checked },
-        onSelect = { onCheckedChange(it) },
+        onSelect = { if (enabled) onCheckedChange(it) },
         backdrop = backdrop,
         modifier = modifier,
-        accentColor = accentColor
+        accentColor = if (accentColor.isSpecified) accentColor else LocalGlassPalette.current.accent
     )
 }
 
@@ -85,10 +86,13 @@ fun LiquidToggle(
     onSelect: (Boolean) -> Unit,
     backdrop: Backdrop,
     modifier: Modifier = Modifier,
-    accentColor: Color = Color(0xFF34C759)
+    accentColor: Color = LocalGlassPalette.current.accent
 ) {
-    val isLightTheme = !isSystemInDarkTheme()
-    val trackColor = if (isLightTheme) Color(0xFF787878).copy(0.2f) else Color(0xFF787880).copy(0.36f)
+    val palette = LocalGlassPalette.current
+    val tier = LocalGlassTier.current
+    val trackColor = palette.track
+    val refracts = tier.refracts
+    val samples = tier.samplesBackdrop
 
     val density = LocalDensity.current
     val isLtr = LocalLayoutDirection.current == LayoutDirection.Ltr
@@ -150,7 +154,7 @@ fun LiquidToggle(
     ) {
         Box(
             Modifier
-                .pageBackdrop(trackBackdrop)
+                .then(if (samples) Modifier.pageBackdrop(trackBackdrop) else Modifier)
                 .clip(RoundedCornerShape(percent = 50))
                 .drawBehind {
                     val f = dampedDragAnimation.value
@@ -169,7 +173,7 @@ fun LiquidToggle(
                 }
                 .semantics { role = Role.Switch }
                 .then(dampedDragAnimation.modifier)
-                .drawBackdrop(
+                .then(if (samples) Modifier.drawBackdrop(
                     backdrop = rememberCombinedBackdrop(
                         backdrop,
                         rememberBackdrop(trackBackdrop) { drawBackdrop ->
@@ -183,11 +187,13 @@ fun LiquidToggle(
                     effects = {
                         val progress = dampedDragAnimation.pressProgress
                         blur(8f.dp.toPx() * (1f - progress))
-                        lens(
-                            14f.dp.toPx() * progress,
-                            20f.dp.toPx() * progress,
-                            chromaticAberration = true
-                        )
+                        if (refracts) {
+                            lens(
+                                14f.dp.toPx() * progress,
+                                20f.dp.toPx() * progress,
+                                chromaticAberration = true
+                            )
+                        }
                     },
                     highlight = {
                         val progress = dampedDragAnimation.pressProgress
@@ -213,9 +219,16 @@ fun LiquidToggle(
                     },
                     onDrawSurface = {
                         val progress = dampedDragAnimation.pressProgress
-                        drawRect(Color.White.copy(alpha = 1f - progress))
+                        drawRect(Color.White, alpha = 1f - progress)
                     }
-                )
+                ) else Modifier
+                    .graphicsLayer {
+                        scaleX = dampedDragAnimation.scaleX
+                        scaleY = dampedDragAnimation.scaleY
+                    }
+                    .drawBehind {
+                        drawRoundRect(Color.White, cornerRadius = CornerRadius(size.height / 2f))
+                    })
                 .size(40f.dp, 24f.dp)
         )
     }

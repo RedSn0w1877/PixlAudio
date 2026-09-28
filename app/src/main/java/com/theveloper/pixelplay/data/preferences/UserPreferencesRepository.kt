@@ -305,7 +305,10 @@ class UserPreferencesRepository @Inject constructor(
 
     /** Shorthand to map a single value out of the DataStore. */
     private fun <T> pref(transform: (Preferences) -> T): Flow<T> =
-        dataStore.data.map(transform)
+        // distinctUntilChanged: ~95 flows share one DataStore file, so without it every write
+        // (including the queue snapshot the service saves on each track change) re-ran every
+        // collector of every *unrelated* setting across the app.
+        dataStore.data.map(transform).distinctUntilChanged()
 
     /** Decode a JSON string preference, returning [default] on missing or malformed data. */
     private inline fun <reified T> decodeJsonPref(

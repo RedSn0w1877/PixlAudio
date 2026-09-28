@@ -2,62 +2,170 @@ package com.theveloper.pixelplay.ui.glass
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CornerBasedShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.BottomSheetDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.ModalBottomSheetProperties
+import androidx.compose.material3.SheetState
+import androidx.compose.material3.contentColorFor
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.util.lerp
-import com.kyant.backdrop.drawBackdrop
-import com.kyant.backdrop.effects.blur
-import com.kyant.backdrop.effects.lens
-import com.kyant.backdrop.effects.vibrancy
-import com.kyant.backdrop.highlight.Highlight
+import com.kyant.backdrop.Backdrop
+import com.kyant.backdrop.backdrops.emptyBackdrop
+
+/** True inside [GlassModalBottomSheet]'s body, where the whole sheet is already glass. */
+private val LocalInGlassSheet = staticCompositionLocalOf { false }
+
+private val DefaultSheetShape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
+
+/**
+ * [ModalBottomSheet] with the same signature, whose *entire* surface is glass — drag handle and
+ * bottom inset included.
+ *
+ * The previous approach made the sheet container transparent and wrapped only the content in
+ * glass, so the strip holding the drag handle (and the navigation-bar inset below the content)
+ * was a see-through hole over the scrim. Glass can't go on `ModalBottomSheet`'s own `modifier`
+ * either: `drawBackdrop` there froze the sheet at its first, undersized measurement. So this
+ * takes over the handle and insets and draws them *inside* one glass body.
+ *
+ * Nested [GlassSheetContainer]s in existing call sites become pass-through, so converting a call
+ * site is just the rename.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun GlassModalBottomSheet(
+    onDismissRequest: () -> Unit,
+    modifier: Modifier = Modifier,
+    sheetState: SheetState = rememberModalBottomSheetState(),
+    sheetMaxWidth: Dp = BottomSheetDefaults.SheetMaxWidth,
+    sheetGesturesEnabled: Boolean = true,
+    shape: Shape = BottomSheetDefaults.ExpandedShape,
+    containerColor: Color = BottomSheetDefaults.ContainerColor,
+    contentColor: Color = contentColorFor(containerColor),
+    tonalElevation: Dp = 0.dp,
+    scrimColor: Color = BottomSheetDefaults.ScrimColor,
+    dragHandle: @Composable (() -> Unit)? = { BottomSheetDefaults.DragHandle() },
+    contentWindowInsets: @Composable () -> WindowInsets = { BottomSheetDefaults.modalWindowInsets },
+    properties: ModalBottomSheetProperties = ModalBottomSheetProperties(),
+    content: @Composable ColumnScope.() -> Unit
+) {
+    if (!isGlassEnabled) {
+        ModalBottomSheet(
+            onDismissRequest = onDismissRequest,
+            modifier = modifier,
+            sheetState = sheetState,
+            sheetMaxWidth = sheetMaxWidth,
+            sheetGesturesEnabled = sheetGesturesEnabled,
+            shape = shape,
+            // Call sites written against the old kit pass glassSheetContainerColor(), which is
+            // already opaque here; anything else passes through untouched.
+            containerColor = containerColor,
+            contentColor = contentColor,
+            tonalElevation = tonalElevation,
+            scrimColor = scrimColor,
+            dragHandle = dragHandle,
+            contentWindowInsets = contentWindowInsets,
+            properties = properties,
+            content = content
+        )
+        return
+    }
+
+    val glassShape = shape as? CornerBasedShape ?: DefaultSheetShape
+    val sheetContentColor = if (containerColor == Color.Transparent) MaterialTheme.colorScheme.onSurface else contentColor
+    ModalBottomSheet(
+        onDismissRequest = onDismissRequest,
+        modifier = modifier,
+        sheetState = sheetState,
+        sheetMaxWidth = sheetMaxWidth,
+        sheetGesturesEnabled = sheetGesturesEnabled,
+        shape = glassShape,
+        containerColor = Color.Transparent,
+        contentColor = sheetContentColor,
+        tonalElevation = 0.dp,
+        scrimColor = scrimColor,
+        dragHandle = null,
+        contentWindowInsets = { WindowInsets(0, 0, 0, 0) },
+        properties = properties
+    ) {
+        val source = rememberSheetBackdrop()
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .glassSheetBody(glassShape, source)
+                .windowInsetsPadding(contentWindowInsets())
+        ) {
+            if (dragHandle != null) {
+                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
+                    dragHandle()
+                }
+            }
+            // Glass controls inside the sheet sample the same snapshot instead of a backdrop
+            // that lives in the main window.
+            CompositionLocalProvider(
+                LocalInGlassSheet provides true,
+                LocalAppBackdrop provides source
+            ) {
+                content()
+            }
+        }
+    }
+}
+
+/** The glass body of a sheet: heavy [GlassMaterial.Thick] frost over a snapshot of the page. */
+@Composable
+private fun Modifier.glassSheetBody(shape: CornerBasedShape, source: Backdrop): Modifier {
+    return this.glass(
+        shape = shape,
+        material = GlassMaterial.Thick,
+        backdrop = source,
+        shadow = false
+    )
+}
+
+/**
+ * The page as seen from another window. Registers demand for the page snapshot for as long as the
+ * caller is composed, which is the only time the snapshot loop runs at all.
+ */
+@Composable
+internal fun rememberSheetBackdrop(): Backdrop {
+    val page = LocalPageBackdrop.current as? PageBackdrop ?: return emptyBackdrop()
+    DisposableEffect(page) {
+        page.acquireSnapshot()
+        onDispose { page.releaseSnapshot() }
+    }
+    return page.snapshotView
+}
 
 /**
  * A modifier that turns a sheet's own surface into glass. Pair with
- * `containerColor = Color.Transparent` on the `ModalBottomSheet`, or the opaque container will
- * simply cover the refraction.
- *
- * Applied to the sheet's `modifier` rather than wrapping its content, so the glass covers the
- * full sheet surface including the drag handle area.
+ * `containerColor = Color.Transparent`. Prefer [GlassModalBottomSheet], which also covers the
+ * drag handle and insets.
  */
 @Composable
 fun Modifier.glassSheetSurface(
-    shape: CornerBasedShape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
-    containerColor: Color = MaterialTheme.colorScheme.surfaceContainerLow
+    shape: CornerBasedShape = DefaultSheetShape,
+    @Suppress("UNUSED_PARAMETER") containerColor: Color = MaterialTheme.colorScheme.surfaceContainerLow
 ): Modifier {
-    if (!isGlassEnabled) return this
-
-    // LocalPageBackdrop, not LocalAppBackdrop: a sheet opened from inside a screen would otherwise
-    // inherit that screen's deliberately-empty backdrop and so have nothing to refract, which is
-    // why sheets only ever looked tinted. See LocalPageBackdrop's doc for why this is safe here
-    // (sheets render in their own window, outside the recorded draw pass) but not inline.
-    val backdrop = LocalPageBackdrop.current
-    // Values taken directly from the reference's own DialogContent.kt, not derived from
-    // glassEffects()'s button-scale baseline — a sheet/dialog is its own size class in the
-    // reference, with its own hand-picked numbers (heavier blur, no chromaticAberration).
-    val isLightTheme = androidx.compose.foundation.isSystemInDarkTheme().not()
-    // Transparency dial, not refraction: how much of the tint shows through.
-    val tint = containerColor.copy(alpha = lerp(0.35f, 0.75f, glassTransparency()))
-
-    return this.drawBackdrop(
-        backdrop = backdrop,
-        shape = { shape },
-        effects = {
-            vibrancy()
-            blur((if (isLightTheme) 16.dp else 8.dp).toPx())
-            lens(24.dp.toPx(), 48.dp.toPx(), depthEffect = true)
-        },
-        highlight = { Highlight.Default },
-        // ModalBottomSheet already provides the scrim and elevation shadow; a second one here
-        // would only darken the sheet's own top edge.
-        shadow = null,
-        onDrawSurface = { drawRect(tint) }
-    )
+    if (!isGlassEnabled || LocalInGlassSheet.current) return this
+    return this.glassSheetBody(shape, rememberSheetBackdrop())
 }
 
 /**
@@ -70,72 +178,30 @@ fun glassSheetContainerColor(
 ): Color = if (isGlassEnabled) Color.Transparent else opaque
 
 /**
- * Container for a modal bottom sheet's contents.
- *
- * Under [AppUiStyle.LiquidGlass] the sheet becomes a refracting panel; under
- * [AppUiStyle.Material3] it stays an opaque tonal surface. Callers pass
- * `containerColor = Color.Transparent` to their `ModalBottomSheet` and wrap the body in this, so
- * the same call site works for both styles.
- *
- * The tint here is heavier than [glassTint]'s default. A sheet covers much more of the screen than
- * a nav bar, sits over arbitrary content, and holds long-form text — at nav-bar transparency the
- * text underneath competes with the text on top and both become hard to read.
+ * Container for a sheet's contents. Pass-through inside [GlassModalBottomSheet] (the sheet is
+ * already glass); a glass panel of its own when used inside a plain `ModalBottomSheet`.
  */
 @Composable
 fun GlassSheetContainer(
     modifier: Modifier = Modifier,
-    shape: CornerBasedShape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
-    containerColor: Color = MaterialTheme.colorScheme.surfaceContainerLow,
+    shape: CornerBasedShape = DefaultSheetShape,
+    @Suppress("UNUSED_PARAMETER") containerColor: Color = MaterialTheme.colorScheme.surfaceContainerLow,
     content: @Composable BoxScope.() -> Unit
 ) {
-    if (!isGlassEnabled) {
-        Box(
-            modifier = modifier.fillMaxWidth(),
-            content = content
-        )
+    if (!isGlassEnabled || LocalInGlassSheet.current) {
+        Box(modifier = modifier.fillMaxWidth(), content = content)
         return
     }
-
-    // LocalPageBackdrop, not LocalAppBackdrop: a sheet opened from inside a screen would otherwise
-    // inherit that screen's deliberately-empty backdrop and so have nothing to refract, which is
-    // why sheets only ever looked tinted. See LocalPageBackdrop's doc for why this is safe here
-    // (sheets render in their own window, outside the recorded draw pass) but not inline.
-    val backdrop = LocalPageBackdrop.current
-    // ModalBottomSheet renders into its own Android Window (its internal Dialog), so it can't
-    // draw the live GraphicsLayer the main window records — PageBackdrop falls back to a
-    // periodically-rasterized snapshot for exactly this case (see its snapshotBitmap doc and the
-    // capture loop in MainActivity). Nothing else needed here: LocalPageBackdrop already resolves
-    // to that same PageBackdrop instance, snapshot fallback included.
-    //
-    // Values below are taken directly from the reference's own DialogContent.kt, not derived from
-    // glassEffects()'s button-scale baseline — a sheet/dialog is its own size class in the
-    // reference, with its own hand-picked numbers (heavier blur, no chromaticAberration).
-    val isLightTheme = androidx.compose.foundation.isSystemInDarkTheme().not()
-    // Transparency dial, not refraction: how much of the tint shows through.
-    val tint = containerColor.copy(alpha = lerp(0.35f, 0.75f, glassTransparency()))
-
+    // fillMaxWidth, not fillMaxSize: claiming full height forces short sheets to expand to the
+    // screen's max height with a dead zone under the content.
+    val source = rememberSheetBackdrop()
     Box(
-        // fillMaxWidth, not fillMaxSize: a Box that always claims the full available height
-        // forces every sheet using this container to expand to the screen's max height, even
-        // when its content is short — the content then sits top-aligned with a large dead zone
-        // below it, which is what read as the button row being "way too high". Width still needs
-        // filling so the backdrop shape spans the sheet's actual (variable) width.
         modifier = modifier
             .fillMaxWidth()
-            .drawBackdrop(
-                backdrop = backdrop,
-                shape = { shape },
-                effects = {
-                    vibrancy()
-                    blur((if (isLightTheme) 16.dp else 8.dp).toPx())
-                    lens(24.dp.toPx(), 48.dp.toPx(), depthEffect = true)
-                },
-                highlight = { Highlight.Default },
-                // The sheet already casts the scrim/elevation shadow that ModalBottomSheet
-                // provides, so a second one here would just darken its own top edge.
-                shadow = null,
-                onDrawSurface = { drawRect(tint) }
-            ),
-        content = content
-    )
+            .glassSheetBody(shape, source)
+    ) {
+        CompositionLocalProvider(LocalAppBackdrop provides source) {
+            content()
+        }
+    }
 }

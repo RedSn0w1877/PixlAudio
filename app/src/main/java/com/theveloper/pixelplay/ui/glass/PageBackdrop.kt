@@ -25,6 +25,7 @@ import androidx.compose.ui.graphics.drawscope.ContentDrawScope
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.DrawTransform
 import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.layer.GraphicsLayer
 import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.graphics.rememberGraphicsLayer
@@ -106,14 +107,31 @@ class PageBackdrop internal constructor(
      * would otherwise silently no-op, drawing only the glass tint with zero refraction. A plain
      * [ImageBitmap] has no window affinity, so it can.
      *
-     * Populated by a throttled loop in MainActivity (≈3/sec, not every frame — a sheet's backdrop
-     * is static almost the entire time it's open, so slightly-stale reads as live), called from
-     * MainActivity's OWN composition/coroutine since it's the window that actually owns
-     * [graphicsLayer]. An earlier attempt triggered the capture from inside the sheet's own
-     * composition instead — cross-window, touching a layer it doesn't own — and silently failed
-     * every single time.
+     * Populated by the snapshot loop in [ProvideGlassEnvironment] — which runs in the main
+     * window's own composition, since that's the window that owns [graphicsLayer] (capturing from
+     * inside the sheet's window silently fails) — and only while [snapshotDemand] is non-zero.
      */
     internal var snapshotBitmap: androidx.compose.ui.graphics.ImageBitmap? by mutableStateOf(null)
+
+    /** How many other-window glass surfaces currently need [snapshotBitmap]. */
+    internal var snapshotDemand: Int by androidx.compose.runtime.mutableIntStateOf(0)
+        private set
+
+    internal fun acquireSnapshot() {
+        snapshotDemand += 1
+    }
+
+    internal fun releaseSnapshot() {
+        snapshotDemand = (snapshotDemand - 1).coerceAtLeast(0)
+    }
+
+    /**
+     * A view of this page that *only* ever draws [snapshotBitmap] — for glass living in another
+     * window (sheets, dialogs). The live path can't be trusted there: [layerCoordinates] is set by
+     * the main window's recorder and is non-null the whole time the page is attached, so the
+     * default path would try to draw the main window's layer from the sheet's window.
+     */
+    val snapshotView: Backdrop by lazy(LazyThreadSafetyMode.NONE) { SnapshotBackdrop(this) }
 
     private var inverseLayerScope: InverseGlassLayerScope? = null
 
@@ -163,6 +181,27 @@ class PageBackdrop internal constructor(
     }
 }
 
+private class SnapshotBackdrop(private val page: PageBackdrop) : Backdrop {
+
+    override val isCoordinatesDependent: Boolean = true
+
+    override fun DrawScope.drawBackdrop(
+        density: Density,
+        coordinates: LayoutCoordinates?,
+        layerBlock: (GraphicsLayerScope.() -> Unit)?
+    ) {
+        val coordinates = coordinates ?: return
+        val bitmap = page.snapshotBitmap ?: return
+        // Both windows are full-screen, so window positions line up once the page's own origin in
+        // its window is taken out.
+        val pageOrigin = page.layerCoordinates?.takeIf { it.isAttached }?.positionInWindow() ?: Offset.Zero
+        val offset = coordinates.positionInWindow() - pageOrigin
+        translate(-offset.x, -offset.y) {
+            drawImage(bitmap)
+        }
+    }
+}
+
 /**
  * Records this subtree into [backdrop] and draws it from that recording, so glass panels
  * elsewhere in the tree can refract it. See [rememberPageBackdrop] for why this is not the
@@ -170,6 +209,20 @@ class PageBackdrop internal constructor(
  */
 fun Modifier.pageBackdrop(backdrop: PageBackdrop): Modifier =
     this then PageBackdropElement(backdrop)
+
+/**
+ * Records this content as the glass source for floating glass *next to* it (not inside it) —
+ * e.g. a screen's scrolling list, with a glass FAB or header drawn as a sibling on top. Pair
+ * with `CompositionLocalProvider(LocalAppBackdrop provides source)` around the siblings.
+ *
+ * A no-op when glass can't sample (off, or the [GlassTier.Solid] tier), so the recording costs
+ * nothing on devices that would never read it.
+ */
+@androidx.compose.runtime.Composable
+fun Modifier.glassSource(source: PageBackdrop): Modifier {
+    val active = isGlassEnabled && LocalGlassTier.current.samplesBackdrop
+    return if (active) this.pageBackdrop(source) else this
+}
 
 private class PageBackdropElement(
     val backdrop: PageBackdrop

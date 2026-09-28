@@ -24,6 +24,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
 import com.theveloper.pixelplay.data.preferences.PlayerAmbientStyle
@@ -93,7 +94,9 @@ private fun PlayerFlowingGradient(
     modifier: Modifier = Modifier
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "PlayerFlowingGradient")
-    val time by infiniteTransition.animateFloat(
+    // Kept as State and read inside the draw lambda: reading it here (via `by`) recomposed this
+    // composable on every frame of a 50-second loop.
+    val timeState = infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
@@ -111,7 +114,10 @@ private fun PlayerFlowingGradient(
     val colorB = colorScheme.tertiary.copy(alpha = 0.50f)
     val colorC = colorScheme.secondary.copy(alpha = 0.42f)
 
+    val blobBrushes = remember(colorA, colorB, colorC) { BlobBrushCache(colorA, colorB, colorC) }
+
     Canvas(modifier = modifier) {
+        val time = timeState.value
         val w = size.width
         val h = size.height
         val angleA = time * 2f * Math.PI.toFloat()
@@ -134,26 +140,42 @@ private fun PlayerFlowingGradient(
         // separate glows into one continuous field of moving color.
         val radius = min(w, h) * 0.78f
 
-        fun blob(color: Color, center: Offset) {
-            drawCircle(
-                brush = Brush.radialGradient(
-                    colorStops = arrayOf(
-                        0f to color,
-                        0.55f to color.copy(alpha = color.alpha * 0.7f),
-                        1f to Color.Transparent
-                    ),
-                    center = center,
-                    radius = radius
-                ),
-                radius = radius,
-                center = center
-            )
-        }
-
-        blob(colorC, centerC)
-        blob(colorB, centerB)
-        blob(colorA, centerA)
+        // Brushes are built once per radius, centred on the origin, and moved with a translate —
+        // this used to allocate three full-screen radial gradients per frame.
+        blobBrushes.ensure(radius)
+        translate(centerC.x, centerC.y) { drawCircle(blobBrushes.c, radius = radius, center = Offset.Zero) }
+        translate(centerB.x, centerB.y) { drawCircle(blobBrushes.b, radius = radius, center = Offset.Zero) }
+        translate(centerA.x, centerA.y) { drawCircle(blobBrushes.a, radius = radius, center = Offset.Zero) }
     }
+}
+
+private class BlobBrushCache(
+    private val colorA: Color,
+    private val colorB: Color,
+    private val colorC: Color
+) {
+    private var radius = -1f
+    lateinit var a: Brush
+    lateinit var b: Brush
+    lateinit var c: Brush
+
+    fun ensure(radius: Float) {
+        if (radius == this.radius) return
+        this.radius = radius
+        a = blob(colorA, radius)
+        b = blob(colorB, radius)
+        c = blob(colorC, radius)
+    }
+
+    private fun blob(color: Color, radius: Float): Brush = Brush.radialGradient(
+        colorStops = arrayOf(
+            0f to color,
+            0.55f to color.copy(alpha = color.alpha * 0.7f),
+            1f to Color.Transparent
+        ),
+        center = Offset.Zero,
+        radius = radius
+    )
 }
 
 private data class MeshPoint(val phaseX: Float, val phaseY: Float, val speed: Float, val baseX: Float, val baseY: Float)
@@ -182,7 +204,7 @@ private fun PlayerLowPolyMesh(
         }
     }
     val infiniteTransition = rememberInfiniteTransition(label = "PlayerLowPolyMesh")
-    val time by infiniteTransition.animateFloat(
+    val timeState = infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
@@ -194,37 +216,40 @@ private fun PlayerLowPolyMesh(
     val lineColor = colorScheme.tertiary.copy(alpha = 0.18f)
     val dotColor = colorScheme.tertiaryContainer.copy(alpha = 0.35f)
 
+    // Reused every frame instead of mapping a fresh List<Offset>.
+    val xs = remember { FloatArray(points.size) }
+    val ys = remember { FloatArray(points.size) }
+
     Canvas(modifier = modifier) {
         val w = size.width
         val h = size.height
-        val t = time * 2f * Math.PI.toFloat()
-        val positions = points.map { p ->
-            Offset(
-                x = w * (p.baseX + 0.06f * cos(t * p.speed + p.phaseX)).coerceIn(0f, 1f),
-                y = h * (p.baseY + 0.06f * sin(t * p.speed + p.phaseY)).coerceIn(0f, 1f)
-            )
+        val t = timeState.value * 2f * Math.PI.toFloat()
+        for (i in points.indices) {
+            val p = points[i]
+            xs[i] = w * (p.baseX + 0.06f * cos(t * p.speed + p.phaseX)).coerceIn(0f, 1f)
+            ys[i] = h * (p.baseY + 0.06f * sin(t * p.speed + p.phaseY)).coerceIn(0f, 1f)
         }
         val connectDistance = min(w, h) * 0.28f
-        for (i in positions.indices) {
-            for (j in i + 1 until positions.size) {
-                val a = positions[i]
-                val b = positions[j]
-                val dx = a.x - b.x
-                val dy = a.y - b.y
+        val strokePx = 1.dp.toPx()
+        for (i in xs.indices) {
+            for (j in i + 1 until xs.size) {
+                val dx = xs[i] - xs[j]
+                val dy = ys[i] - ys[j]
                 val dist = kotlin.math.sqrt(dx * dx + dy * dy)
                 if (dist < connectDistance) {
                     drawLine(
                         color = lineColor,
-                        start = a,
-                        end = b,
-                        strokeWidth = 1.dp.toPx(),
+                        start = Offset(xs[i], ys[i]),
+                        end = Offset(xs[j], ys[j]),
+                        strokeWidth = strokePx,
                         alpha = 1f - (dist / connectDistance)
                     )
                 }
             }
         }
-        positions.forEach { p ->
-            drawCircle(color = dotColor, radius = 2.5.dp.toPx(), center = p)
+        val dotRadius = 2.5.dp.toPx()
+        for (i in xs.indices) {
+            drawCircle(color = dotColor, radius = dotRadius, center = Offset(xs[i], ys[i]))
         }
     }
 }
@@ -293,14 +318,14 @@ private fun PlayerAudioWaveform(
         }
     }
 
-    // Decays the last captured frame toward silence while paused, instead of freezing mid-bar.
-    val isPlaying = isPlayingProvider()
-    val displayedWaveform = if (isPlaying) waveform else FloatArray(waveform.size) { waveform[it] * 0.3f }
-
     val barColorTop = colorScheme.primary.copy(alpha = 0.35f)
     val barColorBottom = colorScheme.tertiary.copy(alpha = 0.12f)
 
     Canvas(modifier = modifier) {
+        // Read here, in draw: reading the waveform in composition recomposed this ~10x/sec.
+        val displayedWaveform = waveform
+        // Decays the last captured frame toward silence while paused, instead of freezing mid-bar.
+        val amplitudeScale = if (isPlayingProvider()) 1f else 0.3f
         val w = size.width
         val h = size.height
         val bars = displayedWaveform.size
@@ -310,7 +335,7 @@ private fun PlayerAudioWaveform(
         val maxBarHeight = h * 0.22f
 
         for (i in 0 until bars) {
-            val amplitude = displayedWaveform[i].coerceIn(0f, 1f)
+            val amplitude = (displayedWaveform[i] * amplitudeScale).coerceIn(0f, 1f)
             val barHeight = maxBarHeight * amplitude
             val x = i * barWidth + barWidth / 2f
             drawLine(

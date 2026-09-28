@@ -1,5 +1,6 @@
 package com.theveloper.pixelplay.presentation.components.player
 
+import kotlin.math.roundToInt
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.AnimationSpec
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -172,6 +173,7 @@ fun AnimatedPlaybackControls(
                 )
             }
 
+            val playShapeCache = remember { PlayPauseShapeCache() }
             val playWeight by animateFloatAsState(
                 targetValue = weightFor(PlaybackButtonType.PLAY_PAUSE),
                 animationSpec = pressAnimationSpec,
@@ -182,22 +184,18 @@ fun AnimatedPlaybackControls(
                 animationSpec = defaultSpatialDpSpec,
                 label = "playCorner"
             )
+            // Shapes cached per half-dp of radius: the corner animates for every play/pause, and
+            // building a squircle (and a glass shape) per frame showed up in the trace.
+            val playCornerKey = (playCorner.value * 2f).roundToInt()
+            val playSquircle = playShapeCache.squircle(playCornerKey)
+            val playGlassShape = playShapeCache.rounded(playCornerKey)
             Box(
                 modifier = Modifier
                     .weight(playWeight)
                     .fillMaxHeight()
                     .graphicsLayer {
                         clip = true
-                        shape = AbsoluteSmoothCornerShape(
-                            cornerRadiusTL = playCorner,
-                            smoothnessAsPercentTR = 60,
-                            cornerRadiusBL = playCorner,
-                            smoothnessAsPercentTL = 60,
-                            cornerRadiusTR = playCorner,
-                            smoothnessAsPercentBL = 60,
-                            cornerRadiusBR = playCorner,
-                            smoothnessAsPercentBR = 60
-                        )
+                        shape = playSquircle
                     }
                     // AbsoluteSmoothCornerShape above (a squircle) isn't a CornerBasedShape, and
                     // lens() throws on anything else — so the glass samples a plain
@@ -205,7 +203,7 @@ fun AnimatedPlaybackControls(
                     // graphicsLayer still clips to the true squircle, so the visible silhouette
                     // is unaffected; only the refraction geometry underneath differs slightly.
                     .glassPanel(
-                        shape = RoundedCornerShape(playCorner),
+                        shape = playGlassShape,
                         color = colorPlayPause,
                         effectScale = 0.4f,
                         tintAlpha = 0.55f
@@ -275,5 +273,29 @@ private fun MorphingPlayPauseIcon(
             tint = tint,
             modifier = Modifier.size(size)
         )
+    }
+}
+
+/** Play/pause shapes keyed on the corner radius in half-dp steps. */
+private class PlayPauseShapeCache {
+    private val squircles = HashMap<Int, androidx.compose.ui.graphics.Shape>()
+    private val rounded = HashMap<Int, RoundedCornerShape>()
+
+    fun squircle(halfDp: Int): androidx.compose.ui.graphics.Shape = squircles.getOrPut(halfDp) {
+        val r = (halfDp / 2f).dp
+        AbsoluteSmoothCornerShape(
+            cornerRadiusTL = r,
+            smoothnessAsPercentTR = 60,
+            cornerRadiusBL = r,
+            smoothnessAsPercentTL = 60,
+            cornerRadiusTR = r,
+            smoothnessAsPercentBL = 60,
+            cornerRadiusBR = r,
+            smoothnessAsPercentBR = 60
+        )
+    }
+
+    fun rounded(halfDp: Int): RoundedCornerShape = rounded.getOrPut(halfDp) {
+        RoundedCornerShape((halfDp / 2f).dp)
     }
 }

@@ -10,6 +10,7 @@ import com.theveloper.pixelplay.utils.LogUtils
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -64,8 +65,11 @@ class MainViewModel @Inject constructor(
      * Nos ayuda a saber si es la primera vez que se abre la app.
      */
     val isLibraryEmpty: StateFlow<Boolean> = musicRepository
-        .getAudioFiles()
-        .map { it.isEmpty() }
+        // A COUNT(*), not the whole library: getAudioFiles() materialised every song on every
+        // table change — during a 10k-song sync, after each batch insert.
+        .getSongCountFlow()
+        .map { it == 0 }
+        .distinctUntilChanged()
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),

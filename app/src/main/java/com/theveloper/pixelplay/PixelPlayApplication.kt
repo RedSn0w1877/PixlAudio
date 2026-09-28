@@ -113,7 +113,12 @@ class PixelPlayApplication : Application(), ImageLoaderFactory, Configuration.Pr
         // Construir el repositorio ya arranca la colección de estados de emparejamiento
         // (ver SpotifyMatchStateCache) para que el indicador por canción esté listo desde
         // el principio, sin depender de que el usuario abra la pantalla de Spotify primero.
-        spotifyRepository.get()
+        startupScope.launch {
+            // Off the main thread: constructing it builds a keystore MasterKey,
+            // EncryptedSharedPreferences, two OkHttp/Retrofit stacks and the Room builder —
+            // tens to hundreds of ms that used to sit in front of the first frame.
+            spotifyRepository.get()
+        }
 
         startupScope.launch {
             com.theveloper.pixelplay.data.worker.AiWorkerManager(this@PixelPlayApplication).ensurePeriodicDiscovery()

@@ -1,5 +1,7 @@
 package com.theveloper.pixelplay.presentation.screens
 
+import com.theveloper.pixelplay.ui.glass.GlassModalBottomSheet
+
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -133,7 +135,7 @@ fun MashupScreen(
             }
 
             if (mashupUiState.showSongPickerForDeck != null) {
-                ModalBottomSheet(
+                GlassModalBottomSheet(
                     containerColor = com.theveloper.pixelplay.ui.glass.glassSheetContainerColor(),
                     onDismissRequest = { mashupViewModel.closeSongPicker() },
                     sheetState = sheetState

@@ -1,5 +1,7 @@
 package com.theveloper.pixelplay.presentation.components
 
+import com.theveloper.pixelplay.ui.glass.GlassModalBottomSheet
+
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
@@ -113,7 +115,7 @@ fun TimerOptionsBottomSheet(
         }
     }
 
-    ModalBottomSheet(
+    GlassModalBottomSheet(
         containerColor = com.theveloper.pixelplay.ui.glass.glassSheetContainerColor(),
         onDismissRequest = onDismiss,
         sheetState = sheetState

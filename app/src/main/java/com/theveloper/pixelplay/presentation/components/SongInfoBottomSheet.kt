@@ -1,5 +1,7 @@
 package com.theveloper.pixelplay.presentation.components
 
+import com.theveloper.pixelplay.ui.glass.GlassModalBottomSheet
+
 import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.content.Context
@@ -380,8 +382,8 @@ fun SongInfoBottomSheet(
             180.dp
         ).coerceAtLeast(280.dp)
 
-    ModalBottomSheet(
-        // NOT Modifier.glassSheetSurface() here. Applied directly to ModalBottomSheet's own
+    GlassModalBottomSheet(
+        // NOT Modifier here. Applied directly to ModalBottomSheet's own
         // `modifier`, that helper's drawBackdrop() call breaks the sheet's own content-driven
         // height: the Surface freezes at whatever undersized measurement drawBackdrop first
         // reports and never grows to fit real content, silently truncating everything past

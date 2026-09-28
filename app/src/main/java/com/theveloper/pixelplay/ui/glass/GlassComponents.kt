@@ -17,14 +17,15 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.GraphicsLayerScope
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.util.fastCoerceAtMost
 import androidx.compose.ui.util.lerp
 import kotlin.math.abs
@@ -32,38 +33,22 @@ import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.math.tanh
-import com.kyant.backdrop.drawBackdrop
-import com.kyant.backdrop.effects.blur
-import com.kyant.backdrop.effects.lens
-import com.kyant.backdrop.effects.vibrancy
-import com.kyant.backdrop.highlight.Highlight
-import com.kyant.backdrop.shadow.Shadow
 
-/**
- * Glass surfaces are transparent, so they need a *tint* rather than a fill: enough colour to keep
- * content legible over unpredictable backdrops without hiding the refraction underneath.
- *
- * Derived from the Material 3 scheme rather than hardcoded white/black, which is what keeps the
- * glass looking like it belongs to the album-art palette the rest of the app is themed from —
- * the user asked for glass that is still "Material 3 tinted", and this is the piece that does it.
- */
-@Composable
-fun glassTint(alpha: Float = 0.28f): Color =
-    MaterialTheme.colorScheme.surface.copy(
-        alpha = (alpha * androidx.compose.ui.util.lerp(0.3f, 3f, glassTransparency())).coerceIn(0f, 1f)
-    )
+/** Maps the legacy per-call-site `effectScale` knob onto a [GlassMaterial] size class. */
+internal fun materialForScale(effectScale: Float): GlassMaterial = when {
+    effectScale < 1.25f -> GlassMaterial.Thin
+    effectScale < 2.5f -> GlassMaterial.Regular
+    else -> GlassMaterial.Thick
+}
 
 /**
  * Drop-in replacement for `Modifier.clip(shape).background(color)`.
  *
- * Under glass the surface refracts and [color] becomes a translucent tint; otherwise it is an
- * ordinary opaque fill. Exists so existing call sites convert with a one-line swap instead of
- * being restructured around a wrapper composable.
+ * Under glass the surface refracts and [color] becomes the glass tint; otherwise it is an ordinary
+ * opaque fill. Exists so existing call sites convert with a one-line swap.
  *
- * @param effectScale scale the refraction to the element's size — see [glassEffects]. 1 (the
- *   default) matches the reference's own button scale; go bigger for large surfaces.
- * @param tintAlpha how much of [color] to keep. Below ~0.2 icons start losing contrast against
- *   busy artwork.
+ * @param effectScale size class hint: < 1.25 small control, < 2.5 card/pill, otherwise panel.
+ * @param tintAlpha extra multiplier on how much of [color] survives as tint (1 = kit default).
  */
 @Composable
 fun Modifier.glassPanel(
@@ -76,35 +61,21 @@ fun Modifier.glassPanel(
     if (!isGlassEnabled) {
         return this.clip(shape).background(color)
     }
-    val backdrop = LocalAppBackdrop.current
-    val effects = glassEffects(effectScale)
-    val tint = color.copy(
-        alpha = (color.alpha * tintAlpha * androidx.compose.ui.util.lerp(0.3f, 2.2f, glassTransparency())).coerceIn(0f, 1f)
-    )
-    return this.drawBackdrop(
-        backdrop = backdrop,
-        shape = { shape },
-        // No depthEffect/chromaticAberration — matches the reference's LiquidButton exactly.
-        effects = {
-            vibrancy()
-            blur(effects.blurRadius.toPx())
-            lens(effects.refractionHeight.toPx(), effects.refractionAmount.toPx())
-        },
-        highlight = { Highlight.Default },
-        shadow = if (shadow) {
-            { Shadow() }
-        } else {
-            null
-        },
-        onDrawSurface = { drawRect(tint) }
+    // The kit's default tint strength corresponds to the old 0.45 tintAlpha.
+    val tint = color.copy(alpha = (color.alpha * tintAlpha / 0.45f).coerceIn(0f, 1f))
+    return this.glass(
+        shape = shape,
+        material = materialForScale(effectScale),
+        tint = tint,
+        shadow = shadow
     )
 }
 
 /**
  * The base glass panel. Falls back to a normal tonal [Surface] under [AppUiStyle.Material3].
  *
- * @param tint colour laid over the refracted backdrop. Keep it translucent.
- * @param effectScale scales the refraction to the component's size — see [glassEffects].
+ * @param tint colour laid over the refracted backdrop; `null` uses the palette's neutral glass.
+ * @param effectScale size class hint — see [glassPanel].
  */
 @Composable
 fun GlassSurface(
@@ -128,27 +99,12 @@ fun GlassSurface(
         return
     }
 
-    val backdrop = LocalAppBackdrop.current
-    val effects = glassEffects(effectScale)
-    val resolvedTint = tint ?: glassTint()
-
     Box(
-        modifier = modifier.drawBackdrop(
-            backdrop = backdrop,
-            shape = { shape },
-            // No depthEffect/chromaticAberration — matches the reference's LiquidButton exactly.
-            effects = {
-                vibrancy()
-                blur(effects.blurRadius.toPx())
-                lens(effects.refractionHeight.toPx(), effects.refractionAmount.toPx())
-            },
-            highlight = { Highlight.Default },
-            shadow = if (shadow) {
-                { Shadow() }
-            } else {
-                null
-            },
-            onDrawSurface = { drawRect(resolvedTint) }
+        modifier = modifier.glass(
+            shape = shape,
+            material = materialForScale(effectScale),
+            tint = tint,
+            shadow = shadow
         ),
         contentAlignment = contentAlignment,
         content = content
@@ -156,8 +112,8 @@ fun GlassSurface(
 }
 
 /**
- * A circular glass icon button — the settings cog, transport controls, etc. Same size class as
- * the reference's `LiquidButton` (default 48dp), so it uses [glassEffects] at scale 1 unscaled.
+ * A circular glass icon button — the settings cog, transport controls, etc. Squashes toward the
+ * finger and fills with light while pressed.
  */
 @Composable
 fun GlassIconButton(
@@ -179,55 +135,47 @@ fun GlassIconButton(
             interactionSource = interactionSource
         )
         CompositionLocalProvider(LocalContentColor provides contentColor) {
-            GlassSurface(
+            Surface(
                 modifier = modifier.size(size).then(clickable),
                 shape = CircleShape,
-                tint = tint,
-                containerColor = containerColor,
-                effectScale = 0.4f,
-                content = content
-            )
+                color = containerColor
+            ) {
+                Box(contentAlignment = Alignment.Center, content = content)
+            }
         }
         return
     }
 
     val animationScope = rememberCoroutineScope()
-    val interactiveHighlight = remember(animationScope) { InteractiveHighlight(animationScope) }
-    val backdrop = LocalAppBackdrop.current
-    val effects = glassEffects()
-    val resolvedTint = tint ?: glassTint()
+    val interaction = remember(animationScope) { InteractiveHighlight(animationScope) }
+    val squash: GraphicsLayerScope.() -> Unit = remember(interaction) {
+        {
+            val progress = interaction.pressProgress
+            val scaleVal = lerp(1f, 1.12f, progress)
+            val maxOffset = this.size.minDimension.coerceAtLeast(1f)
+            val offset = interaction.offset
+            translationX = maxOffset * tanh(0.08f * offset.x / maxOffset)
+            translationY = maxOffset * tanh(0.08f * offset.y / maxOffset)
+            val maxDragScale = 0.2f
+            val offsetAngle = atan2(offset.y, offset.x)
+            val maxDim = this.size.maxDimension.coerceAtLeast(1f)
+            scaleX = scaleVal + maxDragScale * abs(cos(offsetAngle) * offset.x / maxDim)
+            scaleY = scaleVal + maxDragScale * abs(sin(offsetAngle) * offset.y / maxDim)
+        }
+    }
 
     CompositionLocalProvider(LocalContentColor provides contentColor) {
         Box(
             modifier = modifier
                 .size(size)
-                .drawBackdrop(
-                    backdrop = backdrop,
-                    shape = { CircleShape },
-                    // No depthEffect/chromaticAberration, no extra multiplier — matches the
-                    // reference's LiquidButton exactly.
-                    effects = {
-                        vibrancy()
-                        blur(effects.blurRadius.toPx())
-                        lens(effects.refractionHeight.toPx(), effects.refractionAmount.toPx())
-                    },
-                    layerBlock = {
-                        val progress = interactiveHighlight.pressProgress
-                        val scaleVal = lerp(1f, 1.15f, progress)
-                        val maxOffset = this.size.minDimension.coerceAtLeast(1f)
-                        val offset = interactiveHighlight.offset
-                        translationX = maxOffset * tanh(0.08f * offset.x / maxOffset)
-                        translationY = maxOffset * tanh(0.08f * offset.y / maxOffset)
-                        val maxDragScale = 0.25f
-                        val offsetAngle = atan2(offset.y, offset.x)
-                        scaleX = scaleVal + maxDragScale * abs(cos(offsetAngle) * offset.x / this.size.maxDimension.coerceAtLeast(1f))
-                        scaleY = scaleVal + maxDragScale * abs(sin(offsetAngle) * offset.y / this.size.maxDimension.coerceAtLeast(1f))
-                    },
-                    onDrawSurface = {
-                        drawRect(resolvedTint)
-                    }
+                .glass(
+                    shape = CircleShape,
+                    material = GlassMaterial.Thin,
+                    tint = tint,
+                    pressed = interaction,
+                    layerBlock = squash
                 )
-                .then(interactiveHighlight.modifier)
+                .then(interaction.modifier)
                 .glassClickable(onClick = onClick, enabled = enabled, shape = CircleShape, interactionSource = interactionSource),
             contentAlignment = Alignment.Center,
             content = content
@@ -257,12 +205,10 @@ fun GlassButton(
             interactionSource = interactionSource
         )
         CompositionLocalProvider(LocalContentColor provides contentColor) {
-            GlassSurface(
+            Surface(
                 modifier = modifier.then(clickable),
                 shape = shape,
-                tint = tint,
-                containerColor = containerColor,
-                effectScale = 0.55f
+                color = containerColor
             ) {
                 Row(
                     modifier = Modifier.padding(contentPadding),
@@ -275,43 +221,36 @@ fun GlassButton(
     }
 
     val animationScope = rememberCoroutineScope()
-    val interactiveHighlight = remember(animationScope) { InteractiveHighlight(animationScope) }
-    val backdrop = LocalAppBackdrop.current
-    val effects = glassEffects()
-    val resolvedTint = tint ?: glassTint()
+    val interaction = remember(animationScope) { InteractiveHighlight(animationScope) }
+    val squash: GraphicsLayerScope.() -> Unit = remember(interaction) {
+        {
+            val w = size.width.coerceAtLeast(1f)
+            val h = size.height.coerceAtLeast(1f)
+            val progress = interaction.pressProgress
+            val scaleVal = lerp(1f, 1f + 4f.dp.toPx() / h, progress)
+            val maxOffset = size.minDimension.coerceAtLeast(1f)
+            val offset = interaction.offset
+            translationX = maxOffset * tanh(0.06f * offset.x / maxOffset)
+            translationY = maxOffset * tanh(0.06f * offset.y / maxOffset)
+            val maxDragScale = 4f.dp.toPx() / h
+            val offsetAngle = atan2(offset.y, offset.x)
+            val maxDim = size.maxDimension.coerceAtLeast(1f)
+            scaleX = scaleVal + maxDragScale * abs(cos(offsetAngle) * offset.x / maxDim) * (w / h).fastCoerceAtMost(1.5f)
+            scaleY = scaleVal + maxDragScale * abs(sin(offsetAngle) * offset.y / maxDim) * (h / w).fastCoerceAtMost(1.5f)
+        }
+    }
 
     CompositionLocalProvider(LocalContentColor provides contentColor) {
         Box(
             modifier = modifier
-                .drawBackdrop(
-                    backdrop = backdrop,
-                    shape = { shape },
-                    // No depthEffect/chromaticAberration, no extra multiplier — matches the
-                    // reference's LiquidButton exactly.
-                    effects = {
-                        vibrancy()
-                        blur(effects.blurRadius.toPx())
-                        lens(effects.refractionHeight.toPx(), effects.refractionAmount.toPx())
-                    },
-                    layerBlock = {
-                        val w = size.width.coerceAtLeast(1f)
-                        val h = size.height.coerceAtLeast(1f)
-                        val progress = interactiveHighlight.pressProgress
-                        val scaleVal = lerp(1f, 1f + 4f.dp.toPx() / h, progress)
-                        val maxOffset = size.minDimension.coerceAtLeast(1f)
-                        val offset = interactiveHighlight.offset
-                        translationX = maxOffset * tanh(0.06f * offset.x / maxOffset)
-                        translationY = maxOffset * tanh(0.06f * offset.y / maxOffset)
-                        val maxDragScale = 4f.dp.toPx() / h
-                        val offsetAngle = atan2(offset.y, offset.x)
-                        scaleX = scaleVal + maxDragScale * abs(cos(offsetAngle) * offset.x / size.maxDimension.coerceAtLeast(1f)) * (w / h).fastCoerceAtMost(1.5f)
-                        scaleY = scaleVal + maxDragScale * abs(sin(offsetAngle) * offset.y / size.maxDimension.coerceAtLeast(1f)) * (h / w).fastCoerceAtMost(1.5f)
-                    },
-                    onDrawSurface = {
-                        drawRect(resolvedTint)
-                    }
+                .glass(
+                    shape = shape,
+                    material = GlassMaterial.Regular,
+                    tint = tint,
+                    pressed = interaction,
+                    layerBlock = squash
                 )
-                .then(interactiveHighlight.modifier)
+                .then(interaction.modifier)
                 .glassClickable(onClick = onClick, enabled = enabled, shape = shape, interactionSource = interactionSource),
             contentAlignment = Alignment.Center
         ) {

@@ -17,7 +17,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -105,28 +105,27 @@ fun AutoScrollingText(
                 Box(
                     modifier = Modifier
                         .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
-                        .drawWithContent {
-                            drawContent()
+                        // drawWithCache: the marquee redraws this every frame while it scrolls,
+                        // so the edge brushes are built once per size/colour, not per frame.
+                        .drawWithCache {
                             val gradientWidthPx = gradientWidth.toPx()
-
                             // Left fade-in: Animates its color from opaque to transparent
-                            drawRect(
-                                brush = Brush.horizontalGradient(
-                                    colors = listOf(animatedLeftGradientStartColor, gradientEdgeColor),
-                                    startX = 0f,
-                                    endX = gradientWidthPx
-                                ),
-                                blendMode = BlendMode.DstIn
+                            val leftFade = Brush.horizontalGradient(
+                                colors = listOf(animatedLeftGradientStartColor, gradientEdgeColor),
+                                startX = 0f,
+                                endX = gradientWidthPx
                             )
                             // Right fade-out: Always visible for overflow
-                            drawRect(
-                                brush = Brush.horizontalGradient(
-                                    colors = listOf(gradientEdgeColor, Color.Transparent),
-                                    startX = size.width - gradientWidthPx,
-                                    endX = size.width
-                                ),
-                                blendMode = BlendMode.DstIn
+                            val rightFade = Brush.horizontalGradient(
+                                colors = listOf(gradientEdgeColor, Color.Transparent),
+                                startX = size.width - gradientWidthPx,
+                                endX = size.width
                             )
+                            onDrawWithContent {
+                                drawContent()
+                                drawRect(brush = leftFade, blendMode = BlendMode.DstIn)
+                                drawRect(brush = rightFade, blendMode = BlendMode.DstIn)
+                            }
                         }
                 ) {
                     Text(
@@ -147,18 +146,18 @@ fun AutoScrollingText(
                     modifier = Modifier
                         .fillMaxWidth()
                         .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
-                        .drawWithContent {
-                            drawContent()
+                        .drawWithCache {
                             val gradientWidthPx = gradientWidth.toPx()
                             // Right fade-out: Always visible for overflow
-                            drawRect(
-                                brush = Brush.horizontalGradient(
-                                    colors = listOf(gradientEdgeColor, Color.Transparent),
-                                    startX = size.width - gradientWidthPx,
-                                    endX = size.width
-                                ),
-                                blendMode = BlendMode.DstIn
+                            val rightFade = Brush.horizontalGradient(
+                                colors = listOf(gradientEdgeColor, Color.Transparent),
+                                startX = size.width - gradientWidthPx,
+                                endX = size.width
                             )
+                            onDrawWithContent {
+                                drawContent()
+                                drawRect(brush = rightFade, blendMode = BlendMode.DstIn)
+                            }
                         }
                 ) {
                     Text(

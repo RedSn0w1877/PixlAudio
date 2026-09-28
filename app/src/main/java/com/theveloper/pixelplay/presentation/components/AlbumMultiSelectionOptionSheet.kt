@@ -1,5 +1,7 @@
 package com.theveloper.pixelplay.presentation.components
 
+import com.theveloper.pixelplay.ui.glass.GlassModalBottomSheet
+
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -67,7 +69,7 @@ fun AlbumMultiSelectionOptionSheet(
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
-    ModalBottomSheet(
+    GlassModalBottomSheet(
         containerColor = com.theveloper.pixelplay.ui.glass.glassSheetContainerColor(),
         onDismissRequest = onDismiss,
         sheetState = sheetState

@@ -2,6 +2,7 @@
 
 package com.theveloper.pixelplay.presentation.screens
 
+import com.theveloper.pixelplay.presentation.viewmodel.rememberPlayerListSlice
 import com.theveloper.pixelplay.presentation.navigation.navigateSafely
 import com.theveloper.pixelplay.presentation.navigation.navigateSafelyReplacing
 
@@ -118,7 +119,7 @@ fun AlbumDetailScreen(
     playlistViewModel: PlaylistViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    val stablePlayerState by playerViewModel.stablePlayerState.collectAsStateWithLifecycle()
+    val stablePlayerState by rememberPlayerListSlice(playerViewModel)
     val favoriteIds by playerViewModel.favoriteSongIds.collectAsStateWithLifecycle()
     val navBarCompactMode by playerViewModel.navBarCompactMode.collectAsStateWithLifecycle()
 
@@ -156,7 +157,7 @@ fun AlbumDetailScreen(
         shapes = MaterialTheme.shapes
     ) {
 
-        val isMiniPlayerVisible = stablePlayerState.currentSong != null
+        val isMiniPlayerVisible = stablePlayerState.hasCurrentSong
         val fabBottomPadding by animateDpAsState(
             targetValue = if (isMiniPlayerVisible) MiniPlayerHeight + 16.dp else 16.dp,
             label = "fabPadding"
@@ -331,8 +332,8 @@ fun AlbumDetailScreen(
                             ) { song ->
                                 EnhancedSongListItem(
                                     song = song,
-                                    isCurrentSong = stablePlayerState.currentSong?.id == song.id,
-                                    isPlaying = stablePlayerState.isPlaying,
+                                    isCurrentSong = stablePlayerState.currentSongId == song.id,
+                                    isPlaying = stablePlayerState.isPlayingRow(song.id),
                                     showAlbumArt = false,
                                     onMoreOptionsClick = {
                                         playerViewModel.selectSongForInfo(song)

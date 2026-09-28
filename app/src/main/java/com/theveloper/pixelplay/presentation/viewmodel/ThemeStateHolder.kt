@@ -173,7 +173,9 @@ class ThemeStateHolder @Inject constructor(
             return
         }
 
-        requestScope.launch(Dispatchers.IO) {
+        // Bounded: a fast fling through the album grid used to queue hundreds of concurrent
+        // decode+extract jobs competing with the UI thread for CPU.
+        requestScope.launch(AlbumColorDispatcher) {
             var scheme: ColorSchemePair? = null
             try {
                 scheme = colorSchemeProcessor.getOrGenerateColorScheme(
@@ -203,7 +205,9 @@ class ThemeStateHolder @Inject constructor(
             if (eager && existingFlow.value == null) {
                 requestAlbumColorSchemeGeneration(uriString, existingFlow)
             }
-            return existingFlow.asStateFlow()
+            // Same instance every call: a fresh asStateFlow() wrapper per call made every album
+            // row's argument "new" on each recomposition, so rows could never skip.
+            return existingFlow
         }
 
         val newFlow = MutableStateFlow<ColorSchemePair?>(null)
@@ -213,7 +217,7 @@ class ThemeStateHolder @Inject constructor(
             requestAlbumColorSchemeGeneration(uriString, newFlow)
         }
 
-        return newFlow.asStateFlow()
+        return newFlow
     }
 
     fun ensureAlbumColorScheme(uriString: String) {
@@ -316,3 +320,5 @@ class ThemeStateHolder @Inject constructor(
     }
 
 }
+
+private val AlbumColorDispatcher = Dispatchers.IO.limitedParallelism(2)

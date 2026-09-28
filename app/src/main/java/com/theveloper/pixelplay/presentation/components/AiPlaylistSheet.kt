@@ -1,5 +1,7 @@
 package com.theveloper.pixelplay.presentation.components
 
+import com.theveloper.pixelplay.ui.glass.GlassModalBottomSheet
+
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -184,7 +186,7 @@ fun AiPlaylistSheet(
         )
     }
 
-    ModalBottomSheet(
+    GlassModalBottomSheet(
         sheetState = sheetState,
         onDismissRequest = onDismiss,
         containerColor = com.theveloper.pixelplay.ui.glass.glassSheetContainerColor(colors.surfaceContainerLow)

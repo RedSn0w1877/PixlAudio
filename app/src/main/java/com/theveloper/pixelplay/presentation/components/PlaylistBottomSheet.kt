@@ -1,5 +1,7 @@
 package com.theveloper.pixelplay.presentation.components
 
+import com.theveloper.pixelplay.ui.glass.GlassModalBottomSheet
+
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -109,7 +111,7 @@ fun PlaylistBottomSheet(
         label = "fab_alpha"
     )
 
-    ModalBottomSheet(
+    GlassModalBottomSheet(
         containerColor = com.theveloper.pixelplay.ui.glass.glassSheetContainerColor(),
         onDismissRequest = onDismiss,
         sheetState = sheetState,

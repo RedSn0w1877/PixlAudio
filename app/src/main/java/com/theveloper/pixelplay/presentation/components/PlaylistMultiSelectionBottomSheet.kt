@@ -1,5 +1,7 @@
 package com.theveloper.pixelplay.presentation.components
 
+import com.theveloper.pixelplay.ui.glass.GlassModalBottomSheet
+
 import android.app.Activity
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.tween
@@ -99,7 +101,7 @@ fun PlaylistMultiSelectionBottomSheet(
         cornerRadiusBL = evenCornerRadius, smoothnessAsPercentTR = 60
     )
 
-    ModalBottomSheet(
+    GlassModalBottomSheet(
         containerColor = com.theveloper.pixelplay.ui.glass.glassSheetContainerColor(),
         onDismissRequest = onDismiss,
         sheetState = sheetState
