@@ -27,14 +27,16 @@ internal data class FullPlayerRuntimePolicy(
 internal fun rememberFullPlayerRuntimePolicy(
     currentSheetState: PlayerSheetState,
     expansionFraction: Animatable<Float, AnimationVector1D>,
-    bottomSheetOpenFraction: Float
+    bottomSheetOpenFractionProvider: () -> Float
 ): FullPlayerRuntimePolicy {
-    val allowRealtimeUpdates by remember(currentSheetState, bottomSheetOpenFraction) {
+    // The occlusion fraction is read inside derivedStateOf, so a queue drag only recomposes the
+    // caller when the result actually flips.
+    val allowRealtimeUpdates by remember(currentSheetState, bottomSheetOpenFractionProvider) {
         derivedStateOf {
             val ef = expansionFraction.value
             // Compute content alpha inline (same formula as FullPlayerVisualState).
             val alpha = (ef - 0.25f).coerceIn(0f, 0.75f) / 0.75f
-            val isOccluded = bottomSheetOpenFraction >= 0.08f
+            val isOccluded = bottomSheetOpenFractionProvider() >= 0.08f
 
             currentSheetState == PlayerSheetState.EXPANDED &&
                 ef >= 0.985f &&

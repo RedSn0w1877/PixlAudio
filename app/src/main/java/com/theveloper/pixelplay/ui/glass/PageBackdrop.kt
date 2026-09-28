@@ -102,10 +102,9 @@ class PageBackdrop internal constructor(
     /**
      * A rasterized copy of [graphicsLayer], for the ONE case the live layer can't cover: a
      * `ModalBottomSheet` (or any Dialog/Popup-backed surface) renders into its OWN Android
-     * Window, and a [GraphicsLayer] recorded in one window's hardware renderer cannot be drawn
-     * from another window's — that's why [layerCoordinates] stays null there and this backdrop
-     * would otherwise silently no-op, drawing only the glass tint with zero refraction. A plain
-     * [ImageBitmap] has no window affinity, so it can.
+     * Window, and a [GraphicsLayer] recorded in one window's hardware renderer can't be relied
+     * on from another window's. A plain [ImageBitmap] has no window affinity. Other-window glass
+     * reads it through [snapshotView], never through this backdrop directly.
      *
      * Populated by the snapshot loop in [ProvideGlassEnvironment] — which runs in the main
      * window's own composition, since that's the window that owns [graphicsLayer] (capturing from

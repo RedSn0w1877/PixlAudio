@@ -1593,11 +1593,17 @@ class PlayerViewModel @Inject constructor(
     init {
         Log.i("PlayerViewModel", "init started.")
 
-        // Cast initialization if already connected
-        val currentSession = sessionManager?.currentCastSession
-        if (currentSession != null) {
-            castStateHolder.setCastPlayer(CastPlayer(currentSession, context.contentResolver))
-            castStateHolder.setRemotePlaybackActive(true)
+        // Cast initialization if already connected. Deferred one main-loop turn: touching
+        // sessionManager initialises CastContext / Play Services (main-thread only), and this
+        // ViewModel is created during the first composition, so doing it inline sat in front of
+        // the first frame.
+        // Dispatchers.Main (not .immediate): always posted to the next loop turn.
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.Main) {
+            val currentSession = sessionManager?.currentCastSession
+            if (currentSession != null) {
+                castStateHolder.setCastPlayer(CastPlayer(currentSession, context.contentResolver))
+                castStateHolder.setRemotePlaybackActive(true)
+            }
         }
 
 

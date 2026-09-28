@@ -217,7 +217,8 @@ fun UnifiedPlayerSheetV2(
     val preparingSongId = playerUiSheetSlice.preparingSongId
 
     val currentSheetContentState by playerViewModel.sheetState.collectAsStateWithLifecycle()
-    val predictiveBackCollapseProgress by playerViewModel.predictiveBackCollapseFraction.collectAsStateWithLifecycle()
+    // Kept as State (no `by`): read only inside SheetVisualState's draw-phase providers.
+    val predictiveBackCollapseProgressState = playerViewModel.predictiveBackCollapseFraction.collectAsStateWithLifecycle()
     val predictiveBackSwipeEdge by playerViewModel.predictiveBackSwipeEdge.collectAsStateWithLifecycle()
     val prewarmFullPlayer = rememberPrewarmFullPlayer(infrequentPlayerState.currentSong?.id)
 
@@ -239,7 +240,7 @@ fun UnifiedPlayerSheetV2(
         with(density) { configuration.screenWidthDp.dp.toPx() }
     }
     val dismissThresholdPx = remember(screenWidthPx) { screenWidthPx * 0.4f }
-    val swipeDismissProgress by remember(dismissThresholdPx) {
+    val swipeDismissProgressState = remember(dismissThresholdPx) {
         derivedStateOf {
             if (dismissThresholdPx == 0f) 0f
             else (abs(offsetAnimatable.value) / dismissThresholdPx).coerceIn(0f, 1f)
@@ -409,7 +410,7 @@ fun UnifiedPlayerSheetV2(
     val sheetVisualState = rememberSheetVisualState(
         showPlayerContentArea = showPlayerContentArea,
         collapsedStateHorizontalPadding = collapsedStateHorizontalPadding,
-        predictiveBackCollapseProgress = predictiveBackCollapseProgress,
+        predictiveBackCollapseProgressState = predictiveBackCollapseProgressState,
         predictiveBackSwipeEdge = predictiveBackSwipeEdge,
         currentSheetContentState = currentSheetContentState,
         playerContentExpansionFraction = playerContentExpansionFraction,
@@ -421,7 +422,7 @@ fun UnifiedPlayerSheetV2(
         isNavBarHidden = isNavBarHidden,
         isPlaying = infrequentPlayerState.isPlaying,
         hasCurrentSong = infrequentPlayerState.currentSong != null,
-        swipeDismissProgress = swipeDismissProgress
+        swipeDismissProgressState = swipeDismissProgressState
     )
     val currentBottomPadding = sheetVisualState.currentBottomPadding
     val baseBottomPadding = sheetVisualState.baseBottomPadding
@@ -534,8 +535,9 @@ fun UnifiedPlayerSheetV2(
     val internalIsKeyboardVisible = sheetOverlayState.internalIsKeyboardVisible
     val actuallyShowSheetContent = sheetOverlayState.actuallyShowSheetContent
     val isQueueVisible = sheetOverlayState.isQueueVisible
-    val bottomSheetOpenFraction = sheetOverlayState.bottomSheetOpenFraction
-    val queueScrimAlpha = sheetOverlayState.queueScrimAlpha
+    val bottomSheetOpenFractionProvider = sheetOverlayState.bottomSheetOpenFractionProvider
+    val queueScrimAlphaProvider = sheetOverlayState.queueScrimAlphaProvider
+    val isQueueScrimVisible = sheetOverlayState.isQueueScrimVisible
     val shouldRenderQueueHost by remember(internalIsKeyboardVisible, selectedSongForInfo) {
         derivedStateOf {
             !internalIsKeyboardVisible || selectedSongForInfo != null
@@ -874,7 +876,7 @@ fun UnifiedPlayerSheetV2(
                             isPreparingPlayback = isPreparingPlayback,
                             playerContentExpansionFraction = playerContentExpansionFraction,
                             albumColorScheme = albumColorScheme,
-                            bottomSheetOpenFraction = bottomSheetOpenFraction,
+                            bottomSheetOpenFractionProvider = bottomSheetOpenFractionProvider,
                             fullPlayerVisualState = fullPlayerVisualState,
                             containerHeight = containerHeight,
                             currentQueueSourceName = currentQueueSourceName,
@@ -960,7 +962,8 @@ fun UnifiedPlayerSheetV2(
                     !internalIsKeyboardVisible,
                 isQueueTelemetryActive = isQueueTelemetryActive,
                 albumColorScheme = albumColorScheme,
-                queueScrimAlpha = queueScrimAlpha,
+                queueScrimAlphaProvider = queueScrimAlphaProvider,
+                isQueueScrimVisible = isQueueScrimVisible,
                 showQueueSheet = showQueueSheet,
                 isQueueCollapsing = queueSheetState.isCollapsing,
                 queueHiddenOffsetPx = queueHiddenOffsetPx,

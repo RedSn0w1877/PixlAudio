@@ -51,7 +51,7 @@ internal fun BoxScope.UnifiedPlayerMiniAndFullLayers(
     isPreparingPlayback: Boolean,
     playerContentExpansionFraction: Animatable<Float, AnimationVector1D>,
     albumColorScheme: ColorScheme,
-    bottomSheetOpenFraction: Float,
+    bottomSheetOpenFractionProvider: () -> Float,
     fullPlayerVisualState: FullPlayerVisualState,
     containerHeight: Dp,
     currentQueueSourceName: String,
@@ -137,9 +137,10 @@ internal fun BoxScope.UnifiedPlayerMiniAndFullLayers(
             CompositionLocalProvider(
                 LocalMaterialTheme provides albumColorScheme
             ) {
-                val fullPlayerScale by remember(bottomSheetOpenFraction) {
-                    // Keep the depth effect, but avoid aggressive full-screen rescaling on every frame.
-                    derivedStateOf { lerp(1f, 0.972f, bottomSheetOpenFraction) }
+                // Read in the graphicsLayer below (draw phase), so the queue drag only
+                // re-transforms this layer instead of recomposing the sheet.
+                val fullPlayerScaleProvider = remember(bottomSheetOpenFractionProvider) {
+                    { lerp(1f, 0.972f, bottomSheetOpenFractionProvider()) }
                 }
 
                 val fullPlayerZIndex by remember {
@@ -156,7 +157,7 @@ internal fun BoxScope.UnifiedPlayerMiniAndFullLayers(
                 val fullPlayerRuntimePolicy = rememberFullPlayerRuntimePolicy(
                     currentSheetState = currentSheetContentState,
                     expansionFraction = playerContentExpansionFraction,
-                    bottomSheetOpenFraction = bottomSheetOpenFraction
+                    bottomSheetOpenFractionProvider = bottomSheetOpenFractionProvider
                 )
 
                 // Scoped queue collection: only the FullPlayer subtree observes
@@ -174,6 +175,7 @@ internal fun BoxScope.UnifiedPlayerMiniAndFullLayers(
                             // these read Animatable.value internally → re-draw only, no recomposition.
                             alpha = fullPlayerVisualState.contentAlpha
                             translationY = fullPlayerVisualState.translationY
+                            val fullPlayerScale = fullPlayerScaleProvider()
                             scaleX = fullPlayerScale
                             scaleY = fullPlayerScale
                         }

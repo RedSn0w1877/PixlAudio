@@ -13,6 +13,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -110,13 +111,13 @@ fun ProvideInlineGlassSource(
     ambientScheme: ColorScheme?,
     content: @Composable () -> Unit
 ) {
-    val ambient = remember { AmbientBackdrop() }
-    ambient.update(
-        background = background,
-        primary = ambientScheme?.primary ?: background,
-        secondary = ambientScheme?.secondary ?: background,
-        tertiary = ambientScheme?.tertiary ?: background
-    )
+    val primary = ambientScheme?.primary ?: background
+    val secondary = ambientScheme?.secondary ?: background
+    val tertiary = ambientScheme?.tertiary ?: background
+    // Seeded at creation so the first frame is right; later changes are pushed after
+    // composition (a snapshot write mid-composition is what SideEffect exists to avoid).
+    val ambient = remember { AmbientBackdrop().apply { update(background, primary, secondary, tertiary) } }
+    SideEffect { ambient.update(background, primary, secondary, tertiary) }
     CompositionLocalProvider(LocalAppBackdrop provides ambient, content = content)
 }
 

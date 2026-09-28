@@ -55,7 +55,8 @@ internal fun UnifiedPlayerQueueLayer(
     shouldRenderLayer: Boolean,
     keepQueueSheetWarm: Boolean,
     albumColorScheme: ColorScheme,
-    queueScrimAlpha: Float,
+    queueScrimAlphaProvider: () -> Float,
+    isQueueScrimVisible: Boolean,
     showQueueSheet: Boolean,
     isQueueCollapsing: Boolean,
     queueHiddenOffsetPx: Float,
@@ -99,12 +100,12 @@ internal fun UnifiedPlayerQueueLayer(
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        if (queueScrimAlpha > 0f) {
+        if (isQueueScrimVisible) {
             Box(
                 modifier = Modifier
                     .matchParentSize()
                     .zIndex(0f)
-                    .graphicsLayer { alpha = queueScrimAlpha }
+                    .graphicsLayer { alpha = queueScrimAlphaProvider() }
                     .background(MaterialTheme.colorScheme.scrim)
             )
         }
@@ -282,7 +283,8 @@ internal fun UnifiedPlayerQueueAndSongInfoHost(
     keepQueueSheetWarm: Boolean,
     isQueueTelemetryActive: Boolean,
     albumColorScheme: ColorScheme,
-    queueScrimAlpha: Float,
+    queueScrimAlphaProvider: () -> Float,
+    isQueueScrimVisible: Boolean,
     showQueueSheet: Boolean,
     isQueueCollapsing: Boolean,
     queueHiddenOffsetPx: Float,
@@ -402,7 +404,8 @@ internal fun UnifiedPlayerQueueAndSongInfoHost(
                 shouldRenderLayer = true,
                 keepQueueSheetWarm = keepQueueSheetWarm,
                 albumColorScheme = albumColorScheme,
-                queueScrimAlpha = queueScrimAlpha,
+                queueScrimAlphaProvider = queueScrimAlphaProvider,
+                isQueueScrimVisible = isQueueScrimVisible,
                 showQueueSheet = showQueueSheet,
                 isQueueCollapsing = isQueueCollapsing,
                 queueHiddenOffsetPx = queueHiddenOffsetPx,

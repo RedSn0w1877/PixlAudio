@@ -3,6 +3,7 @@ package com.theveloper.pixelplay.presentation.components.scoped
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.AnimationVector1D
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -36,7 +37,7 @@ internal data class SheetVisualState(
 internal fun rememberSheetVisualState(
     showPlayerContentArea: Boolean,
     collapsedStateHorizontalPadding: Dp,
-    predictiveBackCollapseProgress: Float,
+    predictiveBackCollapseProgressState: State<Float>,
     predictiveBackSwipeEdge: Int?,
     currentSheetContentState: PlayerSheetState,
     playerContentExpansionFraction: Animatable<Float, AnimationVector1D>,
@@ -48,8 +49,11 @@ internal fun rememberSheetVisualState(
     isNavBarHidden: Boolean,
     isPlaying: Boolean,
     hasCurrentSong: Boolean,
-    swipeDismissProgress: Float
+    swipeDismissProgressState: State<Float>
 ): SheetVisualState {
+    // Both gesture progresses arrive as State and are read only inside the provider lambdas
+    // below (layout/draw). As Float params and remember keys they recomposed the entire player
+    // sheet — and rebuilt every provider — on each frame of a back or swipe gesture.
     // Compute in px to be read inside graphicsLayer (draw phase) — zero relayout per drag frame.
     val density = LocalDensity.current
     val baseBottomPadding = remember(containerHeight, sheetCollapsedTargetY, density) {
@@ -63,7 +67,6 @@ internal fun rememberSheetVisualState(
     val miniHeightPx = remember(density) { with(density) { com.theveloper.pixelplay.presentation.components.MiniPlayerHeight.toPx() } }
     val containerHeightPx = remember(containerHeight, density) { with(density) { containerHeight.toPx() } }
     val baseBottomPaddingPx = remember(baseBottomPadding, density) { with(density) { baseBottomPadding.toPx() } }
-    val predictiveBackCollapseProgressState = rememberUpdatedState(predictiveBackCollapseProgress)
     val visualSheetTranslationYProvider: () -> Float = remember(
         currentSheetTranslationY,
         sheetCollapsedTargetY
@@ -78,7 +81,6 @@ internal fun rememberSheetVisualState(
     val playerContentAreaHeightPxProvider: () -> Float = remember(
         showPlayerContentArea,
         playerContentExpansionFraction,
-        predictiveBackCollapseProgress,
         miniHeightPx,
         containerHeightPx,
         visualSheetTranslationYProvider,
@@ -86,7 +88,7 @@ internal fun rememberSheetVisualState(
     ) {
         {
             if (showPlayerContentArea) {
-                val effectiveFraction = playerContentExpansionFraction.value * (1f - predictiveBackCollapseProgress)
+                val effectiveFraction = playerContentExpansionFraction.value * (1f - predictiveBackCollapseProgressState.value)
                 val safeFraction = effectiveFraction.coerceIn(0f, 1f)
                 val translationY = visualSheetTranslationYProvider()
                 
@@ -111,11 +113,9 @@ internal fun rememberSheetVisualState(
     val overallSheetTopCornerRadiusProvider: () -> Dp = remember(
         showPlayerContentArea,
         playerContentExpansionFraction,
-        predictiveBackCollapseProgress,
         navBarStyle,
         navBarCornerRadiusDp,
         isNavBarHidden,
-        swipeDismissProgress,
         currentSheetContentState,
         isGlass
     ) {
@@ -130,7 +130,7 @@ internal fun rememberSheetVisualState(
                 navBarCornerRadiusDp
             }
 
-            val effectiveFraction = playerContentExpansionFraction.value * (1f - predictiveBackCollapseProgress)
+            val effectiveFraction = playerContentExpansionFraction.value * (1f - predictiveBackCollapseProgressState.value)
             val safeFraction = effectiveFraction.coerceIn(0f, 1f)
             val expandedTarget = 0.dp
             val calculatedNormally = if (showPlayerContentArea) {
@@ -162,8 +162,6 @@ internal fun rememberSheetVisualState(
         navBarStyle,
         showPlayerContentArea,
         playerContentExpansionFraction,
-        predictiveBackCollapseProgress,
-        swipeDismissProgress,
         isNavBarHidden,
         navBarCornerRadiusDp,
         currentSheetContentState,
@@ -180,7 +178,7 @@ internal fun rememberSheetVisualState(
                 navBarCornerRadiusDp
             }
 
-            val effectiveFraction = playerContentExpansionFraction.value * (1f - predictiveBackCollapseProgress)
+            val effectiveFraction = playerContentExpansionFraction.value * (1f - predictiveBackCollapseProgressState.value)
             val safeFraction = effectiveFraction.coerceIn(0f, 1f)
             val calculatedNormally =
                 if (showPlayerContentArea) {
@@ -203,17 +201,17 @@ internal fun rememberSheetVisualState(
             if (isNavBarHidden) {
                 calculatedNormally
             } else if (currentSheetContentState == PlayerSheetState.COLLAPSED &&
-                swipeDismissProgress > 0f &&
+                swipeDismissProgressState.value > 0f &&
                 showPlayerContentArea &&
                 playerContentExpansionFraction.value < 0.01f
             ) {
                 if (navBarStyle == NavBarStyle.FULL_WIDTH) {
                     calculatedNormally
                 } else if (navBarStyle == NavBarStyle.DEFAULT) {
-                    lerp(10.dp, navBarCornerRadiusDp, swipeDismissProgress)
+                    lerp(10.dp, navBarCornerRadiusDp, swipeDismissProgressState.value)
                 } else {
                     val baseCollapsedRadius = if (isNavBarHidden) 32.dp else navBarCornerRadiusDp
-                    lerp(baseCollapsedRadius, navBarCornerRadiusDp, swipeDismissProgress)
+                    lerp(baseCollapsedRadius, navBarCornerRadiusDp, swipeDismissProgressState.value)
                 }
             } else {
                 calculatedNormally
@@ -233,11 +231,10 @@ internal fun rememberSheetVisualState(
         showPlayerContentArea,
         collapsedStateHorizontalPaddingPx,
         playerContentExpansionFraction,
-        predictiveBackCollapseProgress
     ) {
         {
             if (showPlayerContentArea) {
-                val effectiveFraction = playerContentExpansionFraction.value * (1f - predictiveBackCollapseProgress)
+                val effectiveFraction = playerContentExpansionFraction.value * (1f - predictiveBackCollapseProgressState.value)
                 val safeFraction = effectiveFraction.coerceIn(0f, 1f)
                 androidx.compose.ui.util.lerp(collapsedStateHorizontalPaddingPx, 0f, safeFraction)
             } else {
@@ -250,11 +247,10 @@ internal fun rememberSheetVisualState(
         showPlayerContentArea,
         collapsedStateHorizontalPaddingPx,
         playerContentExpansionFraction,
-        predictiveBackCollapseProgress
     ) {
         {
             if (showPlayerContentArea) {
-                val effectiveFraction = playerContentExpansionFraction.value * (1f - predictiveBackCollapseProgress)
+                val effectiveFraction = playerContentExpansionFraction.value * (1f - predictiveBackCollapseProgressState.value)
                 val safeFraction = effectiveFraction.coerceIn(0f, 1f)
                 androidx.compose.ui.util.lerp(collapsedStateHorizontalPaddingPx, 0f, safeFraction)
             } else {
