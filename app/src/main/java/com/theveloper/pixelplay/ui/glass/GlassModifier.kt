@@ -96,7 +96,16 @@ fun Modifier.glass(
     val highlight: () -> Highlight? = remember(tier, palette, light, pressed) {
         if (tier == GlassTier.Refractive) {
             if (pressed != null) {
-                { light.highlight(palette, alpha = 0.75f + 0.25f * pressed.pressProgress) }
+                {
+                    // Rim thickens under the finger. At rest this is the cached per-angle
+                    // Highlight; only an active press allocates.
+                    val progress = pressed.pressProgress
+                    if (progress < 0.01f) {
+                        light.highlight(palette)
+                    } else {
+                        light.highlight(palette, alpha = 1f, width = (0.5f + 0.75f * progress).dp)
+                    }
+                }
             } else {
                 { light.highlight(palette) }
             }

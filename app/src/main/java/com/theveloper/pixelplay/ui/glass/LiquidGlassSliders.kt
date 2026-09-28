@@ -15,6 +15,10 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
+import kotlin.math.roundToInt
+import androidx.compose.ui.draw.alpha
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -81,7 +85,10 @@ fun GlassSlider(
         valueRange = valueRange,
         visibilityThreshold = 0.001f,
         backdrop = backdrop,
-        modifier = modifier
+        modifier = modifier,
+        steps = steps,
+        onValueChangeFinished = onValueChangeFinished,
+        enabled = enabled
     )
 }
 
@@ -95,8 +102,28 @@ fun LiquidSlider(
     valueRange: ClosedFloatingPointRange<Float>,
     visibilityThreshold: Float,
     backdrop: Backdrop,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    steps: Int = 0,
+    onValueChangeFinished: (() -> Unit)? = null,
+    enabled: Boolean = true
 ) {
+    // Latest callbacks, since the gesture detectors below outlive recompositions.
+    val onValueChangeState = rememberUpdatedState(onValueChange)
+    val onValueChangeFinishedState = rememberUpdatedState(onValueChangeFinished)
+    // Snap to the Material slider's discrete stops. Without this, `steps` was silently ignored
+    // under glass and settings landed between their stops.
+    val snap: (Float) -> Float = remember(steps, valueRange) {
+        { v ->
+            if (steps <= 0) {
+                v
+            } else {
+                val span = valueRange.endInclusive - valueRange.start
+                val stepSize = span / (steps + 1)
+                (valueRange.start + ((v - valueRange.start) / stepSize).roundToInt() * stepSize)
+                    .coerceIn(valueRange)
+            }
+        }
+    }
     val palette = LocalGlassPalette.current
     val tier = LocalGlassTier.current
     val accentColor = palette.accent
@@ -117,6 +144,9 @@ fun LiquidSlider(
         val isLtr = LocalLayoutDirection.current == LayoutDirection.Ltr
         val animationScope = rememberCoroutineScope()
         var currentVal by remember { mutableFloatStateOf(value()) }
+        // External value updates are ignored mid-drag: with snapping, the parent echoes back a
+        // snapped value that would otherwise yank the thumb off the finger.
+        var isDragging by remember { mutableStateOf(false) }
 
         val dampedDragAnimation = remember(animationScope) {
             DampedDragAnimation(
@@ -127,22 +157,20 @@ fun LiquidSlider(
                 initialScale = 1f,
                 pressedScale = 1.65f,
                 onDragStarted = {},
-                onDragStopped = {
-                    onValueChange(currentVal)
-                },
+                onDragStopped = {},
                 onDrag = { _, dragAmount ->
                     val rangeLength = valueRange.endInclusive - valueRange.start
                     val delta = rangeLength * (dragAmount.x / trackWidth)
                     currentVal = (currentVal + if (isLtr) delta else -delta).coerceIn(valueRange)
                     updateValue(currentVal)
-                    onValueChange(currentVal)
+                    onValueChangeState.value(snap(currentVal))
                 }
             )
         }
 
         LaunchedEffect(value()) {
             val externalVal = value()
-            if (externalVal != currentVal) {
+            if (!isDragging && externalVal != currentVal) {
                 currentVal = externalVal
                 dampedDragAnimation.updateValue(externalVal)
             }
@@ -159,46 +187,61 @@ fun LiquidSlider(
             Modifier
                 .fillMaxWidth()
                 .height(36.dp)
-                .pointerInput(animationScope, trackWidth, valueRange) {
-                    detectTapGestures { position ->
-                        val rangeLength = valueRange.endInclusive - valueRange.start
-                        val fraction = (position.x / trackWidth).fastCoerceIn(0f, 1f)
-                        val targetVal = (if (isLtr) valueRange.start + fraction * rangeLength
-                        else valueRange.endInclusive - fraction * rangeLength).coerceIn(valueRange)
-                        currentVal = targetVal
-                        dampedDragAnimation.animateToValue(targetVal)
-                        onValueChange(targetVal)
-                    }
-                }
-                .pointerInput(animationScope, trackWidth, valueRange) {
-                    detectDragGestures(
-                        onDragStart = { position ->
-                            dampedDragAnimation.press()
-                            val rangeLength = valueRange.endInclusive - valueRange.start
-                            val fraction = (position.x / trackWidth).fastCoerceIn(0f, 1f)
-                            val targetVal = (if (isLtr) valueRange.start + fraction * rangeLength
-                            else valueRange.endInclusive - fraction * rangeLength).coerceIn(valueRange)
-                            currentVal = targetVal
-                            dampedDragAnimation.updateValue(targetVal)
-                            onValueChange(targetVal)
-                        },
-                        onDragEnd = {
-                            dampedDragAnimation.release()
-                            onValueChange(currentVal)
-                        },
-                        onDragCancel = {
-                            dampedDragAnimation.release()
-                        },
-                        onDrag = { change, dragAmount ->
-                            change.consume()
-                            val rangeLength = valueRange.endInclusive - valueRange.start
-                            val delta = rangeLength * (dragAmount.x / trackWidth)
-                            currentVal = (currentVal + if (isLtr) delta else -delta).coerceIn(valueRange)
-                            dampedDragAnimation.updateValue(currentVal)
-                            onValueChange(currentVal)
+                .then(
+                    if (enabled) Modifier
+                        .pointerInput(animationScope, trackWidth, valueRange, isLtr) {
+                            detectTapGestures { position ->
+                                val rangeLength = valueRange.endInclusive - valueRange.start
+                                val fraction = (position.x / trackWidth).fastCoerceIn(0f, 1f)
+                                val targetVal = snap(
+                                    (if (isLtr) valueRange.start + fraction * rangeLength
+                                    else valueRange.endInclusive - fraction * rangeLength).coerceIn(valueRange)
+                                )
+                                currentVal = targetVal
+                                dampedDragAnimation.animateToValue(targetVal)
+                                onValueChangeState.value(targetVal)
+                                onValueChangeFinishedState.value?.invoke()
+                            }
                         }
-                    )
-                },
+                        .pointerInput(animationScope, trackWidth, valueRange, isLtr) {
+                            detectDragGestures(
+                                onDragStart = { position ->
+                                    isDragging = true
+                                    dampedDragAnimation.press()
+                                    val rangeLength = valueRange.endInclusive - valueRange.start
+                                    val fraction = (position.x / trackWidth).fastCoerceIn(0f, 1f)
+                                    val targetVal = (if (isLtr) valueRange.start + fraction * rangeLength
+                                    else valueRange.endInclusive - fraction * rangeLength).coerceIn(valueRange)
+                                    currentVal = targetVal
+                                    dampedDragAnimation.updateValue(targetVal)
+                                    onValueChangeState.value(snap(targetVal))
+                                },
+                                onDragEnd = {
+                                    val finalVal = snap(currentVal)
+                                    currentVal = finalVal
+                                    dampedDragAnimation.updateValue(finalVal)
+                                    dampedDragAnimation.release()
+                                    isDragging = false
+                                    onValueChangeState.value(finalVal)
+                                    onValueChangeFinishedState.value?.invoke()
+                                },
+                                onDragCancel = {
+                                    dampedDragAnimation.release()
+                                    isDragging = false
+                                    onValueChangeFinishedState.value?.invoke()
+                                },
+                                onDrag = { change, dragAmount ->
+                                    change.consume()
+                                    val rangeLength = valueRange.endInclusive - valueRange.start
+                                    val delta = rangeLength * (dragAmount.x / trackWidth)
+                                    currentVal = (currentVal + if (isLtr) delta else -delta).coerceIn(valueRange)
+                                    dampedDragAnimation.updateValue(currentVal)
+                                    onValueChangeState.value(snap(currentVal))
+                                }
+                            )
+                        }
+                    else Modifier.alpha(0.38f)
+                ),
             contentAlignment = Alignment.CenterStart
         ) {
             // Track (8dp height) centered vertically

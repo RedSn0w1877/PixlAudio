@@ -16,6 +16,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
@@ -70,9 +71,10 @@ fun GlassSwitch(
     val backdrop = LocalAppBackdrop.current
     LiquidToggle(
         selected = { checked },
-        onSelect = { if (enabled) onCheckedChange(it) },
+        onSelect = { onCheckedChange(it) },
         backdrop = backdrop,
         modifier = modifier,
+        enabled = enabled,
         accentColor = if (accentColor.isSpecified) accentColor else LocalGlassPalette.current.accent
     )
 }
@@ -86,7 +88,8 @@ fun LiquidToggle(
     onSelect: (Boolean) -> Unit,
     backdrop: Backdrop,
     modifier: Modifier = Modifier,
-    accentColor: Color = LocalGlassPalette.current.accent
+    accentColor: Color = LocalGlassPalette.current.accent,
+    enabled: Boolean = true
 ) {
     val palette = LocalGlassPalette.current
     val tier = LocalGlassTier.current
@@ -149,7 +152,7 @@ fun LiquidToggle(
     val trackBackdrop = rememberPageBackdrop()
 
     Box(
-        modifier,
+        modifier.then(if (enabled) Modifier else Modifier.alpha(0.38f)),
         contentAlignment = Alignment.CenterStart
     ) {
         Box(
@@ -172,7 +175,9 @@ fun LiquidToggle(
                     else lerp(-padding, -(padding + dragWidth), f)
                 }
                 .semantics { role = Role.Switch }
-                .then(dampedDragAnimation.modifier)
+                // Disabled: no gesture handling at all, so the thumb can't visually flip
+                // without the setting changing.
+                .then(if (enabled) dampedDragAnimation.modifier else Modifier)
                 .then(if (samples) Modifier.drawBackdrop(
                     backdrop = rememberCombinedBackdrop(
                         backdrop,
