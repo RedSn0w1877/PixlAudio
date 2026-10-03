@@ -12,8 +12,15 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import com.theveloper.pixelplay.data.network.lyrics.BiniFixtures
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
+import okhttp3.Protocol
+import okhttp3.Request
+import okhttp3.Response
+import okhttp3.ResponseBody.Companion.toResponseBody
 import java.io.File
 import java.nio.file.Files
 import org.junit.jupiter.api.Test
@@ -28,7 +35,7 @@ class LyricsRepositoryImplTest {
         val context = mockk<Context> {
             every { filesDir } throws SecurityException("Storage temporarily unavailable")
         }
-        val repository = LyricsRepositoryImpl(context, api, dao, mockk<OkHttpClient>(relaxed = true))
+        val repository = LyricsRepositoryImpl(context, api, dao, offlineClient())
         val song = testSong(id = "1042", title = "Stored song", artist = "Artist", duration = 180_000L).copy(lyrics = "Saved words")
 
         val lyrics = repository.getLyrics(song, LyricsSourcePreference.API_FIRST)
@@ -59,7 +66,7 @@ class LyricsRepositoryImplTest {
             context = mockk<Context>(relaxed = true),
             lrcLibApiService = mockk<LrcLibApiService>(relaxed = true),
             lyricsDao = mockk<LyricsDao>(relaxed = true),
-            okHttpClient = mockk<OkHttpClient>(relaxed = true)
+            okHttpClient = offlineClient()
         )
         val song = Song(
             id = "12",
@@ -93,7 +100,7 @@ class LyricsRepositoryImplTest {
             context = mockk<Context>(relaxed = true),
             lrcLibApiService = apiService,
             lyricsDao = mockk<LyricsDao>(relaxed = true),
-            okHttpClient = mockk<OkHttpClient>(relaxed = true)
+            okHttpClient = offlineClient()
         )
         val song = Song(
             id = "45",
@@ -135,7 +142,7 @@ class LyricsRepositoryImplTest {
             context = mockk<Context>(relaxed = true),
             lrcLibApiService = apiService,
             lyricsDao = lyricsDao,
-            okHttpClient = mockk<OkHttpClient>(relaxed = true)
+            okHttpClient = offlineClient()
         )
         val song = Song(
             id = "77",
@@ -183,7 +190,7 @@ class LyricsRepositoryImplTest {
             context = testContext(),
             lrcLibApiService = apiService,
             lyricsDao = lyricsDao,
-            okHttpClient = mockk<OkHttpClient>(relaxed = true)
+            okHttpClient = offlineClient()
         )
         val song = testSong(
             id = "101",
@@ -215,7 +222,7 @@ class LyricsRepositoryImplTest {
             context = testContext(),
             lrcLibApiService = apiService,
             lyricsDao = lyricsDao,
-            okHttpClient = mockk<OkHttpClient>(relaxed = true)
+            okHttpClient = offlineClient()
         )
         val song = testSong(
             id = "102",
@@ -247,7 +254,7 @@ class LyricsRepositoryImplTest {
             context = testContext(),
             lrcLibApiService = apiService,
             lyricsDao = lyricsDao,
-            okHttpClient = mockk<OkHttpClient>(relaxed = true)
+            okHttpClient = offlineClient()
         )
         val song = testSong(
             id = "103",
@@ -280,7 +287,7 @@ class LyricsRepositoryImplTest {
             context = testContext(),
             lrcLibApiService = apiService,
             lyricsDao = lyricsDao,
-            okHttpClient = mockk<OkHttpClient>(relaxed = true)
+            okHttpClient = offlineClient()
         )
         val song = testSong(
             id = "104",
@@ -295,6 +302,90 @@ class LyricsRepositoryImplTest {
         assertThat(result.isSuccess).isTrue()
         coVerify(exactly = 1) { lyricsDao.insert(any()) }
     }
+
+    @Test
+    fun fetchFromRemote_prefersBiniLyricsWordTimingOverLrclibLineSync() = runBlocking<Unit> {
+        // Real time on purpose: the catalog race uses withTimeoutOrNull, which runTest's
+        // virtual clock would expire the moment the fake network thread is busy.
+        val apiService = mockk<LrcLibApiService>(relaxed = true)
+        val lyricsDao = mockk<LyricsDao>(relaxed = true)
+        coEvery { lyricsDao.getLyrics(105L) } returns null
+        coEvery { apiService.searchLyrics(any(), any(), any(), any()) } returns arrayOf(
+            lrcResponse(name = "Paper Lanterns", artistName = "Test Singer", duration = 200.0)
+        )
+        val inserted = mutableListOf<LyricsEntity>()
+        coEvery { lyricsDao.insert(capture(inserted)) } returns Unit
+        val http = fakeClient { request ->
+            when {
+                request.url.host == "lyrics-api.binimum.org" ->
+                    Triple(307, "", "https://lrc.red/api/v1?" + request.url.encodedQuery)
+                request.url.host == "lrc.red" && request.url.encodedPath == "/api/v1" ->
+                    Triple(200, BiniFixtures.results(BiniFixtures.row("USAB12000105")), null)
+                request.url.host == "lrc.red" -> Triple(200, BiniFixtures.ttml(), null)
+                else -> Triple(404, "", null)
+            }
+        }
+        val repository = LyricsRepositoryImpl(
+            context = testContext(),
+            lrcLibApiService = apiService,
+            lyricsDao = lyricsDao,
+            okHttpClient = http
+        )
+        val song = testSong(id = "105", title = "Paper Lanterns", artist = "Test Singer", duration = 200_000L)
+            .copy(album = "Harbor Songs")
+
+        val online = repository.findOnlineSyncedLyrics(song)
+        assertThat(online?.source).isEqualTo("BiniLyrics")
+
+        val result = repository.fetchFromRemote(song)
+
+        assertThat(result.isSuccess).isTrue()
+        val (lyrics, raw) = result.getOrThrow()
+        assertThat(lyrics.document?.metadata?.source).isEqualTo("BiniLyrics")
+        assertThat(lyrics.synced!!.first().words).isNotEmpty()
+        assertThat(raw).contains("pixelplay-lyrics")
+        assertThat(inserted.single().content).isEqualTo(raw)
+        http.dispatcher.executorService.shutdown()
+    }
+
+    @Test
+    fun searchRemote_listsBiniLyricsMatchFirstWithItsSourceName() = runTest {
+        val apiService = mockk<LrcLibApiService>(relaxed = true)
+        coEvery { apiService.searchLyrics(any(), any(), any(), any()) } returns arrayOf(
+            lrcResponse(name = "Paper Lanterns", artistName = "Test Singer", duration = 200.0)
+        )
+        val http = fakeClient { request ->
+            when {
+                request.url.host == "lyrics-api.binimum.org" ->
+                    Triple(307, "", "https://lrc.red/api/v1?" + request.url.encodedQuery)
+                request.url.host == "lrc.red" && request.url.encodedPath == "/api/v1" ->
+                    Triple(200, BiniFixtures.results(BiniFixtures.row("USAB12000106")), null)
+                request.url.host == "lrc.red" -> Triple(200, BiniFixtures.ttml(), null)
+                else -> Triple(404, "", null)
+            }
+        }
+        val repository = LyricsRepositoryImpl(testContext(), apiService, mockk(relaxed = true), http)
+        val song = testSong(id = "106", title = "Paper Lanterns", artist = "Test Singer", duration = 200_000L)
+
+        val (_, results) = repository.searchRemote(song).getOrThrow()
+
+        assertThat(results.map { it.source }).containsExactly("BiniLyrics", "LRCLIB").inOrder()
+        assertThat(results.first().record.id).isLessThan(0)
+        assertThat(results.first().lyrics.synced).isNotEmpty()
+        http.dispatcher.executorService.shutdown()
+    }
+
+    /** No network: every request is answered locally (404 unless [reply] says otherwise). */
+    private fun fakeClient(reply: (Request) -> Triple<Int, String, String?>): OkHttpClient =
+        OkHttpClient.Builder().addInterceptor { chain ->
+            val request = chain.request()
+            val (code, body, location) = reply(request)
+            Response.Builder().request(request).protocol(Protocol.HTTP_1_1).code(code).message("Fixture")
+                .apply { location?.let { header("Location", it) } }
+                .body(body.toResponseBody("application/json".toMediaType())).build()
+        }.build()
+
+    private fun offlineClient(): OkHttpClient = fakeClient { Triple(404, "", null) }
 
     private fun testContext(filesDir: File = Files.createTempDirectory("pixelplay-lyrics-test").toFile()): Context {
         return mockk<Context>(relaxed = true) {
