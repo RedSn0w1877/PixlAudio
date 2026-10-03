@@ -136,6 +136,8 @@ import androidx.mediarouter.media.MediaRouter
 import com.theveloper.pixelplay.presentation.screens.TabAnimation
 import com.theveloper.pixelplay.presentation.viewmodel.BluetoothAudioDeviceState
 import com.theveloper.pixelplay.presentation.viewmodel.PlayerViewModel
+import com.theveloper.pixelplay.data.spotify.connect.SpotifyConnectDevice
+import com.theveloper.pixelplay.data.spotify.connect.SpotifyConnectUiState
 import com.theveloper.pixelplay.ui.theme.GoogleSansRounded
 import racra.compose.smooth_corner_rect_library.AbsoluteSmoothCornerShape
 import android.content.pm.PackageManager
@@ -180,6 +182,7 @@ fun CastBottomSheet(
     val isRemotePlaybackActive by playerViewModel.isRemotePlaybackActive.collectAsStateWithLifecycle()
     val isCastConnecting by playerViewModel.isCastConnecting.collectAsStateWithLifecycle()
     val trackVolume by playerViewModel.trackVolume.collectAsStateWithLifecycle()
+    val connectState by playerViewModel.spotifyConnect.uiState.collectAsStateWithLifecycle()
     val isPlaying by remember(playerViewModel) {
         playerViewModel.stablePlayerState.map { it.isPlaying }.distinctUntilChanged()
     }.collectAsStateWithLifecycle(initialValue = playerViewModel.stablePlayerState.value.isPlaying)
@@ -216,6 +219,11 @@ fun CastBottomSheet(
             playerViewModel.refreshLocalConnectionInfo(refreshBluetoothDevices = true)
         }
     }
+    // Spotify Connect devices are fetched again every time the sheet opens.
+    LaunchedEffect(connectState.availability) {
+        playerViewModel.spotifyConnect.refreshDevices()
+    }
+    val connectActive = connectState.active
 
     val activeRoute = selectedRoute?.takeUnless { it.isDefault }
     val isRemoteSession = (isRemotePlaybackActive || isCastConnecting) && activeRoute != null
@@ -291,7 +299,21 @@ fun CastBottomSheet(
         }
     }
 
-    val activeDevice = if (isRemoteSession) {
+    val activeDevice = if (connectActive != null) {
+        ActiveDeviceUi(
+            id = "spotify_connect_${connectActive.deviceId}",
+            title = connectActive.name,
+            subtitle = "Spotify Connect",
+            isRemote = true,
+            icon = spotifyDeviceIcon(connectActive.kind),
+            isConnecting = connectState.isStopping,
+            volume = (connectActive.volumePercent ?: 0).toFloat(),
+            volumeRange = 0f..100f,
+            connectionLabel = if (connectState.isRemotePlaying) stringResource(R.string.cast_playing) else stringResource(R.string.cast_paused),
+            disconnectLabel = "Stop playing on ${connectActive.name}",
+            volumeNote = if (connectActive.supportsVolume) null else "This device sets its own volume"
+        )
+    } else if (isRemoteSession) {
         val remoteRoute = checkNotNull(activeRoute)
         ActiveDeviceUi(
             id = remoteRoute.id,
@@ -380,15 +402,23 @@ fun CastBottomSheet(
                                     intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                                     context.startActivity(intent)
                                 }
+                                connectActive != null ->
+                                    playerViewModel.sendToast("Stop playing on ${connectActive.name} first, then choose a Cast device")
                                 else -> routes.firstOrNull { it.id == id }?.let { playerViewModel.selectRoute(it) }
                             }
                         },
                         onDisconnect = {
-                            playerViewModel.disconnect()
-                            onDismiss()
+                            if (connectActive != null) {
+                                playerViewModel.spotifyConnect.stopPlaying()
+                            } else {
+                                playerViewModel.disconnect()
+                                onDismiss()
+                            }
                         },
                         onVolumeChange = { value ->
-                            if (uiState.activeDevice.isRemote) {
+                            if (connectActive != null) {
+                                playerViewModel.spotifyConnect.setVolume(value.toInt())
+                            } else if (uiState.activeDevice.isRemote) {
                                 playerViewModel.setRouteVolume(value.toInt())
                             } else {
                                 playerViewModel.setTrackVolume(value)
@@ -407,8 +437,16 @@ fun CastBottomSheet(
                         onRefresh = {
                             playerViewModel.refreshCastRoutes()
                             playerViewModel.refreshLocalConnectionInfo(refreshBluetoothDevices = true)
+                            playerViewModel.spotifyConnect.refreshDevices()
                         },
-                        startWithControls = isRemoteSession
+                        startWithControls = isRemoteSession || connectActive != null,
+                        spotifyConnect = connectState,
+                        onSpotifyDevice = { device ->
+                            playerViewModel.spotifyConnect.selectDevice(device) { playerViewModel.sendToast(it) }
+                        },
+                        onSpotifyRefresh = { playerViewModel.spotifyConnect.refreshDevices() },
+                        onSpotifyReconnect = { playerViewModel.spotifyConnect.reconnect() },
+                        onSpotifyStop = { playerViewModel.spotifyConnect.stopPlaying() }
                     )
                 }
             }
@@ -440,7 +478,11 @@ private data class ActiveDeviceUi(
     val isConnecting: Boolean,
     val volume: Float,
     val volumeRange: ClosedFloatingPointRange<Float>,
-    val connectionLabel: String
+    val connectionLabel: String,
+    /** The hero's button text; the Cast default when null. */
+    val disconnectLabel: String? = null,
+    /** Shown in place of the volume slider (a device that sets its own volume). */
+    val volumeNote: String? = null
 )
 
 private data class CastSheetUiState(
@@ -578,7 +620,12 @@ private fun CastSheetContent(
     onTurnOnWifi: () -> Unit,
     onOpenBluetoothSettings: () -> Unit,
     onRefresh: () -> Unit,
-    startWithControls: Boolean = true
+    startWithControls: Boolean = true,
+    spotifyConnect: SpotifyConnectUiState = SpotifyConnectUiState(),
+    onSpotifyDevice: (SpotifyConnectDevice) -> Unit = {},
+    onSpotifyRefresh: () -> Unit = {},
+    onSpotifyReconnect: () -> Unit = {},
+    onSpotifyStop: () -> Unit = {}
 ) {
     val allConnectivityOff = !state.wifiEnabled && !state.isBluetoothEnabled
     val configuration = LocalConfiguration.current
@@ -681,6 +728,11 @@ private fun CastSheetContent(
                         onOpenBluetoothSettings = onOpenBluetoothSettings,
                         onRefresh = onRefresh,
                         maxContentHeight = maxPagerHeight,
+                        spotifyConnect = spotifyConnect,
+                        onSpotifyDevice = onSpotifyDevice,
+                        onSpotifyRefresh = onSpotifyRefresh,
+                        onSpotifyReconnect = onSpotifyReconnect,
+                        onSpotifyStop = onSpotifyStop,
                     )
                 }
             }
@@ -836,6 +888,11 @@ private fun CastDevicesTabContent(
     onOpenBluetoothSettings: () -> Unit,
     onRefresh: () -> Unit,
     maxContentHeight: Dp,
+    spotifyConnect: SpotifyConnectUiState = SpotifyConnectUiState(),
+    onSpotifyDevice: (SpotifyConnectDevice) -> Unit = {},
+    onSpotifyRefresh: () -> Unit = {},
+    onSpotifyReconnect: () -> Unit = {},
+    onSpotifyStop: () -> Unit = {},
 ) {
     val colors = MaterialTheme.colorScheme
 
@@ -891,6 +948,14 @@ private fun CastDevicesTabContent(
                 )
             }
         }
+
+        spotifyConnectSection(
+            state = spotifyConnect,
+            onDevice = onSpotifyDevice,
+            onRefresh = onSpotifyRefresh,
+            onReconnect = onSpotifyReconnect,
+            onStop = onSpotifyStop
+        )
     }
 }
 
@@ -1404,18 +1469,29 @@ private fun ActiveDeviceHero(
                             Icon(
                                 modifier = Modifier.size(22.dp),
                                 painter = painterResource(R.drawable.rounded_mimo_disconnect_24),
-                                contentDescription = stringResource(R.string.cast_disconnect),
+                                contentDescription = device.disconnectLabel ?: stringResource(R.string.cast_disconnect),
                             )
                             Spacer(
                                 modifier = Modifier.width(6.dp)
                             )
-                            Text(stringResource(R.string.cast_disconnect))
+                            Text(
+                                text = device.disconnectLabel ?: stringResource(R.string.cast_disconnect),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
                         }
                     }
                 }
             }
 
             // Sección de Volumen (Sin cambios)
+            if (device.volumeNote != null) {
+                Text(
+                    text = device.volumeNote,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onTertiaryContainer
+                )
+            } else
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),

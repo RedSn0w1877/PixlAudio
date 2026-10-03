@@ -226,6 +226,8 @@ class PlayerViewModel @Inject constructor(
     private val mediaControllerSyncStateHolder: MediaControllerSyncStateHolder,
     /** "Sync it yourself" lyrics editor (facade only; its state lives in the holder). */
     val lyricsSyncEditor: LyricsSyncEditorStateHolder,
+    /** Spotify Connect output (facade only; the session lives in the holder's controller). */
+    val spotifyConnect: SpotifyConnectStateHolder,
     private val sessionToken: SessionToken,
     private val mediaControllerFactory: com.theveloper.pixelplay.data.media.MediaControllerFactory
 ) : ViewModel() {
@@ -918,6 +920,10 @@ class PlayerViewModel @Inject constructor(
         }
 
         lyricsStateHolder.messageEvents
+            .onEach { msg: String -> _toastEvents.emit(msg) }
+            .launchIn(viewModelScope)
+
+        spotifyConnect.messages
             .onEach { msg: String -> _toastEvents.emit(msg) }
             .launchIn(viewModelScope)
 

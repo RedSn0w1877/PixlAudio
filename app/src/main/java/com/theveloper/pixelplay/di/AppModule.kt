@@ -584,6 +584,15 @@ object AppModule {
         return retrofit.create(com.theveloper.pixelplay.data.network.spotify.SpotifyApiService::class.java)
     }
 
+    /** Player endpoints for Spotify Connect output; same api.spotify.com Retrofit. */
+    @Provides
+    @Singleton
+    fun provideSpotifyPlayerApiService(
+        @SpotifyRetrofit retrofit: Retrofit
+    ): com.theveloper.pixelplay.data.network.spotify.SpotifyPlayerApiService {
+        return retrofit.create(com.theveloper.pixelplay.data.network.spotify.SpotifyPlayerApiService::class.java)
+    }
+
     /**
      * Retrofit para el OAuth de Google (flujo de dispositivo de YouTube). Usa el cliente de
      * YouTube (sin el interceptor que reescribe el User-Agent) para no chocar con nada.

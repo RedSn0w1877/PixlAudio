@@ -133,23 +133,6 @@ class TrackMatcher @Inject constructor(
         return score.coerceIn(0f, 1f)
     }
 
-    /**
-     * Los artistas se comparan por tokens: YouTube Music suele mostrar solo el principal
-     * mientras que Spotify lista a todos los colaboradores.
-     */
-    private fun artistSimilarity(source: String, candidate: String): Float {
-        if (source.isBlank() || candidate.isBlank()) return 0f
-        if (source == candidate) return 1f
-        if ((" $candidate ").contains(" $source ")) return 0.9f
-
-        val sourceTokens = source.split(' ').filter { it.length > 2 }.toSet()
-        val candidateTokens = candidate.split(' ').filter { it.length > 2 }.toSet()
-        if (sourceTokens.isEmpty() || candidateTokens.isEmpty()) return similarity(source, candidate)
-
-        val shared = sourceTokens.intersect(candidateTokens).size
-        return shared.toFloat() / max(sourceTokens.size, candidateTokens.size)
-    }
-
     companion object {
         private const val CANDIDATES_PER_QUERY = 8
         const val MIN_ACCEPT_SCORE = 0.55f
@@ -164,13 +147,30 @@ class TrackMatcher @Inject constructor(
         private const val EXACT_DURATION_TOLERANCE_S = 3
         private const val LOOSE_DURATION_TOLERANCE_S = 8
 
-        private val VARIANT_PENALTY_WORDS = listOf(
+        internal val VARIANT_PENALTY_WORDS = listOf(
             "live", "cover", "remix", "sped up", "slowed", "nightcore",
             "karaoke", "instrumental", "8d audio", "reverb"
         )
 
-        private fun containsPhrase(text: String, phrase: String) =
+        internal fun containsPhrase(text: String, phrase: String) =
             (" $text ").contains(" $phrase ")
+
+        /**
+         * Los artistas se comparan por tokens: YouTube Music suele mostrar solo el principal
+         * mientras que Spotify lista a todos los colaboradores.
+         */
+        internal fun artistSimilarity(source: String, candidate: String): Float {
+            if (source.isBlank() || candidate.isBlank()) return 0f
+            if (source == candidate) return 1f
+            if ((" $candidate ").contains(" $source ")) return 0.9f
+
+            val sourceTokens = source.split(' ').filter { it.length > 2 }.toSet()
+            val candidateTokens = candidate.split(' ').filter { it.length > 2 }.toSet()
+            if (sourceTokens.isEmpty() || candidateTokens.isEmpty()) return similarity(source, candidate)
+
+            val shared = sourceTokens.intersect(candidateTokens).size
+            return shared.toFloat() / max(sourceTokens.size, candidateTokens.size)
+        }
 
         private val NOISE_REGEX = Regex("""[\[(](?:official|lyric|audio|video|hd|mv)[^\])]*[\])]""")
         private val TRAILING_NOISE = Regex("""\b(?:official music video|official video|official audio|lyrics video|lyric video|lyrics|hd|4k)\b""")

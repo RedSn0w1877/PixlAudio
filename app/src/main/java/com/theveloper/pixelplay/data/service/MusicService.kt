@@ -175,6 +175,14 @@ class MusicService : MediaLibraryService() {
     @Inject
     @AppScope
     lateinit var appScope: CoroutineScope
+    @Inject
+    lateinit var spotifyConnectController: com.theveloper.pixelplay.data.spotify.connect.SpotifyConnectController
+
+    /**
+     * The MediaSession's player while a Spotify Connect session runs (wrapping the local player,
+     * which stays paused with its queue). Null the rest of the time.
+     */
+    private var connectSessionPlayer: com.theveloper.pixelplay.data.service.player.SpotifyConnectSessionPlayer? = null
 
     // ReplayGain volume-normalization state + logic, extracted to a standalone
     // component. Lazily built so the Hilt-injected engine/replayGainManager and the
@@ -357,8 +365,9 @@ class MusicService : MediaLibraryService() {
         replayGainProcessor.onTransitionFinished()
     }
 
-    private fun publishMediaSessionPlayer(player: Player, logMessage: String) {
+    private fun publishMediaSessionPlayer(requestedPlayer: Player, logMessage: String) {
         val session = mediaSession ?: return
+        val player = sessionPlayerFor(requestedPlayer)
         val oldPlayer = session.player
         if (oldPlayer !== player) {
             oldPlayer.removeListener(playerListener)
@@ -375,6 +384,42 @@ class MusicService : MediaLibraryService() {
         syncLocalListeningStatsFromPlayer(player)
         widgetUpdateManager.requestFullUpdate(true)
         refreshMediaSessionUi(session)
+    }
+
+    /**
+     * While a Spotify Connect session runs every player the engine publishes is wrapped, so a swap
+     * under an active session (rare: the local player stays paused) keeps the device in control.
+     */
+    private fun sessionPlayerFor(player: Player): Player {
+        val wrapper = connectSessionPlayer ?: return player
+        if (player === wrapper) return wrapper
+        wrapper.release()
+        return com.theveloper.pixelplay.data.service.player.SpotifyConnectSessionPlayer(player, spotifyConnectController)
+            .also { connectSessionPlayer = it }
+    }
+
+    /** Swaps the Spotify Connect session player in or out of the MediaSession. */
+    private fun applySpotifyConnectPlayer(attached: Boolean) {
+        if (attached) {
+            if (connectSessionPlayer != null || mediaSession == null) return
+            val wrapper = com.theveloper.pixelplay.data.service.player.SpotifyConnectSessionPlayer(
+                engine.masterPlayer,
+                spotifyConnectController
+            )
+            connectSessionPlayer = wrapper
+            publishMediaSessionPlayer(wrapper, "Spotify Connect session player published.")
+        } else {
+            val wrapper = connectSessionPlayer ?: return
+            connectSessionPlayer = null
+            publishMediaSessionPlayer(engine.masterPlayer, "Local player published after Spotify Connect.")
+            wrapper.release()
+        }
+    }
+
+    /** The service is going away: end a Connect session (pausing the device) and put the local player back. */
+    private fun endSpotifyConnectForUnload() {
+        spotifyConnectController.onServiceStopping()
+        applySpotifyConnectPlayer(false)
     }
 
     private fun syncLocalListeningStatsFromPlayer(
@@ -936,6 +981,10 @@ class MusicService : MediaLibraryService() {
             }
         }
         serviceScope.launch {
+            spotifyConnectController.isAttached.collect { attached -> applySpotifyConnectPlayer(attached) }
+        }
+
+        serviceScope.launch {
             restorePlaybackQueueSnapshotIfNeeded()
             mediaSession?.let { refreshMediaSessionUi(it) }
             widgetUpdateManager.requestFullUpdate(true)
@@ -1290,7 +1339,9 @@ class MusicService : MediaLibraryService() {
         }
 
         override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
-            instrumentalCrossfadeController.onPlayWhenReadyChanged(playWhenReady)
+            // While a Spotify Connect device plays, the reported playWhenReady is the device's: the
+            // local instrumental shadow must not start playing on the phone.
+            instrumentalCrossfadeController.onPlayWhenReadyChanged(playWhenReady && connectSessionPlayer == null)
             when {
                 playWhenReady -> clearHeadsetReconnectResume()
                 !resumeOnHeadsetReconnectEnabled -> clearHeadsetReconnectResume()
@@ -1501,6 +1552,7 @@ class MusicService : MediaLibraryService() {
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession? = mediaSession
 
     override fun onDestroy() {
+        endSpotifyConnectForUnload()
         nextStreamWarmupJob?.cancel()
         spotifyStreamProxy.prefetchStreamUrl(null)
         PlaybackActivityTracker.setPlaybackActive(false)
@@ -2049,7 +2101,8 @@ class MusicService : MediaLibraryService() {
         var manualShuffleSnapshot = false
 
         withContext(Dispatchers.Main) {
-            val player = engine.masterPlayer
+            // The Connect session player reports the device's play state and position.
+            val player = connectSessionPlayer ?: engine.masterPlayer
             currentItem = player.currentMediaItem
             isPlaying = player.isPlaying
             repeatMode = player.repeatMode
@@ -2618,6 +2671,7 @@ class MusicService : MediaLibraryService() {
             reason
         )
         isPlaybackUnloadInProgress = true
+        endSpotifyConnectForUnload()
         followUpMediaSessionUiRefreshJob?.cancel()
         mediaSessionButtonRefreshJob?.cancel()
         widgetUpdateManager.cancel()
