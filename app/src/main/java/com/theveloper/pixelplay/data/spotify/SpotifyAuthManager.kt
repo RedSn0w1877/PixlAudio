@@ -68,6 +68,14 @@ class SpotifyAuthManager @Inject constructor(
     private val _isLoggedIn by lazy { MutableStateFlow(prefs.getString(KEY_REFRESH_TOKEN, null) != null) }
     val isLoggedIn: StateFlow<Boolean> by lazy { _isLoggedIn.asStateFlow() }
 
+    /**
+     * The scopes Spotify actually granted, as echoed by the last token response (code exchange
+     * or refresh). Null until a response carrying `scope` has been seen, which is the case for
+     * sessions created before this was stored; the next token refresh fills it in.
+     */
+    private val _grantedScopes by lazy { MutableStateFlow(parseScopes(prefs.getString(KEY_GRANTED_SCOPES, null))) }
+    val grantedScopes: StateFlow<Set<String>?> by lazy { _grantedScopes.asStateFlow() }
+
     private val _lastError = MutableStateFlow<String?>(null)
     val lastError: StateFlow<String?> = _lastError.asStateFlow()
 
@@ -201,6 +209,7 @@ class SpotifyAuthManager @Inject constructor(
                 Result.failure(IllegalStateException(message))
             } else {
                 saveTokens(body!!.accessToken!!, body.refreshToken, body.expiresIn ?: 3600L)
+                saveGrantedScopes(body.scope)
                 prefs.edit().remove(KEY_CODE_VERIFIER).remove(KEY_AUTH_STATE).apply()
                 _lastError.value = null
                 _isLoggedIn.value = true
@@ -265,6 +274,7 @@ class SpotifyAuthManager @Inject constructor(
                 return@withContext Result.failure(IllegalStateException(message))
             }
             saveTokens(accessToken, body.refreshToken, body.expiresIn ?: 3600L)
+            saveGrantedScopes(body.scope)
             // Same diagnostic as the initial code exchange: a refresh_token grant carries
             // whatever scope the refresh token was originally issued with — it cannot pick up
             // scopes added after the fact, so this confirms whether the *current* refresh token
@@ -296,6 +306,21 @@ class SpotifyAuthManager @Inject constructor(
         _isLoggedIn.value = prefs.getString(KEY_REFRESH_TOKEN, null) != null
     }
 
+    /**
+     * Stores the granted scope list. A refresh response repeats the scope of the original grant,
+     * so this is accurate for old sessions too once their token has been refreshed. A response
+     * without `scope` leaves the stored value alone.
+     */
+    private fun saveGrantedScopes(scope: String?) {
+        if (scope.isNullOrBlank()) return
+        prefs.edit().putString(KEY_GRANTED_SCOPES, scope.trim()).apply()
+        _grantedScopes.value = parseScopes(scope)
+    }
+
+    /** True when every scope in [required] is known to be granted; null when not known yet. */
+    fun hasGrantedScopes(required: Collection<String>): Boolean? =
+        grantedScopes.value?.containsAll(required)
+
     fun clearSession() {
         prefs.edit()
             .remove(KEY_ACCESS_TOKEN)
@@ -305,8 +330,10 @@ class SpotifyAuthManager @Inject constructor(
             .remove(KEY_AUTH_STATE)
             .remove(KEY_ACCOUNT_NAME)
             .remove(KEY_ACCOUNT_EMAIL)
+            .remove(KEY_GRANTED_SCOPES)
             .apply()
         _isLoggedIn.value = false
+        _grantedScopes.value = null
     }
 
     // ─── Perfil en caché ───────────────────────────────────────────────
@@ -335,10 +362,18 @@ class SpotifyAuthManager @Inject constructor(
          * `user-top-read` es el que permite leer "lo más escuchado". Se añadió después del
          * primer login, así que una cuenta enlazada antes no lo tiene: hay que desconectar
          * y volver a entrar una vez para que Spotify lo conceda.
+         *
+         * `user-read-playback-state` and `user-modify-playback-state` drive Spotify Connect
+         * output (list devices, read playback, send commands). They were added later still, so
+         * accounts linked before them have to reconnect once, exactly like `user-top-read`.
          */
         private const val SCOPES =
             "user-library-read playlist-read-private playlist-read-collaborative " +
-                "user-read-private user-top-read"
+                "user-read-private user-top-read " +
+                "user-read-playback-state user-modify-playback-state"
+
+        /** The scopes Spotify Connect output needs. */
+        val CONNECT_SCOPES: Set<String> = setOf("user-read-playback-state", "user-modify-playback-state")
 
         private const val PREFS_NAME = "spotify_prefs"
         private const val PREFS_NAME_FALLBACK = "spotify_prefs_plain"
@@ -351,6 +386,10 @@ class SpotifyAuthManager @Inject constructor(
         private const val KEY_CLIENT_ID_OVERRIDE = "spotify_client_id_override"
         private const val KEY_ACCOUNT_NAME = "spotify_account_name"
         private const val KEY_ACCOUNT_EMAIL = "spotify_account_email"
+        private const val KEY_GRANTED_SCOPES = "spotify_granted_scopes"
+
+        internal fun parseScopes(raw: String?): Set<String>? =
+            raw?.trim()?.takeIf { it.isNotEmpty() }?.split(' ')?.filter { it.isNotBlank() }?.toSet()
 
         private const val EXPIRY_MARGIN_MS = 300_000L
         private const val BASE64_FLAGS = Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP

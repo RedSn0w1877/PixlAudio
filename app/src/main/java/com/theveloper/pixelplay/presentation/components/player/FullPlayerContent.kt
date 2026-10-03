@@ -307,6 +307,10 @@ fun FullPlayerContent(
     val isImmersiveTemporarilyDisabled = fullPlayerSlice.isImmersiveTemporarilyDisabled
     val isRemotePlaybackActive = fullPlayerSlice.isRemotePlaybackActive
     val selectedRouteName = fullPlayerSlice.selectedRouteName
+    // Spotify Connect: the output chip shows the device like a Cast route ("Playing on <device>").
+    val spotifyConnectDeviceName by playerViewModel.spotifyConnect.playingOnName.collectAsStateWithLifecycle()
+    val chipRemoteActive = isRemotePlaybackActive || spotifyConnectDeviceName != null
+    val chipRouteName = spotifyConnectDeviceName ?: selectedRouteName
     val isBluetoothEnabled = fullPlayerSlice.isBluetoothEnabled
     val bluetoothName = fullPlayerSlice.bluetoothName
     val navigationBarBottomInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
@@ -832,8 +836,8 @@ fun FullPlayerContent(
                         if (glassMode) {
                             GlassPlayerTopActions(
                                 isCastConnecting = isCastConnecting,
-                                isRemotePlaybackActive = isRemotePlaybackActive,
-                                selectedRouteName = selectedRouteName,
+                                isRemotePlaybackActive = chipRemoteActive,
+                                selectedRouteName = chipRouteName,
                                 isBluetoothEnabled = isBluetoothEnabled,
                                 bluetoothName = bluetoothName,
                                 onCastClick = onShowCastClicked,
@@ -849,11 +853,11 @@ fun FullPlayerContent(
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            val showCastLabel = isCastConnecting || (isRemotePlaybackActive && selectedRouteName != null)
+                            val showCastLabel = isCastConnecting || (chipRemoteActive && chipRouteName != null)
                             val isBluetoothActive =
-                                isBluetoothEnabled && !bluetoothName.isNullOrEmpty() && !isRemotePlaybackActive && !isCastConnecting
+                                isBluetoothEnabled && !bluetoothName.isNullOrEmpty() && !chipRemoteActive && !isCastConnecting
                             val castIconPainter = when {
-                                isCastConnecting || isRemotePlaybackActive -> painterResource(R.drawable.rounded_cast_24)
+                                isCastConnecting || chipRemoteActive -> painterResource(R.drawable.rounded_cast_24)
                                 isBluetoothActive -> painterResource(R.drawable.rounded_bluetooth_24)
                                 else -> painterResource(R.drawable.rounded_mobile_speaker_24)
                             }
@@ -905,7 +909,7 @@ fun FullPlayerContent(
                                     Icon(
                                         painter = castIconPainter,
                                         contentDescription = when {
-                                            isCastConnecting || isRemotePlaybackActive -> stringResource(R.string.player_cd_cast)
+                                            isCastConnecting || chipRemoteActive -> stringResource(R.string.player_cd_cast)
                                             isBluetoothActive -> stringResource(R.string.player_cd_bluetooth)
                                             else -> stringResource(R.string.player_cd_local_playback)
                                         },
@@ -917,7 +921,7 @@ fun FullPlayerContent(
                                             AnimatedContent(
                                                 targetState = when {
                                                     isCastConnecting -> stringResource(R.string.player_connecting)
-                                                    isRemotePlaybackActive && selectedRouteName != null -> selectedRouteName
+                                                    chipRemoteActive && chipRouteName != null -> chipRouteName
                                                     else -> ""
                                                 },
                                                 transitionSpec = {
@@ -946,7 +950,7 @@ fun FullPlayerContent(
                                                             color = playerAccentColor
                                                         )
                                                     }
-                                                    if (isRemotePlaybackActive && !isCastConnecting) {
+                                                    if (chipRemoteActive && !isCastConnecting) {
                                                         Box(
                                                             modifier = Modifier
                                                                 .size(8.dp)
