@@ -56,6 +56,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.theveloper.pixelplay.R
 import com.theveloper.pixelplay.data.model.Song
+import com.theveloper.pixelplay.data.network.lyrics.BiniLyricsSource
 import com.theveloper.pixelplay.data.repository.LyricsSearchResult
 import com.theveloper.pixelplay.presentation.viewmodel.LyricsSearchUiState
 import com.theveloper.pixelplay.utils.ProviderText
@@ -329,12 +330,20 @@ private fun PickResultContent(
         }
 
         item {
-            ProviderText(
-                providerText = stringResource(R.string.lyrics_provided_by),
-                uri = stringResource(R.string.lyrics_lrclib_uri),
-                textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 8.dp)
-            )
+            // One credit per catalog that contributed a result (BiniLyrics, LRCLIB).
+            val sources = results.map { it.source }.distinct()
+            Column(modifier = Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 8.dp)) {
+                sources.forEach { source ->
+                    ProviderText(
+                        providerText = stringResource(R.string.lyrics_provided_by),
+                        uri = if (source == BiniLyricsSource.SOURCE_NAME) BiniLyricsSource.WEBSITE
+                            else stringResource(R.string.lyrics_lrclib_uri),
+                        providerName = source,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            }
         }
     }
 
@@ -355,7 +364,7 @@ private fun ResultItemCard(
     result: LyricsSearchResult,
     onClick: () -> Unit
 ) {
-    val hasSyncedLyrics = !result.record.syncedLyrics.isNullOrEmpty()
+    val hasSyncedLyrics = !result.lyrics.synced.isNullOrEmpty()
     
     AdaptivePressSurface(
         onClick = onClick,
@@ -428,6 +437,12 @@ private fun ResultItemCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = result.source,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                    maxLines = 1
                 )
             }
         }

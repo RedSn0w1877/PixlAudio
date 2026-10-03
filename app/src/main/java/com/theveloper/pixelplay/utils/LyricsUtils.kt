@@ -1181,7 +1181,8 @@ fun ProviderText(
     uri: String,
     modifier: Modifier = Modifier,
     textAlign: TextAlign? = null,
-    accentColor: Color? = null
+    accentColor: Color? = null,
+    providerName: String = "LRCLIB"
 ) {
     val uriHandler = LocalUriHandler.current
     val linkColor = accentColor ?: MaterialTheme.colorScheme.primary
@@ -1196,7 +1197,7 @@ fun ProviderText(
                 styles = TextLinkStyles(style = SpanStyle(color = linkColor))
             )
         ) {
-            append(" LRCLIB")
+            append(" $providerName")
         }
     }
 
