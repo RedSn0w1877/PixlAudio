@@ -27,6 +27,7 @@ import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
+import androidx.compose.material.icons.rounded.Speaker
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.CircularWavyProgressIndicator
 import androidx.compose.material3.ColorScheme
@@ -104,7 +105,9 @@ internal fun MiniPlayerContentInternal(
     onPrevious: () -> Unit,
     onNext: () -> Unit,
     modifier: Modifier = Modifier,
-    canScroll: Boolean = true
+    canScroll: Boolean = true,
+    /** Spotify Connect: the device playing the queue ("Playing on <device>" in place of the artist line). */
+    remoteDeviceName: String? = null
 ) {
     val hapticFeedback = LocalHapticFeedback.current
     val controlsEnabled = !isCastConnecting && !isPreparingPlayback
@@ -174,12 +177,30 @@ internal fun MiniPlayerContentInternal(
                 gradientEdgeColor = LocalMaterialTheme.current.primaryContainer,
                 canScroll = canScroll
             )
-            AutoScrollingText(
-                text = if (isPreparingPlayback) "Loading audio…" else song.displayArtist,
-                style = artistStyle,
-                gradientEdgeColor = LocalMaterialTheme.current.primaryContainer,
-                canScroll = canScroll
-            )
+            if (remoteDeviceName != null && !isPreparingPlayback) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Rounded.Speaker,
+                        contentDescription = null,
+                        tint = artistStyle.color,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    AutoScrollingText(
+                        text = "Playing on $remoteDeviceName",
+                        style = artistStyle,
+                        gradientEdgeColor = LocalMaterialTheme.current.primaryContainer,
+                        canScroll = canScroll
+                    )
+                }
+            } else {
+                AutoScrollingText(
+                    text = if (isPreparingPlayback) "Loading audio…" else song.displayArtist,
+                    style = artistStyle,
+                    gradientEdgeColor = LocalMaterialTheme.current.primaryContainer,
+                    canScroll = canScroll
+                )
+            }
         }
         Spacer(modifier = Modifier.width(8.dp))
 
@@ -333,6 +354,8 @@ internal fun GlassMiniPlayerContent(
     modifier: Modifier = Modifier,
     /** False while the mini player is invisible: its orbs then sample an empty backdrop. */
     glassLive: Boolean = true,
+    /** Spotify Connect: the device playing the queue ("Playing on <device>" in place of the artist line). */
+    remoteDeviceName: String? = null,
 ) {
     val palette = LocalGlassPalette.current
     val orbBackdrop = if (glassLive) LocalGlassBackdrop.current else emptyBackdrop()
@@ -398,7 +421,11 @@ internal fun GlassMiniPlayerContent(
                     maxLines = 1
                 )
                 GlassText(
-                    text = if (isPreparingPlayback) "Loading audio…" else song.displayArtist,
+                    text = when {
+                        isPreparingPlayback -> "Loading audio…"
+                        remoteDeviceName != null -> "Playing on $remoteDeviceName"
+                        else -> song.displayArtist
+                    },
                     style = GlassType.Caption,
                     color = palette.secondary,
                     maxLines = 1

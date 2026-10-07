@@ -1,13 +1,8 @@
 package com.theveloper.pixelplay.utils
 
-import java.io.StringReader
-import javax.xml.XMLConstants
-import javax.xml.parsers.DocumentBuilderFactory
 import kotlin.math.roundToInt
 import org.w3c.dom.Element
 import org.w3c.dom.Node
-import org.xml.sax.EntityResolver
-import org.xml.sax.InputSource
 
 internal object TtmlLyricsParser {
     private const val MAX_TTML_PARAGRAPHS = 5_000
@@ -19,22 +14,9 @@ internal object TtmlLyricsParser {
                 return null
             }
 
-            val builder = DocumentBuilderFactory.newInstance().apply {
-                isNamespaceAware = true
-                isXIncludeAware = false
-                setExpandEntityReferences(false)
-                setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true)
-                setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
-                setFeature("http://xml.org/sax/features/external-general-entities", false)
-                setFeature("http://xml.org/sax/features/external-parameter-entities", false)
-                setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false)
-                runCatching { setAttribute("http://javax.xml.XMLConstants/property/accessExternalDTD", "") }
-                runCatching { setAttribute("http://javax.xml.XMLConstants/property/accessExternalSchema", "") }
-            }.newDocumentBuilder().apply {
-                setEntityResolver(EntityResolver { _, _ -> InputSource(StringReader("")) })
-            }
-
-            val document = builder.parse(InputSource(StringReader(normalizedTtml)))
+            // SecureXml refuses DTDs up front; Android's parser rejects the JVM-only
+            // hardening features, which used to make every TTML parse fail on device.
+            val document = SecureXml.parse(normalizedTtml) ?: return null
             val paragraphNodes = document.getElementsByTagNameNS("*", "p")
             if (paragraphNodes.length == 0 || paragraphNodes.length > MAX_TTML_PARAGRAPHS) {
                 return null

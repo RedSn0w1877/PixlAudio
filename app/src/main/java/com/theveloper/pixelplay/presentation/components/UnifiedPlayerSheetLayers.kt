@@ -134,6 +134,7 @@ internal fun BoxScope.UnifiedPlayerMiniAndFullLayers(
                 derivedStateOf { playerContentExpansionFraction.value < 0.01f }
             }
             val isPlaying = fieldStates.isPlaying.value
+            val connectDeviceName by playerViewModel.spotifyConnect.playingOnName.collectAsStateWithLifecycle()
             if (glassMode) {
                 GlassMiniPlayerContent(
                     song = currentSongNonNull,
@@ -149,6 +150,7 @@ internal fun BoxScope.UnifiedPlayerMiniAndFullLayers(
                     // ambient then (invisible, so no visible change), instead of re-rendering two
                     // moving lenses nobody sees.
                     glassLive = isMiniPlayerOnScreen.value,
+                    remoteDeviceName = connectDeviceName,
                     modifier = Modifier.fillMaxSize()
                 )
             } else {
@@ -161,6 +163,7 @@ internal fun BoxScope.UnifiedPlayerMiniAndFullLayers(
                     onPrevious = { playerViewModel.previousSong() },
                     onNext = { playerViewModel.nextSong() },
                     canScroll = isMiniPlayerVisible && isPlaying,
+                    remoteDeviceName = connectDeviceName,
                     modifier = Modifier.fillMaxSize()
                 )
             }

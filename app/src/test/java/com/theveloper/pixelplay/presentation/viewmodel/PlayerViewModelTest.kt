@@ -317,6 +317,9 @@ class PlayerViewModelTest {
             lyricsSyncEditor = mockk(relaxed = true) {
                 every { expandPlayerRequests } returns kotlinx.coroutines.flow.MutableSharedFlow()
             },
+            spotifyConnect = mockk(relaxed = true) {
+                every { messages } returns kotlinx.coroutines.flow.MutableSharedFlow()
+            },
             sessionToken = sessionToken,
             mediaControllerFactory = mockMediaControllerFactory,
         )
