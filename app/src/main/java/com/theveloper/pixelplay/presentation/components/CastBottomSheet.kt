@@ -1538,12 +1538,14 @@ private fun ActiveDeviceHero(
                             )
                         )
                     },
-                    thumb = { sliderState ->
+                    thumb = {
+                        // material3 1.5.0-alpha29 hid Thumb(sliderState = …); that overload only
+                        // passed isVertical = (orientation == Vertical), which is false here.
                         SliderDefaults.Thumb(
                             modifier = Modifier
                                 .height(36.dp),
                             interactionSource = interactionSource,
-                            sliderState = sliderState,
+                            isVertical = false,
                             colors = SliderDefaults.colors(thumbColor = MaterialTheme.colorScheme.onTertiaryContainer)
                         )
                     },
