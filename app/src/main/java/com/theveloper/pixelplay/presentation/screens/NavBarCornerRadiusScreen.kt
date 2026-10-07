@@ -35,7 +35,6 @@ import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.IconButtonDefaults.iconButtonColors
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -70,6 +69,7 @@ import com.theveloper.pixelplay.presentation.viewmodel.SettingsViewModel
 import racra.compose.smooth_corner_rect_library.AbsoluteSmoothCornerShape
 import com.theveloper.pixelplay.data.preferences.NavBarStyle
 import com.theveloper.pixelplay.presentation.components.resolveNavBarSurfaceHeight
+import com.theveloper.pixelplay.presentation.components.ValueSlider
 import androidx.compose.ui.res.stringResource
 
 const val DEFAULT_NAV_BAR_CORNER_RADIUS = 28f
@@ -273,7 +273,7 @@ fun NavBarCornerRadiusContent(
 
                             // Slider
                             Box(modifier = Modifier.weight(1f)) {
-                                Slider(
+                                ValueSlider(
                                     value = sliderValue,
                                     onValueChange = {
                                         if (sliderValue != it) {

@@ -82,6 +82,8 @@ import androidx.compose.ui.res.stringResource
 val defaultShape = RoundedCornerShape(26.dp) // Fallback shape
 val genHeight = 42.dp
 
+// rememberTooltipState() is @ExperimentalMaterial3Api since material3 1.5.0-alpha29.
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LibraryActionRow(
     onMainActionClick: () -> Unit,

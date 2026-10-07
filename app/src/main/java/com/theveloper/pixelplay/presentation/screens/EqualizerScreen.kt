@@ -3,9 +3,9 @@ package com.theveloper.pixelplay.presentation.screens
 import com.theveloper.pixelplay.presentation.components.CollapsingHeaderHeight
 import com.theveloper.pixelplay.presentation.components.AdaptivePressSurface
 import com.theveloper.pixelplay.presentation.components.rememberCollapsingHeaderContentPadding
+import com.theveloper.pixelplay.presentation.components.ValueSlider
 import com.theveloper.pixelplay.presentation.components.WithCollapsingHeader
 import com.theveloper.pixelplay.presentation.components.rememberCollapseFraction
-import androidx.compose.material3.Slider
 import android.annotation.SuppressLint
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -1480,7 +1480,7 @@ private fun IndividualEffectRow(
         
         Spacer(modifier = Modifier.height(8.dp))
         
-        Slider(
+        ValueSlider(
             value = strength.toFloat(),
             onValueChange = { onStrengthChange(it.roundToInt()) },
             valueRange = 0f..maxStrength.toFloat(),
@@ -1536,7 +1536,7 @@ private fun VolumeControlCard(
                 )
                 
                 Column(modifier = Modifier.weight(1f)) {
-                    Slider(
+                    ValueSlider(
                         value = volume,
                         onValueChange = { newValue ->
                             // Subtle haptic feedback on each 5% change
@@ -1757,7 +1757,7 @@ private fun HybridHorizontalSlider(
 
         // Horizontal Slider (Thick Track)
         Box(modifier = Modifier.weight(1f)) {
-            androidx.compose.material3.Slider(
+            ValueSlider(
                 value = level.toFloat(),
                 onValueChange = { 
                     val intVal = it.roundToInt()

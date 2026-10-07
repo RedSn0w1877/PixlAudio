@@ -1,7 +1,6 @@
 package com.theveloper.pixelplay.presentation.components
 
 import androidx.compose.material3.Switch
-import androidx.compose.material3.Slider
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
@@ -170,7 +169,7 @@ fun TimerOptionsBottomSheet(
                             )
                         )
                 ) {
-                    Slider(
+                    ValueSlider(
                         value = timerSliderPosition,
                         onValueChange = {
                             timerSliderPosition = it
@@ -251,7 +250,7 @@ fun TimerOptionsBottomSheet(
                             shape = RoundedCornerShape(18.dp)
                         )
                 ) {
-                    Slider(
+                    ValueSlider(
                         value = counterSliderPosition,
                         onValueChange = {
                             counterSliderPosition = it

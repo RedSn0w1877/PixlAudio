@@ -2,7 +2,6 @@ package com.theveloper.pixelplay.presentation.components
 
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
-import androidx.compose.material3.Slider
 import android.Manifest
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
@@ -1510,7 +1509,7 @@ private fun ActiveDeviceHero(
                     )
                 }
                 val interactionSource = remember { MutableInteractionSource() }
-                Slider(
+                ValueSlider(
                     value = sliderValue.coerceIn(device.volumeRange.start, device.volumeRange.endInclusive),
                     onValueChange = { newValue ->
                         sliderValue = newValue
