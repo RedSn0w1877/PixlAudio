@@ -1,5 +1,7 @@
 # START HERE — PixelPlayer agent handoff (2026-10-04)
 
+> **Update 2026-10-07:** `main-6hltyd` now sits on `android-int-oct3` (the newest Android code). The new Glyph logo is merged; the rest of the iOS batch still needs porting. Status, plans and owner decisions: [`2026-10-07-batch-status.md`](2026-10-07-batch-status.md).
+
 You're a new agent with zero context on this codebase. Read this whole file before touching
 anything. It covers what the app is, who you're working for, where the code actually lives
 (this part is messy, see §2), how the code is organised, how to build and test, what was
