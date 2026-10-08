@@ -1900,7 +1900,7 @@ private fun SongMetadataDisplaySection(
             GlassCircleAction(
                 onClick = onClickTaizo,
                 size = 48.dp,
-                contentDescription = "Ask Taizo"
+                contentDescription = stringResource(R.string.player_cd_ask_taizo)
             ) {
                 Icon(
                     imageVector = androidx.compose.material.icons.Icons.Rounded.AutoAwesome,
@@ -1918,7 +1918,7 @@ private fun SongMetadataDisplaySection(
         ) {
             Icon(
                 imageVector = androidx.compose.material.icons.Icons.Rounded.AutoAwesome,
-                contentDescription = "Ask Taizo",
+                contentDescription = stringResource(R.string.player_cd_ask_taizo),
                 tint = chipContentColor,
                 modifier = Modifier.size(22.dp)
             )

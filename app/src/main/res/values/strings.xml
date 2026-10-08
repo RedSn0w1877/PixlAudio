@@ -97,6 +97,7 @@
     <string name="common_rename">Rename</string>
     <string name="common_create">Create</string>
     <string name="common_lyrics">Lyrics</string>
+    <string name="player_cd_ask_taizo">Ask Taizo</string>
     <string name="common_settings">Settings</string>
     <string name="common_album_art">Album Art</string>
     <string name="common_playlist">Playlist</string>

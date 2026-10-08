@@ -260,9 +260,13 @@ internal fun GlassQueueControls(
                         icon = Icons.Rounded.MyLocation,
                         morph = morph,
                         start = LocatePillStart,
+                        // Only while the menu is open: closing, the pills fade out but stay laid
+                        // out until the morph settles, and a stray second tap must not act.
                         onClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            onLocate()
+                            if (latestExpanded.value) {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                onLocate()
+                            }
                         },
                     )
                 }
@@ -274,8 +278,10 @@ internal fun GlassQueueControls(
                     // Destructive: the scheme's error colour as the glass tint, content stays primary.
                     tint = MaterialTheme.colorScheme.error.copy(alpha = 0.32f),
                     onClick = {
-                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        onClear()
+                        if (latestExpanded.value) {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            onClear()
+                        }
                     },
                 )
             }

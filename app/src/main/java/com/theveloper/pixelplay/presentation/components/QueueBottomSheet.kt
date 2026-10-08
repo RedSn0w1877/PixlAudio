@@ -1223,6 +1223,10 @@ fun QueueBottomSheet(
                     // lit fill on it, so the text stays the palette's primary over glass.
                     val palette = LocalGlassPalette.current
                     GlassPanel(
+                        // The bar floats over the queue rows. Like the Material Surface it
+                        // replaces, it takes every touch on it: a tap that misses Undo must not
+                        // play the song row underneath.
+                        modifier = Modifier.pointerInput(Unit) {},
                         shape = QueueGlassCapsule,
                         tint = palette.tintStrong,
                         showHighlight = false,

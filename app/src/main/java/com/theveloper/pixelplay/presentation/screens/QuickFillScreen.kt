@@ -29,6 +29,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextGeometricTransform
@@ -352,7 +353,12 @@ private fun QuickFillGlassBar(
     ) {
         if (step == 0) {
             GlassPanel(
-                modifier = Modifier.height(56.dp),
+                // The capsules float over the song list / genre grid. Like the Material bar they
+                // replace, they take every touch on them (an empty handler, as M3's Surface uses),
+                // so a tap on the glass never ticks the row hidden under it.
+                modifier = Modifier
+                    .height(56.dp)
+                    .pointerInput(Unit) {},
                 shape = GlassPillShape,
                 tint = palette.tintStrong,
                 showHighlight = false,
@@ -382,7 +388,8 @@ private fun QuickFillGlassBar(
             GlassPanel(
                 modifier = Modifier
                     .weight(1f)
-                    .height(56.dp),
+                    .height(56.dp)
+                    .pointerInput(Unit) {},
                 shape = GlassPillShape,
                 tint = palette.tintStrong,
                 showHighlight = false,

@@ -12,6 +12,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.isSpecified
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.role
@@ -44,8 +45,9 @@ internal const val GlassLitAlpha = 0.38f
  *
  * Kit rules: it reads [LocalGlassBackdrop] (the root ambient, or a sheet's window-aligned one) and
  * must never sit under a `layerBackdrop` it reads. Content gets the palette's primary colour and
- * [GlassType.BodyStrong]; a disabled pill fades its content to 0.38, drops the accent and takes no
- * touches, and still reads as a disabled button to TalkBack.
+ * [GlassType.BodyStrong]; a disabled pill fades its content to 0.38, drops the accent and ignores
+ * touches (it still swallows them, so nothing under it is hit), and still reads as a disabled
+ * button to TalkBack.
  *
  * Glass mode only; Material 3 mode keeps its own buttons.
  */
@@ -64,10 +66,15 @@ fun GlassPillButton(
     GlassPanel(
         // GlassPanel only adds a button role when it has a click, so a disabled pill states its
         // role and state itself.
-        modifier = modifier.semantics(mergeDescendants = true) {
-            role = Role.Button
-            if (!enabled) disabled()
-        },
+        modifier = modifier
+            .semantics(mergeDescendants = true) {
+                role = Role.Button
+                if (!enabled) disabled()
+            }
+            // A disabled pill has no click, so without this a tap on it would fall through to
+            // whatever lies under it (Quick Fill's song rows, the playlist form), which a disabled
+            // Material button never allows. The empty handler only takes the hit, as M3's Surface does.
+            .then(if (enabled) Modifier else Modifier.pointerInput(Unit) {}),
         shape = GlassPillShape,
         tint = resolvedTint,
         accent = if (prominent && enabled) palette.accent else Color.Unspecified,

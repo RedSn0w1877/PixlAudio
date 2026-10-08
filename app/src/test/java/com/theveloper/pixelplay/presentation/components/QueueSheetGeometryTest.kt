@@ -29,14 +29,22 @@ class QueueSheetGeometryTest {
     }
 
     @Test
-    fun glassQueue_hiddenOffsetFollowsTheSheetHeight() {
-        // QueueSheetState hides the sheet by its measured height plus the bottom padding, so a
-        // shorter sheet slides a shorter way and still ends fully off screen.
-        val height = resolveQueueSheetHeightPx(containerPx = 2400f, statusTopPx = 140f, minTopGapPx = 24f)
-        val bottomPadding = 0f
-        val hiddenOffset = height + bottomPadding
-        val sheetTop = 2400f - height
-        assertEquals(2400f, sheetTop + hiddenOffset, 1e-3f)
+    fun glassQueue_neverPassesTheFractionOrTheStatusBar() {
+        // Every phone, foldable and landscape size: the sheet is at most 92 % tall, and whenever
+        // the screen has room its top stays at least the gap below the status bar, so the strip
+        // above it (tap to close) always exists.
+        val gap = 24f
+        for (container in 200..3200 step 25) {
+            for (statusTop in listOf(0f, 63f, 90f, 140f, 200f)) {
+                val h = container.toFloat()
+                val height = resolveQueueSheetHeightPx(containerPx = h, statusTopPx = statusTop, minTopGapPx = gap)
+                assertTrue("height $height for $h", height >= 0f)
+                assertTrue("height $height over 92 % of $h", height <= h * QUEUE_SHEET_HEIGHT_FRACTION + 1e-3f)
+                if (h >= statusTop + gap) {
+                    assertTrue("top ${h - height} under the status bar ($statusTop) for $h", h - height >= statusTop + gap - 1e-3f)
+                }
+            }
+        }
     }
 
     @Test
