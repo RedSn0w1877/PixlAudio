@@ -61,13 +61,31 @@ object PlaylistPlanParser {
         return if (from != null && to != null && from > to) plan.copy(eraFrom = to, eraTo = from) else plan
     }
 
-    /** The deterministic plan when the model's answer is unusable: the keywords Taizo's parser finds. */
-    fun fromIntent(intent: DjIntent, vocabulary: LibraryVocabulary): PlaylistPlan = PlaylistPlan(
-        genres = mapToVocabulary(intent.genres, vocabulary.genres).take(4),
-        artists = vocabulary.artists.filter { artist -> containsWord(intent.rawPrompt, artist) }.take(6),
-        moods = intent.moods.mapNotNull(::normalizeMood).distinct().take(3),
-        keywords = intent.searchQuery.split(' ').map { it.trim() }.filter { it.length >= 3 }.take(4),
-    )
+    /**
+     * The deterministic plan when the model's answer is unusable (or it refused): genre, mood and
+     * artist words found in the request itself. Taizo's parser only reports genres and moods for
+     * pure descriptions ("chill jazz"), so the prompt is also scanned directly ("chill jazz like
+     * Miles Davis").
+     */
+    fun fromIntent(intent: DjIntent, vocabulary: LibraryVocabulary): PlaylistPlan {
+        val prompt = intent.rawPrompt
+        val genreWords = intent.genres + COMMON_GENRES.filter { containsWord(prompt, it) }
+        val genres = (vocabulary.genres.filter { containsWord(prompt, it) } + mapToVocabulary(genreWords, vocabulary.genres))
+            .distinct()
+            .take(4)
+        val artists = vocabulary.artists.filter { artist -> containsWord(prompt, artist) }.take(6)
+        val moods = (intent.moods + MOODS.filter { containsWord(prompt, it) } +
+            MOOD_SYNONYMS.keys.filter { containsWord(prompt, it) })
+            .mapNotNull(::normalizeMood)
+            .distinct()
+            .take(3)
+        val claimed = (genres + artists + moods).flatMap { normalize(it).split(' ') }.toSet()
+        val keywords = normalize(intent.searchQuery).split(' ')
+            .filter { it.length >= 3 && it !in STOP_WORDS && it !in claimed }
+            .distinct()
+            .take(4)
+        return PlaylistPlan(genres = genres, artists = artists, moods = moods, keywords = keywords)
+    }
 
     /** Case-insensitive match onto [vocabulary]: exact first, then "contains" either way. */
     fun mapToVocabulary(values: List<String>, vocabulary: List<String>): List<String> {
@@ -113,6 +131,15 @@ object PlaylistPlanParser {
     }
 
     private val YEARS = 1900..2100
+    private val COMMON_GENRES = listOf(
+        "rock", "pop", "jazz", "hip hop", "hip-hop", "rap", "metal", "punk", "indie", "folk", "country",
+        "blues", "soul", "r&b", "funk", "disco", "electronic", "edm", "house", "techno", "ambient",
+        "lofi", "lo-fi", "classical", "reggae", "latin", "k-pop", "kpop", "acoustic", "soundtrack",
+    )
+    private val STOP_WORDS = setOf(
+        "like", "with", "from", "that", "this", "some", "songs", "song", "music", "for", "the", "and",
+        "play", "make", "playlist", "mix", "please", "something", "tracks",
+    )
     private val NON_ALNUM = Regex("[^\\p{L}\\p{N}&]+")
     private val SPACES = Regex("\\s+")
     private val MOOD_SYNONYMS = mapOf(

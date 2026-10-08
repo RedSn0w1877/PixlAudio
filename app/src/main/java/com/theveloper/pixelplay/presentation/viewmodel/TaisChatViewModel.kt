@@ -140,6 +140,11 @@ class TaisChatViewModel @Inject constructor(
                     }
                     is TaizoTurn.Error -> Unit
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Timber.tag("TaisChatViewModel").w(e, "Taizo reply failed")
+                replaceMessage(thinking.id, TaisChatMessage.TextReply(FALLBACK_ERROR, isError = true))
             } finally {
                 // Still there if respond() threw: never leave a spinner behind.
                 if (_uiState.value.messages.any { it.id == thinking.id }) {
