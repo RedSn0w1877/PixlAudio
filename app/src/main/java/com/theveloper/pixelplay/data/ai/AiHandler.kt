@@ -395,7 +395,11 @@ class AiHandler @Inject constructor(
                 )
             }.onFailure { error -> Timber.tag("AiHandler").e(error, "Failed to persist AI usage") }
         }
-        cacheDao.insert(AiCacheEntity(promptHash = hash, responseJson = response, timestamp = System.currentTimeMillis()))
+        // Only cache under the engine that was asked: when the downloaded model failed to load and
+        // Gemini Nano stood in, the next request should try the downloaded model again.
+        if (answer.engine == engine) {
+            cacheDao.insert(AiCacheEntity(promptHash = hash, responseJson = response, timestamp = System.currentTimeMillis()))
+        }
         return response
     }
 }

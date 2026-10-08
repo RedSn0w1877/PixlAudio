@@ -20,6 +20,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -115,9 +116,12 @@ class DownloadedModelManager @Inject constructor(
     fun cancel() {
         workManager.cancelUniqueWork(WORK_NAME)
         appScope.launch {
-            // Give the worker a moment to notice the stop before its .part goes away.
+            // Give the worker a moment to notice the stop before its .part goes away, and keep it
+            // when a new download was started in the meantime (it is writing that file).
             kotlinx.coroutines.delay(1_000)
-            partFile.delete()
+            val restarted = workManager.getWorkInfosForUniqueWorkFlow(WORK_NAME).first()
+                .any { !it.state.isFinished }
+            if (!restarted) partFile.delete()
         }
     }
 

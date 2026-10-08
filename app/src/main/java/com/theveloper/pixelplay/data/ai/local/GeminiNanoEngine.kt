@@ -182,7 +182,8 @@ class GeminiNanoEngine @Inject constructor() {
         } else {
             GenerateContentRequest.Builder(SystemInstruction(request.instruction), TextPart(request.prompt))
         }
-        builder.temperature = request.temperature.coerceIn(0f, 1.5f)
+        // Kept within 0..1 for the small model; the Settings slider goes up to 2 for cloud models.
+        builder.temperature = request.temperature.coerceIn(0f, 1f)
         builder.topK = request.topK.coerceIn(1, 64)
         builder.maxOutputTokens = request.maxOutputTokens.coerceIn(1, TokenBudget.MAX_OUTPUT_TOKENS)
         request.seed?.let { builder.seed = it }
