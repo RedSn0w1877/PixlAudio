@@ -86,6 +86,7 @@ import com.theveloper.pixelplay.presentation.components.scoped.rememberSheetVisu
 import com.theveloper.pixelplay.presentation.viewmodel.PlayerSheetState
 import com.theveloper.pixelplay.presentation.viewmodel.PlayerViewModel
 import com.theveloper.pixelplay.presentation.viewmodel.StablePlayerState
+import com.theveloper.pixelplay.presentation.viewmodel.SyncPhase
 import com.theveloper.pixelplay.ui.glass.LocalGlassModeEnabled
 import com.theveloper.pixelplay.ui.glass.GlassPressIndication
 import com.theveloper.pixelplay.ui.glass.glassPressSwell
@@ -566,6 +567,15 @@ fun UnifiedPlayerSheetV2(
 
     LaunchedEffect(showQueueSheet) {
         playerViewModel.updateQueueSheetVisibility(showQueueSheet)
+    }
+    // The tap-sync editor is drawn inside the full player, under the queue sheet: opening it
+    // from the queue (row ⋮ → song info → Edit song → Fix timing) would start it unseen, with the
+    // music jumping behind the queue. Take the queue down when it opens.
+    val lyricsSyncEditorOpen by remember(playerViewModel) {
+        playerViewModel.lyricsSyncEditor.phase.map { it != SyncPhase.Closed }
+    }.collectAsStateWithLifecycle(initialValue = false)
+    LaunchedEffect(lyricsSyncEditorOpen) {
+        if (lyricsSyncEditorOpen && showQueueSheet) sheetActionHandlers.animateQueueSheet(false)
     }
     LaunchedEffect(castSheetState.showCastSheet) {
         playerViewModel.updateCastSheetVisibility(castSheetState.showCastSheet)

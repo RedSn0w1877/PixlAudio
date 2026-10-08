@@ -802,12 +802,14 @@ fun SongInfoBottomSheet(
         onSyncLyrics = { changeWords ->
             showEditSheet = false
             val editor = lyricsSyncAccess.lyricsSyncEditor()
-            editor.requestOpen(
+            val opening = editor.requestOpen(
                 song,
                 if (changeWords) com.theveloper.pixelplay.presentation.viewmodel.SyncEntry.WORDS
                 else com.theveloper.pixelplay.presentation.viewmodel.SyncEntry.FIX_TIMING
             )
-            if (!editor.isCurrentSong(song.id)) onPlaySong()
+            // While Cast or Spotify Connect plays the editor explains instead of opening: starting
+            // this song would send it to the speaker.
+            if (opening && !editor.isCurrentSong(song.id)) onPlaySong()
             onDismiss()
         },
         onSave = { title, artist, album, albumArtist, composer, genre, lyrics, trackNumber, discNumber, replayGainTrackGainDb, replayGainAlbumGainDb, coverArt ->

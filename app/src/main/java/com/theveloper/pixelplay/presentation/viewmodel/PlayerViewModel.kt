@@ -813,8 +813,7 @@ class PlayerViewModel @Inject constructor(
             // suspension, keep-screen-on and Back handling never leak into the rest of the app.
             sheetState.collect { state ->
                 if (state == PlayerSheetState.COLLAPSED && lyricsSyncEditor.phase.value != SyncPhase.Closed) {
-                    lyricsSyncEditor.onHostStopped()
-                    lyricsSyncEditor.close()
+                    lyricsSyncEditor.endForHostCollapse()
                 }
             }
         }
@@ -923,6 +922,10 @@ class PlayerViewModel @Inject constructor(
         }
 
         lyricsStateHolder.messageEvents
+            .onEach { msg: String -> _toastEvents.emit(msg) }
+            .launchIn(viewModelScope)
+
+        lyricsSyncEditor.messageEvents
             .onEach { msg: String -> _toastEvents.emit(msg) }
             .launchIn(viewModelScope)
 

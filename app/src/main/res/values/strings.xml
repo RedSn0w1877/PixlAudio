@@ -185,6 +185,13 @@
     <string name="lyrics_sync_song_changed_title">The song changed</string>
     <string name="lyrics_sync_song_changed_body">Your taps are saved as a draft.</string>
     <string name="lyrics_sync_casting">Syncing only works on this phone. Stop casting first.</string>
+    <string name="lyrics_sync_connect">Syncing only works on this phone. Switch playback back to this phone first.</string>
+    <string name="lyrics_sync_load_failed">Couldn\'t get the song ready. Close and try again.</string>
+    <string name="lyrics_sync_open_timeout">Couldn\'t start the song, so syncing didn\'t open. Play it, then try again.</string>
+    <string name="lyrics_sync_no_song">Play the song first, then try again.</string>
+    <string name="lyrics_sync_playback_stopped">Playback stopped, so syncing closed. Any taps are kept as a draft.</string>
+    <string name="lyrics_sync_remove_failed">Couldn\'t remove your timing. Try again.</string>
+    <string name="lyrics_sync_ended_kept">Syncing closed. Your taps are kept as a draft.</string>
     <string name="lyrics_sync_ended_early">The song ended before the last %d words.</string>
     <string name="lyrics_sync_time_rest">Time the rest roughly</string>
     <string name="lyrics_sync_preview_timing_q">Words light up too early / too late?</string>
