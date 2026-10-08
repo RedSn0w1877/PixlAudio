@@ -59,6 +59,7 @@ class CloudStudioSettings(context: Context) : CloudStudioSettingsSource {
     }
 
     /** Changes the non-secret values. Changing the Endpoint ID forgets the old endpoint's limits. */
+    @Synchronized
     fun update(change: (CloudSettingsSnapshot) -> CloudSettingsSnapshot) {
         val before = _settings.value
         var after = change(before)

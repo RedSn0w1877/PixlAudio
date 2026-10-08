@@ -69,7 +69,9 @@ object CloudConfig {
         val lower = trimmed.lowercase()
         if (lower.startsWith("http://")) return null
         val candidate = if (lower.startsWith("https://")) trimmed else "https://$trimmed"
-        val host = S3Location(candidate, DEFAULT_BUCKET).endpointHost ?: return null
+        // An explicit :443 is dropped: OkHttp leaves the default port out of the Host header, so a signature over
+        // "host:443" would never match.
+        val host = S3Location(candidate, DEFAULT_BUCKET).endpointHost?.removeSuffix(":443") ?: return null
         if ('.' !in host || host.startsWith('.') || host.endsWith('.')) return null
         if (!host.all { it.isAsciiLetterOrDigit() || it == '.' || it == '-' || it == ':' }) return null
         return "https://$host"

@@ -60,7 +60,8 @@ object CloudLyrics {
         var chars = 0
         for (line in lines.take(CloudLimits.MAX_LYRICS_LINES)) {
             val text = if (line.text.length > CloudLimits.MAX_LYRICS_LINE_CHARS) {
-                line.text.take(CloudLimits.MAX_LYRICS_LINE_CHARS)
+                // Never split a surrogate pair (an emoji) at the cut.
+                line.text.take(CloudLimits.MAX_LYRICS_LINE_CHARS).let { if (it.lastOrNull()?.isHighSurrogate() == true) it.dropLast(1) else it }
             } else line.text
             chars += text.length
             if (chars > CloudLimits.MAX_LYRICS_CHARS) break

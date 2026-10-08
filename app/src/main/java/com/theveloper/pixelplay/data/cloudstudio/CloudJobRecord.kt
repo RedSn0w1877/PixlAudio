@@ -94,7 +94,9 @@ data class CloudJobRecord(
         val next = CloudJobMachine.next(state, event) ?: return null
         var record = copy(state = next, updatedAtMs = nowMs)
         record = when (event) {
-            CloudJobEvent.UPLOAD_FINISHED -> record.copy(uploadedAtMs = nowMs)
+            // A step that went through ends any retry wait (the row stops saying "Trying again soon").
+            CloudJobEvent.PREPARED -> record.copy(nextAttemptAtMs = null)
+            CloudJobEvent.UPLOAD_FINISHED -> record.copy(uploadedAtMs = nowMs, nextAttemptAtMs = null)
             CloudJobEvent.SUBMITTED -> record.copy(submittedAtMs = nowMs)
             CloudJobEvent.IMPORTED -> record.copy(importedAtMs = nowMs)
             CloudJobEvent.REQUEUE -> record.copy(

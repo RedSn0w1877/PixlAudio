@@ -209,6 +209,47 @@ class CloudStudioEngineTest {
         assertEquals(CloudJobState.UPLOADED, engine.job(keys[2])!!.state)
     }
 
+    // ─── Review fixes ───────────────────────────────────────────────────────────────────────
+
+    @Test fun `switching the feature off mid-pass stops preparing and sending at the next step`() = runBlocking {
+        host = FakeHost(threeSongs)
+        val engine = engine()
+        assertEquals(3, engine.send(engine.preview(threeSongs, "Three")))
+        // The person switches Cloud processing off while the first song is being prepared.
+        preparer.onPrepare = { settings.snapshot = settings.snapshot.copy(enabled = false) }
+        val outcome = engine.workerPass(now + 60_000)
+        assertEquals(1, preparer.forceDecodes.size, "only the song already in hand was prepared")
+        assertTrue(runpod.runs.isEmpty(), "nothing was sent after the switch went off")
+        assertTrue(outcome.blocked)
+        assertEquals(CloudNotice.OFF, engine.state.value.notice)
+    }
+
+    @Test fun `cancel stops a job at RunPod even before any pass ran in this process`() = runBlocking {
+        val key = keys.removeFirst()
+        store.saved = listOf(CloudJobRecord(jobKey = key, songId = localSong.id, state = CloudJobState.SUBMITTED,
+            runpodJobId = "rp-old", submittedAtMs = now, createdAtMs = now))
+        val engine = engine()
+        engine.cancel(key)
+        assertEquals(CloudJobState.CANCELLED, engine.job(key)!!.state)
+        assertEquals(listOf("rp-old"), runpod.cancelled)
+    }
+
+    @Test fun `a retry wait ends once the step goes through`() = runBlocking {
+        val engine = engine()
+        val record = sendOne(engine)
+        runpod.finishImmediately = false
+        bucket.failUploads = 1
+        engine.workerPass(now + 60_000)
+        var job = engine.job(record.jobKey)!!
+        assertEquals(CloudJobState.UPLOADING, job.state)
+        assertNotNull(job.nextAttemptAtMs)
+        now = job.nextAttemptAtMs!! + 1
+        engine.workerPass(now + 60_000)
+        job = engine.job(record.jobKey)!!
+        assertTrue(job.state.isAtRunPod, "state ${job.state}")
+        assertNull(job.nextAttemptAtMs, "no \"Trying again soon\" once the upload went through")
+    }
+
     @Test fun `a streamed song is decoded, tied to its video, and refused if the match changed`() = runBlocking {
         host.videoIds[streamedSong.id] = "VIDEO_A"
         val engine = engine()
@@ -427,10 +468,12 @@ class CloudStudioEngineTest {
 
     private class FakePreparer(private val dir: File) : CloudAudioPreparing {
         val forceDecodes = mutableListOf<Boolean>()
+        var onPrepare: () -> Unit = {}
         val sha = "ab".repeat(32)
         val frames = 10_584_000L // 240 s at 44.1 kHz
         override suspend fun prepare(source: String, jobKey: String, forceDecode: Boolean): CloudPreparedAudio {
             forceDecodes += forceDecode
+            onPrepare()
             dir.mkdirs()
             val file = File(dir, "$jobKey.flac").apply { writeBytes(ByteArray(1_000) { 7 }) }
             return CloudPreparedAudio(file, "flac", file.length(), sha, 240_000, frames, 44_100)
@@ -457,7 +500,12 @@ class CloudStudioEngineTest {
             return S3ListResult(emptyList(), folders, false, null)
         }
         private fun keyOf(url: String) = url.removePrefix("https://bucket.test/").substringBefore('?')
+        var failUploads = 0
         override suspend fun upload(file: File, url: String, contentType: String, onProgress: (Float) -> Unit): CloudTransferResult {
+            if (failUploads > 0) {
+                failUploads--
+                return CloudTransferResult.Failed("connection reset")
+            }
             objects[keyOf(url)] = file.readBytes()
             onProgress(1f)
             return CloudTransferResult.Ok

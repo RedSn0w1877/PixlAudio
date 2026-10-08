@@ -104,6 +104,10 @@ class OkHttpCloudHttp(private val client: OkHttpClient) : CloudHttp, CloudTransf
         } catch (error: IOException) {
             partial.delete()
             CloudTransferResult.Failed(CloudRedaction.redact(error.message ?: "network error"))
+        } catch (error: Throwable) {
+            // Cancelled (or anything else): no half-written file is left behind.
+            partial.delete()
+            throw error
         }
     }
 

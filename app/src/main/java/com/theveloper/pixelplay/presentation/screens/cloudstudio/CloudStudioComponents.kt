@@ -175,6 +175,7 @@ internal fun CloudTextField(
     placeholder: String = "",
     secret: Boolean = false,
     keyboardType: KeyboardType = KeyboardType.Ascii,
+    enabled: Boolean = true,
 ) {
     var revealed by remember { mutableStateOf(false) }
     OutlinedTextField(
@@ -183,6 +184,7 @@ internal fun CloudTextField(
         label = { Text(label) },
         placeholder = if (placeholder.isNotEmpty()) ({ Text(placeholder) }) else null,
         singleLine = true,
+        enabled = enabled,
         shape = RoundedCornerShape(12.dp),
         visualTransformation = if (secret && !revealed) PasswordVisualTransformation() else VisualTransformation.None,
         keyboardOptions = KeyboardOptions(

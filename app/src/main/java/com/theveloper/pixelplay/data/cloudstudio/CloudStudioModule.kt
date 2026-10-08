@@ -21,6 +21,7 @@ import java.io.File
 import java.util.concurrent.TimeUnit
 import javax.inject.Qualifier
 import javax.inject.Singleton
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -79,7 +80,11 @@ object CloudStudioModule {
         workManager: WorkManager,
         builtIn: CloudBuiltInConfig,
     ): CloudStudioEngine {
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        // The poll loop and the scheduler run here; an unexpected failure is logged (its class only) and never crashes.
+        val scope = CoroutineScope(
+            SupervisorJob() + Dispatchers.IO +
+                CoroutineExceptionHandler { _, error -> timber.log.Timber.w("Cloud Studio: %s", error.javaClass.simpleName) }
+        )
         val http = OkHttpCloudHttp(client)
         val root = File(context.noBackupFilesDir, "cloud_studio")
         val host = LiveCloudStudioHost(

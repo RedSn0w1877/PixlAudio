@@ -14,6 +14,7 @@ import com.theveloper.pixelplay.data.cloudstudio.CloudStudioState
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.coroutines.cancellation.CancellationException
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -26,6 +27,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import timber.log.Timber
 
 /** Where a confirm sheet was asked for, so only that screen shows it. */
 enum class CloudBatchOrigin { QUEUE, PLAYLIST, STUDIO_CARD }
@@ -61,7 +63,11 @@ class CloudStudioStateHolder @Inject constructor(
     private val engine: CloudStudioEngine,
     private val settings: CloudStudioSettings,
 ) {
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    // A failure in one action (a Keystore error, a disk hiccup) never takes the app down; the screens just don't change.
+    private val scope = CoroutineScope(
+        SupervisorJob() + Dispatchers.Default +
+            CoroutineExceptionHandler { _, error -> Timber.w("Cloud Studio action failed: %s", error.javaClass.simpleName) }
+    )
     private val _ui = MutableStateFlow(CloudStudioUiState())
     val ui: StateFlow<CloudStudioUiState> = _ui.asStateFlow()
     val engineState: StateFlow<CloudStudioState> get() = engine.state
@@ -97,8 +103,11 @@ class CloudStudioStateHolder @Inject constructor(
     fun updateSettings(change: (CloudSettingsSnapshot) -> CloudSettingsSnapshot) {
         val wasEnabled = settings.snapshot().enabled
         settings.update(change)
-        // Switching on while the app is open starts the foreground watch right away.
-        if (!wasEnabled && settings.snapshot().enabled) scope.launch { engine.setAppVisible(true) }
+        val enabled = settings.snapshot().enabled
+        // Switching on while the app is open starts the foreground watch right away; switching off stops every
+        // transfer at once (a running pass stops at its next step).
+        if (!wasEnabled && enabled) scope.launch { engine.setAppVisible(true) }
+        if (wasEnabled && !enabled) engine.stopTransfers()
     }
 
     /** The keys as typed; saved 600 ms after the last change (iOS's draft rule). */

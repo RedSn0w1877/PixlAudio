@@ -108,19 +108,39 @@ class LiveCloudStudioHost(
     override suspend fun saveLyrics(doc: LyricsDoc, song: CloudSong, replaceUserSynced: Boolean): CloudLyricsSaveOutcome {
         val appSong = appSong(song.id) ?: return CloudLyricsSaveOutcome.UNUSABLE
         // Right before writing (design §7.5 step 3): the person's own sync, and catalog lyrics that arrived since.
-        val userSynced = runCatching { lyricsRepository.isUserSynced(appSong) }.getOrDefault(false)
-        val stored = runCatching { lyricsRepository.getStoredLyrics(appSong)?.first }.getOrNull()
-        if (!CloudLyrics.isUsable(doc) || !LyricsDocCodec.isValid(doc)) return CloudLyricsSaveOutcome.UNUSABLE
-        if (!CloudLyrics.shouldImport(CloudLyrics.level(stored), CloudLyrics.level(doc), userSynced, replaceUserSynced)) {
+        // Fails closed: if either can't be read, nothing is written now (the engine tries again), so the person's own
+        // sync is never replaced by mistake.
+        val userSynced = try {
+            lyricsRepository.isUserSynced(appSong)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            throw IOException("Couldn't read the lyrics stored for this song.")
+        }
+        val stored = try {
+            lyricsRepository.getStoredLyrics(appSong)?.first
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            throw IOException("Couldn't read the lyrics stored for this song.")
+        }
+        // Word timing that doesn't hold together across lines still leaves good line timing: keep that.
+        val usable = if (CloudLyrics.isUsable(doc) && LyricsDocCodec.isValid(doc)) doc else {
+            doc.copy(lines = doc.lines.map { it.copy(syllables = emptyList()) })
+                .takeIf { CloudLyrics.isUsable(it) && LyricsDocCodec.isValid(it) }
+                ?: return CloudLyricsSaveOutcome.UNUSABLE
+        }
+        if (!CloudLyrics.shouldImport(CloudLyrics.level(stored), CloudLyrics.level(usable), userSynced, replaceUserSynced)) {
             return if (userSynced && !replaceUserSynced) CloudLyricsSaveOutcome.KEPT_USER_SYNCED else CloudLyricsSaveOutcome.KEPT_BETTER
         }
         return try {
-            lyricsRepository.updateLyrics(appSong, LyricsDocCodec.encode(doc), doc.metadata.source ?: CloudLyrics.SOURCE)
+            lyricsRepository.updateLyrics(appSong, LyricsDocCodec.encode(usable), usable.metadata.source ?: CloudLyrics.SOURCE)
             CloudLyricsSaveOutcome.SAVED
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
-            CloudLyricsSaveOutcome.UNUSABLE
+            // A write that failed is tried again later, not counted as unusable lyrics.
+            throw IOException("Couldn't save the lyrics.")
         }
     }
 

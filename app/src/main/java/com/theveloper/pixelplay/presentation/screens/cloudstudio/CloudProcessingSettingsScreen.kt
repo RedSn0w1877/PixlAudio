@@ -147,6 +147,7 @@ fun CloudProcessingSettingsScreen(
                         label = "RunPod key (Restricted, Read/Write on this endpoint)",
                         placeholder = "rpa_…",
                         secret = true,
+                        enabled = ui.draft != null,
                     )
                 }
             }
@@ -173,12 +174,14 @@ fun CloudProcessingSettingsScreen(
                         onValueChange = { viewModel.updateDraft(draft.with(accessKeyId = it)) },
                         label = "Access key ID",
                         secret = true,
+                        enabled = ui.draft != null,
                     )
                     CloudTextField(
                         value = draft.secretAccessKey,
                         onValueChange = { viewModel.updateDraft(draft.with(secretAccessKey = it)) },
                         label = "Secret access key",
                         secret = true,
+                        enabled = ui.draft != null,
                     )
                 }
             }

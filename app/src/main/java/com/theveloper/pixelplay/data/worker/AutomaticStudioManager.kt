@@ -251,6 +251,14 @@ class AutomaticStudioManager @Inject constructor(
             _status.value = environment.blockedReason(kinds.first()) ?: "Waiting for suitable conditions"
             return
         }
+        // Cloud Studio's stored jobs are read first, so a song already on its way there is skipped on a cold start too.
+        try {
+            cloudStudio.get().loadForDisplay()
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            Timber.d("Cloud Studio jobs unreadable: %s", error.javaClass.simpleName)
+        }
         for (song in candidates()) {
             if (!AutomaticStudioPolicy.canProcessDuration(song.duration)) continue
             if (cloudStudio.get().hasPendingJob(song.id)) continue

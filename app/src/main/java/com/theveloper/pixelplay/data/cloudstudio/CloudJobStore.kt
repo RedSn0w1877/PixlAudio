@@ -23,10 +23,14 @@ class CloudJobStore(private val directory: File) : CloudJobPersistence {
     override suspend fun load(): List<CloudJobRecord> = withContext(Dispatchers.IO) {
         val current = file
         if (!current.isFile) return@withContext emptyList()
+        // A read error (IOException) propagates: the engine then never saves, so a passing hiccup can't empty the
+        // queue. Only a file that reads but doesn't decode is set aside, under its own name, and the queue starts over.
+        val text = current.readText()
         try {
-            CloudJson.decodeFromString(serializer, current.readText())
-        } catch (error: Exception) {
-            current.renameTo(File(directory, "$FILE_NAME.unreadable"))
+            CloudJson.decodeFromString(serializer, text)
+        } catch (error: IllegalArgumentException) {
+            // SerializationException is an IllegalArgumentException.
+            current.renameTo(File(directory, "$FILE_NAME.unreadable-${System.currentTimeMillis()}"))
             emptyList()
         }
     }

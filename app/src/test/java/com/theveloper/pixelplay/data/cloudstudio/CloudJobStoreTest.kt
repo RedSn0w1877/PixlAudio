@@ -41,6 +41,11 @@ class CloudJobStoreTest {
         assertEquals(CloudOutputCodec.AAC, loaded.outputCodec)
         File(dir, CloudJobStore.FILE_NAME).writeText("{not json")
         assertEquals(emptyList<CloudJobRecord>(), store.load())
-        assertTrue(File(dir, "${CloudJobStore.FILE_NAME}.unreadable").isFile)
+        assertTrue(dir.listFiles()!!.any { it.name.startsWith("${CloudJobStore.FILE_NAME}.unreadable-") })
+        // A second unreadable file is kept too, under its own name (never one over the other).
+        Thread.sleep(2)
+        File(dir, CloudJobStore.FILE_NAME).writeText("[{]")
+        assertEquals(emptyList<CloudJobRecord>(), store.load())
+        assertEquals(2, dir.listFiles()!!.count { it.name.startsWith("${CloudJobStore.FILE_NAME}.unreadable-") })
     }
 }

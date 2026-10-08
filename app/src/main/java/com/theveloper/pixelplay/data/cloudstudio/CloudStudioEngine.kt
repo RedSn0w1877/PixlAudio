@@ -14,7 +14,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -174,7 +176,14 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
         pollLoop = deps.scope.launch {
             var first = true
             while (isActive && visible) {
-                val outcome = foregroundPass()
+                val outcome = try {
+                    foregroundPass()
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    // A disk or database hiccup: every change made so far is saved; the next tick tries again.
+                    null
+                }
                 // Preparing and uploading are the worker's (they can take minutes); a light pass only asks for it.
                 if ((first && requestWorker || !first) && outcome?.workBeforeSubmit == true) deps.scheduler.requestPass()
                 first = false
@@ -308,7 +317,11 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
         if (record.state.isFinished) return
         transfersInFlight.remove(jobKey)?.cancel()
         update(jobKey) { it.on(CloudJobEvent.CANCELLED, now) }
-        val clients = currentClients()
+        // Clients from the current settings, even when no pass has run in this process yet: a job at RunPod must
+        // be stopped there, or it keeps running and billing.
+        val clients = currentClients() ?: runCatching {
+            buildClients(configInput(deps.settings.snapshot(), deps.settings.secrets().secrets))
+        }.getOrNull()
         val runpodId = record.runpodJobId
         if (record.state.isAtRunPod && runpodId != null && clients != null) {
             cancelQuietly(clients, runpodId)
@@ -399,34 +412,64 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
         }
         try {
             settleInterruptedWork()
-            val transfersAllowed = settings.useCellular || deps.isUnmetered()
-            submitReadyBatches(clients, settings)
+            var current = settings
+            submitReadyBatches(clients, current)
             watchRunPod(clients)
-            collectResults(clients, transfersAllowed)
+            // Light passes (the app on screen) aren't stopped by WorkManager: their transfers have no window.
+            val transferDeadline = if (mode == PassMode.FULL) deadlineMs else null
+            collectResults(clients, transfersAllowed(current), transferDeadline)
             if (mode == PassMode.FULL) {
                 val handled = HashSet<String>()
                 while (now < deadlineMs && currentCoroutineContext().isActive) {
+                    // The person can switch the feature (or mobile data) off, or leave Wi-Fi, mid-pass: read again
+                    // before every step, so nothing more is prepared, sent or spent after that.
+                    current = deps.settings.snapshot()
+                    if (!current.enabled) break
+                    val allowed = transfersAllowed(current)
                     val time = now
                     val next = jobs.firstOrNull { record ->
                         record.jobKey !in handled && record.isDue(time) && isPhoneStep(record) &&
-                            (transfersAllowed || !movesData(record))
+                            (allowed || !movesData(record))
                     } ?: break
                     handled += next.jobKey
-                    if (next.state == CloudJobState.QUEUED) prepare(next.jobKey, settings)
-                    if (transfersAllowed && job(next.jobKey)?.state == CloudJobState.UPLOADING) upload(next.jobKey, clients)
-                    submitReadyBatches(clients, settings)
+                    if (next.state == CloudJobState.QUEUED) prepare(next.jobKey, current)
+                    val afterPrepare = deps.settings.snapshot()
+                    if (job(next.jobKey)?.state == CloudJobState.UPLOADING && afterPrepare.enabled &&
+                        transfersAllowed(afterPrepare) && hasTransferWindow(deadlineMs)
+                    ) upload(next.jobKey, clients)
+                    current = deps.settings.snapshot()
+                    if (!current.enabled) break
+                    submitReadyBatches(clients, current)
                     watchRunPod(clients)
-                    collectResults(clients, transfersAllowed)
+                    collectResults(clients, transfersAllowed(current), transferDeadline)
                 }
             }
+            current = deps.settings.snapshot()
+            if (!current.enabled) {
+                setNotice(CloudNotice.OFF)
+                return outcome(current).copy(blocked = true)
+            }
             // Jobs the watch just sent back (lost at RunPod, a worker error without a wait) go out in this pass.
-            submitReadyBatches(clients, settings)
-            val result = outcome(settings)
+            submitReadyBatches(clients, current)
+            val result = outcome(current)
             if (result.waitingForUnmetered) setNotice(CloudNotice.WAITING_FOR_WIFI)
             return result
         } finally {
             _state.update { it.copy(isWorking = false) }
         }
+    }
+
+    private fun transfersAllowed(settings: CloudSettingsSnapshot): Boolean = settings.useCellular || deps.isUnmetered()
+
+    /**
+     * A transfer only starts with a few minutes of the pass left: a plain background worker is stopped at 10
+     * minutes, and an upload cut off there starts again from zero next time.
+     */
+    private fun hasTransferWindow(deadlineMs: Long?): Boolean = deadlineMs == null || deadlineMs - now >= MIN_TRANSFER_WINDOW_MS
+
+    /** The switch went off: stop every running upload and download at once (their jobs keep their state). */
+    fun stopTransfers() {
+        transfersInFlight.values.forEach { it.cancel() }
     }
 
     private fun outcome(settings: CloudSettingsSnapshot): CloudPassOutcome {
@@ -552,10 +595,11 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
             setNotice(CloudNotice.NOT_CONFIGURED)
             return
         }
-        val result = transfer(jobKey) {
-            deps.transfers.upload(file, url, CloudKeys.contentType(ext)) { progress(jobKey, it) }
+        val result = try {
+            transfer(jobKey) { deps.transfers.upload(file, url, CloudKeys.contentType(ext)) { progress(jobKey, it) } }
+        } finally {
+            clearProgress(jobKey)
         }
-        clearProgress(jobKey)
         if (job(jobKey)?.state != CloudJobState.UPLOADING || result == null) return
         when (result) {
             CloudTransferResult.Ok -> update(jobKey) { it.on(CloudJobEvent.UPLOAD_FINISHED, now) }
@@ -679,16 +723,18 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
         // Cancelled while it waited for the next job to be ready.
         if (job(jobKey)?.state != CloudJobState.UPLOADED) return true
         try {
-            val runpodJob = clients.runpod.run(pending.request.markingLastInBatch(lastInBatch))
-            if (job(jobKey)?.state != CloudJobState.UPLOADED) {
-                // Cancelled while the request was out: stop it at RunPod too.
-                cancelQuietly(clients, runpodJob.id)
-                return true
-            }
-            // The id is on disk before the next POST (design §7.4): update() saves.
-            update(jobKey) {
-                it.copy(runpodJobId = runpodJob.id, lastError = null, lastErrorCode = null, nextAttemptAtMs = null)
-                    .on(CloudJobEvent.SUBMITTED, now)
+            // Once /run is out, its answer and the saved id must not be torn apart by a cancelled pass (the app went
+            // to the background): a lost id means the job is sent, and billed, twice.
+            withContext(NonCancellable) {
+                val runpodJob = clients.runpod.run(pending.request.markingLastInBatch(lastInBatch))
+                // The id is on disk before the next POST (design §7.4): update() saves. Only onto a job still waiting
+                // to go out: one cancelled while the request was out is stopped at RunPod too.
+                update(jobKey) {
+                    if (it.state != CloudJobState.UPLOADED) it
+                    else it.copy(runpodJobId = runpodJob.id, lastError = null, lastErrorCode = null, nextAttemptAtMs = null)
+                        .on(CloudJobEvent.SUBMITTED, now)
+                }
+                if (job(jobKey)?.runpodJobId != runpodJob.id) cancelQuietly(clients, runpodJob.id)
             }
             return true
         } catch (error: CancellationException) {
@@ -835,7 +881,12 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
         val price = deps.settings.snapshot().pricePerSecondMicroUsd
         update(jobKey) { it.takingResult(result, price, now) }
         if (result.hasResults) {
-            update(jobKey) { it.copy(lastError = null, lastErrorCode = null).on(CloudJobEvent.RESULTS_READY, now) }
+            // The GPU work is done and paid for: importing it gets its own retry budget, so earlier hiccups (an upload,
+            // a lost job) can't make one download error throw the results away.
+            update(jobKey) {
+                it.copy(lastError = null, lastErrorCode = null, attempts = 0, nextAttemptAtMs = null)
+                    .on(CloudJobEvent.RESULTS_READY, now)
+            }
         } else {
             handleError(result.errorCode ?: CloudErrorCode.INTERNAL, jobKey)
         }
@@ -882,10 +933,10 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
 
     // ─── Collect and import ─────────────────────────────────────────────────────────────────
 
-    private suspend fun collectResults(clients: Clients, transfersAllowed: Boolean) {
+    private suspend fun collectResults(clients: Clients, transfersAllowed: Boolean, transferDeadlineMs: Long?) {
         val time = now
         for (record in jobs.filter { it.state == CloudJobState.RESULTS_READY && it.isDue(time) }) {
-            collect(record.jobKey, clients, transfersAllowed)
+            collect(record.jobKey, clients, transfersAllowed && hasTransferWindow(transferDeadlineMs))
         }
     }
 
@@ -917,6 +968,8 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
         val lyricsKey = record.lyricsKey
         if (CloudTask.LYRICS in record.tasks && !record.importedLyrics && lyricsKey != null) {
             importLyrics(jobKey, lyricsKey, song, clients)
+            // A lyrics failure waits out its retry before anything else of this job is fetched.
+            if (job(jobKey)?.isDue(now) == false) return
         }
         val current = job(jobKey)?.takeIf { it.state == CloudJobState.RESULTS_READY } ?: return
         val output = current.outputs?.get(INSTRUMENTAL_SLOT)
@@ -931,8 +984,11 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
             val ext = if (current.outputCodec == CloudOutputCodec.FLAC) "flac" else "m4a"
             deps.stagingDir.mkdirs()
             val staged = File(deps.stagingDir, "$jobKey.$ext")
-            val result = transfer(jobKey) { deps.transfers.download(url, staged) { progress(jobKey, it) } }
-            clearProgress(jobKey)
+            val result = try {
+                transfer(jobKey) { deps.transfers.download(url, staged) { progress(jobKey, it) } }
+            } finally {
+                clearProgress(jobKey)
+            }
             if (result == null || job(jobKey)?.state != CloudJobState.DOWNLOADING) {
                 staged.delete()
                 return
@@ -1074,7 +1130,11 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
     private suspend fun finishIfDone(jobKey: String, clients: Clients) {
         val record = job(jobKey) ?: return
         if (record.state != CloudJobState.RESULTS_READY && record.state != CloudJobState.DOWNLOADING) return
-        if (!record.isFullyImported) return
+        if (!record.isFullyImported) {
+            // The instrumental is in but the lyrics wait for a retry: the next collect fetches them.
+            if (record.state == CloudJobState.DOWNLOADING) update(jobKey) { it.on(CloudJobEvent.RESULTS_READY, now) }
+            return
+        }
         val keys = CloudJobBuilder.objectKeys(record)
         update(jobKey) { it.on(CloudJobEvent.IMPORTED, now) }
         cleanUpLocal(jobKey)
@@ -1140,12 +1200,17 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
             clientsKey = null
             return null
         }
-        val runpod = deps.makeRunPod(config) ?: return null
-        val objects = deps.makeObjects(config) ?: return null
-        return Clients(runpod, objects).also {
+        return buildClients(config)?.also {
             clientsCache = it
             clientsKey = config
         }
+    }
+
+    private fun buildClients(config: CloudConfigInput): Clients? {
+        if (!config.isComplete) return null
+        val runpod = deps.makeRunPod(config) ?: return null
+        val objects = deps.makeObjects(config) ?: return null
+        return Clients(runpod, objects)
     }
 
     private fun currentClients(): Clients? = clientsCache
@@ -1181,8 +1246,9 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
             loadLocked()
             val next = change(jobs)
             if (next != jobs) {
+                // On disk first, then in memory: memory never runs ahead of what a restart would read.
+                withContext(NonCancellable) { deps.store.save(next) }
                 jobs = next
-                deps.store.save(next)
                 publish()
             }
             next
@@ -1205,6 +1271,8 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
 
     companion object {
         const val INSTRUMENTAL_SLOT = "instrumental"
+        /** The least time left in a background pass for a transfer to start (see [hasTransferWindow]). */
+        const val MIN_TRANSFER_WINDOW_MS = 3L * 60_000
 
         /**
          * The result's length equals the phone's own count of the uploaded audio within ±1 AAC frame (R13), using the
