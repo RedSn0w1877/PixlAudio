@@ -14,6 +14,7 @@ import com.theveloper.pixelplay.data.ai.provider.AiProvider
 import com.theveloper.pixelplay.data.preferences.AiPreferencesRepository
 import com.theveloper.pixelplay.di.AppScope
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -24,6 +25,7 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -98,17 +100,21 @@ class AiAvailabilityStateHolder @Inject constructor(
         .distinctUntilChanged()
         .stateIn(appScope, SharingStarted.WhileSubscribed(5_000), AiAvailability.Checking)
 
-    /** The availability now, asking AICore first when it hasn't been asked yet. */
+    /**
+     * The availability now. AICore is asked again unless Gemini Nano is already known to be ready,
+     * and the downloaded model is checked on disk: at app start (the home greeting) the observed
+     * [DownloadedModelManager.state] hasn't read the file yet.
+     */
     suspend fun current(): AiAvailability {
-        nano.refreshIfUnknown()
+        val nanoStatus = nano.refreshUnlessReady()
         val provider = AiProvider.fromString(preferences.aiProvider.first())
         return AiAvailabilityResolver.resolve(
             provider = provider,
             apiKey = preferences.getApiKey(provider).first(),
             baseUrl = preferences.getBaseUrl(provider).first(),
             useDownloadedModel = preferences.aiDownloadedModelEnabled.first() && gemma.isSupportedDevice,
-            downloadedModelReady = downloadedModel.state.value is DownloadedModelState.Ready,
-            nanoStatus = nano.status.value,
+            downloadedModelReady = withContext(Dispatchers.IO) { downloadedModel.readyModelPath() != null },
+            nanoStatus = nanoStatus,
         )
     }
 
@@ -119,7 +125,7 @@ class AiAvailabilityStateHolder @Inject constructor(
 
     /** Asks Android to download Gemini Nano ("Get ready"). */
     fun prepareOnDevice() {
-        appScope.launch { nano.prepare() }
+        nano.prepareInBackground()
     }
 }
 

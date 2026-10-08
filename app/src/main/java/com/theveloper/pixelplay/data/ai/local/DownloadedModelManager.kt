@@ -25,6 +25,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.util.UUID
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -62,15 +63,34 @@ class DownloadedModelManager @Inject constructor(
 
     private val fileSize = MutableStateFlow<Long?>(null)
 
+    /**
+     * The finished download whose file was re-read after it finished. WorkManager keeps a
+     * SUCCEEDED record for about a day, so after Delete "succeeded, no file" must read as "not
+     * downloaded", not "still checking" — which left the row spinning with no Download button.
+     */
+    private val fileCheckedAfterSuccess = MutableStateFlow<UUID?>(null)
+
     private val workManager: WorkManager by lazy { WorkManager.getInstance(context) }
 
     val state: StateFlow<DownloadedModelState> by lazy {
         appScope.launch { refreshFile() }
-        combine(fileSize, workManager.getWorkInfosForUniqueWorkFlow(WORK_NAME)) { size, infos ->
+        combine(
+            fileSize,
+            workManager.getWorkInfosForUniqueWorkFlow(WORK_NAME),
+            fileCheckedAfterSuccess,
+        ) { size, infos, checkedId ->
+            val info = infos.firstOrNull()
+            if (info != null && info.state == WorkInfo.State.SUCCEEDED && size == null && checkedId != info.id) {
+                // A worker that just finished wrote the file: pick it up without waiting for a restart.
+                appScope.launch {
+                    refreshFile()
+                    fileCheckedAfterSuccess.value = info.id
+                }
+            }
             DownloadedModelStateMapper.map(
                 readyFileBytes = size,
                 expectedBytes = spec.sizeBytes,
-                work = infos.firstOrNull()?.let(::snapshotOf),
+                work = info?.let { snapshotOf(it, fileChecked = it.id == checkedId) },
             )
         }
             .distinctUntilChanged()
@@ -130,6 +150,11 @@ class DownloadedModelManager @Inject constructor(
         workManager.cancelUniqueWork(WORK_NAME)
         gemmaEngine.release()
         aiPreferencesRepository.setDownloadedModelEnabled(false)
+        // The download that brought the file stays SUCCEEDED in WorkManager: mark its file as
+        // re-read now, so the row goes straight to "not downloaded".
+        workManager.getWorkInfosForUniqueWorkFlow(WORK_NAME).first()
+            .firstOrNull { it.state == WorkInfo.State.SUCCEEDED }
+            ?.let { fileCheckedAfterSuccess.value = it.id }
         withContext(Dispatchers.IO) {
             modelFile.delete()
             partFile.delete()
@@ -142,7 +167,7 @@ class DownloadedModelManager @Inject constructor(
         fileSize.value = readyModelPath()?.let { modelFile.length() }
     }
 
-    private fun snapshotOf(info: WorkInfo): DownloadWorkSnapshot = DownloadWorkSnapshot(
+    private fun snapshotOf(info: WorkInfo, fileChecked: Boolean): DownloadWorkSnapshot = DownloadWorkSnapshot(
         phase = when (info.state) {
             WorkInfo.State.ENQUEUED, WorkInfo.State.BLOCKED -> DownloadWorkSnapshot.Phase.QUEUED
             WorkInfo.State.RUNNING -> if (info.progress.getBoolean(LocalModelDownloadWorker.PROGRESS_VERIFYING, false)) {
@@ -157,10 +182,8 @@ class DownloadedModelManager @Inject constructor(
         bytes = info.progress.getLong(LocalModelDownloadWorker.PROGRESS_BYTES, 0L),
         failure = info.outputData.getString(LocalModelDownloadWorker.OUTPUT_FAILURE)
             ?.let { name -> DownloadFailureReason.entries.find { it.name == name } },
-    ).also {
-        // A worker that just finished wrote the file: pick it up without waiting for a restart.
-        if (it.phase == DownloadWorkSnapshot.Phase.SUCCEEDED && fileSize.value == null) appScope.launch { refreshFile() }
-    }
+        fileChecked = fileChecked,
+    )
 
     companion object {
         const val WORK_NAME = "llm_download"
@@ -173,6 +196,8 @@ data class DownloadWorkSnapshot(
     val phase: Phase,
     val bytes: Long = 0L,
     val failure: DownloadFailureReason? = null,
+    /** The file was re-read after this work finished (only meaningful for SUCCEEDED). */
+    val fileChecked: Boolean = false,
 ) {
     enum class Phase { QUEUED, RUNNING, VERIFYING, SUCCEEDED, FAILED, CANCELLED }
 }
@@ -187,8 +212,10 @@ internal object DownloadedModelStateMapper {
             DownloadWorkSnapshot.Phase.VERIFYING -> DownloadedModelState.Verifying
             DownloadWorkSnapshot.Phase.FAILED ->
                 DownloadedModelState.Failed(work.failure ?: DownloadFailureReason.IO)
-            // SUCCEEDED before the file was re-read, CANCELLED, or no work at all.
-            DownloadWorkSnapshot.Phase.SUCCEEDED -> DownloadedModelState.Verifying
+            // SUCCEEDED before the file was re-read is the moment between the rename and the
+            // re-read; once re-read, no file means it was deleted since (Delete, cleared storage).
+            DownloadWorkSnapshot.Phase.SUCCEEDED ->
+                if (work.fileChecked) DownloadedModelState.NotDownloaded else DownloadedModelState.Verifying
             DownloadWorkSnapshot.Phase.CANCELLED, null -> DownloadedModelState.NotDownloaded
         }
     }

@@ -41,7 +41,13 @@ object PlaylistPlanFiller {
         if (candidates.isEmpty()) return emptyList()
 
         val rankSize = (inputs.personalRank.size).coerceAtLeast(1)
-        val scored = candidates.map { song -> song to score(song, plan, inputs, rankSize) }
+        // Normalised once: this runs for every library song, and scoring and the artist cap both ask.
+        val wantedArtists = plan.artists.map { PlaylistPlanParser.normalize(it) }.filter { it.isNotEmpty() }.toSet()
+        val namedById = HashMap<String, Boolean>()
+        fun isNamed(song: Song): Boolean = wantedArtists.isNotEmpty() &&
+            namedById.getOrPut(song.id) { normalizedArtistNames(song).any { it in wantedArtists } }
+
+        val scored = candidates.map { song -> song to score(song, plan, inputs, rankSize, named = isNamed(song)) }
             .sortedWith(compareByDescending<Pair<Song, Double>> { it.second }.thenBy { it.first.id })
 
         val picked = LinkedHashMap<String, Song>()
@@ -51,7 +57,7 @@ object PlaylistPlanFiller {
             val artistKey = artistKey(song)
             val count = perArtist[artistKey] ?: 0
             // An artist the request names explicitly may fill more of the playlist.
-            val cap = if (plan.artists.any { matchesArtist(song, it) }) MAX_PER_ARTIST * 4 else MAX_PER_ARTIST
+            val cap = if (isNamed(song)) MAX_PER_ARTIST * 4 else MAX_PER_ARTIST
             if (respectCap && count >= cap) return false
             picked[song.id] = song
             perArtist[artistKey] = count + 1
@@ -82,7 +88,13 @@ object PlaylistPlanFiller {
         return picked.values.toList()
     }
 
-    internal fun score(song: Song, plan: PlaylistPlan, inputs: Inputs, rankSize: Int): Double {
+    internal fun score(
+        song: Song,
+        plan: PlaylistPlan,
+        inputs: Inputs,
+        rankSize: Int,
+        named: Boolean = plan.artists.any { matchesArtist(song, it) },
+    ): Double {
         var score = 0.0
         val genre = PlaylistPlanParser.normalize(song.genre.orEmpty())
         val family = GenreFamilies.familyOf(genre)
@@ -90,7 +102,7 @@ object PlaylistPlanFiller {
         if (plan.genres.isNotEmpty() && genre.isNotEmpty()) {
             if (plan.genres.any { genreMatches(genre, PlaylistPlanParser.normalize(it)) }) score += 3.0
         }
-        if (plan.artists.any { matchesArtist(song, it) }) score += 4.0
+        if (named) score += 4.0
 
         if (family != null) {
             if (plan.moods.any { mood -> family in GenreFamilies.familiesForMood(mood) }) score += 1.5
@@ -147,14 +159,15 @@ object PlaylistPlanFiller {
     internal fun matchesArtist(song: Song, wanted: String): Boolean {
         val w = PlaylistPlanParser.normalize(wanted)
         if (w.isEmpty()) return false
-        val names = buildList {
-            add(song.artist)
-            add(song.displayArtist)
-            song.artists.forEach { add(it.name) }
-            song.albumArtist?.let { add(it) }
-        }
-        return names.any { PlaylistPlanParser.normalize(it) == w }
+        return normalizedArtistNames(song).any { it == w }
     }
+
+    private fun normalizedArtistNames(song: Song): List<String> = buildList {
+        add(song.artist)
+        add(song.displayArtist)
+        song.artists.forEach { add(it.name) }
+        song.albumArtist?.let { add(it) }
+    }.map(PlaylistPlanParser::normalize)
 
     private fun artistKey(song: Song): String =
         PlaylistPlanParser.normalize(song.primaryArtist.name.ifBlank { song.artist })
@@ -202,14 +215,26 @@ internal object GenreFamilies {
         "sleep" to setOf("ambient", "classical", "folk"),
     )
 
+    // Every family word normalised and padded once, longest first, so "dream pop" is indie and
+    // "hip hop" isn't "pop". familyOf runs several times per library song: nothing is rebuilt,
+    // sorted or regex-normalised per call, and each distinct genre is resolved once.
+    private val WORDS_LONGEST_FIRST: List<Pair<String, String>> by lazy {
+        FAMILIES.flatMap { family -> family.words.map { family.name to it } }
+            .sortedByDescending { it.second.length }
+            .map { (name, word) -> name to " ${PlaylistPlanParser.normalize(word)} " }
+    }
+    private val familyByGenre = java.util.concurrent.ConcurrentHashMap<String, String>()
+    private const val NO_FAMILY = ""
+    private const val MAX_CACHED_GENRES = 4_096
+
     fun familyOf(normalizedGenre: String): String? {
         if (normalizedGenre.isBlank()) return null
+        familyByGenre[normalizedGenre]?.let { return it.ifEmpty { null } }
         val padded = " $normalizedGenre "
-        // Longest word first, so "dream pop" is indie and "hip hop" isn't "pop".
-        return FAMILIES.flatMap { family -> family.words.map { family.name to it } }
-            .sortedByDescending { it.second.length }
-            .firstOrNull { (_, word) -> padded.contains(" ${PlaylistPlanParser.normalize(word)} ") }
-            ?.first
+        val family = WORDS_LONGEST_FIRST.firstOrNull { (_, word) -> padded.contains(word) }?.first ?: NO_FAMILY
+        if (familyByGenre.size >= MAX_CACHED_GENRES) familyByGenre.clear()
+        familyByGenre[normalizedGenre] = family
+        return family.ifEmpty { null }
     }
 
     fun energyOf(family: String): Int = FAMILIES.firstOrNull { it.name == family }?.energy ?: 3

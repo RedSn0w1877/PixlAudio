@@ -110,8 +110,11 @@ object LibraryLookupCore {
         return kept.joinToString("\n")
     }
 
+    // Compiled once: normalize runs for every artist and genre in the library on each question.
+    private val NON_WORD = Regex("[^\\p{L}\\p{N}&]+")
+
     private fun normalize(text: String): String =
-        text.lowercase(Locale.ROOT).replace(Regex("[^\\p{L}\\p{N}&]+"), " ").trim()
+        text.lowercase(Locale.ROOT).replace(NON_WORD, " ").trim()
 
     private fun containsPhrase(normalizedText: String, phrase: String): Boolean {
         if (phrase.isBlank()) return false

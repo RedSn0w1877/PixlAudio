@@ -174,6 +174,19 @@ class ModelFileDownloaderTest {
     }
 
     @Test
+    fun `after Delete a finished download reads as not downloaded, not as still checking`() {
+        val total = 2_000L
+        val succeeded = DownloadWorkSnapshot(DownloadWorkSnapshot.Phase.SUCCEEDED)
+        // Between the worker's rename and the re-read of the file.
+        assertThat(DownloadedModelStateMapper.map(null, total, succeeded)).isEqualTo(DownloadedModelState.Verifying)
+        assertThat(DownloadedModelStateMapper.map(total, total, succeeded)).isEqualTo(DownloadedModelState.Ready(total))
+        // WorkManager keeps the SUCCEEDED record for a day: once the file was re-read and is gone
+        // (Delete), the row must offer Download again.
+        assertThat(DownloadedModelStateMapper.map(null, total, succeeded.copy(fileChecked = true)))
+            .isEqualTo(DownloadedModelState.NotDownloaded)
+    }
+
+    @Test
     fun `the pinned model matches the Hugging Face listing`() {
         val gemma = DownloadedModelCatalog.GEMMA_4_E2B
         assertThat(gemma.url).contains("/resolve/b3ca0d2f076785a8f4b2219ddbd2bdb99954eae1/")

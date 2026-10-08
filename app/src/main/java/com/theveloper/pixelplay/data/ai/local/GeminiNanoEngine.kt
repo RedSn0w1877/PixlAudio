@@ -8,11 +8,14 @@ import com.google.mlkit.genai.prompt.Generation
 import com.google.mlkit.genai.prompt.GenerativeModel
 import com.google.mlkit.genai.prompt.SystemInstruction
 import com.google.mlkit.genai.prompt.TextPart
+import com.theveloper.pixelplay.di.AppScope
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -44,7 +47,9 @@ sealed interface NanoStatus {
  *   out of v1: the features parse plain text leniently instead.
  */
 @Singleton
-class GeminiNanoEngine @Inject constructor() {
+class GeminiNanoEngine @Inject constructor(
+    @AppScope private val appScope: CoroutineScope,
+) {
 
     private val _status = MutableStateFlow<NanoStatus>(NanoStatus.Unknown)
     val status: StateFlow<NanoStatus> = _status.asStateFlow()
@@ -88,6 +93,23 @@ class GeminiNanoEngine @Inject constructor() {
 
     suspend fun refreshIfUnknown(): NanoStatus =
         _status.value.takeUnless { it is NanoStatus.Unknown } ?: refresh()
+
+    /**
+     * The status, re-asked from AICore unless Nano is already known to be ready. A cached
+     * "needs download", "getting ready" or "failed" goes stale on its own (AICore finishes its
+     * download in the background, a failed download is retried), and a request must not keep
+     * answering from it until Settings happens to be opened.
+     */
+    suspend fun refreshUnlessReady(): NanoStatus =
+        _status.value.takeIf { it == NanoStatus.Ready } ?: refresh()
+
+    /**
+     * [prepare] on the app scope: leaving the screen that asked (Settings, an AI entry) must not
+     * stop following Android's download.
+     */
+    fun prepareInBackground() {
+        appScope.launch { prepare() }
+    }
 
     /**
      * Has AICore download the model (it decides when; Wi-Fi and charging help). Progress shows in
@@ -138,9 +160,15 @@ class GeminiNanoEngine @Inject constructor() {
     }
 
     suspend fun generate(request: LocalGenerationRequest): String {
-        when (val status = refreshIfUnknown()) {
+        when (val status = refreshUnlessReady()) {
             NanoStatus.Ready, NanoStatus.Unknown -> Unit
-            NanoStatus.NeedsDownload, is NanoStatus.Downloading -> throw OnDeviceAiException(OnDeviceFailure.PREPARING)
+            NanoStatus.NeedsDownload -> {
+                // Taizo and lyric translation have no "Get ready" gate of their own: ask Android
+                // for the model now, so "try again in a few minutes" comes true.
+                prepareInBackground()
+                throw OnDeviceAiException(OnDeviceFailure.PREPARING)
+            }
+            is NanoStatus.Downloading -> throw OnDeviceAiException(OnDeviceFailure.PREPARING)
             is NanoStatus.Unavailable -> throw OnDeviceAiException(status.failure)
         }
         return generateMutex.withLock {

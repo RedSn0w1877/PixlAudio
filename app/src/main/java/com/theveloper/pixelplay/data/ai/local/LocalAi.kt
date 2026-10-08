@@ -71,6 +71,7 @@ class LocalAi @Inject constructor(
     }
 
     suspend fun generate(request: LocalGenerationRequest): Answer {
+        var loadFailure: OnDeviceAiException? = null
         if (engine() == LocalEngineId.GEMMA) {
             val path = withContext(Dispatchers.IO) { downloadedModel.readyModelPath() }
             if (path != null) {
@@ -79,10 +80,18 @@ class LocalAi @Inject constructor(
                 } catch (e: OnDeviceAiException) {
                     if (e.failure != OnDeviceFailure.MODEL_LOAD_FAILED) throw e
                     Timber.tag(TAG).w(e, "Downloaded model failed to load; answering with Gemini Nano")
+                    loadFailure = e
                 }
             }
         }
-        return Answer(nano.generate(request), LocalEngineId.NANO)
+        return try {
+            Answer(nano.generate(request), LocalEngineId.NANO)
+        } catch (e: OnDeviceAiException) {
+            // Gemini Nano can't stand in on this phone: the real problem is the downloaded model,
+            // so say that rather than "not available on this phone".
+            if (loadFailure != null && e.failure in NANO_CANT_RUN) throw loadFailure
+            throw e
+        }
     }
 
     /** Loads whichever engine the next request will use (an AI sheet just opened). */
@@ -99,5 +108,6 @@ class LocalAi @Inject constructor(
 
     private companion object {
         const val TAG = "LocalAi"
+        val NANO_CANT_RUN = setOf(OnDeviceFailure.NOT_SUPPORTED, OnDeviceFailure.NEEDS_UPDATE, OnDeviceFailure.PREPARING)
     }
 }

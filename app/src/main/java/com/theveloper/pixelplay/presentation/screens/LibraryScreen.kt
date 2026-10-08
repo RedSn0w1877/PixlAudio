@@ -508,7 +508,16 @@ fun LibraryScreen(
             .distinctUntilChanged()
     }.collectAsStateWithLifecycle(initialValue = false)
     val hasActiveAiProviderApiKey by playerViewModel.hasActiveAiProviderApiKey.collectAsStateWithLifecycle()
-    val aiAvailability by playerViewModel.aiAvailability.collectAsStateWithLifecycle()
+    // Only why AI is off and whether a cloud key is missing: the raw availability changes with
+    // every Gemini Nano download progress update, which would recompose the whole Library screen.
+    val aiBlockedReason by remember(playerViewModel) {
+        playerViewModel.aiAvailability
+            .map { availability ->
+                availability.reasonRes to
+                    (availability is com.theveloper.pixelplay.presentation.viewmodel.AiAvailability.NeedsCloudSetup)
+            }
+            .distinctUntilChanged()
+    }.collectAsStateWithLifecycle(initialValue = Pair<Int?, Boolean>(null, false))
     val isGeneratingAiPlaylist by playerViewModel.isGeneratingAiPlaylist.collectAsStateWithLifecycle()
     val aiError by playerViewModel.aiError.collectAsStateWithLifecycle()
     var showCreatePlaylistDialog by remember { mutableStateOf(false) }
@@ -1716,8 +1725,8 @@ fun LibraryScreen(
             }
         },
         isAiEnabled = hasActiveAiProviderApiKey,
-        disabledReason = aiAvailability.reasonRes?.let { stringResource(it) },
-        showKeyIcon = aiAvailability is com.theveloper.pixelplay.presentation.viewmodel.AiAvailability.NeedsCloudSetup,
+        disabledReason = aiBlockedReason.first?.let { stringResource(it) },
+        showKeyIcon = aiBlockedReason.second,
         onSetupAiClick = {
             navController.navigateSafely(Screen.SettingsCategory.createRoute("ai"))
         }

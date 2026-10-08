@@ -53,6 +53,9 @@ class GemmaLiteRtEngine @Inject constructor(
     private var engine: Engine? = null
     private var loadedPath: String? = null
     private var idleJob: Job? = null
+    // The last file both backends failed to load, and when (guarded by [mutex]).
+    private var failedLoadPath: String? = null
+    private var lastFailedLoadAtMs: Long? = null
 
     private val _lastLoadError = MutableStateFlow<String?>(null)
     /** Why the last load failed (shown under the model row), or null. */
@@ -80,10 +83,17 @@ class GemmaLiteRtEngine @Inject constructor(
         }
     }
 
-    /** Frees the engine now (switch off, model deleted, app in the background). */
+    /**
+     * Frees the engine now (switch off, model deleted, app in the background). It also forgets a
+     * failed load, so turning the switch off and on again retries straight away.
+     */
     fun release() {
         appScope.launch {
-            mutex.withLock { closeEngineLocked() }
+            mutex.withLock {
+                closeEngineLocked()
+                failedLoadPath = null
+                lastFailedLoadAtMs = null
+            }
         }
     }
 
@@ -91,34 +101,52 @@ class GemmaLiteRtEngine @Inject constructor(
         engine?.let { if (loadedPath == modelPath) return it }
         closeEngineLocked()
         if (!isSupportedDevice) throw OnDeviceAiException(OnDeviceFailure.MODEL_LOAD_FAILED)
+        // Both backends just failed on this file: don't make every request wait through another
+        // ~10-20 s attempt before Gemini Nano stands in. Tried again after the cool-down.
+        val failedAt = lastFailedLoadAtMs
+        if (failedLoadPath == modelPath && failedAt != null &&
+            System.currentTimeMillis() - failedAt < LOAD_RETRY_COOLDOWN_MS
+        ) {
+            throw OnDeviceAiException(OnDeviceFailure.MODEL_LOAD_FAILED)
+        }
         return withContext(Dispatchers.Default) {
-            val created = tryLoad(modelPath, Backend.GPU()) ?: tryLoad(modelPath, Backend.CPU())
-                ?: throw OnDeviceAiException(OnDeviceFailure.MODEL_LOAD_FAILED)
+            val created = tryLoad(modelPath, "GPU") { Backend.GPU() }
+                ?: tryLoad(modelPath, "CPU") { Backend.CPU() }
+            if (created == null) {
+                failedLoadPath = modelPath
+                lastFailedLoadAtMs = System.currentTimeMillis()
+                throw OnDeviceAiException(OnDeviceFailure.MODEL_LOAD_FAILED)
+            }
             engine = created
             loadedPath = modelPath
+            failedLoadPath = null
+            lastFailedLoadAtMs = null
             _lastLoadError.value = null
             created
         }
     }
 
-    private fun tryLoad(modelPath: String, backend: Backend): Engine? {
-        val candidate = Engine(
-            EngineConfig(
-                modelPath = modelPath,
-                backend = backend,
-                maxNumTokens = ENGINE_MAX_TOKENS,
-                cacheDir = context.cacheDir.path,
-            )
-        )
+    private fun tryLoad(modelPath: String, backendName: String, backend: () -> Backend): Engine? {
+        var candidate: Engine? = null
         return try {
+            // Building the backend and the engine is inside the try too: the first touch of the
+            // JNI classes is where a missing .so (a 32-bit APK on a 64-bit phone) throws.
+            candidate = Engine(
+                EngineConfig(
+                    modelPath = modelPath,
+                    backend = backend(),
+                    maxNumTokens = ENGINE_MAX_TOKENS,
+                    cacheDir = context.cacheDir.path,
+                )
+            )
             candidate.initialize()
-            Timber.tag(TAG).i("Gemma loaded on %s", backend.name)
+            Timber.tag(TAG).i("Gemma loaded on %s", backendName)
             candidate
         } catch (t: Throwable) {
             // Throwable on purpose: UnsatisfiedLinkError and OutOfMemoryError are Errors.
-            Timber.tag(TAG).w(t, "Gemma failed to load on %s", backend.name)
+            Timber.tag(TAG).w(t, "Gemma failed to load on %s", backendName)
             _lastLoadError.value = t.message ?: t::class.java.simpleName
-            runCatching { candidate.close() }
+            candidate?.let { runCatching { it.close() } }
             null
         }
     }
@@ -215,5 +243,6 @@ class GemmaLiteRtEngine @Inject constructor(
         /** Input + output; the prompts are sized for this (see [TokenBudget]). */
         const val ENGINE_MAX_TOKENS = 4_096
         const val IDLE_RELEASE_MS = 90_000L
+        const val LOAD_RETRY_COOLDOWN_MS = 5 * 60_000L
     }
 }

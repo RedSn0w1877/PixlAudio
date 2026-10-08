@@ -503,9 +503,9 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
-    /** "Get ready": asks Android to download Gemini Nano. */
+    /** "Get ready": asks Android to download Gemini Nano (followed on the app scope, so leaving Settings doesn't stop it). */
     fun prepareNano() {
-        viewModelScope.launch { nanoEngine.prepare() }
+        nanoEngine.prepareInBackground()
     }
 
     /**
