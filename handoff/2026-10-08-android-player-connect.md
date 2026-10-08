@@ -90,6 +90,8 @@ python tools/make-launcher-icon.py --generator "<PixlAudio-iOS>/ci/make-icon.py"
 - `37749267418` (`7128280`): green.
 - `37750602216` (`0de93c0`): green, covering everything. `37750274468` (`51dad23`) was cancelled because the next push
   superseded it.
+- `37754589718` (`5b4f9d3`, first review's fixes): green.
+- `37766738071` (`045b04f`, second review): green. This is the APK to install.
 
 New unit tests (JUnit 5), all in the green runs:
 - `PlayerOutputResolverTest` (8): which output the pill shows, and the precedence.
@@ -132,6 +134,35 @@ still measures its actions at the full bar width, hence the 72 dp leading reserv
   `player-controls.json` step that was skipped). The clean-up never touches the favorites table, so the end state is
   the same; the heart just doesn't wait seconds for the mirror rebuild. Test in `PlayerViewModelTest`.
 
+## Second review (same branch)
+The whole diff was re-read against `player-controls.json`, `connect-volume.json`, `sync-editor.json`, `DECISIONS.md`
+and the Android rules. No blocker or major was left after the first review's fixes. What was checked:
+- The volume lane, the poll hold, the refusal and the session player's DeviceInfo invariant (max 20 vs 0, remote vs
+  local). They match iOS `SpotifyConnectVolume.swift` on `int-oct8`: same constants and the same lane policy.
+- The sync editor's watchdog, Connect guard and close paths. Nothing pauses or seeks the speaker after the guard,
+  and Close still restores speed, exact timing and crossfades.
+- The top bar's 72 dp reserve has no pointer input, so the collapse button under it stays tappable. TalkBack reads
+  one "Playing on …" node in both modes (in glass mode the description sits on GlassPanel's own clickable node).
+- No Room, OkHttp/YouTube, token or glass-backdrop changes on this branch.
+
+Fixed:
+- **A heart tap recomposed the player sheet's layers.** The favourite now goes down the sheet as a provider that only
+  the toggle rows read (Material, Liquid Glass and the lyrics More sheet). This was the optional step of
+  `player-controls.json` that the first pass skipped (`UnifiedPlayerSheetV2`, `UnifiedPlayerSheetLayers`).
+
+Left as is, for Hoa to decide:
+- `DECISIONS.md` says "PixlAudio's own glass volume pop-up" for the Connect keys. That answer was given for iOS.
+  Android follows the Android plan's recommended option (the system volume panel), as listed under Divergences. An
+  in-app pop-up would be a follow-up (`connect-volume.json` owner decision 1, option b).
+- `connect-volume.json` also suggests one line in `CLAUDE.md`'s Spotify Connect paragraph. Agents don't edit
+  `CLAUDE.md` without Hoa. Suggested line: "Volume keys: the session's remote volume is a 0–20 scale (5 % per press);
+  in the foreground MainActivity pins its window's keys to the session (`setMediaController`); phone/tablet targets
+  stay local; volume PUTs have their own rate-limited lane with a poll hold."
+- Small things:
+  - Connecting to a device that dropped out of the device list shows the local output until the session starts.
+  - `UnifiedPlayerSheetV2` reads the editor-open flag in its body, so it recomposes once each time the editor opens
+    or closes.
+
 ## Not verified
 Nothing here ran on a phone. The system volume panel's look and the Output Switcher callbacks in particular can only
 be checked on the device.
@@ -147,6 +178,7 @@ Top bar (Material and Liquid Glass):
 - [ ] Spotify Connect to the Echo: "Connecting…", then the speaker icon, "Kitchen Echo…" and the dot.
 - [ ] A long name ellipsizes and never covers the collapse button; the collapse button and the queue button still work.
 - [ ] TalkBack on the pill: "Playing on …" / "Playing on this phone".
+- [ ] The heart flips on the tap in the full player (Material and Liquid Glass) and in the lyrics ⋯ sheet.
 - [ ] Previous / next squeeze and settle as quickly as play/pause. Skipping between Spotify songs doesn't flash the
       Play icon.
 
@@ -194,4 +226,4 @@ Notification:
 
 ## Next step
 Review and merge `port-player-connect` (Hoa or the integration session; agents don't merge into `main`). Then install
-the CI APK (`pixlaudio-arm64-debug-apk` of run `37750602216`) on the Pixel 10 Pro and go through the checklist above.
+the CI APK (`pixlaudio-arm64-debug-apk` of run `37766738071`) on the Pixel 10 Pro and go through the checklist above.
