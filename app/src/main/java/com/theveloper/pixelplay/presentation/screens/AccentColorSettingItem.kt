@@ -388,13 +388,13 @@ private class AccentPickerState(hue: Float, saturation: Float, brightness: Float
     val argb: Int get() = AccentColor.hsvToArgb(hue, saturation, brightness)
     val isHexValid: Boolean get() = AccentColor.seedOrNull(hexText) != null
 
-    fun setSaturationBrightness(saturation: Float, brightness: Float) {
+    fun pickSaturationBrightness(saturation: Float, brightness: Float) {
         this.saturation = saturation.coerceIn(0f, 1f)
         this.brightness = brightness.coerceIn(0f, 1f)
         hexText = AccentColor.toHex(argb)
     }
 
-    fun setHue(hue: Float) {
+    fun pickHue(hue: Float) {
         this.hue = hue.coerceIn(0f, 359.9f)
         hexText = AccentColor.toHex(argb)
     }
@@ -602,7 +602,7 @@ private fun SaturationBrightnessPanel(state: AccentPickerState) {
             }
             .pointerInput(state) {
                 trackDrag { position ->
-                    state.setSaturationBrightness(
+                    state.pickSaturationBrightness(
                         saturation = position.x / size.width.coerceAtLeast(1),
                         brightness = 1f - position.y / size.height.coerceAtLeast(1)
                     )
@@ -630,7 +630,7 @@ private fun HueBar(state: AccentPickerState) {
             .drawBehind { drawRect(HueBarBrush) }
             .pointerInput(state) {
                 trackDrag { position ->
-                    state.setHue(360f * position.x / size.width.coerceAtLeast(1))
+                    state.pickHue(360f * position.x / size.width.coerceAtLeast(1))
                 }
             }
     ) {
