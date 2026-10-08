@@ -29,7 +29,7 @@ import androidx.compose.material.icons.rounded.Abc
 import androidx.compose.material.icons.rounded.FormatAlignCenter
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.Translate
-import androidx.compose.material.icons.rounded.BrightnessHigh
+import androidx.compose.material.icons.automirrored.rounded.Notes
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.VisibilityOff
@@ -61,6 +61,12 @@ import com.theveloper.pixelplay.R
 import com.theveloper.pixelplay.data.model.Lyrics
 import com.theveloper.pixelplay.presentation.components.ToggleSegmentButton
 import com.theveloper.pixelplay.presentation.components.player.BottomToggleRow
+import com.theveloper.pixelplay.presentation.components.player.GlassPlayerToggleRow
+import com.theveloper.pixelplay.ui.glass.controls.LiquidSegmented
+import com.theveloper.pixelplay.ui.glass.controls.SegmentOption
+import com.theveloper.pixelplay.ui.glass.theme.LocalGlassPalette
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.text.style.TextOverflow
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
@@ -79,8 +85,10 @@ fun LyricsMoreBottomSheet(
     onToggleSyncControls: () -> Unit,
     isImmersiveTemporarilyDisabled: Boolean,
     onSetImmersiveTemporarilyDisabled: (Boolean) -> Unit,
-    keepScreenOn: Boolean,
-    onKeepScreenOnChange: (Boolean) -> Unit,
+    /** The current song shows as plain text even though it has synced lines. */
+    showAsPlainText: Boolean,
+    /** Null hides the "Show as plain text" switch (lyrics with no synced lines are plain already). */
+    onShowAsPlainTextChange: ((Boolean) -> Unit)?,
     lyricsAlignment: String,
     onLyricsAlignmentChange: (String) -> Unit,
     hasTranslatedLyrics: Boolean,
@@ -92,6 +100,7 @@ fun LyricsMoreBottomSheet(
     immersiveLyricsEnabled: Boolean,
     // BottomToggleRow params
     isShuffleEnabled: Boolean,
+    isShuffleTransitionInProgress: Boolean = false,
     repeatMode: Int,
     isFavoriteProvider: () -> Boolean,
     onShuffleToggle: () -> Unit,
@@ -105,7 +114,14 @@ fun LyricsMoreBottomSheet(
     tertiaryColor: Color = MaterialTheme.colorScheme.tertiary,
     onTertiaryColor: Color = MaterialTheme.colorScheme.onTertiary,
     /** "Sync the words yourself"; null hides the item (no song, or casting). */
-    onSyncYourself: (() -> Unit)? = null
+    onSyncYourself: (() -> Unit)? = null,
+    /**
+     * Liquid Glass: a floating, half-height glass sheet (owner decision) whose rows stay soft
+     * fills in the glass palette's text colour, with the full player's liquid pieces for the
+     * alignment picker (LiquidSegmented) and the shuffle / repeat / heart row (LiquidChips).
+     * Material 3 mode keeps its look.
+     */
+    glass: Boolean = false,
 ) {
     val paragraphBreak = "\n\n"
     val isUserSynced = lyrics?.document?.metadata?.source == com.theveloper.pixelplay.data.lyrics.sync.LyricsTapSync.SOURCE_USER
@@ -120,22 +136,25 @@ fun LyricsMoreBottomSheet(
         containerColor = containerColor,
         contentColor = contentColor,
         shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
-        contentWindowInsets = { WindowInsets(top = 0, bottom = 0) }
+        contentWindowInsets = { WindowInsets(top = 0, bottom = 0) },
+        floating = glass
     ) {
         Box(modifier = Modifier.fillMaxWidth()) {
-        val screenHeight = LocalConfiguration.current.screenHeightDp.dp
+        // Over glass the rows take the glass palette's text colour: the caller's default is the
+        // album scheme's onSurface, which can be dark on a light-palette sheet or vice versa.
+        val rowContent = if (glass) LocalGlassPalette.current.primary else contentColor
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                //.heightIn(max = screenHeight * 0.85f)
                 .padding(horizontal = 16.dp)
-                .padding(bottom = 24.dp + navigationBarsPadding)
+                // The floating glass sheet already sits above the navigation bar.
+                .padding(bottom = if (glass) 16.dp else 24.dp + navigationBarsPadding)
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             // No Title - "Expressive" relies on visual grouping
 
-            val itemBackgroundColor = contentColor.copy(alpha = 0.08f)
+            val itemBackgroundColor = rowContent.copy(alpha = 0.08f)
 
             // Lyrics Actions Group
             Column(
@@ -178,8 +197,8 @@ fun LyricsMoreBottomSheet(
                             },
                         colors = ListItemDefaults.colors(
                             containerColor = Color.Transparent,
-                            headlineColor = contentColor,
-                            supportingColor = contentColor.copy(alpha = 0.7f),
+                            headlineColor = rowContent,
+                            supportingColor = rowContent.copy(alpha = 0.7f),
                             leadingIconColor = accentColor
                         )
                     )
@@ -208,8 +227,8 @@ fun LyricsMoreBottomSheet(
                             },
                         colors = ListItemDefaults.colors(
                             containerColor = Color.Transparent,
-                            headlineColor = contentColor,
-                            leadingIconColor = contentColor
+                            headlineColor = rowContent,
+                            leadingIconColor = rowContent
                         )
                     )
                 }
@@ -234,8 +253,8 @@ fun LyricsMoreBottomSheet(
                             },
                         colors = ListItemDefaults.colors(
                             containerColor = Color.Transparent,
-                            headlineColor = contentColor,
-                            leadingIconColor = contentColor
+                            headlineColor = rowContent,
+                            leadingIconColor = rowContent
                         )
                     )
                 }
@@ -258,8 +277,8 @@ fun LyricsMoreBottomSheet(
                         },
                     colors = ListItemDefaults.colors(
                         containerColor = Color.Transparent,
-                        headlineColor = contentColor,
-                        leadingIconColor = contentColor
+                        headlineColor = rowContent,
+                        leadingIconColor = rowContent
                     )
                 )
 
@@ -281,8 +300,8 @@ fun LyricsMoreBottomSheet(
                         .clickable { showDebugDialog = true },
                     colors = ListItemDefaults.colors(
                         containerColor = Color.Transparent,
-                        headlineColor = contentColor,
-                        leadingIconColor = contentColor
+                        headlineColor = rowContent,
+                        leadingIconColor = rowContent
                     )
                 )
             }
@@ -295,7 +314,7 @@ fun LyricsMoreBottomSheet(
                 Text(
                     text = "Find matching pre-synced lyrics first. Audio alignment is the fallback; existing lyrics stay if it fails.",
                     style = MaterialTheme.typography.bodySmall,
-                    color = contentColor.copy(alpha = 0.7f)
+                    color = rowContent.copy(alpha = 0.7f)
                 )
             }
 
@@ -405,12 +424,33 @@ fun LyricsMoreBottomSheet(
                 ) {
                     Text(
                         text = stringResource(R.string.lyrics_appearance_alignment),
-                        color = contentColor,
+                        color = rowContent,
                         style = MaterialTheme.typography.bodyLarge,
                         fontWeight = FontWeight.Medium
                     )
 
-                    Row(
+                    if (glass) {
+                        // The liquid lens picker, on the sheet's own window backdrop.
+                        val alignments = remember { listOf("left", "center", "right") }
+                        LiquidSegmented(
+                            options = listOf(
+                                SegmentOption(
+                                    stringResource(R.string.lyrics_appearance_align_left),
+                                    Icons.AutoMirrored.Rounded.FormatAlignLeft
+                                ),
+                                SegmentOption(
+                                    stringResource(R.string.lyrics_appearance_align_center),
+                                    Icons.Rounded.FormatAlignCenter
+                                ),
+                                SegmentOption(
+                                    stringResource(R.string.lyrics_appearance_align_right),
+                                    Icons.AutoMirrored.Rounded.FormatAlignRight
+                                ),
+                            ),
+                            selectedIndex = alignments.indexOf(lyricsAlignment).coerceAtLeast(0),
+                            onSelect = { index -> onLyricsAlignmentChange(alignments[index]) }
+                        )
+                    } else Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
@@ -422,7 +462,7 @@ fun LyricsMoreBottomSheet(
                             activeColor = accentColor,
                             inactiveColor = containerColor,
                             activeContentColor = onAccentColor,
-                            inactiveContentColor = contentColor.copy(alpha = 0.78f),
+                            inactiveContentColor = rowContent.copy(alpha = 0.78f),
                             activeCornerRadius = 50.dp,
                             onClick = { onLyricsAlignmentChange("left") },
                             imageVector = Icons.AutoMirrored.Rounded.FormatAlignLeft,
@@ -437,7 +477,7 @@ fun LyricsMoreBottomSheet(
                             activeColor = accentColor,
                             inactiveColor = containerColor,
                             activeContentColor = onAccentColor,
-                            inactiveContentColor = contentColor.copy(alpha = 0.78f),
+                            inactiveContentColor = rowContent.copy(alpha = 0.78f),
                             activeCornerRadius = 50.dp,
                             onClick = { onLyricsAlignmentChange("center") },
                             imageVector = Icons.Rounded.FormatAlignCenter,
@@ -452,7 +492,7 @@ fun LyricsMoreBottomSheet(
                             activeColor = accentColor,
                             inactiveColor = containerColor,
                             activeContentColor = onAccentColor,
-                            inactiveContentColor = contentColor.copy(alpha = 0.78f),
+                            inactiveContentColor = rowContent.copy(alpha = 0.78f),
                             activeCornerRadius = 50.dp,
                             onClick = { onLyricsAlignmentChange("right") },
                             imageVector = Icons.AutoMirrored.Rounded.FormatAlignRight,
@@ -463,22 +503,22 @@ fun LyricsMoreBottomSheet(
             }
 
             // Control Settings Group
+            // (isSyncVisible / isImmersiveVisible key on showSyncedLyrics, which is false while
+            // "Show as plain text" is on: plain text has no sync to adjust or immersion.)
+            val isPlainTextVisible = onShowAsPlainTextChange != null
             val isSyncVisible = showSyncedLyrics
             val isRomanizationVisible = hasRomanizedLyrics
             val isTranslationVisible = hasTranslatedLyrics
             val isImmersiveVisible = showSyncedLyrics && immersiveLyricsEnabled
-            val isKeepScreenOnVisible = true
+            val controlRows = listOf(
+                isPlainTextVisible, isSyncVisible, isRomanizationVisible, isTranslationVisible, isImmersiveVisible
+            )
+            val controlCount = controlRows.count { it }
+            // Each visible row's shape from its position in the group (first / middle / last).
+            fun controlShape(row: Int): Shape =
+                groupRowShape(controlRows.take(row).count { it }, controlCount)
 
-            if (isSyncVisible || isRomanizationVisible || isTranslationVisible || isKeepScreenOnVisible) {
-                // Determine first and last items for rounding
-                val isRomanizationFirst = isRomanizationVisible && !isSyncVisible
-                val isTranslationFirst = isTranslationVisible && !isSyncVisible && !isRomanizationVisible
-
-                val isSyncLast = isSyncVisible && !isRomanizationVisible && !isTranslationVisible && !isImmersiveVisible && !isKeepScreenOnVisible
-                val isRomanizationLast = isRomanizationVisible && !isTranslationVisible && !isImmersiveVisible && !isKeepScreenOnVisible
-                val isTranslationLast = isTranslationVisible && !isImmersiveVisible && !isKeepScreenOnVisible
-                val isImmersiveLast = isImmersiveVisible && !isKeepScreenOnVisible
-
+            if (controlCount > 0) {
                 Column(
                     verticalArrangement = Arrangement.spacedBy(2.dp),
                     modifier = Modifier.fillMaxWidth()
@@ -490,6 +530,40 @@ fun LyricsMoreBottomSheet(
                         color = accentColor,
                         style = MaterialTheme.typography.bodyLargeEmphasized
                     )
+
+                    if (isPlainTextVisible) {
+                        ListItem(
+                            headlineContent = { Text(stringResource(R.string.lyrics_show_plain_text)) },
+                            leadingContent = {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Rounded.Notes,
+                                    contentDescription = null
+                                )
+                            },
+                            trailingContent = {
+                                Switch(
+                                    checked = showAsPlainText,
+                                    onCheckedChange = { onShowAsPlainTextChange?.invoke(it) },
+                                    colors = SwitchDefaults.colors(
+                                        checkedThumbColor = onAccentColor,
+                                        checkedTrackColor = accentColor,
+                                        uncheckedThumbColor = rowContent,
+                                        uncheckedTrackColor = rowContent.copy(alpha = 0.3f)
+                                    )
+                                )
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(controlShape(0))
+                                .background(itemBackgroundColor)
+                                .clickable { onShowAsPlainTextChange?.invoke(!showAsPlainText) },
+                            colors = ListItemDefaults.colors(
+                                containerColor = Color.Transparent,
+                                headlineColor = rowContent,
+                                leadingIconColor = rowContent
+                            )
+                        )
+                    }
 
                     if (isSyncVisible) {
                         ListItem(
@@ -510,14 +584,7 @@ fun LyricsMoreBottomSheet(
                             },
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(
-                                    RoundedCornerShape(
-                                        topStart = 18.dp,
-                                        topEnd = 18.dp,
-                                        bottomStart = if (isSyncLast) 24.dp else 8.dp,
-                                        bottomEnd = if (isSyncLast) 24.dp else 8.dp
-                                    )
-                                )
+                                .clip(controlShape(1))
                                 .background(itemBackgroundColor)
                                 .clickable {
                                     onDismissRequest()
@@ -525,8 +592,8 @@ fun LyricsMoreBottomSheet(
                                 },
                             colors = ListItemDefaults.colors(
                                 containerColor = Color.Transparent,
-                                headlineColor = contentColor,
-                                leadingIconColor = contentColor
+                                headlineColor = rowContent,
+                                leadingIconColor = rowContent
                             )
                         )
                     }
@@ -547,27 +614,20 @@ fun LyricsMoreBottomSheet(
                                     colors = SwitchDefaults.colors(
                                         checkedThumbColor = onAccentColor,
                                         checkedTrackColor = accentColor,
-                                        uncheckedThumbColor = contentColor,
-                                        uncheckedTrackColor = contentColor.copy(alpha = 0.3f)
+                                        uncheckedThumbColor = rowContent,
+                                        uncheckedTrackColor = rowContent.copy(alpha = 0.3f)
                                     )
                                 )
                             },
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(
-                                    RoundedCornerShape(
-                                        topStart = if (isRomanizationFirst) 18.dp else 8.dp,
-                                        topEnd = if (isRomanizationFirst) 18.dp else 8.dp,
-                                        bottomStart = if (isRomanizationLast) 24.dp else 8.dp,
-                                        bottomEnd = if (isRomanizationLast) 24.dp else 8.dp
-                                    )
-                                )
+                                .clip(controlShape(2))
                                 .background(itemBackgroundColor)
                                 .clickable { onShowRomanizationChange(!showRomanization) },
                             colors = ListItemDefaults.colors(
                                 containerColor = Color.Transparent,
-                                headlineColor = contentColor,
-                                leadingIconColor = contentColor
+                                headlineColor = rowContent,
+                                leadingIconColor = rowContent
                             )
                         )
                     }
@@ -588,27 +648,20 @@ fun LyricsMoreBottomSheet(
                                     colors = SwitchDefaults.colors(
                                         checkedThumbColor = onAccentColor,
                                         checkedTrackColor = accentColor,
-                                        uncheckedThumbColor = contentColor,
-                                        uncheckedTrackColor = contentColor.copy(alpha = 0.3f)
+                                        uncheckedThumbColor = rowContent,
+                                        uncheckedTrackColor = rowContent.copy(alpha = 0.3f)
                                     )
                                 )
                             },
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(
-                                    RoundedCornerShape(
-                                        topStart = if (isTranslationFirst) 18.dp else 8.dp,
-                                        topEnd = if (isTranslationFirst) 18.dp else 8.dp,
-                                        bottomStart = if (isTranslationLast) 24.dp else 8.dp,
-                                        bottomEnd = if (isTranslationLast) 24.dp else 8.dp
-                                    )
-                                )
+                                .clip(controlShape(3))
                                 .background(itemBackgroundColor)
                                 .clickable { onShowTranslationChange(!showTranslation) },
                             colors = ListItemDefaults.colors(
                                 containerColor = Color.Transparent,
-                                headlineColor = contentColor,
-                                leadingIconColor = contentColor
+                                headlineColor = rowContent,
+                                leadingIconColor = rowContent
                             )
                         )
                     }
@@ -633,82 +686,48 @@ fun LyricsMoreBottomSheet(
                                     colors = SwitchDefaults.colors(
                                         checkedThumbColor = onAccentColor,
                                         checkedTrackColor = accentColor,
-                                        uncheckedThumbColor = contentColor,
-                                        uncheckedTrackColor = contentColor.copy(alpha = 0.3f)
+                                        uncheckedThumbColor = rowContent,
+                                        uncheckedTrackColor = rowContent.copy(alpha = 0.3f)
                                     )
                                 )
                             },
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(
-                                    RoundedCornerShape(
-                                        topStart = 8.dp,
-                                        topEnd = 8.dp,
-                                        bottomStart = if (isImmersiveLast) 24.dp else 8.dp,
-                                        bottomEnd = if (isImmersiveLast) 24.dp else 8.dp
-                                    )
-                                )
-                                .background(itemBackgroundColor),
+                                .clip(controlShape(4))
+                                .background(itemBackgroundColor)
+                                // The whole row is the target, as for the other switch rows.
+                                .clickable { onSetImmersiveTemporarilyDisabled(!isImmersiveTemporarilyDisabled) },
                             colors = ListItemDefaults.colors(
                                 containerColor = Color.Transparent,
-                                headlineColor = contentColor,
-                                leadingIconColor = contentColor
+                                headlineColor = rowContent,
+                                leadingIconColor = rowContent
                             )
                         )
                     }
 
-                    // Keep Screen On Toggle
-                    if (isKeepScreenOnVisible) {
-                        ListItem(
-                            headlineContent = { Text(stringResource(R.string.lyrics_controls_keep_screen_on)) },
-                            leadingContent = {
-                                Icon(
-                                    imageVector = Icons.Rounded.BrightnessHigh,
-                                    contentDescription = null
-                                )
-                            },
-                            trailingContent = {
-                                Switch(
-                                    checked = keepScreenOn,
-                                    onCheckedChange = onKeepScreenOnChange,
-                                    colors = SwitchDefaults.colors(
-                                        checkedThumbColor = onAccentColor,
-                                        checkedTrackColor = accentColor,
-                                        uncheckedThumbColor = contentColor,
-                                        uncheckedTrackColor = contentColor.copy(alpha = 0.3f)
-                                    )
-                                )
-                            },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(
-                                    RoundedCornerShape(
-                                        topStart = 8.dp,
-                                        topEnd = 8.dp,
-                                        bottomStart = 24.dp,
-                                        bottomEnd = 24.dp
-                                    )
-                                )
-                                .background(itemBackgroundColor)
-                                .clickable { onKeepScreenOnChange(!keepScreenOn) },
-                            colors = ListItemDefaults.colors(
-                                containerColor = Color.Transparent,
-                                headlineColor = contentColor,
-                                leadingIconColor = contentColor
-                            )
-                        )
-                    }
                 }
             }
             
             Spacer(modifier = Modifier.height(8.dp))
 
             // Playback Options
-            Box(
+            if (glass) {
+                // The full player's liquid chips (not clipped: their press swell needs the room).
+                GlassPlayerToggleRow(
+                    isShuffleEnabled = isShuffleEnabled,
+                    isShuffleTransitionInProgress = isShuffleTransitionInProgress,
+                    repeatMode = repeatMode,
+                    isFavoriteProvider = isFavoriteProvider,
+                    onShuffleToggle = onShuffleToggle,
+                    onRepeatToggle = onRepeatToggle,
+                    onFavoriteToggle = onFavoriteToggle,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            } else Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(24.dp))
-                    //.background(contentColor.copy(alpha = 0.08f))
+                    //.background(rowContent.copy(alpha = 0.08f))
                     .padding(vertical = 0.dp, horizontal = 0.dp)
             ) {
                  BottomToggleRow(
@@ -727,4 +746,25 @@ fun LyricsMoreBottomSheet(
         }
         }
     }
+}
+
+/**
+ * The shape of row [index] of [count] in a grouped list (the More sheet's Controls group): the
+ * first row has [top] corners on top, the last [bottom] corners at the bottom, everything else
+ * [inner]. A single row gets both outer corners.
+ */
+internal fun groupRowCorners(
+    index: Int,
+    count: Int,
+    top: Dp = 18.dp,
+    bottom: Dp = 24.dp,
+    inner: Dp = 8.dp,
+): Pair<Dp, Dp> = Pair(
+    if (index <= 0) top else inner,
+    if (index >= count - 1) bottom else inner,
+)
+
+internal fun groupRowShape(index: Int, count: Int): Shape {
+    val (top, bottom) = groupRowCorners(index, count)
+    return RoundedCornerShape(topStart = top, topEnd = top, bottomStart = bottom, bottomEnd = bottom)
 }

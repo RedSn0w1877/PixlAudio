@@ -84,6 +84,20 @@ class PlayerViewModelTest {
     private val mockQueueUndoStateHolder: QueueUndoStateHolder = mockk(relaxed = true)
     private val mockPlaylistDismissUndoStateHolder: PlaylistDismissUndoStateHolder = mockk(relaxed = true)
     private val mockPlaybackStateHolder: PlaybackStateHolder = mockk(relaxed = true)
+    // The lyrics page's Sing holder owns the instrumental state the ViewModel exposes.
+    private val singActiveFlow = MutableStateFlow(false)
+    private val singAvailableFlow = MutableStateFlow(false)
+    private val mockLyricsSing: LyricsSingStateHolder = mockk(relaxed = true) {
+        every { active } returns singActiveFlow
+        every { available } returns singAvailableFlow
+        every { ui } returns MutableStateFlow(SingUi())
+        every { messages } returns MutableSharedFlow()
+        every { requests } returns MutableSharedFlow()
+    }
+    private val mockLyricsTranslation: LyricsTranslationStateHolder = mockk(relaxed = true) {
+        every { state } returns MutableStateFlow(LyricsTranslateUiState())
+        every { messages } returns MutableSharedFlow()
+    }
     private val mockConnectivityStateHolder: ConnectivityStateHolder = mockk(relaxed = true)
     private val mockSleepTimerStateHolder: SleepTimerStateHolder = mockk(relaxed = true)
     private val mockSearchStateHolder: SearchStateHolder = mockk(relaxed = true)
@@ -320,6 +334,8 @@ class PlayerViewModelTest {
             spotifyConnect = mockk(relaxed = true) {
                 every { messages } returns kotlinx.coroutines.flow.MutableSharedFlow()
             },
+            lyricsTranslation = mockLyricsTranslation,
+            lyricsSing = mockLyricsSing,
             sessionToken = sessionToken,
             mediaControllerFactory = mockMediaControllerFactory,
         )
@@ -329,6 +345,34 @@ class PlayerViewModelTest {
     fun tearDown() {
         Dispatchers.resetMain()
         unmockkAll()
+    }
+
+    @Nested
+    @DisplayName("Lyrics Translate and Sing")
+    inner class LyricsToolbarTests {
+
+        @Test
+        fun `studio instrumental state comes from the Sing holder`() {
+            assertEquals(false, playerViewModel.studioInstrumentalActive.value)
+            singActiveFlow.value = true
+            singAvailableFlow.value = true
+            assertEquals(true, playerViewModel.studioInstrumentalActive.value)
+            assertEquals(true, playerViewModel.studioInstrumentalAvailable.value)
+        }
+
+        @Test
+        fun `toolbar taps go to their holders`() {
+            playerViewModel.toggleSing()
+            playerViewModel.translateLyricsOnDevice()
+            verify { mockLyricsSing.onSingTapped() }
+            verify { mockLyricsTranslation.translateCurrent() }
+        }
+
+        @Test
+        fun `both holders are initialized with the ViewModel`() {
+            verify { mockLyricsSing.initialize(any()) }
+            verify { mockLyricsTranslation.initialize(any()) }
+        }
     }
 
     @Nested

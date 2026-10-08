@@ -6,11 +6,25 @@ import com.theveloper.pixelplay.presentation.lyrics.model.clusterSyncedWords
 import com.theveloper.pixelplay.presentation.lyrics.model.resolveLineEndTimeMs
 import com.theveloper.pixelplay.presentation.lyrics.model.sanitizeLyricLineText
 import com.theveloper.pixelplay.presentation.lyrics.model.sanitizeSyncedWords
+import androidx.compose.ui.graphics.Color
+import com.theveloper.pixelplay.ui.glass.theme.GlassPalette
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LyricsSheetLogicTest {
+
+    @Test
+    fun glassChrome_usesTheDarkKitPaletteWithTheAlbumAccent() {
+        // The lyrics chrome sits over dark art, so it forces the dark glass palette (white text)
+        // even in a light-themed app, keeping the album accent for the lit orb and active segment.
+        val accent = Color(0xFFE91E63)
+        val palette = GlassPalette.of(isDark = true, accent = accent)
+
+        assertEquals(Color.White, palette.primary)
+        assertEquals(accent, palette.accent)
+        assertTrue(palette.isDark)
+    }
 
     @Test
     fun sanitizeSyncedWords_removesLeadingTags_preventsOverlap() {
