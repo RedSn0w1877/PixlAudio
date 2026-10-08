@@ -3,6 +3,9 @@ package com.theveloper.pixelplay.data.youtube
 import com.theveloper.pixelplay.data.database.SpotifySongEntity
 import timber.log.Timber
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.cancelChildren
+import kotlinx.coroutines.coroutineScope
 import java.io.IOException
 import java.text.Normalizer
 import java.util.Locale
@@ -32,46 +35,103 @@ class TrackMatcher @Inject constructor(
     private val innerTubeClient: InnerTubeClient
 ) {
 
+    /**
+     * Sequential matching: the song searches one after another, stopping at the first
+     * candidate that scores [EARLY_ACCEPT_SCORE], then the video shelf. Used by the background
+     * SpotifyMatchWorker, where a few extra seconds cost nothing and fewer searches are kinder
+     * to YouTube.
+     */
     suspend fun findMatch(song: SpotifySongEntity): TrackMatch? {
         val queries = buildQueries(song)
+        val fold = MatchFold(song)
+        for (query in queries) {
+            fold.consider(search(query, videos = false))
+            fold.earlyAccepted?.let { return it }
+        }
+        // Some releases only have a video upload. Prefer the official audio when it
+        // exists, then score the video shelf with the same artist/version safeguards.
+        // (No early accept happened if we got here, so the video shelf always runs.)
+        fold.consider(search(queries.first(), videos = true))
+        return fold.finish()
+    }
 
-        var best: TrackMatch? = null
-        var lastNetworkFailure: IOException? = null
-        suspend fun consider(query: String, videos: Boolean) {
-            val candidates = try {
-                if (videos) innerTubeClient.searchVideos(query, CANDIDATES_PER_QUERY)
-                else innerTubeClient.searchSongs(query, CANDIDATES_PER_QUERY)
-            } catch (e: Exception) {
-                if (e is CancellationException) throw e
-                lastNetworkFailure = IOException("Music search temporarily unavailable", e)
+    /**
+     * Streaming speed R11: the same match as [findMatch], sooner, for play time and for the
+     * warm-up of the next 1–2 songs. The first song search runs alone and keeps its early
+     * accept (the common case: one search). Otherwise the remaining song searches and the
+     * video search run at once, and their results are judged in [findMatch]'s order with the
+     * same early-accept, minimum-score and network-failure rules, so the chosen video is
+     * identical. A failure only counts when [findMatch] would have reached that search.
+     */
+    suspend fun findMatchFanOut(song: SpotifySongEntity): TrackMatch? = coroutineScope {
+        val queries = buildQueries(song)
+        val fold = MatchFold(song)
+        fold.consider(search(queries.first(), videos = false))
+        fold.earlyAccepted?.let { return@coroutineScope it }
+
+        val songSearches = queries.drop(1).map { query -> async { search(query, videos = false) } }
+        val videoSearch = async { search(queries.first(), videos = true) }
+        for (pending in songSearches) {
+            fold.consider(pending.await())
+            fold.earlyAccepted?.let { accepted ->
+                // The searches findMatch would never have run are dropped.
+                coroutineContext.cancelChildren()
+                return@coroutineScope accepted
+            }
+        }
+        fold.consider(videoSearch.await())
+        fold.finish()
+    }
+
+    /** One search's candidates, or the network failure it ended in. */
+    private class SearchOutcome(val candidates: List<YouTubeSearchResult>, val failure: IOException?)
+
+    private suspend fun search(query: String, videos: Boolean): SearchOutcome = try {
+        SearchOutcome(
+            candidates = if (videos) {
+                innerTubeClient.searchVideos(query, CANDIDATES_PER_QUERY)
+            } else {
+                innerTubeClient.searchSongs(query, CANDIDATES_PER_QUERY)
+            },
+            failure = null
+        )
+    } catch (e: Exception) {
+        if (e is CancellationException) throw e
+        SearchOutcome(emptyList(), IOException("Music search temporarily unavailable", e))
+    }
+
+    /** The scoring both matchers share: fed search outcomes in [findMatch]'s order. */
+    private inner class MatchFold(private val song: SpotifySongEntity) {
+        private var best: TrackMatch? = null
+        private var lastNetworkFailure: IOException? = null
+
+        fun consider(outcome: SearchOutcome) {
+            outcome.failure?.let {
+                lastNetworkFailure = it
                 return
             }
-            candidates.forEach { candidate ->
+            outcome.candidates.forEach { candidate ->
                 val score = score(song, candidate)
-                if (best == null || score > best!!.score) {
+                val current = best
+                if (current == null || score > current.score) {
                     best = TrackMatch(candidate.videoId, score, candidate.title)
                 }
             }
         }
-        for (query in queries) {
-            consider(query, videos = false)
-            best?.let { if (it.score >= EARLY_ACCEPT_SCORE) return it }
-        }
-        // Some releases only have a video upload. Prefer the official audio when it
-        // exists, then score the video shelf with the same artist/version safeguards.
-        if (best == null || best!!.score < EARLY_ACCEPT_SCORE) {
-            consider(queries.first(), videos = true)
-        }
-        if ((best == null || best!!.score < MIN_ACCEPT_SCORE) && lastNetworkFailure != null) {
-            throw lastNetworkFailure!!
-        }
 
-        val result = best
-        if (result == null || result.score < MIN_ACCEPT_SCORE) {
-            Timber.d("Sin coincidencia aceptable para '${song.title}' (mejor: ${result?.score})")
-            return null
+        val earlyAccepted: TrackMatch?
+            get() = best?.takeIf { it.score >= EARLY_ACCEPT_SCORE }
+
+        fun finish(): TrackMatch? {
+            val result = best
+            val failure = lastNetworkFailure
+            if ((result == null || result.score < MIN_ACCEPT_SCORE) && failure != null) throw failure
+            if (result == null || result.score < MIN_ACCEPT_SCORE) {
+                Timber.d("Sin coincidencia aceptable para '${song.title}' (mejor: ${result?.score})")
+                return null
+            }
+            return result
         }
-        return result
     }
 
     private fun buildQueries(song: SpotifySongEntity): List<String> = buildList {

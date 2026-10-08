@@ -91,6 +91,16 @@ class SpotifyStreamProxy @Inject constructor(
     private val failuresById = java.util.concurrent.ConcurrentHashMap<String, List<FailedStrategy>>()
     private val matchLocks = Array(32) { Mutex() }
 
+    // Streaming speed R11: a song nothing on YouTube matches is not searched again for 10
+    // minutes; the next-song warm-up re-checks every 60 s and would otherwise run its searches
+    // four times a minute. The stored match is still read first, so a later manual or
+    // background match wins at once. Timeouts and network failures are not remembered.
+    private val noMatchUntilMs = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+    private companion object {
+        const val NO_MATCH_MEMORY_MS = 10 * 60_000L
+    }
+
     override fun onUpstreamFailure(id: String, url: String, status: Int) {
         if (status !in setOf(401, 403, 404, 410)) return
         val strategy = identityByUrl[url]?.strategy ?: return
@@ -124,10 +134,24 @@ class SpotifyStreamProxy @Inject constructor(
             spotifyDao.getMatchedVideoId(id) ?: run {
                 val song = spotifyDao.getSongBySpotifyId(id) ?: return@withLock null
                 if (song.matchState == SpotifyMatchState.MANUAL) return@withLock null
+                val nowMs = System.currentTimeMillis()
+                if ((noMatchUntilMs[id] ?: 0L) > nowMs) return@withLock null
                 val matchStartedAtMs = SystemClock.elapsedRealtime()
-                val match = withTimeoutOrNull(25_000L) { trackMatcher.findMatch(song) }
+                var timedOut = true
+                // Fan-out: same video as the background matcher, without waiting for each
+                // search in turn (TrackMatcher.findMatchFanOut).
+                val match = withTimeoutOrNull(25_000L) {
+                    trackMatcher.findMatchFanOut(song).also { timedOut = false }
+                }
                 matchMs = SystemClock.elapsedRealtime() - matchStartedAtMs
-                if (match == null) return@withLock null
+                if (match == null) {
+                    if (!timedOut) {
+                        if (noMatchUntilMs.size > 256) noMatchUntilMs.clear()
+                        noMatchUntilMs[id] = nowMs + NO_MATCH_MEMORY_MS
+                    }
+                    return@withLock null
+                }
+                noMatchUntilMs.remove(id)
                 spotifyDao.updateAutomaticMatch(id, match.videoId, match.score, SpotifyMatchState.MATCHED)
                 spotifyDao.getMatchedVideoId(id)
             }
