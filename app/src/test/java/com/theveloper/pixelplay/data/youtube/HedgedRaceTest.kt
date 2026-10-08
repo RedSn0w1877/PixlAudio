@@ -123,4 +123,33 @@ class HedgedRaceTest {
     fun `no strategies means no winner`() = runTest {
         assertNull(runRace(emptyList()))
     }
+
+    @Test
+    fun `a client's own cancellation is a failure, not a hang`() = runTest {
+        // e.g. a nested withTimeout inside a client: not the race being cancelled.
+        val finished = mutableListOf<Int>()
+        val first = HedgedRace.race<String>(
+            count = 2,
+            afterMs = 1_500,
+            strategyTimeoutMs = 8_000,
+            attempt = { index ->
+                delay(100)
+                if (index == 0) throw CancellationException("the client's own timeout") else "second"
+            },
+            onFinished = { index, _ -> finished += index }
+        )
+        // The second client starts as soon as the first fails, not at its 1.5 s timer.
+        assertEquals(HedgedRace.Winner(1, "second"), first)
+        assertEquals(200L, currentTime)
+        assertEquals(listOf(0, 1), finished)
+
+        // With one client left there is no timer to rescue the race: it must still end.
+        val only = HedgedRace.race<String>(
+            count = 1,
+            afterMs = 1_500,
+            strategyTimeoutMs = 8_000,
+            attempt = { _ -> delay(100); throw CancellationException("the client's own timeout") }
+        )
+        assertNull(only)
+    }
 }

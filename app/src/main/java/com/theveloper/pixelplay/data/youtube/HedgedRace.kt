@@ -5,6 +5,7 @@ import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -51,7 +52,13 @@ internal object HedgedRace {
                     val value = try {
                         withTimeoutOrNull(strategyTimeoutMs) { attempt(index) }
                     } catch (e: CancellationException) {
-                        throw e
+                        // The race itself being cancelled (a winner, or the caller gave up) ends
+                        // here. Any other cancellation is the client's own (a nested timeout) and
+                        // is a failure, as in the sequential chain's runCatching: rethrowing it
+                        // would end this child without a Done event, and the race would wait for
+                        // an answer that never comes (forever, after the last client).
+                        ensureActive()
+                        null
                     } catch (e: Exception) {
                         null
                     }

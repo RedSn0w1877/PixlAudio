@@ -11,6 +11,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import timber.log.Timber
 import java.io.File
+import java.io.IOException
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -78,18 +79,27 @@ class StreamRemoteFlags @Inject constructor(
 
     private fun fetch() {
         lastAttemptAtMs = System.currentTimeMillis()
+        // A failed attempt tries again in 30 minutes: not on every resolve, and not only after
+        // 6 hours (an offline first launch would otherwise miss a switched-on flag all day).
+        fun retrySoon() {
+            lastAttemptAtMs = System.currentTimeMillis() - REFRESH_INTERVAL_MS + RETRY_AFTER_FAILURE_MS
+        }
         val request = Request.Builder().url(CONFIG_URL).header("Accept", "application/json").build()
-        okHttpClient.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) {
-                // Try again in 30 minutes rather than on every resolve.
-                lastAttemptAtMs = System.currentTimeMillis() - REFRESH_INTERVAL_MS + RETRY_AFTER_FAILURE_MS
-                return
+        try {
+            okHttpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    retrySoon()
+                    return
+                }
+                val text = response.body.string()
+                if (text.length > MAX_CONFIG_CHARS) return
+                hedging = StreamHedging.parse(text)
+                runCatching { cacheFile.writeText(text) }
+                Timber.d("Remote streaming flags refreshed: overlapping clients %s", if (hedging != null) "ON" else "off")
             }
-            val text = response.body.string()
-            if (text.length > MAX_CONFIG_CHARS) return
-            hedging = StreamHedging.parse(text)
-            runCatching { cacheFile.writeText(text) }
-            Timber.d("Remote streaming flags refreshed: overlapping clients %s", if (hedging != null) "ON" else "off")
+        } catch (e: IOException) {
+            retrySoon()
+            throw e
         }
     }
 
