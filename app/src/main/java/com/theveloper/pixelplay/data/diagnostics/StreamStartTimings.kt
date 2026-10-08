@@ -351,11 +351,11 @@ object StreamStartTimings {
     // ─── Readers ───────────────────────────────────────────────────────────
 
     /** Newest first, at most [MAX_RECORDS]. */
-    fun recentLines(): List<String> = synchronized(lock) { records.reversed().map { it.line() } }
+    fun recentLines(): List<String> = synchronized(lock) { records.toList().asReversed().map { it.line() } }
 
     fun lastLine(): String? = synchronized(lock) { records.peekLast()?.line() }
 
-    internal fun recentRecords(): List<Record> = synchronized(lock) { records.reversed() }
+    internal fun recentRecords(): List<Record> = synchronized(lock) { records.toList().asReversed() }
 
     internal fun resetForTest() {
         synchronized(lock) {
