@@ -775,12 +775,19 @@ private fun StreamStartTimingsSection(lines: List<String>) {
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
-        lines.forEach { line ->
-            Text(
-                text = line,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+        // Selectable, so the lines can be long-pressed and copied on the phone itself.
+        if (lines.isNotEmpty()) {
+            SelectionContainer {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    lines.forEach { line ->
+                        Text(
+                            text = line,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
         }
     }
 }

@@ -1351,8 +1351,14 @@ class DualPlayerEngine @Inject constructor(
         override fun onTransferStart(source: DataSource, dataSpec: DataSpec, isNetwork: Boolean) = Unit
         override fun onTransferEnd(source: DataSource, dataSpec: DataSpec, isNetwork: Boolean) = Unit
 
-        // Loader thread, once per read. Everything that isn't a loopback /spotify/ request
-        // returns at the first check; the rest is one short lock in StreamStartTimings.
+        // The last read's URI and the Spotify id in it (null: not a proxy read). A load reads
+        // through the same DataSpec many times, so a read costs one reference check and no
+        // allocation; the id is parsed again only when another load starts reading. Shared by
+        // both players' loader threads, hence one volatile immutable pair.
+        @Volatile
+        private var lastRead: ProxyRead? = null
+
+        // Loader thread, once per read: one short lock in StreamStartTimings for proxy reads.
         override fun onBytesTransferred(
             source: DataSource,
             dataSpec: DataSpec,
@@ -1360,12 +1366,20 @@ class DualPlayerEngine @Inject constructor(
             bytesTransferred: Int
         ) {
             val uri = dataSpec.uri
-            if (uri.host != "127.0.0.1") return
-            val path = uri.path ?: return
-            if (!path.startsWith(PROXY_SPOTIFY_PATH)) return
-            val id = path.substring(PROXY_SPOTIFY_PATH.length).substringBefore('/')
-            if (id.isNotEmpty()) StreamStartTimings.playerBytes(id, bytesTransferred)
+            val read = lastRead?.takeIf { it.uri === uri }
+                ?: ProxyRead(uri, proxySpotifyIdOf(uri)).also { lastRead = it }
+            read.spotifyId?.let { StreamStartTimings.playerBytes(it, bytesTransferred) }
         }
+    }
+
+    private class ProxyRead(val uri: Uri, val spotifyId: String?)
+
+    /** `http://127.0.0.1:<port>/spotify/<id>` → `<id>`; null for anything else. */
+    private fun proxySpotifyIdOf(uri: Uri): String? {
+        if (uri.host != "127.0.0.1") return null
+        val path = uri.path ?: return null
+        if (!path.startsWith(PROXY_SPOTIFY_PATH)) return null
+        return path.substring(PROXY_SPOTIFY_PATH.length).substringBefore('/').takeIf { it.isNotEmpty() }
     }
 
     private fun streamStartKindFor(reason: Int): StreamStartTimings.Kind = when (reason) {
@@ -1605,6 +1619,18 @@ class DualPlayerEngine @Inject constructor(
         playerB?.pauseAtEndOfMediaItems = false
         addMasterPlayerListeners(playerA)
         if (playerA.playWhenReady) requestAudioFocus()
+
+        // R12: the new master never reports a transition for the song it already plays, so
+        // the timings would still think the old song is current and count the rest of this
+        // one's loading as a "preload" of it. Record the hand-over (0 ms, it was audible).
+        val incomingStreamId = playerA.currentMediaItem?.localConfiguration?.uri
+            ?.takeIf { it.scheme in CLOUD_PROXY_SCHEMES }
+            ?.let { spotifyIdOf(it) }
+        if (incomingStreamId != null) {
+            StreamStartTimings.begin(incomingStreamId, StreamStartTimings.Kind.CROSSFADE, alreadyPlaying = true)
+        } else {
+            StreamStartTimings.cancel()
+        }
 
         onPlayerSwappedListeners.forEach { it(playerA) }
         _activeAudioSessionId.value = playerA.audioSessionId

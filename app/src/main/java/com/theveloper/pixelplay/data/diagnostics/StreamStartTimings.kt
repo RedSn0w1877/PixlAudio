@@ -28,7 +28,11 @@ import java.util.ArrayDeque
  */
 object StreamStartTimings {
 
-    enum class Kind { TAP, SKIP, AUTO, REPEAT }
+    /**
+     * CROSSFADE: the crossfade deck took over (it was audible before the swap, so the line is
+     * 0 ms and its "preload" bytes are the deck's own loading, not the next-item preload).
+     */
+    enum class Kind { TAP, SKIP, AUTO, REPEAT, CROSSFADE }
 
     const val MAX_RECORDS = 8
 
@@ -450,14 +454,18 @@ object StreamStartTimings {
 
     /** Outside the lock: aggregates (no ids) and the log line. */
     private fun publish(record: Record) {
-        PerformanceMetrics.recordTiming(
-            when (record.kind) {
-                Kind.TAP -> PerformanceMetrics.Timings.STREAM_START_TAP
-                Kind.SKIP -> PerformanceMetrics.Timings.STREAM_START_SKIP
-                Kind.AUTO, Kind.REPEAT -> PerformanceMetrics.Timings.STREAM_START_AUTO
-            },
-            record.totalMs
-        )
+        // The start-time aggregates measure the stream. A start that waited for the user to
+        // press play (a restored queue) would mostly measure them, and a crossfade swap
+        // measures nothing; both keep their line but stay out of the aggregates.
+        val startTiming = when (record.kind) {
+            Kind.TAP -> PerformanceMetrics.Timings.STREAM_START_TAP
+            Kind.SKIP -> PerformanceMetrics.Timings.STREAM_START_SKIP
+            Kind.AUTO, Kind.REPEAT -> PerformanceMetrics.Timings.STREAM_START_AUTO
+            Kind.CROSSFADE -> null
+        }
+        if (startTiming != null && record.playPressedAfterMs == null) {
+            PerformanceMetrics.recordTiming(startTiming, record.totalMs)
+        }
         record.resolveMs?.let { PerformanceMetrics.recordTiming(PerformanceMetrics.Timings.STREAM_RESOLVE, it) }
         record.matchMs?.let { PerformanceMetrics.recordTiming(PerformanceMetrics.Timings.STREAM_MATCH, it) }
         record.upstreamTtfbMs?.let { PerformanceMetrics.recordTiming(PerformanceMetrics.Timings.STREAM_UPSTREAM_TTFB, it) }

@@ -187,4 +187,40 @@ class StreamStartTimingsTest {
         assertTrue(timings.keys.none { it.contains("SecretTrackId") })
         assertTrue(StreamStartTimings.lastLine()!!.contains("n: yes 20 ms"))
     }
+
+    @Test
+    fun `a start that waited for the play button keeps its line but not the aggregate`() {
+        // A restored queue: the item is set at launch, play is pressed 20 s later.
+        StreamStartTimings.begin("trackA", StreamStartTimings.Kind.TAP)
+        at(now + 20_000); StreamStartTimings.playRequested()
+        at(now + 700); StreamStartTimings.playing()
+
+        assertTrue(StreamStartTimings.lastLine()!!.startsWith("TAP 20700 ms: play pressed after 20000"))
+        assertNull(PerformanceMetrics.snapshot().timings[PerformanceMetrics.Timings.STREAM_START_TAP])
+    }
+
+    @Test
+    fun `a crossfade hand-over makes the incoming song current and is not a timed start`() {
+        StreamStartTimings.begin("outgoing", StreamStartTimings.Kind.TAP)
+        StreamStartTimings.playing()
+        // The crossfade deck loads the incoming song before the swap: counted like a preload.
+        StreamStartTimings.playerBytes("incoming", 300_000)
+        StreamStartTimings.begin("incoming", StreamStartTimings.Kind.CROSSFADE, alreadyPlaying = true)
+        // From now on its loading belongs to the song that plays, not to a later "preload".
+        StreamStartTimings.playerBytes("incoming", 700_000)
+
+        val record = StreamStartTimings.recentRecords().first()
+        assertEquals(StreamStartTimings.Kind.CROSSFADE, record.kind)
+        assertEquals(0L, record.totalMs)
+        assertEquals(300_000L, record.preloadedBytes)
+        assertTrue(StreamStartTimings.lastLine()!!.startsWith("CROSSFADE 0 ms"))
+        assertNull(PerformanceMetrics.snapshot().timings[PerformanceMetrics.Timings.STREAM_START_AUTO])
+
+        // Coming back to it later starts clean: no leftover "preload" from when it played.
+        StreamStartTimings.begin("other", StreamStartTimings.Kind.SKIP)
+        StreamStartTimings.playing()
+        StreamStartTimings.begin("incoming", StreamStartTimings.Kind.SKIP)
+        StreamStartTimings.playing()
+        assertFalse(StreamStartTimings.recentRecords().first().preloadHit)
+    }
 }
