@@ -43,6 +43,7 @@ import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -56,7 +57,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -127,6 +127,8 @@ private val HueColors: List<Color> =
     listOf(0f, 60f, 120f, 180f, 240f, 300f, 360f).map { Color.hsv(it, 1f, 1f) }
 private val HueSweepBrush = Brush.sweepGradient(HueColors)
 private val HueBarBrush = Brush.horizontalGradient(HueColors)
+// Transparent WHITE, not Color.Transparent (transparent black), or the midtones would grey out.
+private val SaturationWashBrush = Brush.horizontalGradient(listOf(Color.White, Color.White.copy(alpha = 0f)))
 private val ValueShadeBrush = Brush.verticalGradient(listOf(Color.Transparent, Color.Black))
 
 @Composable
@@ -442,6 +444,9 @@ private fun AccentColorPickerSheet(
     val state = rememberSaveable(saver = AccentPickerState.Saver) { AccentPickerState.from(initialArgb) }
     val isDark = LocalPixelPlayDarkTheme.current
     val glassMode = LocalGlassModeEnabled.current
+    // Every drag step rewrites the hex text; reading its validity through a derived state means
+    // only an actual valid/invalid flip recomposes this sheet (the field recomposes on its own).
+    val hexValid by remember(state) { derivedStateOf { state.isHexValid } }
 
     // The in-app tone of the picked colour, built off the main thread 120 ms after the last step.
     // Uncached on purpose (generateAccentColorSchemePair, not AccentColorSchemes), so drag steps
@@ -507,12 +512,25 @@ private fun AccentColorPickerSheet(
                         LiquidButton(onClick = onDismiss, surfaceColor = palette.tintSubtle) {
                             GlassText(cancel, style = GlassType.BodyStrong, maxLines = 1)
                         }
-                        LiquidButton(onClick = onApplyClick, tint = palette.accent) {
-                            GlassText(apply, style = GlassType.BodyStrong, maxLines = 1)
+                        // NexHome's tinted call to action; with a bad hex it rests untinted with a
+                        // faded label (NexHome's disabled button). The label follows the tint's
+                        // luminance: the palette's text colour is black in light mode, which is
+                        // unreadable on a deep accent, and white is unreadable on a dark-mode pastel.
+                        val applyLabelColor = when {
+                            !hexValid -> palette.quaternary
+                            AccentColor.prefersDarkContent(palette.accent.toArgb()) -> Color.Black
+                            else -> Color.White
+                        }
+                        LiquidButton(
+                            onClick = onApplyClick,
+                            isInteractive = hexValid,
+                            tint = if (hexValid) palette.accent else Color.Unspecified
+                        ) {
+                            GlassText(apply, style = GlassType.BodyStrong, color = applyLabelColor, maxLines = 1)
                         }
                     } else {
                         TextButton(onClick = onDismiss) { Text(cancel) }
-                        Button(onClick = onApplyClick, enabled = state.isHexValid) { Text(apply) }
+                        Button(onClick = onApplyClick, enabled = hexValid) { Text(apply) }
                     }
                 }
             }
@@ -579,8 +597,10 @@ private fun AccentHexField(state: AccentPickerState, modifier: Modifier = Modifi
 }
 
 /**
- * Saturation left to right, brightness top to bottom, for the current hue. The gradient is rebuilt
- * only when the hue changes (drawWithCache reads it); the thumb moves in its layout lambda.
+ * Saturation left to right, brightness top to bottom, for the current hue. Three fills: the hue at
+ * full colour, white fading out to the right, black fading in to the bottom. Same pixels as a
+ * white→hue gradient, but both brushes are size- and hue-independent, so a hue drag step allocates
+ * nothing; the hue is read at draw time and the thumb moves in its layout lambda.
  */
 @Composable
 private fun SaturationBrightnessPanel(state: AccentPickerState) {
@@ -591,14 +611,10 @@ private fun SaturationBrightnessPanel(state: AccentPickerState) {
             .aspectRatio(1.6f)
             .clip(RoundedCornerShape(16.dp))
             .semantics { contentDescription = label }
-            .drawWithCache {
-                val saturationBrush = Brush.horizontalGradient(
-                    listOf(Color.White, Color.hsv(state.hue, 1f, 1f))
-                )
-                onDrawBehind {
-                    drawRect(saturationBrush)
-                    drawRect(ValueShadeBrush)
-                }
+            .drawBehind {
+                drawRect(Color.hsv(state.hue, 1f, 1f))
+                drawRect(SaturationWashBrush)
+                drawRect(ValueShadeBrush)
             }
             .pointerInput(state) {
                 trackDrag { position ->
