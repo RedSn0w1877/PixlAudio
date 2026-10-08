@@ -132,6 +132,41 @@ Branch `port-lyrics-page` (from `main` @ 5aa975e). Port of the 2026-10-07 iOS ly
 - Untouched orphans: `presentation_batch_g_lyrics_mode_synced` / `_static` in
   `values-ar/strings_presentation_batch_g.xml`. They have no `values/` original and aren't part of this item.
 
+## Adversarial review (2026-10-08)
+
+A second agent reviewed `git diff origin/main...HEAD` against the plan, `DECISIONS.md` and the Android rules
+(glass mode only, Material 3 unchanged, performance, state holders, no Room / OkHttp / Spotify-token changes here).
+No blocker. Fixed in commit `4e48817`; `android-ci.yml` **run 37766458090 on it is green** (compile, every unit test
+including the new ones below, Wear compile, arm64 debug APK):
+
+- **Major: on-device translations could be saved into your lyrics.** The holder put them on the lyrics the whole
+  page sees, so ⋯ → Save lyrics (synced) wrote the ML Kit lines into the song's `.lrc` as dual-timestamp
+  translations, and the sync editor's draft carried them into a saved sync. Translate via AI also saw them and
+  answered "already translated" for the rest of the session. All three now start from
+  `LyricsTranslationStateHolder.withoutOnDeviceTranslations()` (`Lyrics.withoutTranslationsFrom`), which takes off
+  exactly the phone's translations and keeps the lyrics' own.
+- **Sing could answer a new tap with an old render.** WorkManager re-reports a song's finished jobs whenever its
+  table changes (e.g. the tap's own `cancelAllWorkByTag`), so a render that failed yesterday answered today's tap
+  with its stale error and the real render then never switched; an old render whose file was deleted switched the
+  player to the missing file. Jobs that finished before the tap are now marked answered, and the tap clears
+  `available` (nothing is on disk) so the new render's progress shows.
+- Quiet automatic work that is only queued (waiting for idle playback and a charged battery) no longer shows
+  "Removing vocals…"; it shows once it really runs.
+- The glass alignment picker prints its labels under the icons on one line; it now uses short Left / Center /
+  Right (the long "Align lyrics center" was cut off).
+- New tests: `LyricsTranslationApplierTest` (the inverse keeps the lyrics' own translation),
+  `LyricsTranslationStateHolderTest` (saving paths get the lyrics without the phone's translations),
+  `LyricsSingStateHolderTest` (an old failure and an old render with a missing file don't answer a new tap),
+  `SingUiReducerTest` (queued automatic work).
+
+Checked and left as is: the screen-awake effect (view flag, gated on the expanded player), the forced dark palette
+covers only the chrome over the art (dialogs and the ⋯ sheet follow the app), no `layerBackdrop` on an ancestor of
+a reader (the art is captured as a sibling; the ⋯ sheet's chips read the window backdrop beside its panel),
+animated values read in draw / layer, the floating sheet's navigation-bar padding (consumed once).
+
+Not fixed (pre-existing, same as before this branch): if the activity is recreated while the instrumental plays
+(a theme switch), Sing shows vocals on until the next song, because the old ViewModel state reset the same way.
+
 ## Not verified (nothing ran on a phone)
 
 - Any of the UI: the glass look, the half-height sheet, readability over bright art, the dropdown menu position.
@@ -161,6 +196,9 @@ Branch `port-lyrics-page` (from `main` @ 5aa975e). Port of the 2026-10-07 iOS ly
 - [ ] Bright album art (white covers): the chrome stays readable.
 - [ ] Smoothness / battery in glass mode with the lyrics open for a few minutes (4–5 lenses redraw at 30 fps).
 - [ ] Restore an old backup that has "Keep screen on": the preview lists it as skipped; the restore succeeds.
+- [ ] Translate a song on the phone, then ⋯ → Save lyrics → synced: open the saved `.lrc` (or replay the song after
+      restarting the app): no machine translation lines in it. Hold Translate → Translate via AI still runs.
+- [ ] Glass mode ⋯: the alignment picker reads Left / Center / Right in full.
 
 ## Next step
 
