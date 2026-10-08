@@ -195,6 +195,7 @@ class SettingsViewModel @Inject constructor(
     private val aiPreferencesRepository: AiPreferencesRepository,
     private val onDeviceModelManager: com.theveloper.pixelplay.data.ai.ondevice.OnDeviceModelManager,
     private val themePreferencesRepository: ThemePreferencesRepository,
+    private val themeStateHolder: ThemeStateHolder,
     private val colorSchemeProcessor: ColorSchemeProcessor,
     private val syncManager: SyncManager,
     private val aiClientFactory: AiClientFactory,
@@ -1439,8 +1440,14 @@ class SettingsViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
 
     // Its own flow, not part of the positional Group1 combine. Only the accent row collects it.
+    // It starts from the app's already-resolved accent (the splash waits for it), not from the
+    // default: otherwise the grid's first frame would ring Dynamic and then jump to the real pick.
     val accentColor: StateFlow<String> = themePreferencesRepository.accentColorFlow
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), AccentColor.DEFAULT)
+        .stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5000),
+            themeStateHolder.accentScheme.value?.hex ?: AccentColor.DEFAULT
+        )
 
     val tapBackgroundClosesPlayer: StateFlow<Boolean> = userPreferencesRepository.tapBackgroundClosesPlayerFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)

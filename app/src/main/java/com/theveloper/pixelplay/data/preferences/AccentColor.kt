@@ -2,7 +2,6 @@ package com.theveloper.pixelplay.data.preferences
 
 import androidx.annotation.StringRes
 import com.theveloper.pixelplay.R
-import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.pow
 import kotlin.math.roundToInt
@@ -52,8 +51,17 @@ object AccentColor {
         return OPAQUE or digits.toInt(16)
     }
 
-    /** `"#RRGGBB"` (upper case, alpha dropped). [Locale.ROOT], so a Turkish or Arabic locale can't change the digits. */
-    fun toHex(argb: Int): String = String.format(Locale.ROOT, "#%06X", argb and 0xFFFFFF)
+    /**
+     * `"#RRGGBB"` (upper case, alpha dropped). Built by hand rather than with `String.format`: the
+     * custom picker calls it on every drag step (no Formatter per step), and no locale can change
+     * the digits.
+     */
+    fun toHex(argb: Int): String {
+        val chars = CharArray(7)
+        chars[0] = '#'
+        for (i in 1..6) chars[i] = HEX_DIGITS[(argb shr ((6 - i) * 4)) and 0xF]
+        return String(chars)
+    }
 
     /** The canonical stored form of [hex]: `"#RRGGBB"`, or [DEFAULT] when it isn't a colour. */
     fun normalize(hex: String?): String = seedOrNull(hex)?.let(::toHex) ?: DEFAULT
@@ -134,4 +142,5 @@ object AccentColor {
     private fun isHexDigit(c: Char): Boolean = c in '0'..'9' || c in 'a'..'f' || c in 'A'..'F'
 
     private const val OPAQUE = -0x1000000 // 0xFF000000
+    private const val HEX_DIGITS = "0123456789ABCDEF"
 }

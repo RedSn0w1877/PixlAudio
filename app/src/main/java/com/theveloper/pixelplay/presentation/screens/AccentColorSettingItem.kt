@@ -506,7 +506,12 @@ private fun AccentColorPickerSheet(
                 ) {
                     val cancel = stringResource(R.string.common_cancel)
                     val apply = stringResource(R.string.settings_accent_color_apply)
-                    val onApplyClick: () -> Unit = { if (state.isHexValid) onApply(AccentColor.toHex(state.argb)) }
+                    // Exactly the hex the field shows (a drag writes it from the HSV, typing sets it
+                    // directly), not a fresh HSV→RGB round trip that could land one step off a
+                    // typed preset and select Custom instead of it.
+                    val onApplyClick: () -> Unit = {
+                        if (state.isHexValid) onApply(AccentColor.normalize(state.hexText))
+                    }
                     if (glassMode) {
                         val palette = LocalGlassPalette.current
                         LiquidButton(onClick = onDismiss, surfaceColor = palette.tintSubtle) {

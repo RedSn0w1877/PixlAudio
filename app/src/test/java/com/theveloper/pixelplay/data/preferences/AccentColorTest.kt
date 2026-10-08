@@ -34,6 +34,18 @@ class AccentColorTest {
     }
 
     @Test
+    fun `hand-built hex matches the formatted reference and round trips`() {
+        val random = java.util.Random(0x5EED)
+        val samples = listOf(0, -1, Int.MIN_VALUE, Int.MAX_VALUE, 0x00ABCDEF, 0x7F102030) +
+            List(2_000) { random.nextInt() }
+        for (argb in samples) {
+            val expected = String.format(java.util.Locale.ROOT, "#%06X", argb and 0xFFFFFF)
+            assertEquals(expected, AccentColor.toHex(argb), "for 0x${Integer.toHexString(argb)}")
+            assertEquals(argb or 0xFF000000.toInt(), AccentColor.seedOrNull(AccentColor.toHex(argb))!!)
+        }
+    }
+
+    @Test
     fun `presets are the iOS seeds, unique, and round trip`() {
         val expected = mapOf(
             AccentPreset.BLUE to "#0A84FF", AccentPreset.INDIGO to "#5E5CE6", AccentPreset.PURPLE to "#BF5AF2",
