@@ -16,6 +16,11 @@
     <string name="all_files_access_description">To edit song metadata (.mp3 files), PixelPlayer needs special access to all files. This allows us to modify track tags directly. Please grant this permission on the next screen to enable metadata editing.</string>
     <string name="grant_permission_button">Grant Permission</string>
 
+    <!-- Full player output pill (TalkBack) -->
+    <string name="player_cd_output_playing_on">Playing on %1$s</string>
+    <string name="player_cd_output_this_phone">Playing on this phone</string>
+    <string name="player_cd_output_connecting_to">Connecting to %1$s</string>
+
     <!-- External Player -->
     <string name="external_queue_label">Quick play</string>
     <string name="external_playback_error">Unable to open that audio file.</string>

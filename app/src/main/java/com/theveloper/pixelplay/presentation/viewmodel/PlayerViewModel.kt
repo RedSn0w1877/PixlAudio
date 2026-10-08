@@ -780,6 +780,9 @@ class PlayerViewModel @Inject constructor(
     val bluetoothName: StateFlow<String?> = connectivityStateHolder.bluetoothName
     val bluetoothAudioDeviceStates: StateFlow<List<BluetoothAudioDeviceState>> = connectivityStateHolder.bluetoothAudioDeviceStates
     val bluetoothAudioDevices: StateFlow<List<String>> = connectivityStateHolder.bluetoothAudioDevices
+    /** Where media audio is routed on this phone (the full player's output pill). */
+    val localAudioOutput: StateFlow<LocalAudioOutput> = connectivityStateHolder.localAudioOutput
+    fun refreshLocalAudioOutput() = connectivityStateHolder.refreshLocalAudioOutput()
 
 
 
@@ -1351,10 +1354,9 @@ class PlayerViewModel @Inject constructor(
         val immersiveLyricsEnabled: Boolean = false,
         val immersiveLyricsTimeout: Long = 4000L,
         val isImmersiveTemporarilyDisabled: Boolean = false,
-        val isRemotePlaybackActive: Boolean = false,
-        val selectedRouteName: String? = null,
-        val isBluetoothEnabled: Boolean = false,
-        val bluetoothName: String? = null
+        val isRemotePlaybackActive: Boolean = false
+        // The output route and Bluetooth name left this slice (2026-10-07): the top bar's output
+        // pill collects them itself, so a route change no longer recomposes the full player.
     )
 
     // Intermediate combine #1: 5 settings flows
@@ -1369,23 +1371,14 @@ class PlayerViewModel @Inject constructor(
         FullPlayerSlicePart1(artists, syncOffset, artQuality, audioMeta, showFileInfo)
     }
 
-    private data class BluetoothSlice(val enabled: Boolean, val name: String?)
-
-    private val bluetoothSlice = combine(isBluetoothEnabled, bluetoothName) { bt, btName ->
-        BluetoothSlice(bt, btName)
-    }
-
     // Intermediate combine #2: remaining flows (≤5 for Kotlin type inference)
     private val fullPlayerSlicePart2 = combine(
         immersiveLyricsEnabled,
         immersiveLyricsTimeout,
         isImmersiveTemporarilyDisabled,
-        isRemotePlaybackActive,
-        combine(selectedRouteName, bluetoothSlice) { route, bt -> route to bt }
-    ) { immersive: Boolean, immersiveTimeout: Long, immersiveDisabled: Boolean,
-        remotePb: Boolean, routeAndBt: Pair<String?, BluetoothSlice> ->
-        val (routeName, bt) = routeAndBt
-        FullPlayerSlicePart2(immersive, immersiveTimeout, immersiveDisabled, remotePb, routeName, bt.enabled, bt.name)
+        isRemotePlaybackActive
+    ) { immersive: Boolean, immersiveTimeout: Long, immersiveDisabled: Boolean, remotePb: Boolean ->
+        FullPlayerSlicePart2(immersive, immersiveTimeout, immersiveDisabled, remotePb)
     }
 
     private data class FullPlayerSlicePart1(
@@ -1400,10 +1393,7 @@ class PlayerViewModel @Inject constructor(
         val immersiveLyricsEnabled: Boolean,
         val immersiveLyricsTimeout: Long,
         val isImmersiveTemporarilyDisabled: Boolean,
-        val isRemotePlaybackActive: Boolean,
-        val selectedRouteName: String?,
-        val isBluetoothEnabled: Boolean,
-        val bluetoothName: String?
+        val isRemotePlaybackActive: Boolean
     )
 
     val fullPlayerSlice: StateFlow<FullPlayerSlice> = combine(
@@ -1419,10 +1409,7 @@ class PlayerViewModel @Inject constructor(
             immersiveLyricsEnabled = p2.immersiveLyricsEnabled,
             immersiveLyricsTimeout = p2.immersiveLyricsTimeout,
             isImmersiveTemporarilyDisabled = p2.isImmersiveTemporarilyDisabled,
-            isRemotePlaybackActive = p2.isRemotePlaybackActive,
-            selectedRouteName = p2.selectedRouteName,
-            isBluetoothEnabled = p2.isBluetoothEnabled,
-            bluetoothName = p2.bluetoothName
+            isRemotePlaybackActive = p2.isRemotePlaybackActive
         )
     }
         .distinctUntilChanged()
