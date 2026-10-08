@@ -68,6 +68,12 @@ class PixelPlayApplication : Application(), ImageLoaderFactory, Configuration.Pr
     @Inject
     lateinit var appUpdateManager: dagger.Lazy<com.theveloper.pixelplay.data.update.AppUpdateManager>
 
+    @Inject
+    lateinit var aiPreferencesRepository: dagger.Lazy<com.theveloper.pixelplay.data.preferences.AiPreferencesRepository>
+
+    @Inject
+    lateinit var gemmaEngine: dagger.Lazy<com.theveloper.pixelplay.data.ai.local.GemmaLiteRtEngine>
+
     private val startupScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
@@ -139,6 +145,13 @@ class PixelPlayApplication : Application(), ImageLoaderFactory, Configuration.Pr
             spotifyRepository.get().isLoggedIn
         }
 
+        // On-device AI became the default: move setups that could never answer (a cloud
+        // provider without its key, Ollama/Custom without a URL) to it, once.
+        startupScope.launch {
+            runCatching { aiPreferencesRepository.get().migrateProviderIfNeeded() }
+                .onFailure { Timber.w(it, "AI provider migration failed") }
+        }
+
         startupScope.launch {
             com.theveloper.pixelplay.data.worker.AiWorkerManager(this@PixelPlayApplication).ensurePeriodicDiscovery()
             appUpdateManager.get().schedulePeriodicChecks()
@@ -190,6 +203,11 @@ class PixelPlayApplication : Application(), ImageLoaderFactory, Configuration.Pr
         }
 
         libraryStateHolder.get().trimMemory(level)
+
+        // The downloaded AI model holds ~1 GB while loaded; it reloads on the next request.
+        if (level >= ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN) {
+            gemmaEngine.get().release()
+        }
 
         if (
             level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL ||

@@ -303,6 +303,9 @@ class PlayerViewModelTest {
             jobsStateHolder = mockk(relaxed = true),
             homeGreetingStateHolder = mockk(relaxed = true),
             aiStateHolder = mockAiStateHolder,
+            aiAvailabilityStateHolder = mockk(relaxed = true) {
+                every { availability } returns MutableStateFlow<AiAvailability>(AiAvailability.Checking)
+            },
             libraryStateHolder = mockLibraryStateHolder,
             folderNavigationStateHolder = mockFolderNavigationStateHolder,
             libraryTabsStateHolder = mockLibraryTabsStateHolder,

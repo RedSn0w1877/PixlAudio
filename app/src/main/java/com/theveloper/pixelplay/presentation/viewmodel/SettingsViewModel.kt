@@ -192,7 +192,10 @@ private sealed interface SettingsUiUpdate {
 class SettingsViewModel @Inject constructor(
     private val userPreferencesRepository: UserPreferencesRepository,
     private val aiPreferencesRepository: AiPreferencesRepository,
-    private val onDeviceModelManager: com.theveloper.pixelplay.data.ai.ondevice.OnDeviceModelManager,
+    private val nanoEngine: com.theveloper.pixelplay.data.ai.local.GeminiNanoEngine,
+    private val downloadedModelManager: com.theveloper.pixelplay.data.ai.local.DownloadedModelManager,
+    private val gemmaEngine: com.theveloper.pixelplay.data.ai.local.GemmaLiteRtEngine,
+    private val legacyImportedModel: com.theveloper.pixelplay.data.ai.local.LegacyImportedModel,
     private val themePreferencesRepository: ThemePreferencesRepository,
     private val colorSchemeProcessor: ColorSchemeProcessor,
     private val syncManager: SyncManager,
@@ -233,7 +236,7 @@ class SettingsViewModel @Inject constructor(
 
     // AI Provider State
     val aiProvider: StateFlow<String> = aiPreferencesRepository.aiProvider
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "GEMINI")
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), AiProvider.ON_DEVICE.name)
 
     // Generic AI settings reactive to the selected provider
     val currentAiApiKey: StateFlow<String> = aiProvider
@@ -466,23 +469,95 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
-    val onDeviceModelInfo: StateFlow<com.theveloper.pixelplay.data.ai.ondevice.OnDeviceModelInfo?> =
-        onDeviceModelManager.modelInfo
+    // --- On-device AI (Settings > AI features) ---------------------------------------------
 
-    private val _onDeviceImportError = MutableStateFlow<String?>(null)
-    val onDeviceImportError: StateFlow<String?> = _onDeviceImportError.asStateFlow()
+    /** Gemini Nano's state from AICore. */
+    val nanoStatus: StateFlow<com.theveloper.pixelplay.data.ai.local.NanoStatus> = nanoEngine.status
 
-    fun importOnDeviceModel(uri: android.net.Uri) {
+    /** The downloadable model's file / download state. */
+    val downloadedModelState: StateFlow<com.theveloper.pixelplay.data.ai.local.DownloadedModelState>
+        get() = downloadedModelManager.state
+
+    val downloadedModelSpec: com.theveloper.pixelplay.data.ai.local.DownloadedModelSpec
+        get() = downloadedModelManager.spec
+
+    /** LiteRT-LM ships 64-bit libraries only: the switch is hidden on 32-bit-only phones. */
+    val isDownloadedModelSupported: Boolean
+        get() = gemmaEngine.isSupportedDevice
+
+    /** Why the downloaded model failed to load last time (Gemini Nano answered instead), or null. */
+    val downloadedModelLoadError: StateFlow<String?> = gemmaEngine.lastLoadError
+
+    val useDownloadedModel: StateFlow<Boolean> = aiPreferencesRepository.aiDownloadedModelEnabled
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    private val _legacyImportedModelBytes = MutableStateFlow<Long?>(null)
+    /** Space the old MediaPipe import still takes, for "Remove old imported model". */
+    val legacyImportedModelBytes: StateFlow<Long?> = _legacyImportedModelBytes.asStateFlow()
+
+    /** Called when the AI category opens: re-asks AICore and looks for the old import. */
+    fun refreshOnDeviceAi() {
         viewModelScope.launch {
-            _onDeviceImportError.value = null
-            onDeviceModelManager.importModel(uri).onFailure { e ->
-                _onDeviceImportError.value = e.message ?: "Import failed"
-            }
+            nanoEngine.refresh()
+            _legacyImportedModelBytes.value = legacyImportedModel.sizeBytes()
         }
     }
 
-    fun deleteOnDeviceModel() {
-        onDeviceModelManager.deleteModel()
+    /** "Get ready": asks Android to download Gemini Nano. */
+    fun prepareNano() {
+        viewModelScope.launch { nanoEngine.prepare() }
+    }
+
+    /**
+     * "Use downloaded AI model". Turning it on never starts a download by itself — Settings offers
+     * it (size, Wi-Fi) — and until the file is there Gemini Nano keeps answering. Off frees the
+     * engine's memory right away.
+     */
+    fun setUseDownloadedModel(enabled: Boolean) {
+        viewModelScope.launch {
+            aiPreferencesRepository.setDownloadedModelEnabled(enabled)
+            if (!enabled) gemmaEngine.release()
+        }
+    }
+
+    suspend fun checkRoomForModelDownload(): Boolean =
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { downloadedModelManager.hasRoomForDownload() }
+
+    fun downloadModel(allowMetered: Boolean) {
+        downloadedModelManager.download(allowMetered)
+    }
+
+    fun cancelModelDownload() {
+        downloadedModelManager.cancel()
+    }
+
+    /** Deletes the model; this also turns "Use downloaded AI model" off. */
+    fun deleteDownloadedModel() {
+        viewModelScope.launch { downloadedModelManager.delete() }
+    }
+
+    fun removeLegacyImportedModel() {
+        viewModelScope.launch {
+            legacyImportedModel.remove()
+            _legacyImportedModelBytes.value = null
+        }
+    }
+
+    /**
+     * "Use a cloud assistant" (off by default): on brings back the last cloud provider chosen,
+     * off returns every AI feature to the phone's own model. There is no automatic fallback in
+     * either direction.
+     */
+    fun setCloudAssistantEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            aiPreferencesRepository.setCloudAssistantEnabled(enabled)
+            _uiState.update { it.copy(availableModels = emptyList(), modelsFetchError = null, isLoadingModels = false) }
+            if (enabled) {
+                val provider = AiProvider.fromString(aiPreferencesRepository.aiProvider.first())
+                val apiKey = aiPreferencesRepository.getApiKey(provider).first()
+                if (apiKey.isNotBlank()) fetchAvailableModels(apiKey, provider.name)
+            }
+        }
     }
 
     fun onAiTemperatureChange(value: Float) {
@@ -1296,7 +1371,13 @@ class SettingsViewModel @Inject constructor(
 
     fun onAiProviderChange(provider: String) {
         viewModelScope.launch {
-            aiPreferencesRepository.setAiProvider(provider)
+            val selected = AiProvider.fromString(provider)
+            if (selected == AiProvider.ON_DEVICE) {
+                aiPreferencesRepository.setAiProvider(provider)
+            } else {
+                // Also remembered as the cloud switch's provider.
+                aiPreferencesRepository.setCloudProvider(selected)
+            }
 
             // Clear existing models immediately to show loading state
             _uiState.update {

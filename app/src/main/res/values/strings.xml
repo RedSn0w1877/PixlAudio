@@ -217,4 +217,80 @@
     <string name="settings_lyrics_tap_haptics">Vibrate on each tap</string>
     <string name="lyrics_sync_decrease">Less</string>
     <string name="lyrics_sync_increase">More</string>
+
+    <!-- On-device AI (2026-10-08). The ai_on_device_error_* messages must never contain the words
+         network, connect, offline, wifi, timeout, key or config: older error tables match those
+         and would turn them into network or API-key errors (OnDeviceErrorMessagesTest). -->
+    <string name="ai_on_device_error_not_supported">On-device AI isn\'t available on this phone. You can turn on a cloud assistant in Settings › AI features.</string>
+    <string name="ai_on_device_error_needs_update">On-device AI needs an update to Android System Intelligence first. Update it in the Play Store, then try again.</string>
+    <string name="ai_on_device_error_preparing">Android is still getting on-device AI ready. Try again in a few minutes.</string>
+    <string name="ai_on_device_error_too_long">That request is too long for on-device AI. Try a shorter one.</string>
+    <string name="ai_on_device_error_blocked">On-device AI couldn\'t answer that. Try rephrasing it.</string>
+    <string name="ai_on_device_error_busy">On-device AI is busy. Try again in a few seconds.</string>
+    <string name="ai_on_device_error_daily_limit">On-device AI has reached today\'s limit for PixlAudio. Try again later.</string>
+    <string name="ai_on_device_error_needs_foreground">Stay in PixlAudio while on-device AI is working: Android pauses it when the app leaves the screen.</string>
+    <string name="ai_on_device_error_model_missing">The downloaded AI model isn\'t on this phone yet. Download it in Settings › AI features, or turn that switch off.</string>
+    <string name="ai_on_device_error_model_load_failed">The downloaded AI model couldn\'t load. Delete it and download it again, or turn it off.</string>
+    <string name="ai_on_device_error_slow">On-device AI took too long to answer. Try again.</string>
+    <string name="ai_on_device_error_other">On-device AI ran into a problem. Try again.</string>
+
+    <string name="ai_availability_preparing">Getting on-device AI ready… Android is downloading it; try again in a few minutes.</string>
+    <string name="ai_availability_needs_cloud_setup">Add your cloud assistant\'s API key in Settings › AI features, or turn the cloud assistant off to use on-device AI.</string>
+    <string name="ai_availability_not_supported">On-device AI isn\'t available on this phone. Turn on a cloud assistant in Settings › AI features.</string>
+    <string name="ai_open_ai_settings">Open AI settings</string>
+
+    <string name="taizo_cloud_too_slow">The AI provider took too long. Try again, or ask me to find music.</string>
+    <string name="taizo_empty_reply">The AI returned an empty response. Please try again.</string>
+    <string name="taizo_cloud_unreachable">Couldn\'t reach an AI provider.</string>
+
+    <string name="ai_model_download_channel_name">AI model download</string>
+    <string name="ai_model_download_notification_title">Downloading AI model</string>
+    <string name="ai_model_download_notification_verifying">Checking the download…</string>
+    <string name="ai_model_download_progress">%1$s of %2$s</string>
+
+    <string name="settings_local_ai_section">On-device AI</string>
+    <string name="settings_local_ai_nano_title">Gemini Nano</string>
+    <string name="settings_local_ai_nano_in_use">In use · runs every AI feature on this phone</string>
+    <string name="settings_local_ai_nano_ready">Ready on this phone</string>
+    <string name="settings_local_ai_nano_checking">Checking…</string>
+    <string name="settings_local_ai_nano_needs_download">Android needs to download it first. It manages the download itself.</string>
+    <string name="settings_local_ai_nano_downloading">Getting ready… %1$s</string>
+    <string name="settings_local_ai_nano_downloading_unknown">Getting ready…</string>
+    <string name="settings_local_ai_nano_unavailable">Not available on this phone</string>
+    <string name="settings_local_ai_nano_needs_update">Update Android System Intelligence in the Play Store</string>
+    <string name="settings_local_ai_downloaded_answers">Ready · the downloaded model answers instead</string>
+    <string name="settings_local_ai_cloud_answers">Not in use · a cloud assistant answers</string>
+    <string name="settings_local_ai_get_ready">Get ready</string>
+    <string name="settings_local_ai_use_downloaded_title">Use downloaded AI model</string>
+    <string name="settings_local_ai_use_downloaded_subtitle">%1$s · %2$s · used instead of Gemini Nano</string>
+    <string name="settings_local_ai_model_not_downloaded">Not downloaded · %1$s. Wi-Fi recommended. Gemini Nano answers until it is.</string>
+    <string name="settings_local_ai_model_queued">Waiting to download (Wi-Fi unless you allowed mobile data, battery not low)…</string>
+    <string name="settings_local_ai_model_verifying">Checking the download…</string>
+    <string name="settings_local_ai_model_ready">Downloaded · %1$s on this phone</string>
+    <string name="settings_local_ai_model_failed">The download didn\'t finish. Try again.</string>
+    <string name="settings_local_ai_model_failed_space">Not enough free space. It needs about %1$s.</string>
+    <string name="settings_local_ai_model_failed_corrupt">The downloaded file didn\'t match the original, so it was deleted. Download it again.</string>
+    <string name="settings_local_ai_model_load_failed">It couldn\'t load last time (%1$s); Gemini Nano answered instead.</string>
+    <string name="settings_local_ai_model_cloud_note">A cloud assistant is on, so it answers instead.</string>
+    <string name="settings_local_ai_download">Download</string>
+    <string name="settings_local_ai_cancel">Cancel</string>
+    <string name="settings_local_ai_delete">Delete</string>
+    <string name="settings_local_ai_try_again">Try again</string>
+    <string name="settings_local_ai_download_dialog_title">Download the AI model?</string>
+    <string name="settings_local_ai_download_dialog_text">%1$s by Google is %2$s. It downloads from Hugging Face, stays on this phone and then works without the internet. Wi-Fi is recommended.</string>
+    <string name="settings_local_ai_download_dialog_licence">Licence: %1$s</string>
+    <string name="settings_local_ai_download_dialog_view_licence">View licence</string>
+    <string name="settings_local_ai_download_dialog_metered">Download on mobile data</string>
+    <string name="settings_local_ai_download_dialog_no_space">There isn\'t enough free space: it needs about %1$s.</string>
+    <string name="settings_local_ai_delete_dialog_title">Delete the AI model?</string>
+    <string name="settings_local_ai_delete_dialog_text">This frees %1$s. AI features go back to Gemini Nano.</string>
+    <string name="settings_local_ai_legacy_title">Remove old imported model</string>
+    <string name="settings_local_ai_legacy_subtitle">The model file imported in an older version (%1$s) can\'t be used anymore.</string>
+    <string name="settings_local_ai_legacy_action">Remove</string>
+    <string name="settings_cloud_ai_section">Cloud assistants (optional)</string>
+    <string name="settings_cloud_ai_switch_title">Use a cloud assistant</string>
+    <string name="settings_cloud_ai_switch_off">Off · AI runs on this phone</string>
+    <string name="settings_cloud_ai_switch_on">Sends your AI requests to %1$s</string>
+    <string name="settings_cloud_ai_provider_title">Cloud provider</string>
+    <string name="settings_cloud_ai_provider_subtitle">Who answers while the cloud assistant is on</string>
 </resources>

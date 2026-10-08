@@ -213,6 +213,7 @@ class PlayerViewModel @Inject constructor(
     private val jobsStateHolder: JobsStateHolder,
     private val homeGreetingStateHolder: HomeGreetingStateHolder,
     private val aiStateHolder: AiStateHolder,
+    private val aiAvailabilityStateHolder: AiAvailabilityStateHolder,
     private val libraryStateHolder: LibraryStateHolder,
     private val folderNavigationStateHolder: FolderNavigationStateHolder,
     private val libraryTabsStateHolder: LibraryTabsStateHolder,
@@ -520,52 +521,38 @@ class PlayerViewModel @Inject constructor(
             initialValue = CarouselStyle.NO_PEEK
         )
 
-    val hasActiveAiProviderApiKey: StateFlow<Boolean> = combine(
-        aiPreferencesRepository.aiProvider,
-        aiPreferencesRepository.geminiApiKey,
-        aiPreferencesRepository.deepseekApiKey,
-        aiPreferencesRepository.groqApiKey,
-        aiPreferencesRepository.mistralApiKey,
-        aiPreferencesRepository.nvidiaApiKey,
-        aiPreferencesRepository.kimiApiKey,
-        aiPreferencesRepository.glmApiKey,
-        aiPreferencesRepository.openaiApiKey,
-        aiPreferencesRepository.ollamaApiKey,
-        aiPreferencesRepository.customApiKey,
-        aiPreferencesRepository.openrouterApiKey
-    ) { values ->
-        val provider = values[0]
-        val gemini = values[1]
-        val deepseek = values[2]
-        val groq = values[3]
-        val mistral = values[4]
-        val nvidia = values[5]
-        val kimi = values[6]
-        val glm = values[7]
-        val openai = values[8]
-        val ollama = values[9]
-        val custom = values[10]
-        val openrouter = values[11]
-        when (provider) {
-            "GEMINI" -> gemini.isNotBlank()
-            "DEEPSEEK" -> deepseek.isNotBlank()
-            "GROQ" -> groq.isNotBlank()
-            "MISTRAL" -> mistral.isNotBlank()
-            "NVIDIA" -> nvidia.isNotBlank()
-            "KIMI" -> kimi.isNotBlank()
-            "GLM" -> glm.isNotBlank()
-            "OPENAI" -> openai.isNotBlank()
-            "OPENROUTER" -> openrouter.isNotBlank()
-            "OLLAMA" -> ollama.isNotBlank()
-            "CUSTOM" -> custom.isNotBlank()
-            else -> false
-        }
-    }.distinctUntilChanged()
+    /**
+     * Whether AI features can run and, if not, why (AiAvailabilityStateHolder). On-device — the
+     * default — counts as ready; the old 12-way API-key combine said false for it, which locked
+     * on-device users out of Library "With AI" and the playlist sheet.
+     */
+    val aiAvailability: StateFlow<AiAvailability> = aiAvailabilityStateHolder.availability
+
+    /** Kept for the existing call sites: true when an AI entry point may open. */
+    val hasActiveAiProviderApiKey: StateFlow<Boolean> = aiAvailabilityStateHolder.availability
+        .map { it.isUsable }
+        .distinctUntilChanged()
         .stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5000),
-        initialValue = false
-    )
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = true
+        )
+
+    /**
+     * Why AI can't run right now, for a toast; also asks Android to fetch Gemini Nano when it is
+     * only waiting for its download ("Getting on-device AI ready…").
+     */
+    fun aiUnavailableMessage(): String {
+        val availability = aiAvailabilityStateHolder.availability.value
+        if (availability is AiAvailability.NeedsNanoDownload) aiAvailabilityStateHolder.prepareOnDevice()
+        else aiAvailabilityStateHolder.refresh()
+        return context.getString(availability.reasonRes ?: R.string.ai_availability_not_supported)
+    }
+
+    /** Loads the on-device model as an AI sheet opens (no-op on a cloud route). */
+    fun prewarmAi() {
+        aiStateHolder.prewarm()
+    }
 
     val hasGeminiApiKey: StateFlow<Boolean> = aiPreferencesRepository.geminiApiKey
         .map { it.isNotBlank() }
@@ -2801,6 +2788,7 @@ class PlayerViewModel @Inject constructor(
 
     fun showAiPlaylistSheet() {
         aiStateHolder.showAiPlaylistSheet()
+        aiStateHolder.prewarm()
     }
 
     fun dismissAiPlaylistSheet() {

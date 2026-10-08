@@ -7,6 +7,9 @@ import com.theveloper.pixelplay.data.DailyMixManager
 import com.theveloper.pixelplay.data.ai.AiNotificationManager
 import com.theveloper.pixelplay.data.ai.AiPlaylistGenerator
 import com.theveloper.pixelplay.data.ai.AiSystemPromptType
+import com.theveloper.pixelplay.data.ai.curator.OnDevicePlaylistCurator
+import com.theveloper.pixelplay.data.ai.local.AiRoute
+import com.theveloper.pixelplay.data.ai.local.OnDeviceLyricsTranslator
 import com.theveloper.pixelplay.data.ai.provider.AiProviderException
 import com.theveloper.pixelplay.data.preferences.PlaylistPreferencesRepository
 import com.theveloper.pixelplay.data.model.Song
@@ -32,7 +35,9 @@ class AiStateHolder @Inject constructor(
     private val playlistPreferencesRepository: PlaylistPreferencesRepository,
     private val dailyMixStateHolder: DailyMixStateHolder,
     private val notificationManager: AiNotificationManager,
-    private val aiHandler: com.theveloper.pixelplay.data.ai.AiHandler
+    private val aiHandler: com.theveloper.pixelplay.data.ai.AiHandler,
+    private val onDeviceLyricsTranslator: OnDeviceLyricsTranslator,
+    private val onDeviceCurator: OnDevicePlaylistCurator,
 ) {
     // State
     // AI State Management: Observables for tracking background generation progress
@@ -245,11 +250,11 @@ class AiStateHolder @Inject constructor(
                 val maxLength = desiredSize.coerceAtLeast(20)
                 
                 _aiStatus.value = "Scanning for vibes..."
-                val candidatePool = dailyMixManager.generateDailyMix(
+                val candidatePool = (currentDailyMixSongs + dailyMixManager.generateDailyMix(
                     allSongs = allSongs,
                     favoriteSongIds = favoriteIds,
                     limit = 100
-                )
+                )).distinctBy { it.id }
 
                 _aiStatus.value = "Applying AI filters..."
                 val result = aiPlaylistGenerator.generate(
@@ -284,9 +289,33 @@ class AiStateHolder @Inject constructor(
         }
     }
 
+    /**
+     * Loads the on-device model as an AI sheet (playlist sheet, Playlist Lab) opens, so the first
+     * request doesn't also wait for the load. No-op on the cloud route.
+     */
+    fun prewarm() {
+        val scope = this.scope ?: return
+        scope.launch {
+            runCatching {
+                if (aiHandler.currentRoute() is AiRoute.OnDevice) onDeviceCurator.prewarm()
+            }.onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
+        }
+    }
+
     suspend fun translateLyrics(lyricsText: String): Result<String> {
         return try {
             val targetLanguage = context.resources.configuration.locales[0].displayLanguage
+            if (aiHandler.currentRoute() is AiRoute.OnDevice) {
+                // On-device: each distinct line once, in chunks the model can hold; the app keeps
+                // the timestamps and rebuilds the same two-lines-per-stamp LRC as the cloud path.
+                return Result.success(
+                    onDeviceLyricsTranslator.translate(
+                        lyrics = lyricsText,
+                        targetLanguage = targetLanguage,
+                        temperature = aiHandler.temperatureFor(0.1f),
+                    )
+                )
+            }
             val prompt = """
 <task>Translate song lyrics into $targetLanguage.</task>
 
@@ -314,6 +343,8 @@ $lyricsText
                 temperature = 0.1f
             )
             Result.success(response)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(e)
         }
@@ -329,6 +360,10 @@ $lyricsText
     }
 
     private fun resolveAiErrorMessage(error: Throwable): String {
+        // On-device failures first: their text must never reach the cloud rows below, which
+        // used to turn every one of them into "No Internet Connection".
+        AiErrorMessages.onDeviceMessageRes(error)?.let { return context.getString(it) }
+
         val providerFailure = error.findProviderFailure()
         val detail = extractAiErrorDetail(error)
 
@@ -413,6 +448,7 @@ $lyricsText
     }
 
     private fun extractAiErrorDetail(error: Throwable): String {
+        AiErrorMessages.onDeviceMessageRes(error)?.let { return context.getString(it) }
         return generateSequence(error) { it.cause }
             .flatMap { throwable ->
                 sequenceOf(throwable.message.orEmpty())
