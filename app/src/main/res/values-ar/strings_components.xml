@@ -23,7 +23,6 @@
     <string name="lyrics_more_show_romanization">إظهار اللتنّة (Romanization)</string>
     <string name="lyrics_more_show_translations">إظهار الترجمات</string>
     <string name="lyrics_more_disable_immersive_once">تعطيل الوضع الغامر (لمرة واحدة)</string>
-    <string name="lyrics_more_keep_screen_on">إبقاء الشاشة قيد التشغيل</string>
     <string name="cd_lyrics_align_left">محاذاة الكلمات لليسار</string>
     <string name="cd_lyrics_align_center">محاذاة الكلمات للوسط</string>
     <string name="cd_lyrics_align_right">محاذاة الكلمات لليمين</string>

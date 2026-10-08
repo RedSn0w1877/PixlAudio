@@ -5,6 +5,7 @@ import com.theveloper.pixelplay.data.backup.model.BackupSection
 import com.theveloper.pixelplay.data.backup.model.BackupValidationResult
 import com.theveloper.pixelplay.data.backup.model.Severity
 import com.theveloper.pixelplay.data.backup.model.ValidationError
+import com.theveloper.pixelplay.data.preferences.UserPreferencesRepository
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -383,7 +384,28 @@ class ModuleSchemaValidator @Inject constructor(
             if (type == null || type !in VALID_PREF_TYPES) {
                 errors.add(ValidationError("INVALID_PREF_TYPE", "Preference[$i]: invalid type '$type'", module = moduleKey, severity = Severity.WARNING))
             }
+            // A setting that no longer exists: the restore skips it (UserPreferencesRepository),
+            // and this warning puts it in the restore preview's list. Never blocks a restore.
+            if (moduleKey == BackupSection.GLOBAL_SETTINGS.key && key != null &&
+                key in UserPreferencesRepository.RETIRED_PREFERENCE_KEYS
+            ) {
+                errors.add(
+                    ValidationError(
+                        "RETIRED_PREF",
+                        retiredPreferenceMessage(key),
+                        module = moduleKey,
+                        severity = Severity.WARNING
+                    )
+                )
+            }
         }
+    }
+
+    private fun retiredPreferenceMessage(key: String): String = when (key) {
+        UserPreferencesRepository.KEEP_SCREEN_ON_LYRICS_KEY ->
+            "'Keep screen on (lyrics)' is no longer a setting and will be skipped. " +
+                "The lyrics screen now always keeps the screen on."
+        else -> "'$key' is no longer a setting and will be skipped."
     }
 
     private fun readStringField(obj: com.google.gson.JsonObject, vararg keys: String): String? {
