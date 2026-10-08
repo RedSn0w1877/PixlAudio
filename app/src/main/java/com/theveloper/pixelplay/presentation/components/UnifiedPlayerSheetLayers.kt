@@ -71,8 +71,9 @@ internal fun BoxScope.UnifiedPlayerMiniAndFullLayers(
     onQueueRelease: (Float, Float) -> Unit,
     onShowCastClicked: () -> Unit,
     /**
-     * Glass mode: true while an opaque sheet scrim covers the whole player (the queue fully open).
-     * Read in the full player's layer only; the player then stops drawing its glass underneath.
+     * Glass mode: true while something opaque covers the whole player. Read in the full player's
+     * layer only; the player then stops drawing its glass underneath. Nothing passes it since the
+     * glass queue became a ~92 % see-through sheet (2026-10-07): the player shows above it now.
      */
     isFullPlayerCoveredProvider: () -> Boolean = { false }
 ) {
