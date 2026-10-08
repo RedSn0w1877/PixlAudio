@@ -83,6 +83,8 @@ internal val QueueToolbarRowHeight = 70.dp
 private val QueueToolbarCircleSize = 56.dp
 private val QueueToolbarGap = 12.dp
 private val QueueMoreOrbSize = 64.dp
+/** Three circles, three gaps and the ⋯ slot. */
+private val QueueToolbarRowWidth = QueueToolbarCircleSize * 3 + QueueToolbarGap * 3 + QueueMoreOrbSize
 internal val QueueMenuPillHeight = 56.dp
 private val QueueMenuPillGap = 10.dp
 private val QueueMenuPillMinWidth = 184.dp
@@ -297,7 +299,23 @@ internal fun GlassQueueControls(
                 .zIndex(40f)
                 .glassMorphBounds(
                     progress = { morph.value },
-                    from = { _, _ -> anchor },
+                    // Until the ⋯ slot has been placed once (the first frame of a freshly composed,
+                    // still hidden queue), sit where the slot will be instead of at 0 × 0.
+                    from = { container, _ ->
+                        val placed = anchor
+                        if (!placed.isEmpty) {
+                            placed
+                        } else {
+                            queueMoreOrbFallbackRect(
+                                containerWidth = container.width.toFloat(),
+                                containerHeight = container.height.toFloat(),
+                                toolbarBottomPx = bottomPadding.toPx(),
+                                rowHeightPx = QueueToolbarRowHeight.toPx(),
+                                rowWidthPx = QueueToolbarRowWidth.toPx(),
+                                orbPx = QueueMoreOrbSize.toPx(),
+                            )
+                        }
+                    },
                     to = { container, content ->
                         val heightPx = QueueMenuPillHeight.toPx()
                         val widthPx = content.maxIntrinsicWidth(heightPx.roundToInt()).toFloat()
@@ -369,6 +387,23 @@ internal fun queueSavePillRect(
     val bottom = containerHeight - toolbarBottomPx - (rowHeightPx - pillHeightPx) / 2f
     val left = (containerWidth - pillWidthPx) / 2f
     return Rect(left = left, top = bottom - pillHeightPx, right = left + pillWidthPx, bottom = bottom)
+}
+
+/**
+ * Where the ⋯ slot sits before it has been placed: the end of the centred toolbar row (left to
+ * right; a right-to-left layout corrects it on the next frame, while the queue is still hidden).
+ */
+internal fun queueMoreOrbFallbackRect(
+    containerWidth: Float,
+    containerHeight: Float,
+    toolbarBottomPx: Float,
+    rowHeightPx: Float,
+    rowWidthPx: Float,
+    orbPx: Float,
+): Rect {
+    val left = (containerWidth - rowWidthPx) / 2f + rowWidthPx - orbPx
+    val top = containerHeight - toolbarBottomPx - rowHeightPx + (rowHeightPx - orbPx) / 2f
+    return Rect(left = left, top = top, right = left + orbPx, bottom = top + orbPx)
 }
 
 /**

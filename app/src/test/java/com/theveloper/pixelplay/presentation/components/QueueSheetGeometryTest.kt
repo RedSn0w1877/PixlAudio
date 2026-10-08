@@ -40,6 +40,24 @@ class QueueSheetGeometryTest {
     }
 
     @Test
+    fun moreOrbFallback_sitsAtTheEndOfTheCentredRow() {
+        // 268 dp row (3 × 56 + 3 × 12 + 64) at density 1: centred in 400 px, 70 tall, 40 px up.
+        val rect = queueMoreOrbFallbackRect(
+            containerWidth = 400f,
+            containerHeight = 800f,
+            toolbarBottomPx = 40f,
+            rowHeightPx = 70f,
+            rowWidthPx = 268f,
+            orbPx = 64f,
+        )
+        assertEquals(66f + 268f - 64f, rect.left, 1e-3f)
+        assertEquals(64f, rect.width, 1e-3f)
+        assertEquals(64f, rect.height, 1e-3f)
+        // Centred in the row: row spans [800 - 40 - 70, 800 - 40].
+        assertEquals(800f - 40f - 35f, (rect.top + rect.bottom) / 2f, 1e-3f)
+    }
+
+    @Test
     fun savePill_isCentredOnTheToolbarRow() {
         // 1080 × 2208 sheet, toolbar row 70 dp tall sitting 100 px above the bottom (px values).
         val rect = queueSavePillRect(
