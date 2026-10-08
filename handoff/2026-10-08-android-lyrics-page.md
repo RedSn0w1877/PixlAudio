@@ -78,7 +78,59 @@ Branch `port-lyrics-page` (from `main` @ 5aa975e). Port of the 2026-10-07 iOS ly
 
 ## What CI proved
 
-CI_RESULTS_PLACEHOLDER
+`android-ci.yml` **run 37751152434 on commit 87b990e is green** (the later commits on this branch touch only
+`handoff/`, which CI skips):
+
+- `:app:compileDebugKotlin` (it compiled on the first push too, run 37750272437).
+- `:app:testDebugUnitTest`: all 849 tests pass, including the new ones:
+  `LyricsTranslationApplierTest` (11), `LyricsTranslationStateHolderTest` (8), `SingUiReducerTest` (7),
+  `LyricsSingStateHolderTest` (8), `LyricsMoreSheetShapesTest` (2), and additions to `UserPreferencesRepositoryTest`
+  (old backup restores without the retired key; exports skip it; launch cleanup deletes it),
+  `ModuleSchemaValidatorTest` (an old global-settings backup is valid with one `RETIRED_PREF` warning),
+  `LyricsSheetLogicTest` (the forced dark glass palette) and `PlayerViewModelTest` (the new holders).
+  The first run failed only the two holder test classes: `advanceUntilIdle()` never runs `backgroundScope` work on
+  its own, so the tests now step with `runCurrent()` (commented in both files).
+- `:wear:compileDebugKotlin`, and `:app:assembleDebug -Ppixelplay.enableAbiSplits=true`:
+  `mergeDebugNativeLibs` packed ML Kit's `libtranslate_jni.so` and `liblanguage_id_l2c_jni.so` next to LiteRT and
+  ONNX Runtime with no duplicate-library conflict. The arm64 debug APK artifact (`pixlaudio-arm64-debug-apk`) is
+  **278.8 MB vs 269.6 MB** on main's last green run 37704901031: about **+8.7 MB**, almost all ML Kit.
+
+## Differences from the iPhone version
+
+- The on-device translator is Google ML Kit (the plan's suggested option A), not Apple's. Each language's model is
+  about 30 MB and downloads the first time (mobile data allowed, with a notice). Translation is per line, so it has
+  less context than Apple's.
+- On-device translations stay in memory for the session (last 30 songs); they aren't saved. Translate via AI saves.
+- "Show as plain text" also shows on-device translations (Android rebuilds the plain lines; iOS noted it doesn't).
+- Glass toolbar: one glass bar with flat circles and segments on it (owner decision 2, suggested option (a):
+  4 lenses over the moving art), where iOS makes each button its own glass in one container. Option (b), every button
+  its own lens (8–9 lenses), needs a smoothness and battery check on the Pixel first.
+- The sync-offset row is one glass capsule (iOS: five capsules that materialise).
+- The ⋯ sheet is its own window, so its glass bends the app's album-coloured ambient, not the moving lyrics art
+  (owner decision 3, suggested option (a)). Material 3 mode keeps the full-height Material sheet.
+- The long-press menu is a Material dropdown in both modes (Android has no glass menu yet).
+- Tapping Sing while quiet automatic work renders the song restarts that render as the person's own job (iOS adopts
+  the running job). Automatic work only runs while playback is idle, so this is rare.
+
+## Where the plan was off (written against 90d32ca; main @ 5aa975e had the same lines)
+
+- Its file:line references held on main. Corrections:
+  - `lyrics_controls_keep_screen_on` is in 11 files, not 12. `values-ar` only has the orphan
+    `lyrics_more_keep_screen_on`, which is in `strings_components.xml`.
+  - The "Disable immersive (once)" row only reacted on its switch. Its whole row is the target now, like the other
+    switch rows.
+- The translator interface changed shape so the holder can show a separate "downloading" phase and stay
+  testable:
+  - batch language ID;
+  - `supportedLanguage` (it rejects romanized `*-Latn`);
+  - `downloadModels`.
+- The holder writes `show_lyrics_translation` through the Hilt `DataStore<Preferences>`. It's the same "settings"
+  file the plan's `context.dataStore` points to.
+- Plain-only lyrics: the plan said "disable Translate"; it's dimmed but tappable instead, as in the iOS build. A tap
+  explains, and holding it still offers Translate via AI.
+- The plan's `ToggleSegmentButton` change was done as asked. The lyrics toolbar's glass look got its own segment.
+- Untouched orphans: `presentation_batch_g_lyrics_mode_synced` / `_static` in
+  `values-ar/strings_presentation_batch_g.xml`. They have no `values/` original and aren't part of this item.
 
 ## Not verified (nothing ran on a phone)
 
