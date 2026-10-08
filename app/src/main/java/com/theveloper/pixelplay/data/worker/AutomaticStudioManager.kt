@@ -122,7 +122,6 @@ class AutomaticStudioManager @Inject constructor(
         }
     }
 
-    @Synchronized
     /**
      * Another producer (Cloud Studio's import) saved new lyrics for [songId]: the lyrics screen reloads them when it
      * shows that song, exactly as after an automatic lyric sync.
@@ -131,6 +130,7 @@ class AutomaticStudioManager @Inject constructor(
         _lyricsUpdated.tryEmit(songId)
     }
 
+    @Synchronized
     fun setAppVisible(isVisible: Boolean) {
         if (isVisible && !visible) {
             jobsThisVisit.set(0)
