@@ -8,6 +8,7 @@ import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import com.theveloper.pixelplay.data.ai.provider.AiProvider
 import javax.inject.Inject
@@ -32,6 +33,21 @@ class AiPreferencesRepository @Inject constructor(
         val DEFAULT_GLM_SYSTEM_PROMPT = DEFAULT_SYSTEM_PROMPT
         val DEFAULT_OPENAI_SYSTEM_PROMPT = DEFAULT_SYSTEM_PROMPT
         val DEFAULT_OPENROUTER_SYSTEM_PROMPT = DEFAULT_SYSTEM_PROMPT
+
+        /**
+         * Settings › AI features › "Use downloaded AI model". Device-local on purpose: the model
+         * file lives in noBackupFilesDir, so the switch is kept out of .pxpl backups and survives
+         * restores ([UserPreferencesRepository]'s backup exclusions list this name).
+         *
+         * Same name as iOS. It must not end in `_model`, `_api_key`, `_system_prompt` or
+         * `_base_url`: iOS's backup catalogue treats those suffixes as portable per-provider AI
+         * keys, which is exactly the bug iOS's review found in its first name for this switch.
+         */
+        const val DOWNLOADED_MODEL_ENABLED_KEY = "ai_downloaded_model_enabled"
+        /** The cloud assistant the "Use a cloud assistant" switch turns back on (portable). */
+        const val CLOUD_PROVIDER_KEY = "ai_cloud_provider"
+        /** The one-time move of unusable cloud setups to on-device has run (portable, see [migrateProviderIfNeeded]). */
+        const val PROVIDER_MIGRATED_KEY = "ai_provider_migrated_v1"
     }
 
     private object Keys {
@@ -46,6 +62,9 @@ class AiPreferencesRepository @Inject constructor(
         val AI_SAMPLE_SIZE = intPreferencesKey("ai_sample_size")
         val AI_DIGEST_MODE = stringPreferencesKey("ai_digest_mode")
         val AI_INCLUDE_EXTENDED_FIELDS = booleanPreferencesKey("ai_include_extended_fields")
+        val AI_CLOUD_PROVIDER = stringPreferencesKey(CLOUD_PROVIDER_KEY)
+        val AI_PROVIDER_MIGRATED = booleanPreferencesKey(PROVIDER_MIGRATED_KEY)
+        val AI_DOWNLOADED_MODEL_ENABLED = booleanPreferencesKey(DOWNLOADED_MODEL_ENABLED_KEY)
 
         fun getApiKey(provider: AiProvider) = stringPreferencesKey("${provider.name.lowercase()}_api_key")
         fun getModel(provider: AiProvider) = stringPreferencesKey("${provider.name.lowercase()}_model")
@@ -136,8 +155,24 @@ class AiPreferencesRepository @Inject constructor(
     val customSystemPrompt: Flow<String> = getSystemPrompt(AiProvider.CUSTOM)
     val customBaseUrl: Flow<String> = getBaseUrl(AiProvider.CUSTOM)
 
+    // On-device is the default for every AI feature (owner decision, 2026-10-07). A cloud
+    // provider is only ever used when the user turns on "Use a cloud assistant".
     val aiProvider: Flow<String> =
-        dataStore.data.map { preferences -> preferences[Keys.AI_PROVIDER] ?: "GEMINI" }
+        dataStore.data.map { preferences -> preferences[Keys.AI_PROVIDER] ?: AiProvider.ON_DEVICE.name }
+            .distinctUntilChanged()
+
+    /** The last cloud assistant chosen, restored when "Use a cloud assistant" is switched back on. */
+    val aiCloudProvider: Flow<String> =
+        dataStore.data.map { preferences -> validCloudProvider(preferences[Keys.AI_CLOUD_PROVIDER]) }
+            .distinctUntilChanged()
+
+    val aiDownloadedModelEnabled: Flow<Boolean> =
+        dataStore.data.map { preferences -> preferences[Keys.AI_DOWNLOADED_MODEL_ENABLED] ?: false }
+            .distinctUntilChanged()
+
+    private fun validCloudProvider(stored: String?): String =
+        stored?.takeIf { name -> name != AiProvider.ON_DEVICE.name && AiProvider.entries.any { it.name == name } }
+            ?: AiProvider.GEMINI.name
 
     val isSafeTokenLimitEnabled: Flow<Boolean> =
         dataStore.data.map { preferences -> preferences[Keys.SAFE_TOKEN_LIMIT] ?: true }
@@ -171,6 +206,67 @@ class AiPreferencesRepository @Inject constructor(
 
     suspend fun setAiProvider(provider: String) {
         dataStore.edit { preferences -> preferences[Keys.AI_PROVIDER] = provider }
+    }
+
+    /** Selects [provider] as the active cloud assistant and remembers it for the cloud switch. */
+    suspend fun setCloudProvider(provider: AiProvider) {
+        if (provider == AiProvider.ON_DEVICE) return
+        dataStore.edit { preferences ->
+            preferences[Keys.AI_PROVIDER] = provider.name
+            preferences[Keys.AI_CLOUD_PROVIDER] = provider.name
+        }
+    }
+
+    /** "Use a cloud assistant": on restores the last cloud provider, off goes back to on-device. */
+    suspend fun setCloudAssistantEnabled(enabled: Boolean) {
+        dataStore.edit { preferences ->
+            if (enabled) {
+                preferences[Keys.AI_PROVIDER] = validCloudProvider(preferences[Keys.AI_CLOUD_PROVIDER])
+            } else {
+                val current = preferences[Keys.AI_PROVIDER]
+                if (current != null && current != AiProvider.ON_DEVICE.name) {
+                    preferences[Keys.AI_CLOUD_PROVIDER] = current
+                }
+                preferences[Keys.AI_PROVIDER] = AiProvider.ON_DEVICE.name
+            }
+        }
+    }
+
+    suspend fun setDownloadedModelEnabled(enabled: Boolean) {
+        dataStore.edit { preferences -> preferences[Keys.AI_DOWNLOADED_MODEL_ENABLED] = enabled }
+    }
+
+    /**
+     * One-time move of AI setups that could never answer to on-device (owner decisions 4 and 5):
+     * a provider that needs a key saved without one (Gemini, the old default, most often), and
+     * Ollama / Custom without a base URL. Setups that work stay on their cloud provider, which is
+     * also remembered as the cloud switch's provider. One [DataStore.edit], so it is atomic.
+     *
+     * Runs at startup and again after a settings restore: the .pxpl restore clears and re-imports
+     * the shared "settings" DataStore, so an old backup brings back GEMINI without the flag and
+     * gets converted once more (a backup with a Gemini key correctly stays on Gemini).
+     *
+     * @return true when the provider changed.
+     */
+    suspend fun migrateProviderIfNeeded(): Boolean {
+        var changed = false
+        dataStore.edit { preferences ->
+            if (preferences[Keys.AI_PROVIDER_MIGRATED] == true) return@edit
+            val stored = preferences[Keys.AI_PROVIDER]
+            val decision = AiProviderMigrationRules.decide(
+                storedProvider = stored,
+                apiKeyFor = { provider -> preferences[Keys.getApiKey(provider)]?.trim().orEmpty() },
+                baseUrlFor = { provider -> preferences[Keys.getBaseUrl(provider)]?.trim().orEmpty() },
+            )
+            val newProvider = decision.provider
+            if (newProvider != null && newProvider != stored) {
+                preferences[Keys.AI_PROVIDER] = newProvider
+                changed = true
+            }
+            decision.cloudProvider?.let { preferences[Keys.AI_CLOUD_PROVIDER] = it }
+            preferences[Keys.AI_PROVIDER_MIGRATED] = true
+        }
+        return changed
     }
 
     suspend fun setSafeTokenLimitEnabled(enabled: Boolean) {
@@ -211,5 +307,41 @@ class AiPreferencesRepository @Inject constructor(
 
     suspend fun setAiIncludeExtendedFields(enabled: Boolean) {
         dataStore.edit { preferences -> preferences[Keys.AI_INCLUDE_EXTENDED_FIELDS] = enabled }
+    }
+}
+
+/**
+ * The rules behind [AiPreferencesRepository.migrateProviderIfNeeded], pure so they are tested
+ * without a DataStore.
+ */
+internal object AiProviderMigrationRules {
+    /** [provider]: the new ai_provider value (null = leave unset); [cloudProvider]: ai_cloud_provider to write. */
+    data class Decision(val provider: String?, val cloudProvider: String?)
+
+    fun decide(
+        storedProvider: String?,
+        apiKeyFor: (AiProvider) -> String,
+        baseUrlFor: (AiProvider) -> String,
+    ): Decision {
+        if (storedProvider == null) {
+            // Never picked: the old default was Gemini. With a Gemini key that was a working cloud
+            // setup, so keep it on Gemini instead of silently moving it to the new default.
+            return if (apiKeyFor(AiProvider.GEMINI).isNotBlank()) {
+                Decision(AiProvider.GEMINI.name, AiProvider.GEMINI.name)
+            } else {
+                Decision(null, null)
+            }
+        }
+        val provider = AiProvider.entries.find { it.name == storedProvider }
+            ?: return Decision(AiProvider.ON_DEVICE.name, null)
+        if (provider == AiProvider.ON_DEVICE) return Decision(storedProvider, null)
+        val missingKey = provider.requiresApiKey && apiKeyFor(provider).isBlank()
+        val missingUrl = provider.hasConfigurableUrl && baseUrlFor(provider).isBlank()
+        return if (missingKey || missingUrl) {
+            // Remember the choice so turning the cloud switch on later comes back to it.
+            Decision(AiProvider.ON_DEVICE.name, provider.name)
+        } else {
+            Decision(storedProvider, provider.name)
+        }
     }
 }

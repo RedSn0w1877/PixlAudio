@@ -1,7 +1,6 @@
 package com.theveloper.pixelplay.data.ai.provider
 
 import android.content.Context
-import com.theveloper.pixelplay.data.ai.ondevice.OnDeviceAiClient
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -13,10 +12,6 @@ import javax.inject.Singleton
 class AiClientFactory @Inject constructor(
     @ApplicationContext private val context: Context
 ) {
-    /** [AiProvider.ON_DEVICE] has no API key/URL — it needs the imported model's file path instead. */
-    fun createOnDeviceClient(modelPath: String): AiClient = OnDeviceAiClient(context, modelPath)
-
-
     /**
      * Create an AI client for the specified provider
      * @param provider The AI provider type
@@ -95,7 +90,7 @@ class AiClientFactory @Inject constructor(
                 providerName = "Custom Provider"
             )
             AiProvider.ON_DEVICE -> throw IllegalStateException(
-                "AiProvider.ON_DEVICE must go through createOnDeviceClient(modelPath), not createClient() — it has no API key to build from."
+                "AiProvider.ON_DEVICE has no client: AiHandler sends on-device requests to LocalAi."
             )
         }
     }

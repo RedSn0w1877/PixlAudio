@@ -1,7 +1,12 @@
 package com.theveloper.pixelplay.data.ai
 
 
-import com.theveloper.pixelplay.data.ai.ondevice.OnDeviceModelManager
+import com.theveloper.pixelplay.data.ai.local.AiRoute
+import com.theveloper.pixelplay.data.ai.local.AiRouteResolver
+import com.theveloper.pixelplay.data.ai.local.LocalAi
+import com.theveloper.pixelplay.data.ai.local.LocalGenerationRequest
+import com.theveloper.pixelplay.data.ai.local.OnDevicePrompts
+import com.theveloper.pixelplay.data.ai.local.TokenBudget
 import com.theveloper.pixelplay.data.ai.provider.AiClientFactory
 import com.theveloper.pixelplay.data.ai.provider.AiProvider
 import com.theveloper.pixelplay.data.database.AiCacheDao
@@ -23,7 +28,7 @@ import javax.inject.Singleton
 class AiHandler @Inject constructor(
     private val preferencesRepo: AiPreferencesRepository,
     private val clientFactory: AiClientFactory,
-    private val onDeviceModelManager: OnDeviceModelManager,
+    private val localAi: LocalAi,
     private val cacheDao: AiCacheDao,
     private val usageDao: AiUsageDao,
     private val promptEngine: AiSystemPromptEngine,
@@ -106,11 +111,6 @@ class AiHandler @Inject constructor(
         // generateContent() call needs the same routing or it silently uses the wrong client
         // regardless of what the user configured.
         val client = when {
-            provider == AiProvider.ON_DEVICE -> {
-                val modelPath = onDeviceModelManager.currentModelPath()
-                    ?: throw IllegalStateException("No on-device model imported — add one in Settings > AI > On-Device")
-                clientFactory.createOnDeviceClient(modelPath)
-            }
             provider.hasConfigurableUrl -> {
                 val baseUrl = preferencesRepo.getBaseUrl(provider).first()
                 clientFactory.createClientWithUrl(provider, apiKey, baseUrl)
@@ -175,12 +175,47 @@ class AiHandler @Inject constructor(
         return recoveredModel
     }
 
+    /**
+     * Where the next request goes: the phone's own AI (the default) or the cloud assistant the user
+     * turned on. Features with their own on-device path (playlists, lyric translation, Taizo) ask
+     * this first.
+     */
+    suspend fun currentRoute(): AiRoute {
+        val providerName = preferencesRepo.aiProvider.first()
+        if (AiProvider.fromString(providerName) != AiProvider.ON_DEVICE) {
+            return AiRoute.Cloud(AiProvider.fromString(providerName))
+        }
+        return AiRoute.OnDevice(localAi.engine())
+    }
+
+    /** The user's Temperature when they moved it off the default, else [featureDefault]. */
+    suspend fun temperatureFor(featureDefault: Float): Float {
+        val stored = preferencesRepo.aiTemperature.first()
+        return if (stored == 0.7f) featureDefault else stored
+    }
+
+    /**
+     * One prompt in, one answer out, on the current route.
+     *
+     * On-device: the compact [OnDevicePrompts] instruction replaces the layered cloud prompt, the
+     * prompt is clamped to the on-device input budget, only Temperature is taken from the
+     * preferences (Top P, Top K, penalties and Max Output Tokens are cloud knobs), and there is no
+     * provider chain at all: an on-device failure is thrown as [com.theveloper.pixelplay.data.ai.local.OnDeviceAiException],
+     * never retried on a cloud provider. [maxOutputTokens] sizes the on-device answer; cloud calls
+     * keep the user's Max Output Tokens.
+     */
     suspend fun generateContent(
         prompt: String,
         type: AiSystemPromptType = AiSystemPromptType.GENERAL,
         temperature: Float = 0.7f,
-        context: String = ""
+        context: String = "",
+        maxOutputTokens: Int? = null,
     ): String {
+        val route = currentRoute()
+        if (route is AiRoute.OnDevice) {
+            return generateOnDevice(prompt, type, temperature, context, maxOutputTokens)
+        }
+
         val params = getGenerationParams()
         val effectiveTemperature = if (params.temperature == 0.7f) {
             if (temperature == 0.7f) {
@@ -212,7 +247,7 @@ class AiHandler @Inject constructor(
             }
         }
 
-        val providersToTry = com.theveloper.pixelplay.data.ai.provider.AiProviderSupport.buildProviderChain(userProvider)
+        val providersToTry = AiRouteResolver.cloudChain(userProvider)
         val failedProviders = mutableListOf<String>()
         val now = System.currentTimeMillis()
 
@@ -307,5 +342,60 @@ class AiHandler @Inject constructor(
         
         Timber.tag("AiHandler").e("All providers failed. Details: %s", failedProviders.joinToString(" | "))
         throw Exception(errorMessage)
+    }
+
+    private suspend fun generateOnDevice(
+        prompt: String,
+        type: AiSystemPromptType,
+        temperature: Float,
+        context: String,
+        maxOutputTokens: Int?,
+    ): String {
+        val persona = getBasePersona(AiProvider.ON_DEVICE)
+        val instruction = OnDevicePrompts.instructionFor(type, persona, maxOutputTokens)
+        val maxOut = (maxOutputTokens ?: OnDevicePrompts.maxOutputFor(type))
+            .coerceIn(1, TokenBudget.MAX_OUTPUT_TOKENS)
+        // The cloud digest/context layer is far too big for a 4k window; on-device features that
+        // need context build their own compact prompt and pass it in [prompt].
+        val fullPrompt = TokenBudget.clamp(
+            if (context.isBlank()) prompt else "$context\n\n$prompt",
+            TokenBudget.MAX_INPUT_TOKENS - TokenBudget.estimate(instruction),
+        )
+        val effectiveTemperature = temperatureFor(temperature)
+        val engine = localAi.engine()
+
+        val hash = (engine.routeId + type.name + maxOut + effectiveTemperature + instruction + fullPrompt).sha256()
+        cacheDao.getCache(hash)?.let { cached ->
+            if (System.currentTimeMillis() - cached.timestamp < CACHE_TTL_MS) return cached.responseJson
+        }
+
+        val startedAt = System.currentTimeMillis()
+        val answer = localAi.generate(
+            LocalGenerationRequest(
+                instruction = instruction,
+                prompt = fullPrompt,
+                temperature = effectiveTemperature,
+                maxOutputTokens = maxOut,
+            )
+        )
+        val response = AiResponseCleaner.cleanTextResponse(answer.text)
+
+        appScope.launch {
+            runCatching {
+                usageDao.insertUsage(
+                    AiUsageEntity(
+                        timestamp = startedAt,
+                        provider = answer.engine.usageLabel,
+                        model = answer.engine.routeId,
+                        promptType = type.name,
+                        promptTokens = TokenBudget.estimate(instruction) + TokenBudget.estimate(fullPrompt),
+                        outputTokens = TokenBudget.estimate(response),
+                        thoughtTokens = 0
+                    )
+                )
+            }.onFailure { error -> Timber.tag("AiHandler").e(error, "Failed to persist AI usage") }
+        }
+        cacheDao.insert(AiCacheEntity(promptHash = hash, responseJson = response, timestamp = System.currentTimeMillis()))
+        return response
     }
 }

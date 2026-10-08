@@ -124,7 +124,10 @@ class UserPreferencesRepository @Inject constructor(
 ) {
 
     private val backupExcludedKeyNames = setOf(
-        PreferencesKeys.INITIAL_SETUP_DONE.name
+        PreferencesKeys.INITIAL_SETUP_DONE.name,
+        // Device-local: the downloaded AI model itself is in noBackupFilesDir, so a restored
+        // switch would point at a file that isn't there (and a restore must not clear it either).
+        AiPreferencesRepository.DOWNLOADED_MODEL_ENABLED_KEY
     )
 
     // ─── Preference keys ────────────────────────────────────────────────────
