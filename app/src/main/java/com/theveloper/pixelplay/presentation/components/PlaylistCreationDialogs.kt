@@ -111,7 +111,11 @@ fun PlaylistCreationTypeDialog(
     onManualSelected: () -> Unit,
     onAiSelected: () -> Unit,
     isAiEnabled: Boolean = true,
-    onSetupAiClick: (() -> Unit)? = null
+    onSetupAiClick: (() -> Unit)? = null,
+    /** Why AI is off (on-device unavailable, cloud key missing…); the generic text when null. */
+    disabledReason: String? = null,
+    /** The key icon only makes sense when a cloud assistant is missing its key. */
+    showKeyIcon: Boolean = true,
 ) {
     if (!visible) return
 
@@ -184,11 +188,11 @@ fun PlaylistCreationTypeDialog(
                     subtitle = if (isAiEnabled) {
                         stringResource(R.string.playlist_creation_mode_ai_subtitle_enabled)
                     } else {
-                        stringResource(R.string.playlist_creation_mode_ai_subtitle_disabled)
+                        disabledReason ?: stringResource(R.string.playlist_creation_mode_ai_subtitle_disabled)
                     },
                     icon = {
                         Icon(
-                            imageVector = if (isAiEnabled) Icons.Rounded.AutoAwesome else Icons.Rounded.Key,
+                            imageVector = if (isAiEnabled || !showKeyIcon) Icons.Rounded.AutoAwesome else Icons.Rounded.Key,
                             contentDescription = null,
                             tint = if (isAiEnabled) {
                                 MaterialTheme.colorScheme.onTertiaryContainer
@@ -220,9 +224,12 @@ fun PlaylistCreationTypeDialog(
                         modifier = Modifier.fillMaxWidth(),
                         contentPadding = PaddingValues(vertical = 12.dp)
                     ) {
-                        Icon(Icons.Rounded.Key, contentDescription = null)
+                        Icon(if (showKeyIcon) Icons.Rounded.Key else Icons.Rounded.AutoAwesome, contentDescription = null)
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text(stringResource(R.string.playlist_creation_setup_api_key))
+                        Text(
+                            if (showKeyIcon) stringResource(R.string.playlist_creation_setup_api_key)
+                            else stringResource(R.string.ai_open_ai_settings)
+                        )
                     }
                 }
             }

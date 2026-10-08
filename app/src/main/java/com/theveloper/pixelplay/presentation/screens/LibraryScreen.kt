@@ -508,6 +508,16 @@ fun LibraryScreen(
             .distinctUntilChanged()
     }.collectAsStateWithLifecycle(initialValue = false)
     val hasActiveAiProviderApiKey by playerViewModel.hasActiveAiProviderApiKey.collectAsStateWithLifecycle()
+    // Only why AI is off and whether a cloud key is missing: the raw availability changes with
+    // every Gemini Nano download progress update, which would recompose the whole Library screen.
+    val aiBlockedReason by remember(playerViewModel) {
+        playerViewModel.aiAvailability
+            .map { availability ->
+                availability.reasonRes to
+                    (availability is com.theveloper.pixelplay.presentation.viewmodel.AiAvailability.NeedsCloudSetup)
+            }
+            .distinctUntilChanged()
+    }.collectAsStateWithLifecycle(initialValue = Pair<Int?, Boolean>(null, false))
     val isGeneratingAiPlaylist by playerViewModel.isGeneratingAiPlaylist.collectAsStateWithLifecycle()
     val aiError by playerViewModel.aiError.collectAsStateWithLifecycle()
     var showCreatePlaylistDialog by remember { mutableStateOf(false) }
@@ -1708,12 +1718,15 @@ fun LibraryScreen(
             if (hasActiveAiProviderApiKey) {
                 showPlaylistCreationTypeDialog = false
                 playerViewModel.clearAiPlaylistError()
+                playerViewModel.prewarmAi()
                 showCreateAiPlaylistDialog = true
             } else {
-                Toast.makeText(context, context.getString(R.string.library_toast_set_ai_provider_api_key_first), Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, playerViewModel.aiUnavailableMessage(), Toast.LENGTH_SHORT).show()
             }
         },
         isAiEnabled = hasActiveAiProviderApiKey,
+        disabledReason = aiBlockedReason.first?.let { stringResource(it) },
+        showKeyIcon = aiBlockedReason.second,
         onSetupAiClick = {
             navController.navigateSafely(Screen.SettingsCategory.createRoute("ai"))
         }
@@ -1726,9 +1739,10 @@ fun LibraryScreen(
             showCreatePlaylistDialog = false
             if (hasActiveAiProviderApiKey) {
                 playerViewModel.clearAiPlaylistError()
+                playerViewModel.prewarmAi()
                 showCreateAiPlaylistDialog = true
             } else {
-                Toast.makeText(context, context.getString(R.string.library_toast_set_ai_provider_api_key_first), Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, playerViewModel.aiUnavailableMessage(), Toast.LENGTH_SHORT).show()
             }
         },
         onCreate = { name, imageUri, color, icon, songIds, cropScale, cropPanX, cropPanY, shapeType, d1, d2, d3, d4, smartRuleKey ->

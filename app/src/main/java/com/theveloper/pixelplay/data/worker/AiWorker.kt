@@ -56,6 +56,14 @@ class AiWorker @AssistedInject constructor(
         }
 
         val prompt = inputData.getString(INPUT_PROMPT) ?: return@withContext Result.failure()
+
+        // Gemini Nano only answers the app on screen (AICore's BACKGROUND_USE_BLOCKED), and the
+        // downloaded model shouldn't load 1 GB behind the user's back: background AI work runs
+        // on a cloud assistant only. (Nothing enqueues this worker today; this keeps it honest.)
+        if (handler.currentRoute() is com.theveloper.pixelplay.data.ai.local.AiRoute.OnDevice) {
+            Timber.w("AiWorker skipped: on-device AI can't run in the background")
+            return@withContext Result.failure()
+        }
         val typeStr = inputData.getString(INPUT_TYPE) ?: AiSystemPromptType.GENERAL.name
         val type = AiSystemPromptType.valueOf(typeStr)
         val temp = inputData.getFloat(INPUT_TEMP, 0.7f)

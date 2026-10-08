@@ -19,15 +19,19 @@ enum class AiProvider(val displayName: String, val requiresApiKey: Boolean, val 
     // from actually using it.
     OLLAMA("Ollama", requiresApiKey = false, hasConfigurableUrl = true),
     CUSTOM("Custom Provider", requiresApiKey = true, hasConfigurableUrl = true),
-    // Runs fully offline on the phone itself via MediaPipe's GenAI runtime — no network, no
-    // server, no key. The model isn't bundled or downloaded automatically: Gemma's official
-    // .task builds are gated behind a Hugging Face login + license acceptance, so the user
-    // downloads it themselves once and imports the file (see OnDeviceModelManager).
-    ON_DEVICE("On-Device (Offline)", requiresApiKey = false, hasConfigurableUrl = false);
-    
+    // The phone's own AI, and the default for every feature: Gemini Nano through AICore, or the
+    // optional downloaded model (data/ai/local/LocalAi). Same value as iOS's on-device provider, so
+    // cross-platform backups line up. The display name must not say "Offline": error tables match
+    // that word and used to turn every on-device failure into "No Internet Connection".
+    ON_DEVICE("On-device", requiresApiKey = false, hasConfigurableUrl = false);
+
     companion object {
+        /** Unknown or missing values mean on-device: an unrecognised setting must never route to the cloud. */
         fun fromString(value: String): AiProvider {
-            return entries.find { it.name == value } ?: GEMINI
+            return entries.find { it.name == value } ?: ON_DEVICE
         }
+
+        /** The providers the "Cloud assistants" section offers. */
+        val cloudProviders: List<AiProvider> get() = entries.filter { it != ON_DEVICE }
     }
 }

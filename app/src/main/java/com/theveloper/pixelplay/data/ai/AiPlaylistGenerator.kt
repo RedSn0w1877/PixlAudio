@@ -2,6 +2,9 @@ package com.theveloper.pixelplay.data.ai
 
 
 import com.theveloper.pixelplay.data.DailyMixManager
+import com.theveloper.pixelplay.data.ai.curator.OnDevicePlaylistCurator
+import com.theveloper.pixelplay.data.ai.local.AiRoute
+import com.theveloper.pixelplay.data.ai.local.OnDeviceAiException
 import com.theveloper.pixelplay.data.model.Song
 import com.theveloper.pixelplay.data.preferences.AiPreferencesRepository
 import kotlinx.coroutines.flow.first
@@ -18,7 +21,8 @@ class AiPlaylistGenerator @Inject constructor(
     private val aiHandler: AiHandler,
     private val digestGenerator: UserProfileDigestGenerator,
     private val preferencesRepo: AiPreferencesRepository,
-    private val json: Json
+    private val json: Json,
+    private val onDeviceCurator: OnDevicePlaylistCurator,
 ) {
 
     suspend fun generate(
@@ -29,6 +33,24 @@ class AiPlaylistGenerator @Inject constructor(
         candidateSongs: List<Song>? = null,
         type: AiSystemPromptType = AiSystemPromptType.PLAYLIST
     ): Result<List<Song>> {
+        // On-device: plan -> fill -> order, sized for a 4k-token model. The JSON-of-ids prompt
+        // below (digest + 40-80 songs with 14-character ids) is several times too big for it.
+        try {
+            if (aiHandler.currentRoute() is AiRoute.OnDevice) {
+                return onDeviceCurator.curate(
+                    userPrompt = userPrompt,
+                    allSongs = allSongs,
+                    minLength = minLength,
+                    maxLength = maxLength,
+                    seedPool = candidateSongs,
+                )
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: OnDeviceAiException) {
+            return Result.failure(e)
+        }
+
         return try {
 
             // Get offline scored candidates to pass to LLM (much smaller context window than the whole library)

@@ -4,7 +4,10 @@ aboutLibraries = "15.2.0"
 agp = "9.5.0-alpha07"
 app = "1.7.0"
 googleGenai = "1.73.0"
-mediapipeTasksGenai = "0.10.35"
+# On-device AI (Settings > AI features). Gemini Nano through AICore, and the optional
+# downloaded Gemma model through LiteRT-LM (MediaPipe LLM Inference is maintenance-only).
+mlkitGenaiPrompt = "1.0.0-beta4"
+litertlm = "0.18.0"
 googlePlayServicesCast = "22.3.1"
 animation = "1.11.3"
 appcompat = "1.8.0"
@@ -134,7 +137,8 @@ androidx-app-projected = { module = "androidx.car.app:app-projected", version.re
 androidx-media = { module = "androidx.media:media", version.ref = "media" }
 androidx-ui-text-google-fonts = { module = "androidx.compose.ui:ui-text-google-fonts", version.ref = "composeUi" }
 google-genai = { group = "com.google.genai", name = "google-genai", version.ref = "googleGenai" }
-mediapipe-tasks-genai = { group = "com.google.mediapipe", name = "tasks-genai", version.ref = "mediapipeTasksGenai" }
+mlkit-genai-prompt = { group = "com.google.mlkit", name = "genai-prompt", version.ref = "mlkitGenaiPrompt" }
+litertlm-android = { group = "com.google.ai.edge.litertlm", name = "litertlm-android", version.ref = "litertlm" }
 google-play-services-cast-framework = { group = "com.google.android.gms", name = "play-services-cast-framework", version.ref = "googlePlayServicesCast" }
 androidx-animation = { module = "androidx.compose.animation:animation", version.ref = "animation" }
 desugar-jdk-libs = { module = "com.android.tools:desugar_jdk_libs_nio", version.ref = "desugarJdkLibs" }

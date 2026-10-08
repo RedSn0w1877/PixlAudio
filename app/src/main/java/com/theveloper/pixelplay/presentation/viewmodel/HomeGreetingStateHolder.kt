@@ -2,9 +2,8 @@ package com.theveloper.pixelplay.presentation.viewmodel
 
 import com.theveloper.pixelplay.data.ai.AiHandler
 import com.theveloper.pixelplay.data.ai.AiSystemPromptType
-import com.theveloper.pixelplay.data.ai.provider.AiProvider
+import com.theveloper.pixelplay.data.ai.local.OnDevicePrompts
 import com.theveloper.pixelplay.data.model.Song
-import com.theveloper.pixelplay.data.preferences.AiPreferencesRepository
 import com.theveloper.pixelplay.data.preferences.UserPreferencesRepository
 import com.theveloper.pixelplay.data.stats.PlaybackStatsRepository
 import com.theveloper.pixelplay.data.stats.StatsTimeRange
@@ -38,7 +37,7 @@ data class HomeGreeting(
 class HomeGreetingStateHolder @Inject constructor(
     private val statsRepository: PlaybackStatsRepository,
     private val aiHandler: AiHandler,
-    private val aiPreferencesRepository: AiPreferencesRepository,
+    private val aiAvailability: AiAvailabilityStateHolder,
     private val userPreferencesRepository: UserPreferencesRepository,
 ) {
     private val _greeting = MutableStateFlow(HomeGreeting(localHeadline(null, null), defaultSubtitle()))
@@ -79,9 +78,9 @@ class HomeGreetingStateHolder @Inject constructor(
                     ?.genre
                 val totalPlayCount = summary?.totalPlayCount ?: 0
 
-                val provider = AiProvider.fromString(aiPreferencesRepository.aiProvider.first())
-                val apiKey = aiPreferencesRepository.getApiKey(provider).first()
-                if (provider.requiresApiKey && apiKey.isBlank()) {
+                // On-device (the default) counts as configured: it was locked out here before
+                // because it has no API key. Not ready (no Nano, cloud key missing) -> local text.
+                if (!aiAvailability.current().isUsable) {
                     _expandedInsight.value = expandedFallback(allSongs.size, totalPlayCount, topArtist, topGenre)
                     return@launch
                 }
@@ -95,8 +94,13 @@ class HomeGreetingStateHolder @Inject constructor(
                 }
 
                 val result = runCatching {
-                    aiHandler.generateContent(prompt = prompt, type = AiSystemPromptType.GREETING)
-                }.getOrNull()?.trim()?.trim('"')
+                    aiHandler.generateContent(
+                        prompt = prompt,
+                        type = AiSystemPromptType.GREETING,
+                        maxOutputTokens = OnDevicePrompts.INSIGHT_MAX_OUTPUT,
+                    )
+                }.onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
+                    .getOrNull()?.trim()?.trim('"')
 
                 _expandedInsight.value = result?.takeIf { it.isNotBlank() }
                     ?: expandedFallback(allSongs.size, totalPlayCount, topArtist, topGenre)
@@ -139,9 +143,8 @@ class HomeGreetingStateHolder @Inject constructor(
             }
             if (hasRequestedAiGreetingThisProcess) return@launch
 
-            val provider = AiProvider.fromString(aiPreferencesRepository.aiProvider.first())
-            val apiKey = aiPreferencesRepository.getApiKey(provider).first()
-            if (apiKey.isBlank()) return@launch
+            // Runs from the UI (app start / Home), which satisfies Gemini Nano's foreground rule.
+            if (!aiAvailability.current().isUsable) return@launch
 
             hasRequestedAiGreetingThisProcess = true
             val prompt = buildString {
@@ -152,7 +155,11 @@ class HomeGreetingStateHolder @Inject constructor(
             }
 
             runCatching {
-                aiHandler.generateContent(prompt = prompt, type = AiSystemPromptType.GREETING)
+                aiHandler.generateContent(
+                    prompt = prompt,
+                    type = AiSystemPromptType.GREETING,
+                    maxOutputTokens = OnDevicePrompts.GREETING_MAX_OUTPUT,
+                )
             }.onSuccess { text ->
                 val clean = text.trim().trim('"').take(140)
                 if (clean.isNotBlank()) {

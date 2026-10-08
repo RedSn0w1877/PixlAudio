@@ -90,7 +90,11 @@ fun TaisChatSheet(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val isResolvingOnlineTracks by viewModel.isResolvingOnlineTracks.collectAsState()
+    val isResponding by viewModel.isResponding.collectAsState()
     val listState = rememberLazyListState()
+
+    // Load the on-device model while the user types, so the first answer doesn't also wait for it.
+    LaunchedEffect(Unit) { viewModel.prewarm() }
 
     LaunchedEffect(uiState.messages.size) {
         if (uiState.messages.isNotEmpty()) {
@@ -148,8 +152,10 @@ fun TaisChatSheet(
                         sparkleBrush = sparkleBrush,
                         modifier = Modifier.weight(1f),
                         onSuggestionClick = { suggestion ->
-                            viewModel.onInputChange(suggestion)
-                            viewModel.sendPrompt()
+                            if (!isResponding) {
+                                viewModel.onInputChange(suggestion)
+                                viewModel.sendPrompt()
+                            }
                         }
                     )
                 } else {
@@ -192,6 +198,7 @@ fun TaisChatSheet(
                     Spacer(modifier = Modifier.width(8.dp))
                     FilledIconButton(
                         onClick = viewModel::sendPrompt,
+                        enabled = !isResponding,
                         colors = IconButtonDefaults.filledIconButtonColors(
                             containerColor = MaterialTheme.colorScheme.primary,
                             contentColor = MaterialTheme.colorScheme.onPrimary

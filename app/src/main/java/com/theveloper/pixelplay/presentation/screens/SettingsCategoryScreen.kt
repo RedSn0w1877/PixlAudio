@@ -302,16 +302,6 @@ fun SettingsCategoryScreen(
         }
     }
 
-    // No registered MIME type for .task/.litertlm files, so this has to accept anything —
-    // OnDeviceModelManager validates the copy succeeded (non-empty) rather than the extension.
-    val onDeviceModelPicker = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
-    ) { uri ->
-        if (uri != null) {
-            settingsViewModel.importOnDeviceModel(uri)
-        }
-    }
-
     LaunchedEffect(Unit) {
         settingsViewModel.dataTransferEvents.collectLatest { message ->
             Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
@@ -350,6 +340,10 @@ fun SettingsCategoryScreen(
                     song.album.contains(query, ignoreCase = true)
             }
         }
+    }
+
+    LaunchedEffect(category) {
+        if (category == SettingsCategory.AI_INTEGRATION) settingsViewModel.refreshOnDeviceAi()
     }
 
     // Auto-load models when entering the AI settings page or when provider/key changes
@@ -1121,53 +1115,163 @@ fun SettingsCategoryScreen(
                         }
                     }
                     val provider = com.theveloper.pixelplay.data.ai.provider.AiProvider.fromString(aiProvider)
-                    item(key = "ai_provider", contentType = "settings_subsection") {
+                    val isCloudAssistantOn = provider != com.theveloper.pixelplay.data.ai.provider.AiProvider.ON_DEVICE
+                    // On-device AI first: it is the default for every AI feature. Each row collects
+                    // only the flows it shows.
+                    item(key = "ai_on_device", contentType = "settings_subsection") {
                         Column {
-                            // AI Provider Selection
-                            SettingsSubsection(title = stringResource(R.string.settings_ai_provider_section)) {
-                                ThemeSelectorItem(
-                                    label = stringResource(R.string.settings_ai_provider_title),
-                                    description = stringResource(R.string.settings_ai_provider_subtitle),
-                                    // Gemini is the one option with a genuine no-cost tier and the
-                                    // deepest integration in this app (its own SDK, not a generic REST
-                                    // client) — labelling it "Free" in the picker itself is the
-                                    // difference between a user finding the good default and one of
-                                    // ten unlabelled provider names they have to research themselves.
-                                    options = com.theveloper.pixelplay.data.ai.provider.AiProvider.entries.associate {
-                                        it.name to if (it == com.theveloper.pixelplay.data.ai.provider.AiProvider.GEMINI) {
-                                            "${it.displayName} (Free)"
-                                        } else {
-                                            it.displayName
-                                        }
-                                    },
-                                    selectedKey = aiProvider,
-                                    onSelectionChanged = { settingsViewModel.onAiProviderChange(it) },
-                                    leadingIcon = { Icon(Icons.Rounded.Science, null, tint = MaterialTheme.colorScheme.secondary) }
+                            val nanoStatus by settingsViewModel.nanoStatus.collectAsStateWithLifecycle()
+                            val modelState by settingsViewModel.downloadedModelState.collectAsStateWithLifecycle()
+                            val useDownloadedModel by settingsViewModel.useDownloadedModel.collectAsStateWithLifecycle()
+                            val modelLoadError by settingsViewModel.downloadedModelLoadError.collectAsStateWithLifecycle()
+                            val legacyModelBytes by settingsViewModel.legacyImportedModelBytes.collectAsStateWithLifecycle()
+                            var showDownloadDialog by remember { mutableStateOf(false) }
+                            var showDeleteDialog by remember { mutableStateOf(false) }
+                            val spec = settingsViewModel.downloadedModelSpec
+                            val modelReady = modelState is com.theveloper.pixelplay.data.ai.local.DownloadedModelState.Ready
+                            val answerer = when {
+                                isCloudAssistantOn -> LocalAiAnswerer.CLOUD
+                                useDownloadedModel && modelReady -> LocalAiAnswerer.DOWNLOADED_MODEL
+                                else -> LocalAiAnswerer.NANO
+                            }
+
+                            SettingsSubsection(title = stringResource(R.string.settings_local_ai_section)) {
+                                GeminiNanoStatusRow(
+                                    status = nanoStatus,
+                                    answerer = answerer,
+                                    onGetReady = { settingsViewModel.prepareNano() }
                                 )
-                                SwitchSettingItem(
-                                    title = stringResource(R.string.settings_safe_token_title),
-                                    subtitle = if (uiState.isSafeTokenLimitEnabled) {
-                                        stringResource(R.string.settings_safe_token_on)
-                                    } else {
-                                        stringResource(R.string.settings_safe_token_off)
-                                    },
-                                    checked = uiState.isSafeTokenLimitEnabled,
-                                    onCheckedChange = { settingsViewModel.setSafeTokenLimitEnabled(it) },
-                                    leadingIcon = {
-                                        Icon(
-                                            painterResource(R.drawable.rounded_monitoring_24),
-                                            null,
-                                            tint = if (uiState.isSafeTokenLimitEnabled) MaterialTheme.colorScheme.primary
-                                                   else MaterialTheme.colorScheme.tertiary,
-                                            modifier = Modifier.size(24.dp)
+                                if (settingsViewModel.isDownloadedModelSupported) {
+                                    SwitchSettingItem(
+                                        title = stringResource(R.string.settings_local_ai_use_downloaded_title),
+                                        subtitle = stringResource(
+                                            R.string.settings_local_ai_use_downloaded_subtitle,
+                                            spec.displayName,
+                                            android.text.format.Formatter.formatShortFileSize(context, spec.sizeBytes)
+                                        ),
+                                        checked = useDownloadedModel,
+                                        onCheckedChange = { enabled ->
+                                            settingsViewModel.setUseDownloadedModel(enabled)
+                                            // Offer the download; never start one by itself.
+                                            if (enabled && modelState is com.theveloper.pixelplay.data.ai.local.DownloadedModelState.NotDownloaded) {
+                                                showDownloadDialog = true
+                                            }
+                                        },
+                                        leadingIcon = {
+                                            Icon(Icons.Rounded.Science, null, tint = MaterialTheme.colorScheme.secondary)
+                                        }
+                                    )
+                                    if (useDownloadedModel || modelState !is com.theveloper.pixelplay.data.ai.local.DownloadedModelState.NotDownloaded) {
+                                        DownloadedModelRow(
+                                            spec = spec,
+                                            state = modelState,
+                                            loadError = modelLoadError,
+                                            cloudIsOn = isCloudAssistantOn,
+                                            onDownload = { showDownloadDialog = true },
+                                            onCancel = { settingsViewModel.cancelModelDownload() },
+                                            onDelete = { showDeleteDialog = true }
                                         )
                                     }
+                                }
+                                legacyModelBytes?.let { bytes ->
+                                    ActionSettingsItem(
+                                        title = stringResource(R.string.settings_local_ai_legacy_title),
+                                        subtitle = stringResource(
+                                            R.string.settings_local_ai_legacy_subtitle,
+                                            android.text.format.Formatter.formatShortFileSize(context, bytes)
+                                        ),
+                                        icon = {
+                                            Icon(
+                                                painter = painterResource(R.drawable.rounded_upload_file_24),
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.secondary
+                                            )
+                                        },
+                                        primaryActionLabel = stringResource(R.string.settings_local_ai_legacy_action),
+                                        onPrimaryAction = { settingsViewModel.removeLegacyImportedModel() }
+                                    )
+                                }
+                            }
+
+                            if (showDownloadDialog) {
+                                // Free space is checked off the main thread; the button waits for it.
+                                val hasRoomForModel by androidx.compose.runtime.produceState(initialValue = true) {
+                                    value = settingsViewModel.checkRoomForModelDownload()
+                                }
+                                DownloadModelDialog(
+                                    spec = spec,
+                                    hasRoom = hasRoomForModel,
+                                    onConfirm = { allowMetered ->
+                                        showDownloadDialog = false
+                                        settingsViewModel.downloadModel(allowMetered)
+                                    },
+                                    onDismiss = { showDownloadDialog = false }
+                                )
+                            }
+                            if (showDeleteDialog) {
+                                DeleteModelDialog(
+                                    sizeBytes = (modelState as? com.theveloper.pixelplay.data.ai.local.DownloadedModelState.Ready)?.sizeBytes
+                                        ?: spec.sizeBytes,
+                                    onConfirm = {
+                                        showDeleteDialog = false
+                                        settingsViewModel.deleteDownloadedModel()
+                                    },
+                                    onDismiss = { showDeleteDialog = false }
                                 )
                             }
                         }
                     }
-                    // Consolidated API Key Section — not applicable to ON_DEVICE (no key of any kind).
-                    if (provider != com.theveloper.pixelplay.data.ai.provider.AiProvider.ON_DEVICE) {
+                    // Cloud assistants: optional, off by default, and never an automatic fallback.
+                    item(key = "ai_provider", contentType = "settings_subsection") {
+                        Column {
+                            SettingsSubsection(title = stringResource(R.string.settings_cloud_ai_section)) {
+                                SwitchSettingItem(
+                                    title = stringResource(R.string.settings_cloud_ai_switch_title),
+                                    subtitle = if (isCloudAssistantOn) {
+                                        stringResource(R.string.settings_cloud_ai_switch_on, provider.displayName)
+                                    } else {
+                                        stringResource(R.string.settings_cloud_ai_switch_off)
+                                    },
+                                    checked = isCloudAssistantOn,
+                                    onCheckedChange = { settingsViewModel.setCloudAssistantEnabled(it) },
+                                    leadingIcon = { Icon(Icons.Rounded.OpenInNew, null, tint = MaterialTheme.colorScheme.secondary) }
+                                )
+                                if (isCloudAssistantOn) {
+                                    ThemeSelectorItem(
+                                        label = stringResource(R.string.settings_cloud_ai_provider_title),
+                                        description = stringResource(R.string.settings_cloud_ai_provider_subtitle),
+                                        options = com.theveloper.pixelplay.data.ai.provider.AiProvider.cloudProviders.associate {
+                                            it.name to it.displayName
+                                        },
+                                        selectedKey = aiProvider,
+                                        onSelectionChanged = { settingsViewModel.onAiProviderChange(it) },
+                                        leadingIcon = { Icon(Icons.Rounded.Science, null, tint = MaterialTheme.colorScheme.secondary) }
+                                    )
+                                    SwitchSettingItem(
+                                        title = stringResource(R.string.settings_safe_token_title),
+                                        subtitle = if (uiState.isSafeTokenLimitEnabled) {
+                                            stringResource(R.string.settings_safe_token_on)
+                                        } else {
+                                            stringResource(R.string.settings_safe_token_off)
+                                        },
+                                        checked = uiState.isSafeTokenLimitEnabled,
+                                        onCheckedChange = { settingsViewModel.setSafeTokenLimitEnabled(it) },
+                                        leadingIcon = {
+                                            Icon(
+                                                painterResource(R.drawable.rounded_monitoring_24),
+                                                null,
+                                                tint = if (uiState.isSafeTokenLimitEnabled) MaterialTheme.colorScheme.primary
+                                                       else MaterialTheme.colorScheme.tertiary,
+                                                modifier = Modifier.size(24.dp)
+                                            )
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    // Consolidated API Key Section — only for a cloud assistant (on-device has no key).
+                    if (isCloudAssistantOn) {
                         item(key = "ai_credentials", contentType = "settings_subsection") {
                             Column {
                                 SettingsSubsection(title = stringResource(R.string.settings_credentials_section)) {
@@ -1183,7 +1287,7 @@ fun SettingsCategoryScreen(
                                         com.theveloper.pixelplay.data.ai.provider.AiProvider.OPENROUTER -> "OpenRouter (openrouter.ai)"
                                         com.theveloper.pixelplay.data.ai.provider.AiProvider.OLLAMA -> "Ollama (local server)"
                                         com.theveloper.pixelplay.data.ai.provider.AiProvider.CUSTOM -> "Custom Provider"
-                                        com.theveloper.pixelplay.data.ai.provider.AiProvider.ON_DEVICE -> "On-Device (Offline)"
+                                        com.theveloper.pixelplay.data.ai.provider.AiProvider.ON_DEVICE -> "On-device"
                                     }
 
                                     // Gemini is the one provider with a genuine no-cost, no-card-required
@@ -1219,7 +1323,7 @@ fun SettingsCategoryScreen(
                         }
                     }
                     // Model Selection Section
-                    if (currentAiApiKey.isNotBlank()) {
+                    if (isCloudAssistantOn && currentAiApiKey.isNotBlank()) {
                         item(key = "ai_model", contentType = "settings_subsection") {
                             Column {
                                     SettingsSubsection(title = stringResource(R.string.settings_model_selection_section)) {
@@ -1273,7 +1377,7 @@ fun SettingsCategoryScreen(
                         }
                     }
                     // Base URL Section (only for configurable URL providers)
-                    if (provider.hasConfigurableUrl) {
+                    if (isCloudAssistantOn && provider.hasConfigurableUrl) {
                         item(key = "ai_base_url", contentType = "settings_subsection") {
                             Column {
                                 val currentAiBaseUrl by settingsViewModel.currentAiBaseUrl.collectAsStateWithLifecycle()
@@ -1287,99 +1391,6 @@ fun SettingsCategoryScreen(
                                             else
                                                 "e.g. https://api.example.com/v1"
                                         )
-                                    }
-                            }
-                        }
-                    }
-                    // On-Device Model Section
-                    if (provider == com.theveloper.pixelplay.data.ai.provider.AiProvider.ON_DEVICE) {
-                        item(key = "ai_on_device", contentType = "settings_subsection") {
-                            Column {
-                                    val onDeviceModelInfo by settingsViewModel.onDeviceModelInfo.collectAsStateWithLifecycle()
-                                    val onDeviceImportError by settingsViewModel.onDeviceImportError.collectAsStateWithLifecycle()
-
-                                    SettingsSubsection(title = "On-Device Model") {
-                                        Text(
-                                            text = "No download happens automatically — Google's ready-to-use Gemma models require a Hugging Face " +
-                                                "login and license acceptance, so there's no link this app can fetch for you. Download a " +
-                                                ".task or .litertlm file converted for MediaPipe's LLM Inference API yourself (Gemma, Phi-2, " +
-                                                "Falcon-RW-1B, and StableLM all work), then import it below.",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                                        )
-
-                                        Surface(
-                                            color = MaterialTheme.colorScheme.surfaceContainer,
-                                            shape = RoundedCornerShape(10.dp),
-                                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
-                                        ) {
-                                            Row(
-                                                modifier = Modifier.padding(16.dp),
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(12.dp)
-                                            ) {
-                                                Icon(
-                                                    painter = painterResource(R.drawable.rounded_upload_file_24),
-                                                    contentDescription = null,
-                                                    tint = MaterialTheme.colorScheme.secondary
-                                                )
-                                                Column(modifier = Modifier.weight(1f)) {
-                                                    if (onDeviceModelInfo != null) {
-                                                        Text(
-                                                            text = onDeviceModelInfo!!.fileName,
-                                                            style = MaterialTheme.typography.bodyMedium,
-                                                            fontWeight = FontWeight.Medium
-                                                        )
-                                                        Text(
-                                                            text = "%.1f MB imported".format(onDeviceModelInfo!!.sizeBytes / 1_048_576.0),
-                                                            style = MaterialTheme.typography.bodySmall,
-                                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                                        )
-                                                    } else {
-                                                        Text(
-                                                            text = "No model imported",
-                                                            style = MaterialTheme.typography.bodyMedium,
-                                                            fontWeight = FontWeight.Medium
-                                                        )
-                                                        Text(
-                                                            text = "AI features will be unavailable until you import one",
-                                                            style = MaterialTheme.typography.bodySmall,
-                                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                                        )
-                                                    }
-                                                }
-                                            }
-                                        }
-
-                                        if (onDeviceImportError != null) {
-                                            Text(
-                                                text = onDeviceImportError!!,
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.error,
-                                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
-                                            )
-                                        }
-
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                        ) {
-                                            FilledTonalButton(
-                                                onClick = { onDeviceModelPicker.launch("*/*") },
-                                                modifier = Modifier.weight(1f)
-                                            ) {
-                                                Text(if (onDeviceModelInfo != null) "Replace model" else "Import model file")
-                                            }
-                                            if (onDeviceModelInfo != null) {
-                                                OutlinedButton(
-                                                    onClick = { settingsViewModel.deleteOnDeviceModel() },
-                                                    modifier = Modifier.weight(1f)
-                                                ) {
-                                                    Text("Remove")
-                                                }
-                                            }
-                                        }
                                     }
                             }
                         }
@@ -1455,6 +1466,7 @@ fun SettingsCategoryScreen(
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp)
                                     )
+                                    if (isCloudAssistantOn) {
                                     SliderSettingsItem(
                                         label = "Top P",
                                         value = settingsViewModel.aiTopP.collectAsStateWithLifecycle().value,
@@ -1525,9 +1537,11 @@ fun SettingsCategoryScreen(
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp)
                                     )
+                                    }
                                 }
                             }
                         }
+                        if (isCloudAssistantOn) {
                         item(key = "ai_song_data", contentType = "settings_subsection") {
                             Column {
                                 // Song Data Configuration Section
@@ -1679,6 +1693,7 @@ fun SettingsCategoryScreen(
                                     }
                                 }
                             }
+                        }
                         }
                     }
                 }
