@@ -65,6 +65,7 @@ class PlayerViewModelTest {
 
     private lateinit var playerViewModel: PlayerViewModel
     private val mockMusicRepository: MusicRepository = mockk()
+    private val mockSpotifyRepository: com.theveloper.pixelplay.data.spotify.SpotifyRepository = mockk(relaxed = true)
     private val mockUserPreferencesRepository: UserPreferencesRepository = mockk(relaxed = true)
     private val mockAiPreferencesRepository: AiPreferencesRepository = mockk(relaxed = true)
     private val mockThemePreferencesRepository: ThemePreferencesRepository = mockk(relaxed = true)
@@ -84,6 +85,20 @@ class PlayerViewModelTest {
     private val mockQueueUndoStateHolder: QueueUndoStateHolder = mockk(relaxed = true)
     private val mockPlaylistDismissUndoStateHolder: PlaylistDismissUndoStateHolder = mockk(relaxed = true)
     private val mockPlaybackStateHolder: PlaybackStateHolder = mockk(relaxed = true)
+    // The lyrics page's Sing holder owns the instrumental state the ViewModel exposes.
+    private val singActiveFlow = MutableStateFlow(false)
+    private val singAvailableFlow = MutableStateFlow(false)
+    private val mockLyricsSing: LyricsSingStateHolder = mockk(relaxed = true) {
+        every { active } returns singActiveFlow
+        every { available } returns singAvailableFlow
+        every { ui } returns MutableStateFlow(SingUi())
+        every { messages } returns MutableSharedFlow()
+        every { requests } returns MutableSharedFlow()
+    }
+    private val mockLyricsTranslation: LyricsTranslationStateHolder = mockk(relaxed = true) {
+        every { state } returns MutableStateFlow(LyricsTranslateUiState())
+        every { messages } returns MutableSharedFlow()
+    }
     private val mockConnectivityStateHolder: ConnectivityStateHolder = mockk(relaxed = true)
     private val mockSleepTimerStateHolder: SleepTimerStateHolder = mockk(relaxed = true)
     private val mockSearchStateHolder: SearchStateHolder = mockk(relaxed = true)
@@ -282,7 +297,7 @@ class PlayerViewModelTest {
         playerViewModel = PlayerViewModel(
             context = mockContext,
             musicRepository = mockMusicRepository,
-            spotifyRepository = mockk(relaxed = true),
+            spotifyRepository = mockSpotifyRepository,
             userPreferencesRepository = mockUserPreferencesRepository,
             aiPreferencesRepository = mockAiPreferencesRepository,
             themePreferencesRepository = mockThemePreferencesRepository,
@@ -303,6 +318,9 @@ class PlayerViewModelTest {
             jobsStateHolder = mockk(relaxed = true),
             homeGreetingStateHolder = mockk(relaxed = true),
             aiStateHolder = mockAiStateHolder,
+            aiAvailabilityStateHolder = mockk(relaxed = true) {
+                every { availability } returns MutableStateFlow<AiAvailability>(AiAvailability.Checking)
+            },
             libraryStateHolder = mockLibraryStateHolder,
             folderNavigationStateHolder = mockFolderNavigationStateHolder,
             libraryTabsStateHolder = mockLibraryTabsStateHolder,
@@ -316,10 +334,13 @@ class PlayerViewModelTest {
             mediaControllerSyncStateHolder = mediaControllerSyncStateHolder,
             lyricsSyncEditor = mockk(relaxed = true) {
                 every { expandPlayerRequests } returns kotlinx.coroutines.flow.MutableSharedFlow()
+                every { messageEvents } returns kotlinx.coroutines.flow.MutableSharedFlow()
             },
             spotifyConnect = mockk(relaxed = true) {
                 every { messages } returns kotlinx.coroutines.flow.MutableSharedFlow()
             },
+            lyricsTranslation = mockLyricsTranslation,
+            lyricsSing = mockLyricsSing,
             sessionToken = sessionToken,
             mediaControllerFactory = mockMediaControllerFactory,
         )
@@ -329,6 +350,34 @@ class PlayerViewModelTest {
     fun tearDown() {
         Dispatchers.resetMain()
         unmockkAll()
+    }
+
+    @Nested
+    @DisplayName("Lyrics Translate and Sing")
+    inner class LyricsToolbarTests {
+
+        @Test
+        fun `studio instrumental state comes from the Sing holder`() {
+            assertEquals(false, playerViewModel.studioInstrumentalActive.value)
+            singActiveFlow.value = true
+            singAvailableFlow.value = true
+            assertEquals(true, playerViewModel.studioInstrumentalActive.value)
+            assertEquals(true, playerViewModel.studioInstrumentalAvailable.value)
+        }
+
+        @Test
+        fun `toolbar taps go to their holders`() {
+            playerViewModel.toggleSing()
+            playerViewModel.translateLyricsOnDevice()
+            verify { mockLyricsSing.onSingTapped() }
+            verify { mockLyricsTranslation.translateCurrent() }
+        }
+
+        @Test
+        fun `both holders are initialized with the ViewModel`() {
+            verify { mockLyricsSing.initialize(any()) }
+            verify { mockLyricsTranslation.initialize(any()) }
+        }
     }
 
     @Nested
@@ -496,6 +545,37 @@ class PlayerViewModelTest {
         advanceUntilIdle()
 
         coVerify { mockMusicRepository.setFavoriteStatus("42", true) }
+    }
+
+    @Test
+    fun `unliking an Explore-only Spotify track writes the favourite before the library clean-up`() = runTest {
+        // The clean-up rebuilds the whole Spotify mirror; the heart must not wait for it.
+        coEvery { mockSpotifyRepository.removeFromExploredCatalog("sp42") } returns true
+        val exploredSong = Song(
+            id = "42",
+            title = "Explored Song",
+            artist = "Artist",
+            artistId = -1L,
+            album = "Album",
+            albumId = -1L,
+            path = "",
+            contentUriString = "spotify:track:sp42",
+            albumArtUriString = null,
+            duration = 180000L,
+            mimeType = null,
+            bitrate = null,
+            sampleRate = null,
+            spotifyId = "sp42"
+        )
+
+        playerViewModel.toggleFavoriteSpecificSong(exploredSong, removing = true)
+        advanceUntilIdle()
+
+        coVerifyOrder {
+            mockMusicRepository.setFavoriteStatus("42", false)
+            mockSpotifyRepository.removeFromExploredCatalog("sp42")
+        }
+        coVerify(exactly = 1) { mockMusicRepository.setFavoriteStatus("42", false) }
     }
 
     @Test

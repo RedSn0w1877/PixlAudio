@@ -126,8 +126,6 @@
     <!-- LyricsSheet -->
     <string name="lyrics_title">가사</string>
     <string name="lyrics_loading">가사 불러오는 중…</string>
-    <string name="lyrics_mode_synced">동기화됨</string>
-    <string name="lyrics_mode_static">정적</string>
     <string name="lyrics_options">가사 옵션</string>
     <string name="lyrics_offset_minus_half">−.5</string>
     <string name="lyrics_offset_minus_point_one">−.1</string>
@@ -170,7 +168,6 @@
     <string name="lyrics_controls_show_romanization">로마자 표기 표시</string>
     <string name="lyrics_controls_show_translations">번역 표시</string>
     <string name="lyrics_controls_disable_immersive_once">몰입 모드 해제 (1회)</string>
-    <string name="lyrics_controls_keep_screen_on">화면 켜짐 유지</string>
     
     <!-- LyricsSheet save dialog -->
     <string name="lyrics_save_dialog_title">가사 저장</string>

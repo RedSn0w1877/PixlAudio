@@ -129,8 +129,6 @@
     <!-- LyricsSheet -->
     <string name="lyrics_title">歌词</string>
     <string name="lyrics_loading">正在加载歌词…</string>
-    <string name="lyrics_mode_synced">逐字同步</string>
-    <string name="lyrics_mode_static">静态</string>
     <string name="lyrics_options">歌词选项</string>
     <string name="lyrics_offset_minus_half">−.5</string>
     <string name="lyrics_offset_minus_point_one">−.1</string>
@@ -173,7 +171,6 @@
     <string name="lyrics_controls_show_romanization">显示罗马音</string>
     <string name="lyrics_controls_show_translations">显示翻译</string>
     <string name="lyrics_controls_disable_immersive_once">禁用沉浸模式（一次）</string>
-    <string name="lyrics_controls_keep_screen_on">保持屏幕常亮</string>
     
     <!-- LyricsSheet save dialog -->
     <string name="lyrics_save_dialog_title">保存歌词</string>

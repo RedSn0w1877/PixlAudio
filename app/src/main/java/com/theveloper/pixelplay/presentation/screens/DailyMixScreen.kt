@@ -125,6 +125,7 @@ fun DailyMixScreen(
     val aiStatus by playerViewModel.aiStatus.collectAsStateWithLifecycle()
     val aiError by playerViewModel.aiError.collectAsStateWithLifecycle()
     val aiSuccess by playerViewModel.aiSuccess.collectAsStateWithLifecycle()
+    val isAiUsable by playerViewModel.hasActiveAiProviderApiKey.collectAsStateWithLifecycle()
     val lazyListState = rememberAppListState()
 
     var showSongInfoSheet by remember { mutableStateOf(false) }
@@ -271,7 +272,16 @@ fun DailyMixScreen(
                     ExpressiveDailyMixHeader(
                         songs = dailyMixSongs,
                         scrollState = lazyListState,
-                        onShowMenu = { playerViewModel.showAiPlaylistSheet() }
+                        onShowMenu = {
+                            // On-device AI is the default; when it can't run (no Gemini Nano on
+                            // this phone, cloud key missing) say why instead of opening a sheet
+                            // that can only fail.
+                            if (isAiUsable) {
+                                playerViewModel.showAiPlaylistSheet()
+                            } else {
+                                playerViewModel.sendToast(playerViewModel.aiUnavailableMessage())
+                            }
+                        }
                     )
                 }
 
@@ -570,6 +580,20 @@ private fun ExpressiveDailyMixHeader(
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
                 )
             }
+            if (com.theveloper.pixelplay.ui.glass.LocalGlassModeEnabled.current) {
+                // Liquid Glass: the 64 dp accent-lit glass header orb (round: the star-shaped FAB
+                // has no lens-compatible shape) instead of the tinted FAB.
+                com.theveloper.pixelplay.presentation.components.GlassHeaderActionOrb(
+                    onClick = onShowMenu,
+                    contentDescription = stringResource(R.string.daily_mix_cd_ai_playlist_generator)
+                ) {
+                    Icon(
+                        modifier = Modifier.size(20.dp),
+                        painter = painterResource(R.drawable.gemini_ai),
+                        contentDescription = null
+                    )
+                }
+            } else
             LargeExtendedFloatingActionButton(
                 modifier = Modifier,
                 onClick = onShowMenu,

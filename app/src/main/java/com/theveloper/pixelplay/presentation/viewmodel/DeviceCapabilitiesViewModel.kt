@@ -3,7 +3,6 @@ package com.theveloper.pixelplay.presentation.viewmodel
 import android.app.ActivityManager
 import android.content.Context
 import android.content.pm.PackageManager
-import android.media.AudioDeviceInfo
 import android.media.AudioFormat
 import android.media.AudioManager
 import android.net.Uri
@@ -46,15 +45,6 @@ data class AudioOutputInfo(
     val name: String,
     val category: AudioOutputCategory
 )
-
-enum class AudioOutputCategory {
-    BuiltIn,
-    Bluetooth,
-    Usb,
-    Wired,
-    Cast,
-    Other
-}
 
 data class AudioCapabilities(
     val outputSampleRate: Int,
@@ -542,29 +532,8 @@ class DeviceCapabilitiesViewModel @Inject constructor(
     }
 }
 
-private fun Int.toAudioOutputCategory(): AudioOutputCategory {
-    return when (this) {
-        AudioDeviceInfo.TYPE_BUILTIN_EARPIECE,
-        AudioDeviceInfo.TYPE_BUILTIN_SPEAKER,
-        AudioDeviceInfo.TYPE_BUILTIN_SPEAKER_SAFE -> AudioOutputCategory.BuiltIn
-        AudioDeviceInfo.TYPE_BLUETOOTH_A2DP,
-        AudioDeviceInfo.TYPE_BLUETOOTH_SCO,
-        AudioDeviceInfo.TYPE_BLE_HEADSET,
-        AudioDeviceInfo.TYPE_BLE_SPEAKER,
-        AudioDeviceInfo.TYPE_BLE_BROADCAST -> AudioOutputCategory.Bluetooth
-        AudioDeviceInfo.TYPE_USB_ACCESSORY,
-        AudioDeviceInfo.TYPE_USB_DEVICE,
-        AudioDeviceInfo.TYPE_USB_HEADSET -> AudioOutputCategory.Usb
-        AudioDeviceInfo.TYPE_WIRED_HEADPHONES,
-        AudioDeviceInfo.TYPE_WIRED_HEADSET,
-        AudioDeviceInfo.TYPE_LINE_ANALOG,
-        AudioDeviceInfo.TYPE_LINE_DIGITAL -> AudioOutputCategory.Wired
-        AudioDeviceInfo.TYPE_HDMI,
-        AudioDeviceInfo.TYPE_HDMI_ARC,
-        AudioDeviceInfo.TYPE_HDMI_EARC -> AudioOutputCategory.Cast
-        else -> AudioOutputCategory.Other
-    }
-}
+// Int.toAudioOutputCategory() and AudioOutputCategory live in AudioOutputCategory.kt (shared
+// with the full player's output pill).
 
 private fun audioFormatCandidates(): List<AudioFormatCandidate> {
     return buildList {

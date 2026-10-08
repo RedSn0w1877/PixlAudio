@@ -257,35 +257,23 @@
 -keep class * extends androidx.glance.appwidget.action.ActionCallback { <init>(); }
 
 # =============================================================================
-# MEDIAPIPE GENAI (on-device LLM inference)
+# ON-DEVICE LLM (LiteRT-LM: the optional downloaded Gemma model)
 # =============================================================================
-# MediaPipe's generated protobuf classes reference a set of protobuf-lite internals
-# (ProtoMethodMayReturnNull, ProtoNonnullApi, ProtoPresenceBits, ProtoField,
-# ProtoPresenceCheckedField, ...) which are compile-time-only annotations that genuinely
-# are not present at runtime. R8's static analysis flags them as missing and fails
-# minifyReleaseWithR8 outright.
-#
-# Deliberately a wildcard rather than the exact class list the AGP-generated
-# missing_rules.txt suggests: enumerating them means each release build surfaces the next
-# annotation in the set and fails again, one ~12-minute round trip per class. -dontwarn only
-# suppresses the missing-reference warning, it never removes code, so widening it is safe.
+# Kept from the MediaPipe era: some generated protobuf-lite classes on the classpath reference
+# compile-time-only annotations (ProtoMethodMayReturnNull, ProtoField, ...) that are genuinely
+# absent at runtime, and R8 fails minifyReleaseWithR8 on them otherwise. -dontwarn never removes
+# code, so the wildcard is safe.
 -dontwarn com.google.protobuf.**
 
-# The GenAI task runner also references MediaPipe's image framework (MPImage and its
-# extractors) for multimodal prompts. We depend on tasks-genai only, which does not bundle
-# those classes, and OnDeviceAiClient is text-only — it calls generateResponse(String) and
-# never sets vision options — so these paths are unreachable at runtime.
--dontwarn com.google.mediapipe.framework.**
-
-# The GenAI runtime is a JNI bridge: native code resolves these classes, their
-# fields and their constructors *by name*, which R8 cannot see. Without this the
-# release build links fine and then fails at runtime the moment a model is loaded.
--keep class com.google.mediapipe.tasks.genai.** { *; }
--keep class com.google.mediapipe.tasks.core.** { *; }
--keepclassmembers class com.google.mediapipe.** {
+# LiteRT-LM is a JNI bridge: native code resolves its classes, fields and constructors by name,
+# and @Tool/ToolSet discovery uses reflection. The AAR ships no consumer rules, so without this
+# the release build links fine and fails the first time the model loads.
+-keep class com.google.ai.edge.litertlm.** { *; }
+-keepclassmembers class com.google.ai.edge.litertlm.** {
     native <methods>;
     <init>(...);
 }
+# ML Kit GenAI (Gemini Nano through AICore) ships its own consumer rules.
 
 # =============================================================================
 # TENSORFLOW LITE / LiteRT (TAIS on-device inference)

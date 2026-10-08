@@ -449,7 +449,11 @@ class LyricsStateHolder @Inject constructor(
                     _messageEvents.emit(cb.getErrorString("Empty response"))
                 }
             }.onFailure {
-                if (it.message?.contains("key", ignoreCase = true) == true ||
+                // On-device failures first: their own message, never the API-key one below.
+                val onDeviceMessage = AiErrorMessages.onDeviceMessageRes(it)
+                if (onDeviceMessage != null) {
+                    _messageEvents.emit(cb.getString(onDeviceMessage))
+                } else if (it.message?.contains("key", ignoreCase = true) == true ||
                     it.message?.contains("config", ignoreCase = true) == true
                 ) {
                     _messageEvents.emit(cb.getString(R.string.ai_state_error_api_key))

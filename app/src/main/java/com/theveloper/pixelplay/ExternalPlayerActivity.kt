@@ -14,6 +14,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import dagger.hilt.android.AndroidEntryPoint
 import com.theveloper.pixelplay.presentation.viewmodel.PlayerViewModel
+import com.theveloper.pixelplay.presentation.viewmodel.ThemeStateHolder
 import com.theveloper.pixelplay.presentation.components.external.ExternalPlayerOverlay
 import com.theveloper.pixelplay.ui.theme.PixelPlayTheme
 import android.content.Intent.EXTRA_STREAM
@@ -29,6 +30,8 @@ class ExternalPlayerActivity : ComponentActivity() {
     private val playerViewModel: PlayerViewModel by viewModels()
     @Inject
     lateinit var themePreferencesRepository: ThemePreferencesRepository
+    @Inject
+    lateinit var themeStateHolder: ThemeStateHolder
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge(
@@ -51,7 +54,9 @@ class ExternalPlayerActivity : ComponentActivity() {
                 AppThemeMode.LIGHT -> false
                 else -> systemDarkTheme
             }
-            PixelPlayTheme(darkTheme = useDarkTheme) {
+            // The app-wide accent, so the overlay matches the app (null = Material You).
+            val appAccent by themeStateHolder.accentScheme.collectAsStateWithLifecycle()
+            PixelPlayTheme(darkTheme = useDarkTheme, accentSchemePair = appAccent?.pair) {
                 ExternalPlayerOverlay(
                     playerViewModel = playerViewModel,
                     onDismiss = { finish() },

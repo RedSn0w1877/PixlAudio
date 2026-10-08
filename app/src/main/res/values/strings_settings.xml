@@ -179,6 +179,30 @@
     <string name="settings_theme_light">Light Theme</string>
     <string name="settings_theme_dark">Dark Theme</string>
     <string name="settings_theme_follow_system">Follow System</string>
+    <!-- Accent Color (2026-10-07 batch; key names shared with iOS, which says "PixlAudio" where Android says "Dynamic") -->
+    <string name="settings_accent_color_title">Accent Color</string>
+    <string name="settings_accent_color_subtitle">Colors buttons, switches, sliders, the navigation bar and glass highlights across the app. The player keeps its album colors (see Player Theme).</string>
+    <string name="settings_accent_color_dynamic">Dynamic</string>
+    <string name="settings_accent_color_dynamic_description">Dynamic (wallpaper colors)</string>
+    <string name="settings_accent_color_blue">Blue</string>
+    <string name="settings_accent_color_indigo">Indigo</string>
+    <string name="settings_accent_color_purple">Purple</string>
+    <string name="settings_accent_color_pink">Pink</string>
+    <string name="settings_accent_color_red">Red</string>
+    <string name="settings_accent_color_orange">Orange</string>
+    <string name="settings_accent_color_yellow">Yellow</string>
+    <string name="settings_accent_color_green">Green</string>
+    <string name="settings_accent_color_mint">Mint</string>
+    <string name="settings_accent_color_graphite">Graphite</string>
+    <string name="settings_accent_color_custom">Custom</string>
+    <string name="settings_accent_color_picker_title">Custom accent color</string>
+    <string name="settings_accent_color_hex">Hex</string>
+    <string name="settings_accent_color_picked">Picked</string>
+    <string name="settings_accent_color_in_app">In app</string>
+    <string name="settings_accent_color_apply">Use color</string>
+    <string name="settings_accent_color_invalid_hex">Enter 6 hex digits, like #FF453A</string>
+    <string name="settings_accent_color_saturation_brightness">Saturation and brightness</string>
+    <string name="settings_accent_color_hue">Hue</string>
     <string name="settings_smooth_corners_title">Use Smooth Corners</string>
     <string name="settings_smooth_corners_subtitle">Use complex shaped corners effectively improving aesthetics but may affect performance on low-end devices</string>
     <string name="settings_disable_blur_all_over_title">Disable Blur Effects</string>
@@ -189,7 +213,8 @@
     <string name="settings_player_theme_title">Player Theme</string>
     <string name="settings_player_theme_subtitle">Choose the appearance for the floating player.</string>
     <string name="settings_player_theme_album_art">Album Art</string>
-    <string name="settings_player_theme_dynamic">System Dynamic</string>
+    <!-- Player Theme's "dynamic" option: the player uses the app's accent (Material You while the accent is Dynamic). -->
+    <string name="settings_player_theme_accent">Accent Color</string>
     <string name="settings_show_player_file_info_title">Show player file info</string>
     <string name="settings_show_player_file_info_subtitle">Show codec, bitrate, and sample rate in the player progress section.</string>
     <string name="settings_album_art_palette_title">Album Art Palette Style</string>

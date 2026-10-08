@@ -54,6 +54,9 @@ import com.theveloper.pixelplay.R
 import com.theveloper.pixelplay.presentation.library.LibraryTabId
 import com.theveloper.pixelplay.presentation.utils.LocalAppHapticsConfig
 import com.theveloper.pixelplay.presentation.utils.performAppCompatHapticFeedback
+import com.theveloper.pixelplay.ui.glass.GlassCircleAction
+import com.theveloper.pixelplay.ui.glass.GlassPillButton
+import com.theveloper.pixelplay.ui.glass.LocalGlassModeEnabled
 import com.theveloper.pixelplay.ui.theme.GoogleSansRounded
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -239,6 +242,35 @@ fun FloatingToolBar(
     onDismiss: () -> Unit,
     onClick: () -> Unit,
 ){
+    if (LocalGlassModeEnabled.current) {
+        // Glass mode: no bar behind them (a glass button on a glass bar is glass-on-glass).
+        // Reset is a glass circle and Done its own lit glass pill, both refracting the sheet's
+        // window-aligned ambient.
+        Row(
+            modifier = modifier.padding(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            GlassCircleAction(
+                onClick = onReset,
+                size = 56.dp,
+                contentDescription = stringResource(R.string.common_reset)
+            ) {
+                Icon(
+                    painter = painterResource(R.drawable.outline_restart_alt_24),
+                    contentDescription = null
+                )
+            }
+            GlassPillButton(
+                onClick = onClick,
+                modifier = Modifier.height(56.dp)
+            ) {
+                Icon(Icons.Rounded.Check, contentDescription = null)
+                Text(stringResource(R.string.common_done), maxLines = 1)
+            }
+        }
+        return
+    }
     val backgroundShape = AbsoluteSmoothCornerShape(
         cornerRadiusTR = 22.dp,
         smoothnessAsPercentTL = 60,

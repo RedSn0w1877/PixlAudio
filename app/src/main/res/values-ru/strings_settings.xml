@@ -189,7 +189,6 @@
     <string name="settings_player_theme_title">Тема плеера</string>
     <string name="settings_player_theme_subtitle">Выберите оформление плавающего плеера.</string>
     <string name="settings_player_theme_album_art">Обложка альбома</string>
-    <string name="settings_player_theme_dynamic">Динамическая система</string>
     <string name="settings_show_player_file_info_title">Показывать информацию о файле</string>
     <string name="settings_show_player_file_info_subtitle">Показывать кодек, битрейт и частоту дискретизации в области прогресса плеера.</string>
     <string name="settings_album_art_palette_title">Стиль палитры обложки</string>

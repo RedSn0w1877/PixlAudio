@@ -376,3 +376,41 @@ under the Apache License, Version 2.0:
 
 Modifications: renamed packages, the app's colour palette and motion tokens, lifecycle-aware sensor
 registration, coalesced gesture animation updates, cached brushes, and API-level tiers.
+
+## Google ML Kit: on-device Translation and Language Identification
+
+Copyright Google LLC.
+Used under the ML Kit Terms of Service: https://developers.google.com/ml-kit/terms
+Libraries: `com.google.mlkit:translate` 17.0.3 and `com.google.mlkit:language-id` 17.0.6.
+
+The lyrics page's Translate button identifies the language of a song's lyrics and translates them
+on the phone. Language identification is bundled with the app; each translation language model
+(about 30 MB) is downloaded from Google the first time that language is translated, then kept on
+the phone. Lyrics are translated on the device and are not sent to Google.
+
+## LiteRT-LM (on-device language model runtime)
+
+Copyright 2025 The LiteRT-LM Authors.
+Licensed under the Apache License, Version 2.0.
+Source: https://github.com/google-ai-edge/LiteRT-LM
+License: https://www.apache.org/licenses/LICENSE-2.0
+
+The app links the published `com.google.ai.edge.litertlm:litertlm-android` library (0.18.0),
+which runs the optional downloaded AI model ("Use downloaded AI model" in Settings). Its AAR
+ships its own LICENSE and THIRD_PARTY_NOTICE.txt, which apply to the native code it bundles.
+
+## Gemma 4 E2B (optional downloaded model, not bundled)
+
+Gemma 4 E2B-it in LiteRT-LM format, published by Google at
+https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm (revision
+b3ca0d2f076785a8f4b2219ddbd2bdb99954eae1), licensed under the Apache License, Version 2.0.
+The file is not part of the app: it is downloaded from that page only when the user asks for it,
+verified against its published SHA-256, and kept on the phone.
+
+## ML Kit GenAI Prompt API (Gemini Nano)
+
+The app uses Google's ML Kit GenAI Prompt API (`com.google.mlkit:genai-prompt`) to run Gemini
+Nano through Android's AICore system service. Its use is subject to the ML Kit Terms of Service
+(https://developers.google.com/ml-kit/terms) and the ML Kit GenAI Additional Terms of Service
+(https://developers.google.com/ml-kit/genai-terms). The model itself is provided and updated by
+Android, not by this app.

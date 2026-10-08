@@ -76,6 +76,18 @@ class ConnectivityStateHolder @Inject constructor(
 
     private val _bluetoothAudioDevices = MutableStateFlow<List<String>>(emptyList())
     val bluetoothAudioDevices: StateFlow<List<String>> = _bluetoothAudioDevices.asStateFlow()
+
+    /**
+     * Where this phone's media audio is routed (the full player's output pill). Unlike
+     * [bluetoothName] ("a connected Bluetooth audio device") this is the device media plays on:
+     * moving output to the speaker in the system Output Switcher while earbuds stay connected
+     * shows the phone again, and wired / USB outputs are seen too.
+     */
+    private val _localAudioOutput = MutableStateFlow(LocalAudioOutput.Phone)
+    val localAudioOutput: StateFlow<LocalAudioOutput> = _localAudioOutput.asStateFlow()
+
+    /** Re-reads the media route now (the full player calls this when it expands). */
+    fun refreshLocalAudioOutput() = updateLocalAudioOutput()
     
     // Offline Barrier Event
     // Event to signal that playback was blocked due to offline status
@@ -110,11 +122,23 @@ class ConnectivityStateHolder @Inject constructor(
     private val audioManager: android.media.AudioManager =
         context.getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
 
+    /**
+     * The attributes the engine plays music with (DualPlayerEngine), so the route read is the
+     * music's. Lazy: unit tests mock this class, and the Android stubs can't build it eagerly.
+     */
+    private val mediaAudioAttributes: android.media.AudioAttributes by lazy {
+        android.media.AudioAttributes.Builder()
+            .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
+            .setContentType(android.media.AudioAttributes.CONTENT_TYPE_MUSIC)
+            .build()
+    }
+
     // Callbacks and receivers
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private var wifiStateReceiver: BroadcastReceiver? = null
     private var bluetoothStateReceiver: BroadcastReceiver? = null
     private var audioDeviceCallback: android.media.AudioDeviceCallback? = null
+    private var audioPlaybackCallback: android.media.AudioManager.AudioPlaybackCallback? = null
 
     private var isInitialized = false
     private val discoveredBluetoothAudioDevices = linkedMapOf<String, BluetoothAudioDeviceState>()
@@ -247,6 +271,17 @@ class ConnectivityStateHolder @Inject constructor(
             }
         }
         audioManager.registerAudioDeviceCallback(audioDeviceCallback, null)
+
+        // An Output Switcher move (earbuds → speaker while they stay connected) adds or removes no
+        // device, so the device callback never fires. Playback configurations do change with the
+        // route (each player is re-routed), which re-reads it. Main-thread binder calls only, and
+        // the StateFlow drops repeats.
+        audioPlaybackCallback = object : android.media.AudioManager.AudioPlaybackCallback() {
+            override fun onPlaybackConfigChanged(configs: MutableList<android.media.AudioPlaybackConfiguration>?) {
+                updateLocalAudioOutput()
+            }
+        }
+        runCatching { audioManager.registerAudioPlaybackCallback(audioPlaybackCallback!!, null) }
         updateAudioDevices()
     }
 
@@ -281,6 +316,7 @@ class ConnectivityStateHolder @Inject constructor(
             _bluetoothAudioDeviceStates.value = emptyList()
             _bluetoothAudioDevices.value = emptyList()
             updateBluetoothName(emptyList())
+            updateLocalAudioOutput()
             return
         }
 
@@ -311,6 +347,39 @@ class ConnectivityStateHolder @Inject constructor(
         _bluetoothAudioDeviceStates.value = bluetoothDevices
         _bluetoothAudioDevices.value = bluetoothDevices.map(BluetoothAudioDeviceState::name)
         updateBluetoothName(connectedDevices.map(BluetoothAudioDeviceState::name))
+        updateLocalAudioOutput()
+    }
+
+    private fun updateLocalAudioOutput() {
+        val device = currentMediaOutputDevice()
+        _localAudioOutput.value = if (device == null) {
+            LocalAudioOutput.Phone
+        } else {
+            localAudioOutputOf(
+                type = device.type,
+                productName = device.productName?.toString(),
+                model = Build.MODEL.orEmpty(),
+                // Without BLUETOOTH_CONNECT a Bluetooth productName can come back blank; the
+                // name read through the Bluetooth APIs is the next best thing.
+                fallbackName = _bluetoothName.value
+                    .takeIf { device.type.toAudioOutputCategory() == AudioOutputCategory.Bluetooth }
+            )
+        }
+    }
+
+    /** The output media is routed to, or null for the phone itself (or when it can't be read). */
+    private fun currentMediaOutputDevice(): android.media.AudioDeviceInfo? {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            return runCatching { audioManager.getAudioDevicesForAttributes(mediaAudioAttributes) }
+                .getOrNull()
+                ?.firstOrNull()
+        }
+        // API 30-32: the connected sink media routing prefers (see legacyMediaRouteIndex).
+        val sinks = runCatching { audioManager.getDevices(android.media.AudioManager.GET_DEVICES_OUTPUTS) }
+            .getOrNull()
+            ?.filter { it.isSink }
+            .orEmpty()
+        return legacyMediaRouteIndex(sinks.map { it.type })?.let(sinks::get)
     }
 
     @SuppressLint("MissingPermission")
@@ -572,6 +641,16 @@ class ConnectivityStateHolder @Inject constructor(
         networkCallback?.let { 
             runCatching { connectivityManager.unregisterNetworkCallback(it) }
         }
+        // initialize() registers both again; before, the device callback was never unregistered
+        // and each ViewModel recreation added another one.
+        audioDeviceCallback?.let {
+            runCatching { audioManager.unregisterAudioDeviceCallback(it) }
+        }
+        audioDeviceCallback = null
+        audioPlaybackCallback?.let {
+            runCatching { audioManager.unregisterAudioPlaybackCallback(it) }
+        }
+        audioPlaybackCallback = null
         wifiStateReceiver?.let { 
             runCatching { context.unregisterReceiver(it) }
         }

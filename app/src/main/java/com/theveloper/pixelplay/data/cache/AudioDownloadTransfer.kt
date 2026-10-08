@@ -1,5 +1,7 @@
 package com.theveloper.pixelplay.data.cache
 
+import com.theveloper.pixelplay.data.stream.PROXY_PURPOSE_DOWNLOAD
+import com.theveloper.pixelplay.data.stream.PROXY_PURPOSE_HEADER
 import java.io.File
 import java.io.IOException
 import kotlin.coroutines.resume
@@ -28,7 +30,13 @@ internal object AudioDownloadTransfer {
         onProgress: (percent: Int) -> Unit = {}
     ): String? =
         suspendCancellableCoroutine { continuation ->
-            val call = client.newCall(Request.Builder().url(url).build())
+            // The purpose header lets the proxy's stream-start timings count this as a
+            // download, not as the player; the proxy never forwards it upstream.
+            val call = client.newCall(
+                Request.Builder().url(url)
+                    .header(PROXY_PURPOSE_HEADER, PROXY_PURPOSE_DOWNLOAD)
+                    .build()
+            )
             continuation.invokeOnCancellation { call.cancel() }
             call.enqueue(object : Callback {
                 override fun onFailure(call: Call, error: IOException) {

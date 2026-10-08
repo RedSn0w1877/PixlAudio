@@ -129,9 +129,26 @@
     <!-- LyricsSheet -->
     <string name="lyrics_title">Lyrics</string>
     <string name="lyrics_loading">Loading lyrics…</string>
-    <string name="lyrics_mode_synced">Synced</string>
-    <string name="lyrics_mode_static">Static</string>
     <string name="lyrics_options">Lyrics options</string>
+    <!-- Lyrics toolbar: Translate · Sing (they replaced Synced · Static) -->
+    <string name="lyrics_translate">Translate</string>
+    <string name="lyrics_translating">Translating…</string>
+    <string name="lyrics_translate_more_options">More translation options</string>
+    <string name="lyrics_translate_state_shown">Translations shown</string>
+    <string name="lyrics_translate_state_hidden">Translations hidden</string>
+    <string name="lyrics_translate_needs_synced">Translate works on synced lyrics. Hold Translate to use AI instead.</string>
+    <string name="lyrics_translate_downloading_model">Downloading %1$s for translation (about 30 MB)…</string>
+    <string name="lyrics_translate_unknown_language">Couldn\'t tell which language these lyrics are in</string>
+    <string name="lyrics_translate_unsupported">%1$s can\'t be translated on this phone. Hold Translate to use AI instead.</string>
+    <string name="lyrics_translate_failed">Couldn\'t translate these lyrics: %1$s</string>
+    <string name="lyrics_sing">Sing</string>
+    <string name="lyrics_sing_vocals_off">Vocals off</string>
+    <string name="lyrics_sing_vocals_on">Vocals on</string>
+    <string name="lyrics_sing_removing">Removing vocals %1$d%%</string>
+    <string name="lyrics_sing_removing_queued">Removing vocals…</string>
+    <string name="lyrics_sing_queued">Removing the vocals. The first time takes a few minutes, and the song switches by itself when it\'s ready.</string>
+    <string name="lyrics_sing_remote_only">Sing works on this phone only. Switch playback back to this phone first.</string>
+    <string name="lyrics_sing_failed">Couldn\'t remove the vocals: %1$s</string>
     <string name="lyrics_offset_minus_half">−.5</string>
     <string name="lyrics_offset_minus_point_one">−.1</string>
     <string name="lyrics_offset_plus_point_one">+.1</string>
@@ -169,13 +186,17 @@
     <string name="lyrics_appearance_align_left">Align lyrics left</string>
     <string name="lyrics_appearance_align_center">Align lyrics center</string>
     <string name="lyrics_appearance_align_right">Align lyrics right</string>
+    <!-- Liquid Glass alignment picker: it prints its labels under the icons, one line each -->
+    <string name="lyrics_appearance_align_left_short">Left</string>
+    <string name="lyrics_appearance_align_center_short">Center</string>
+    <string name="lyrics_appearance_align_right_short">Right</string>
     <string name="lyrics_controls_section">Controls</string>
+    <string name="lyrics_show_plain_text">Show as plain text</string>
     <string name="lyrics_controls_adjust_sync">Adjust sync</string>
     <string name="lyrics_controls_hide_sync">Hide sync controls</string>
     <string name="lyrics_controls_show_romanization">Show romanization</string>
     <string name="lyrics_controls_show_translations">Show translations</string>
     <string name="lyrics_controls_disable_immersive_once">Disable immersive (once)</string>
-    <string name="lyrics_controls_keep_screen_on">Keep screen on</string>
     
     <!-- LyricsSheet save dialog -->
     <string name="lyrics_save_dialog_title">Save Lyrics</string>

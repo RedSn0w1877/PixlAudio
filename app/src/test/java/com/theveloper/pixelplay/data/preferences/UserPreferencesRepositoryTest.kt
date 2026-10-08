@@ -1,6 +1,8 @@
 package com.theveloper.pixelplay.data.preferences
 
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
+import androidx.datastore.preferences.core.booleanPreferencesKey
+import androidx.datastore.preferences.core.edit
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
@@ -91,6 +93,57 @@ class UserPreferencesRepositoryTest {
 
             assertTrue(repository.initialSetupDoneFlow.first())
             assertEquals("restored", repository.navBarStyleFlow.first())
+        } finally {
+            tempDir.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `old backups with the retired keep-screen-on setting restore everything else`() = runTest {
+        val tempDir = Files.createTempDirectory("user-preferences-repository-test")
+        try {
+            val dataStore = PreferenceDataStoreFactory.create(
+                scope = backgroundScope,
+                produceFile = { tempDir.resolve("settings.preferences_pb").toFile() }
+            )
+            val repository = UserPreferencesRepository(dataStore = dataStore, json = Json)
+
+            repository.importPreferencesFromBackup(
+                entries = listOf(
+                    PreferenceBackupEntry(key = "keep_screen_on_lyrics", type = "boolean", booleanValue = true),
+                    PreferenceBackupEntry(key = "nav_bar_style", type = "string", stringValue = "restored"),
+                ),
+                clearExisting = true
+            )
+
+            val stored = dataStore.data.first().asMap().keys.map { it.name }
+            assertTrue("keep_screen_on_lyrics" !in stored)
+            assertEquals("restored", repository.navBarStyleFlow.first())
+        } finally {
+            tempDir.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `retired settings never reach a new backup and are removed from the phone`() = runTest {
+        val tempDir = Files.createTempDirectory("user-preferences-repository-test")
+        try {
+            val dataStore = PreferenceDataStoreFactory.create(
+                scope = backgroundScope,
+                produceFile = { tempDir.resolve("settings.preferences_pb").toFile() }
+            )
+            val repository = UserPreferencesRepository(dataStore = dataStore, json = Json)
+            // A value stored by an older version of the app.
+            dataStore.edit { it[booleanPreferencesKey("keep_screen_on_lyrics")] = true }
+            repository.setNavBarStyle("compact")
+
+            assertTrue(repository.exportPreferencesForBackup().none { it.key == "keep_screen_on_lyrics" })
+
+            repository.removeRetiredPreferences()
+
+            val stored = dataStore.data.first().asMap().keys.map { it.name }
+            assertTrue("keep_screen_on_lyrics" !in stored)
+            assertEquals("compact", repository.navBarStyleFlow.first())
         } finally {
             tempDir.toFile().deleteRecursively()
         }

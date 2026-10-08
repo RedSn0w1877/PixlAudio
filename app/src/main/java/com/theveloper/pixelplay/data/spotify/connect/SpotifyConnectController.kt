@@ -117,7 +117,12 @@ class SpotifyConnectController @Inject constructor(
     private var pollJob: Job? = null
     private var resolveJob: Job? = null
     private var resyncJob: Job? = null
+    /** Pumps [volumeLane]; one at a time, a newer value joins it. */
     private var volumeJob: Job? = null
+    /** Volume requests: their own single-flight lane, so a key press never waits behind a window send's searches. */
+    private var volumeLane = SpotifyConnectVolumeLane()
+    /** No "Spotify is busy" toast for volume before this (one per Retry-After gate). */
+    private var volumeBusyToastUntilMs = 0L
     private var commandJob = SupervisorJob()
     private val commandMutex = Mutex()
 
@@ -204,16 +209,31 @@ class SpotifyConnectController @Inject constructor(
                     _uiState.update { ui ->
                         val active = ui.active?.let { active ->
                             list.firstOrNull { it.deviceId == active.deviceId }?.let { device ->
+                                // Not over a value PixlAudio just set or still has to send (the list
+                                // may predate the last `PUT`, or a 429 may still hold the next one).
+                                val held = !volumeLane.isIdle || nowMs() < (state?.volumeHoldUntilMs ?: 0L)
                                 active.copy(
                                     name = device.name,
                                     type = device.type,
-                                    supportsVolume = device.supportsVolume,
-                                    volumePercent = device.volumePercent ?: active.volumePercent
+                                    // A device that refused a volume command stays without volume
+                                    // control, whatever the list says.
+                                    supportsVolume = SpotifyConnectReducer.supportsVolume(device.supportsVolume, state),
+                                    volumePercent = if (held) active.volumePercent else device.volumePercent ?: active.volumePercent
                                 )
                             } ?: active
                         }
                         val devices = if (ui.devices == list) ui.devices else list.toImmutableList()
                         ui.copy(devices = devices, deviceListError = null, active = active, hasLoadedDevices = true)
+                    }
+                    // The session player reads the session: keep its volume state in step with the sheet.
+                    val active = _uiState.value.active
+                    val current = state
+                    if (active != null && current != null && current.deviceId == active.deviceId &&
+                        (current.supportsVolume != active.supportsVolume || current.volumePercent != active.volumePercent)
+                    ) {
+                        val synced = current.copy(supportsVolume = active.supportsVolume, volumePercent = active.volumePercent)
+                        state = synced
+                        _session.value = synced
                     }
                 }
                 is ConnectResult.Err -> {
@@ -520,7 +540,7 @@ class SpotifyConnectController @Inject constructor(
             }
         }
         val current = state ?: return
-        val reduction = SpotifyConnectReducer.apply(polled, current, nowMs())
+        val reduction = SpotifyConnectReducer.apply(polled, current, nowMs(), volumeSending = !volumeLane.isIdle)
         state = reduction.state
         when (val change = reduction.outcome.change) {
             SpotifyConnectPollOutcome.Change.None -> Unit
@@ -826,33 +846,137 @@ class SpotifyConnectController @Inject constructor(
 
     // ─── Volume ───────────────────────────────────────────────────────────────────────────
 
-    /** The device volume (debounced; only when the device supports it). */
+    /**
+     * The device volume: the devices-sheet slider, the Equalizer card, and the volume keys (via the
+     * session player). Shown at once and held against polls, then sent through the volume lane:
+     * the first change at once, then at most one request every 300 ms with the latest value, one at
+     * a time, quietly waiting out a 429.
+     */
     fun setVolume(percent: Int) {
         val active = _uiState.value.active ?: return
         if (!active.supportsVolume) {
-            toast(SpotifyConnectError.VolumeNotSupported.userMessage)
+            // A device that refused volume commands said so once already (volumeRefused).
+            if (state?.volumeRefused != true) toast(SpotifyConnectError.VolumeNotSupported.userMessage)
             return
         }
         val clamped = percent.coerceIn(0, 100)
-        if (active.volumePercent != clamped) {
+        val changed = active.volumePercent != clamped
+        if (changed) {
             _uiState.update { it.copy(active = it.active?.copy(volumePercent = clamped)) }
         }
         state?.let { current ->
-            val updated = current.copy(volumePercent = clamped)
+            val updated = SpotifyConnectReducer.setVolume(clamped, current, nowMs())
             state = updated
             _session.value = updated
         }
-        volumeJob?.cancel()
-        val deviceId = active.deviceId
+        // At 100 % another press up changes nothing: no request (unless one is still on its way).
+        if (!changed && volumeLane.isIdle) return
+        volumeLane = volumeLane.enqueue(clamped)
+        pumpVolume()
+    }
+
+    /** One volume key press ([delta] = ±[VOLUME_STEP]) from the value shown now, not a stale poll. */
+    fun adjustVolume(delta: Int) {
+        val current = state?.volumePercent ?: _uiState.value.active?.volumePercent ?: SpotifyConnectVolume.DEFAULT_PERCENT
+        setVolume(current + delta)
+    }
+
+    /**
+     * Runs the lane until it has nothing left to send. Not through [enqueue]: volume never waits
+     * behind `send()`'s searches, and a volume failure never goes through [report]'s
+     * session-ending path (a `PUT` racing a transfer must not end the session; the poller stays
+     * the authority on a lost device).
+     */
+    private fun pumpVolume() {
+        if (volumeJob?.isActive == true) return
+        val generation = sessionGeneration
         volumeJob = scope.launch {
-            delay(VOLUME_DEBOUNCE_MS)
-            enqueue { client.setVolume(deviceId, clamped) }
+            while (isActive && generation == sessionGeneration) {
+                val deviceId = state?.deviceId ?: return@launch
+                // A gate a poll or a command hit: wait it out instead of failing fast. Only a change
+                // still waiting is held up (after the last send, the poller's gate is its own).
+                val gate = client.retryAfterRemainingMs
+                if (gate > 0 && volumeLane.pending != null) {
+                    volumeLane = volumeLane.gate(nowMs() + gate)
+                    volumeBusy(gate)
+                }
+                val (lane, action) = volumeLane.next(nowMs())
+                volumeLane = lane
+                when (action) {
+                    SpotifyConnectVolumeLane.Action.Idle -> return@launch
+                    is SpotifyConnectVolumeLane.Action.Wait -> delay(action.ms)
+                    is SpotifyConnectVolumeLane.Action.Send -> {
+                        val result: ConnectResult<Unit> = try {
+                            client.setVolume(deviceId, action.percent)
+                        } catch (e: CancellationException) {
+                            // Not this job's own cancellation (stopTasks resets the lane for that):
+                            // that value is dropped like any failed request, and a newer one still
+                            // goes. Returning here instead left the newer one stranded in the lane.
+                            if (!isActive) throw e
+                            ConnectResult.Err(SpotifyConnectError.Network(e.message))
+                        } catch (e: Exception) {
+                            // enqueue's guard, kept for volume: an exception out of the auth layer (the
+                            // encrypted prefs) must not escape this handler-less scope and crash the app.
+                            Timber.tag(TAG).w(e, "Volume request failed")
+                            ConnectResult.Err(SpotifyConnectError.Network(e.message))
+                        }
+                        if (generation != sessionGeneration) return@launch
+                        onVolumeResult(result)
+                    }
+                }
+            }
         }
     }
 
-    fun adjustVolume(delta: Int) {
-        val active = _uiState.value.active ?: return
-        setVolume((active.volumePercent ?: 50) + delta)
+    private fun onVolumeResult(result: ConnectResult<Unit>) {
+        when (result) {
+            is ConnectResult.Ok -> {
+                volumeLane = volumeLane.completed()
+                state?.let { state = SpotifyConnectReducer.volumeSent(it, nowMs()) }
+            }
+            is ConnectResult.Err -> when (val error = result.error) {
+                is SpotifyConnectError.RateLimited -> {
+                    volumeLane = volumeLane.rateLimited(error.retryAfterMs, nowMs())
+                    volumeBusy(error.retryAfterMs)
+                }
+                SpotifyConnectError.VolumeNotSupported -> {
+                    volumeLane = SpotifyConnectVolumeLane()
+                    volumeRefused()
+                }
+                SpotifyConnectError.NotSignedIn, SpotifyConnectError.MissingScope, SpotifyConnectError.PremiumRequired -> {
+                    volumeLane = volumeLane.failed()
+                    report(error)
+                }
+                else -> {
+                    volumeLane = volumeLane.failed()
+                    Timber.tag(TAG).w("Volume change didn't go through: %s", error)
+                }
+            }
+        }
+    }
+
+    /** One toast per Retry-After gate, and only for a wait that can be felt; the value is sent when it opens. */
+    private fun volumeBusy(waitMs: Long) {
+        val now = nowMs()
+        if (waitMs < SpotifyConnectVolume.RATE_LIMIT_TOAST_MIN_MS || now < volumeBusyToastUntilMs) return
+        volumeBusyToastUntilMs = now + waitMs
+        toast("Spotify is busy. The volume changes in ${maxOf(1L, (waitMs + 999) / 1000)} s")
+    }
+
+    /**
+     * The device refused a volume command (`VOLUME_CONTROL_DISALLOW`) although it reports
+     * `supports_volume`. Sticky for the session: later polls and device lists keep reporting
+     * `supports_volume`, and without this the keys, the slider and the toast would come back with
+     * every poll. Publishing it turns the session's remote volume FIXED, so the keys go back to the
+     * phone's own volume and MainActivity drops its key routing.
+     */
+    private fun volumeRefused() {
+        val current = state ?: return
+        if (current.volumeRefused) return
+        val refused = SpotifyConnectReducer.refuseVolume(current)
+        state = refused
+        publish(refused)
+        toast(SpotifyConnectError.VolumeNotSupported.userMessage)
     }
 
     // ─── Ending a session ─────────────────────────────────────────────────────────────────
@@ -934,6 +1058,8 @@ class SpotifyConnectController @Inject constructor(
         resolveJob?.cancel()
         resyncJob?.cancel()
         volumeJob?.cancel()
+        volumeLane = SpotifyConnectVolumeLane()
+        volumeBusyToastUntilMs = 0L
         commandJob.cancel()
         commandJob = SupervisorJob()
         if (!keepConnect) connectJob?.cancel()
@@ -981,8 +1107,7 @@ class SpotifyConnectController @Inject constructor(
         /** Consecutive failed polls (no network, 5xx) before the session is given up. */
         const val MAX_NETWORK_FAILURES = 15
         const val RESYNC_DEBOUNCE_MS = 350L
-        const val VOLUME_DEBOUNCE_MS = 250L
-        /** Volume key step, in percent. */
-        const val VOLUME_STEP = 5
+        /** Volume key step, in percent (one unit of the session's 0…20 remote volume). */
+        const val VOLUME_STEP = SpotifyConnectVolume.STEP_PERCENT
     }
 }

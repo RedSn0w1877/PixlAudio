@@ -129,8 +129,6 @@
     <!-- LyricsSheet -->
     <string name="lyrics_title">Lirik</string>
     <string name="lyrics_loading">Memuat lirik…</string>
-    <string name="lyrics_mode_synced">Synced</string>
-    <string name="lyrics_mode_static">Statis</string>
     <string name="lyrics_options">Opsi lirik</string>
     <string name="lyrics_offset_minus_half">−.5</string>
     <string name="lyrics_offset_minus_point_one">−.1</string>
@@ -173,7 +171,6 @@
     <string name="lyrics_controls_show_romanization">Tampilkan romanisasi</string>
     <string name="lyrics_controls_show_translations">Tampilkan terjemahan</string>
     <string name="lyrics_controls_disable_immersive_once">Nonaktifkan imersif (sekali)</string>
-    <string name="lyrics_controls_keep_screen_on">Layar tetap menyala</string>
     
     <!-- LyricsSheet save dialog -->
     <string name="lyrics_save_dialog_title">Simpan Lirik</string>

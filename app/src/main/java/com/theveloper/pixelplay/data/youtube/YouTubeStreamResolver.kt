@@ -16,7 +16,9 @@ import javax.inject.Singleton
 data class ResolvedStream(
     val url: String,
     val userAgent: String,
-    val strategyName: String? = null
+    val strategyName: String? = null,
+    /** How long the `n` transform took (pre-signed clients only), for the stream-start timings. */
+    val nTransformMs: Long? = null
 )
 
 /**
@@ -58,7 +60,17 @@ class PreSignedStreamResolver(
     override var lastDetail: String? = null
         private set
 
+    /**
+     * Time the last `n` transform took, or null when the URL had no `n`. Diagnostics only
+     * (R12 asks whether VISIONOS URLs carry `n`, i.e. whether base.js is on the start path);
+     * like [lastDetail], two resolves at once may overwrite each other.
+     */
+    @Volatile
+    var lastNTransformMs: Long? = null
+        private set
+
     override suspend fun resolve(videoId: String): String? {
+        lastNTransformMs = null
         val response = innerTubeClient.fetchPlayer(videoId, profile)
         if (response == null) {
             lastDetail = innerTubeClient.lastFailureReason ?: "no response"
@@ -83,7 +95,11 @@ class PreSignedStreamResolver(
         // transformarlo, googlevideo deja pasar una petición minúscula (por eso la validación
         // de 2 bytes salía verde) pero responde 403 a la descarga real. Hay que descifrarlo
         // ejecutando base.js, igual que en la estrategia con cifrado.
+        val nStartedAtNs = System.nanoTime()
         val transformed = cipherSolver.applyNTransform(best.url)
+        if (best.url.contains("&n=") || best.url.contains("?n=")) {
+            lastNTransformMs = (System.nanoTime() - nStartedAtNs) / 1_000_000L
+        }
         val nWasTransformed = transformed != best.url
         lastDetail = "itag ${best.itag}, ${best.bitrate / 1000} kbps" +
             if (nWasTransformed) ", n descifrado" else ", n sin cambiar"
@@ -173,7 +189,8 @@ class ChainedYouTubeStreamResolver @Inject constructor(
     cipherSolver: SignatureCipherSolver,
     private val validator: StreamUrlValidator,
     private val authManager: com.theveloper.pixelplay.data.youtube.auth.YouTubeAuthManager,
-    userPreferencesRepository: com.theveloper.pixelplay.data.preferences.UserPreferencesRepository
+    userPreferencesRepository: com.theveloper.pixelplay.data.preferences.UserPreferencesRepository,
+    private val remoteFlags: StreamRemoteFlags
 ) : YouTubeStreamResolver {
 
     // Se resuelve una vez por intento de reproducción, no una vez por formato: cada estrategia
@@ -257,9 +274,16 @@ class ChainedYouTubeStreamResolver @Inject constructor(
         validate: Boolean = true,
         excludedStrategies: Set<String> = emptySet()
     ): ResolvedStream? {
+        val strategies = currentStrategies().filterNot { it.strategyName in excludedStrategies }
+        // Streaming speed R8, behind the remote `innertube.hedge` switch (off by default): only
+        // the proxy's path, which takes the first URL without probing it. remoteFlags.current()
+        // never waits for the network.
+        if (!validate) {
+            remoteFlags.current()?.let { hedging -> return resolveHedged(videoId, strategies, hedging) }
+        }
         val attempts = mutableListOf<String>()
 
-        for (strategy in currentStrategies().filterNot { it.strategyName in excludedStrategies }) {
+        for (strategy in strategies) {
             val userAgent = strategy.userAgent()
             val url = runCatching { withTimeoutOrNull(15_000L) { strategy.resolve(videoId) } }
                 .onFailure {
@@ -278,7 +302,12 @@ class ChainedYouTubeStreamResolver @Inject constructor(
                 lastAttempts = attempts
                 lastSuccessfulStrategy = strategy.strategyName
                 Timber.d("Stream resuelto por ${strategy.strategyName} (sin validación previa)")
-                return ResolvedStream(url = url, userAgent = userAgent, strategyName = strategy.strategyName)
+                return ResolvedStream(
+                    url = url,
+                    userAgent = userAgent,
+                    strategyName = strategy.strategyName,
+                    nTransformMs = (strategy as? PreSignedStreamResolver)?.lastNTransformMs
+                )
             }
 
             // Tener una URL no basta. Sin la atestación que YouTube exige a algunos
@@ -301,6 +330,50 @@ class ChainedYouTubeStreamResolver @Inject constructor(
         lastSuccessfulStrategy = null
         Timber.w("Ninguna estrategia pudo resolver el audio de $videoId: $attempts")
         return null
+    }
+
+    /**
+     * The same clients in the same order (VISIONOS first), but a slow one no longer holds up the
+     * next: see [HedgedRace]. Each client still sends exactly what it sends in the sequential
+     * chain (cookie only where accepted, a fresh visitorData), so the invariants hold. Attempts
+     * are listed in completion order; like the sequential chain's, a client's detail can be
+     * overwritten by another resolve running at the same time (diagnostics only).
+     */
+    private suspend fun resolveHedged(
+        videoId: String,
+        strategies: List<YouTubeStreamResolver>,
+        hedging: StreamHedging
+    ): ResolvedStream? {
+        val attempts = mutableListOf<String>()
+        val winner = HedgedRace.race(
+            count = strategies.size,
+            afterMs = hedging.afterMs,
+            strategyTimeoutMs = hedging.strategyTimeoutMs,
+            attempt = { index -> strategies[index].resolve(videoId)?.takeIf { it.isNotBlank() } },
+            onFinished = { index, url ->
+                val strategy = strategies[index]
+                attempts += if (url == null) {
+                    "${strategy.strategyName}: ${strategy.lastDetail ?: "no URL"}"
+                } else {
+                    "${strategy.strategyName}: ${strategy.lastDetail ?: "url"} (sin validar, overlapped)"
+                }
+            }
+        )
+        lastAttempts = attempts
+        if (winner == null) {
+            lastSuccessfulStrategy = null
+            Timber.w("Ninguna estrategia (overlapped) pudo resolver el audio de $videoId: $attempts")
+            return null
+        }
+        val strategy = strategies[winner.index]
+        lastSuccessfulStrategy = strategy.strategyName
+        Timber.d("Stream resuelto por ${strategy.strategyName} (overlapped)")
+        return ResolvedStream(
+            url = winner.value,
+            userAgent = strategy.userAgent(),
+            strategyName = strategy.strategyName,
+            nTransformMs = (strategy as? PreSignedStreamResolver)?.lastNTransformMs
+        )
     }
 
     private fun YouTubeStreamResolver.userAgent(): String = when (this) {

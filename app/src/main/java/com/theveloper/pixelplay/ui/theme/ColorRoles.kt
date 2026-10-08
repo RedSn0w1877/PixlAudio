@@ -16,6 +16,8 @@ import com.google.android.material.color.utilities.SchemeFruitSalad
 import com.google.android.material.color.utilities.SchemeMonochrome
 import com.google.android.material.color.utilities.SchemeTonalSpot
 import com.google.android.material.color.utilities.SchemeVibrant
+import com.google.android.material.color.utilities.TonalPalette
+import com.google.android.material.color.utilities.Variant
 import com.theveloper.pixelplay.data.preferences.AlbumArtColorAccuracy
 import com.theveloper.pixelplay.data.preferences.AlbumArtPaletteStyle
 import androidx.core.graphics.scale
@@ -175,6 +177,62 @@ fun generateColorSchemeFromSeed(
         } else {
             ColorSchemePair(lightScheme, darkScheme)
         }
+    }.getOrElse {
+        ColorSchemePair(LightColorScheme, DarkColorScheme)
+    }
+}
+
+/** TonalSpot's primary chroma: the accent's primary is never more muted than Material You's. */
+private const val MIN_ACCENT_PRIMARY_CHROMA = 36.0
+
+/**
+ * The app-wide accent scheme (Settings › Appearance › Accent Color; owner decision 2026-10-07,
+ * option A "vivid", the same maths as iOS `SchemeBuilder.accentPair`): TonalSpot's secondary,
+ * tertiary and neutral palettes and its role tones, with the primary palette at the seed's own
+ * chroma (never below TonalSpot's 36). A picked red stays a real red in light mode (#BD0E12)
+ * instead of TonalSpot's brick (#904A42); contrast still comes from the fixed role tones (primary
+ * 40 light / 80 dark against the background), so any pick is as legible as Material You. Dark
+ * tones are gamut-limited and come out pastel, like Material You's.
+ *
+ * Near-grey seeds (the album-art test, e.g. Graphite) give pure greys: every palette at chroma 0,
+ * so each role is the exact grey of its tone and errors stay red. (The album path's HSL greyscale,
+ * [toGrayscaleColorScheme], can land a hair under 4.5:1 for primary on the background.)
+ *
+ * Costs a few ms per pair, ~100 ms the first time (class loading): never on the main thread.
+ * [AccentColorSchemes.pairFor] memoises it, which also matters because [ColorScheme] has no
+ * `equals`: the same seed must give the same instances or every `remember` key would change.
+ */
+fun generateAccentColorSchemePair(seedArgb: Int): ColorSchemePair {
+    return runCatching {
+        val opaqueSeed = seedArgb or (0xFF shl 24)
+        val sourceHct = Hct.fromInt(opaqueSeed)
+        val neutral = shouldUseNeutralArtworkScheme(opaqueSeed, sourceHct)
+
+        fun scheme(isDark: Boolean): ColorScheme {
+            val dynamicScheme = if (neutral) {
+                val grey = TonalPalette.fromHueAndChroma(sourceHct.hue, 0.0)
+                DynamicScheme(sourceHct, Variant.TONAL_SPOT, isDark, 0.0, grey, grey, grey, grey, grey)
+            } else {
+                val base = SchemeTonalSpot(sourceHct, isDark, 0.0)
+                DynamicScheme(
+                    sourceHct,
+                    Variant.TONAL_SPOT,
+                    isDark,
+                    0.0,
+                    TonalPalette.fromHueAndChroma(
+                        sourceHct.hue,
+                        max(MIN_ACCENT_PRIMARY_CHROMA, sourceHct.chroma)
+                    ),
+                    base.secondaryPalette,
+                    base.tertiaryPalette,
+                    base.neutralPalette,
+                    base.neutralVariantPalette
+                )
+            }
+            return dynamicScheme.toComposeColorScheme()
+        }
+
+        ColorSchemePair(light = scheme(isDark = false), dark = scheme(isDark = true))
     }.getOrElse {
         ColorSchemePair(LightColorScheme, DarkColorScheme)
     }

@@ -1137,7 +1137,7 @@ internal fun GlassSettingsCaption(title: String, modifier: Modifier = Modifier) 
  * indication (swell + dim glow); a disabled row fades its text.
  */
 @Composable
-private fun GlassFlatSettingRow(
+internal fun GlassFlatSettingRow(
     title: String,
     subtitle: String?,
     leadingIcon: (@Composable () -> Unit)?,

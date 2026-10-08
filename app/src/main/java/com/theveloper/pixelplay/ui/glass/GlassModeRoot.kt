@@ -41,7 +41,8 @@ import com.theveloper.pixelplay.ui.glass.utils.ProvideUISensor
  * keeps the app's state.
  *
  * @param isDark the app's own dark setting (not the system's).
- * @param accent the album-art scheme's primary (else the app scheme's).
+ * @param accent the app-wide accent ([GlassPalette.rootAccent]): the chosen Accent Color, or the
+ *   album-art scheme's primary (else the app scheme's) while the accent is Dynamic.
  * @param artUri the current song's artwork for the ambient bake.
  * @param blobs 2–3 palette colours for the ambient blobs, or null for NexHome's NEBULA.
  * @param powerSave battery saver: stops the accelerometer and skips the warm-up, nothing else (G5).

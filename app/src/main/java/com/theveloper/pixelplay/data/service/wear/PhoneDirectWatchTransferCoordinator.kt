@@ -15,6 +15,8 @@ import com.theveloper.pixelplay.data.preferences.AlbumArtPaletteStyle
 import com.theveloper.pixelplay.data.preferences.AlbumArtColorAccuracy
 import com.theveloper.pixelplay.data.preferences.ThemePreferencesRepository
 import com.theveloper.pixelplay.data.preferences.ThemePreference
+import com.theveloper.pixelplay.data.preferences.AccentColor
+import com.theveloper.pixelplay.ui.theme.AccentColorSchemes
 import com.theveloper.pixelplay.data.repository.MusicRepository
 import com.theveloper.pixelplay.presentation.viewmodel.ColorSchemeProcessor
 import com.theveloper.pixelplay.shared.WearDataPaths
@@ -442,8 +444,16 @@ class PhoneDirectWatchTransferCoordinator @Inject constructor(
 
     private suspend fun resolveTransferThemePalette(song: Song): WearThemePalette? {
         val playerTheme = themePreferencesRepository.playerThemePreferenceFlow.first()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && playerTheme == ThemePreference.DYNAMIC) {
-            return buildWearThemePalette(dynamicDarkColorScheme(application))
+        if (playerTheme == ThemePreference.DYNAMIC) {
+            // Player Theme › Accent Color: the app's chosen accent (the watch is always dark),
+            // else Material You as before. Runs on this coordinator's IO scope; the pair is memoised.
+            val accentSeed = AccentColor.seedOrNull(themePreferencesRepository.accentColorFlow.first())
+            if (accentSeed != null) {
+                return buildWearThemePalette(AccentColorSchemes.pairFor(accentSeed).dark)
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                return buildWearThemePalette(dynamicDarkColorScheme(application))
+            }
         }
 
         val artUriString = song.albumArtUriString?.takeIf { it.isNotBlank() }

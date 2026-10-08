@@ -66,6 +66,9 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import timber.log.Timber
@@ -78,6 +81,8 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import com.theveloper.pixelplay.data.preferences.ThemePreference
+import com.theveloper.pixelplay.data.preferences.AccentColor
+import com.theveloper.pixelplay.ui.theme.AccentColorSchemes
 import com.theveloper.pixelplay.data.service.auto.AutoMediaBrowseTree
 import com.theveloper.pixelplay.data.service.wear.buildWearThemePalette
 import com.theveloper.pixelplay.data.service.wear.WearStatePublisher
@@ -153,6 +158,8 @@ class MusicService : MediaLibraryService() {
     @Inject
     lateinit var audioCacheManager: com.theveloper.pixelplay.data.cache.AudioCacheManager
     @Inject
+    lateinit var streamNetworkConditions: com.theveloper.pixelplay.data.stream.StreamNetworkConditions
+    @Inject
     lateinit var automaticStudioManager: com.theveloper.pixelplay.data.worker.AutomaticStudioManager
     @Inject
     lateinit var userPreferencesRepository: UserPreferencesRepository
@@ -177,6 +184,8 @@ class MusicService : MediaLibraryService() {
     lateinit var appScope: CoroutineScope
     @Inject
     lateinit var spotifyConnectController: com.theveloper.pixelplay.data.spotify.connect.SpotifyConnectController
+    @Inject
+    lateinit var mediaSessionTokenHolder: MediaSessionTokenHolder
 
     /**
      * The MediaSession's player while a Spotify Connect session runs (wrapping the local player,
@@ -375,7 +384,7 @@ class MusicService : MediaLibraryService() {
             player.addListener(playerListener)
             nextStreamWarmupJob?.cancel()
             nextStreamWarmupJob = null
-            nextStreamWarmupId = null
+            nextStreamWarmupKey = null
         }
 
         automaticStudioManager.onSongChanged(player.currentMediaItem?.mediaId)
@@ -559,6 +568,20 @@ class MusicService : MediaLibraryService() {
             userPreferencesRepository.keepPlayingInBackgroundFlow.collect { enabled ->
                 keepPlayingInBackground = enabled
             }
+        }
+
+        // Widgets and the watch follow Player Theme and the app accent (Settings › Appearance ›
+        // Accent Color) right away instead of on the next track change. The first value is the
+        // one the service started with, so it doesn't trigger an update; the manager's diff skips
+        // the render when the colours didn't actually change.
+        serviceScope.launch {
+            combine(
+                themePreferencesRepository.playerThemePreferenceFlow,
+                themePreferencesRepository.accentColorFlow
+            ) { playerTheme, accent -> playerTheme to accent }
+                .distinctUntilChanged()
+                .drop(1)
+                .collect { widgetUpdateManager.requestFullUpdate(force = true) }
         }
 
         serviceScope.launch {
@@ -967,6 +990,8 @@ class MusicService : MediaLibraryService() {
             .setSessionActivity(getOpenAppPendingIntent())
             .setBitmapLoader(CoilBitmapLoader(this, serviceScope))
             .build()
+        // MainActivity pins its window's volume keys to this session during Spotify Connect.
+        mediaSessionTokenHolder.publish(mediaSession?.platformToken)
 
         val localOnlyProvider = LocalOnlyMediaNotificationProvider(this).also {
             it.setSmallIcon(R.drawable.monochrome_player)
@@ -1266,34 +1291,134 @@ class MusicService : MediaLibraryService() {
     }
 
     private var nextStreamWarmupJob: Job? = null
-    private var nextStreamWarmupId: String? = null
+    // The current song plus the next MAX_DEPTH entries (Spotify id, or null for a local song).
+    private var nextStreamWarmupKey: List<String?>? = null
+    private var listeningCacheJob: Job? = null
+    private val listeningCacheGate = com.theveloper.pixelplay.data.stream.ListeningCacheGate()
 
-    /** Prepare one URL after playback settles; local audio needs no network preparation. */
-    private fun updateNextStreamPrefetch() {
-        val player = mediaSession?.player ?: engine.masterPlayer
-        val next = player.nextMediaItemIndex.takeIf { player.isPlaying && it != C.INDEX_UNSET }
-            ?.let { runCatching { player.getMediaItemAt(it) }.getOrNull() }
-        val candidate = next?.mediaMetadata?.extras?.getString(MediaItemBuilder.EXTERNAL_EXTRA_SPOTIFY_ID)
-            ?: next?.localConfiguration?.uri?.takeIf { it.scheme == "spotify" }?.let { uri ->
+    private fun spotifyIdOf(item: MediaItem?): String? =
+        item?.mediaMetadata?.extras?.getString(MediaItemBuilder.EXTERNAL_EXTRA_SPOTIFY_ID)
+            ?: item?.localConfiguration?.uri?.takeIf { it.scheme == "spotify" }?.let { uri ->
                 uri.toString().removePrefix("spotify://").substringBefore('?').trim('/')
+            }?.takeIf { it.isNotBlank() }
+
+    /**
+     * Streaming speed R3: prepare the upcoming songs while music plays on THIS phone.
+     *
+     * Rules (owner decisions, StreamPrefetchPolicy): the next 1 song on cellular, the next 2 on
+     * Wi-Fi, nothing under Data Saver, offline, while paused or while a Spotify Connect device
+     * plays. Preparing = matching + resolving the stream URL for those songs, and ExoPlayer's
+     * own preload of the next song's first seconds (DualPlayerEngine.setNextItemPreload), which
+     * lets a skip or auto-advance start from memory. Also drives the listening cache.
+     *
+     * Reads the LOCAL player (engine.masterPlayer), never the session player: during Connect the
+     * session player reports the remote device, which used to warm local streams while the
+     * Echo played. Cheap on the main thread (two timeline steps); network facts are read on IO.
+     */
+    private fun updateNextStreamPrefetch() {
+        val local = engine.masterPlayer
+        val isConnectSession = connectSessionPlayer != null
+        val wantsToPlay = !isConnectSession && local.playWhenReady &&
+            local.playbackState != Player.STATE_IDLE && local.playbackState != Player.STATE_ENDED
+        val currentId = spotifyIdOf(local.currentMediaItem)
+        if (!wantsToPlay) {
+            stopStreamPreparation()
+            updateListeningCache(currentId = null, nextId = null, isPlaying = false)
+            return
+        }
+
+        val timeline = local.currentTimeline
+        val upcoming: List<String?> = if (timeline.isEmpty) {
+            emptyList()
+        } else {
+            // A skip from a repeat-one song goes to the next entry, like Player.nextMediaItemIndex.
+            val repeatMode = local.repeatMode.takeIf { it != Player.REPEAT_MODE_ONE } ?: Player.REPEAT_MODE_OFF
+            val shuffle = local.shuffleModeEnabled
+            com.theveloper.pixelplay.data.stream.StreamPrefetchPolicy.upcomingIndices(
+                current = local.currentMediaItemIndex,
+                depth = com.theveloper.pixelplay.data.stream.StreamPrefetchPolicy.MAX_DEPTH
+            ) { index -> timeline.getNextWindowIndex(index, repeatMode, shuffle) }
+                .map { index -> spotifyIdOf(runCatching { local.getMediaItemAt(index) }.getOrNull()) }
+        }
+        updateListeningCache(currentId, nextId = upcoming.firstOrNull(), isPlaying = local.isPlaying)
+
+        val key = listOf(currentId) + upcoming
+        if (key == nextStreamWarmupKey && nextStreamWarmupJob?.isActive == true) return
+        if (!local.isPlaying) {
+            // Starting (or rebuffering) a song: never compete with its first bytes. A changed
+            // queue drops the stale warm-up; the work starts once audio flows.
+            if (key != nextStreamWarmupKey) {
+                nextStreamWarmupJob?.cancel()
+                nextStreamWarmupKey = key
+                spotifyStreamProxy.prefetchStreamUrl(null)
             }
-        if (candidate == nextStreamWarmupId && nextStreamWarmupJob?.isActive == true) return
+            return
+        }
         nextStreamWarmupJob?.cancel()
-        nextStreamWarmupId = candidate
-        spotifyStreamProxy.prefetchStreamUrl(null)
-        if (candidate == null) return
+        nextStreamWarmupKey = key
         nextStreamWarmupJob = serviceScope.launch {
-            delay(1_500)
-            while (player.isPlaying && nextStreamWarmupId == candidate) {
-                if (audioCacheManager.getPlayableFile(candidate) == null) {
-                    spotifyStreamProxy.prefetchStreamUrl(candidate)
-                } else {
-                    spotifyStreamProxy.prefetchStreamUrl(null)
-                    return@launch
-                }
-                // Re-check the short URL cache during long songs so the next track is
-                // still prepared at the actual transition; cache hits do no network IO.
+            delay(com.theveloper.pixelplay.data.stream.StreamPrefetchPolicy.SETTLE_DELAY_MS)
+            while (true) {
+                val conditions = withContext(Dispatchers.IO) { streamNetworkConditions.current() }
+                // playWhenReady, not isPlaying: a mid-song rebuffer must not switch the preload
+                // off (that would drop the next song's loaded seconds). Pause cancels this job.
+                val depth = com.theveloper.pixelplay.data.stream.StreamPrefetchPolicy.depth(
+                    conditions,
+                    isPlaying = engine.masterPlayer.playWhenReady,
+                    isConnectSession = connectSessionPlayer != null
+                )
+                engine.setNextItemPreload(depth >= 1)
+                val candidates = upcoming.take(depth).filterNotNull()
+                    .filter { audioCacheManager.getPlayableFile(it) == null }
+                spotifyStreamProxy.prefetchStreamUrls(candidates)
+                // Re-check during long songs: the network may change, and an expired URL is
+                // resolved again before the actual transition; cache hits do no network IO.
                 delay(60_000)
+            }
+        }
+    }
+
+    private fun stopStreamPreparation() {
+        nextStreamWarmupJob?.cancel()
+        nextStreamWarmupJob = null
+        nextStreamWarmupKey = null
+        spotifyStreamProxy.prefetchStreamUrl(null)
+        engine.setNextItemPreload(false)
+    }
+
+    /**
+     * The listening cache (full-song download for offline replays), owner decision 2026-10-07:
+     * only the song actually playing, once it has played 5 s, never under Data Saver; the next
+     * song too only on an unmetered Wi-Fi. It used to start at the tap for the song AND both
+     * neighbours on any network, competing with the first bytes.
+     */
+    private fun updateListeningCache(currentId: String?, nextId: String?, isPlaying: Boolean) {
+        // The gate drops a wait whose song is no longer the one playing (pause, local song, a
+        // skip even while the next song still buffers) and starts one once audio flows.
+        val decision = listeningCacheGate.update(currentId, isPlaying)
+        if (decision.cancelPending) {
+            listeningCacheJob?.cancel()
+            listeningCacheJob = null
+        }
+        val songId = decision.startFor ?: return
+        listeningCacheJob?.cancel()
+        listeningCacheJob = serviceScope.launch {
+            delay(com.theveloper.pixelplay.data.stream.StreamPrefetchPolicy.LISTENING_CACHE_DELAY_MS)
+            listeningCacheGate.waitFinished(songId)
+            // Belt and braces: still this phone's song, still meant to play.
+            val local = engine.masterPlayerIfAlive
+            if (local == null || !local.playWhenReady || connectSessionPlayer != null ||
+                spotifyIdOf(local.currentMediaItem) != songId
+            ) {
+                return@launch
+            }
+            val conditions = withContext(Dispatchers.IO) { streamNetworkConditions.current() }
+            if (!com.theveloper.pixelplay.data.stream.StreamPrefetchPolicy.allowsListeningCache(conditions)) return@launch
+            audioCacheManager.maybeAutoCache(songId)
+            if (nextId != null &&
+                com.theveloper.pixelplay.data.stream.StreamPrefetchPolicy.allowsFullNextSongCache(conditions)
+            ) {
+                audioCacheManager.maybeAutoCache(nextId)
             }
         }
     }
@@ -1342,6 +1467,9 @@ class MusicService : MediaLibraryService() {
             // While a Spotify Connect device plays, the reported playWhenReady is the device's: the
             // local instrumental shadow must not start playing on the phone.
             instrumentalCrossfadeController.onPlayWhenReadyChanged(playWhenReady && connectSessionPlayer == null)
+            // A pause while the song still buffers changes neither isPlaying nor the state, so
+            // only this callback stops the preparation (and a pending listening-cache wait) then.
+            updateNextStreamPrefetch()
             when {
                 playWhenReady -> clearHeadsetReconnectResume()
                 !resumeOnHeadsetReconnectEnabled -> clearHeadsetReconnectResume()
@@ -1553,8 +1681,10 @@ class MusicService : MediaLibraryService() {
 
     override fun onDestroy() {
         endSpotifyConnectForUnload()
-        nextStreamWarmupJob?.cancel()
-        spotifyStreamProxy.prefetchStreamUrl(null)
+        // Also switches the engine's next-item preload off: the engine is a singleton, so a stale
+        // "on" would carry over to the next service instance before anything plays.
+        stopStreamPreparation()
+        listeningCacheJob?.cancel()
         PlaybackActivityTracker.setPlaybackActive(false)
         listeningStatsTracker.finalizeCurrentSession(forceSynchronousPersistence = true)
         playbackSnapshotPersistJob?.cancel()
@@ -1575,6 +1705,7 @@ class MusicService : MediaLibraryService() {
         mediaSession?.player?.removeListener(playerListener)
         engine.masterPlayer.removeListener(playerListener)
 
+        mediaSessionTokenHolder.publish(null)
         mediaSession?.run {
             release()
             mediaSession = null
@@ -2159,15 +2290,24 @@ class MusicService : MediaLibraryService() {
         )
 
         // Merge theme preference reads into a single context switch
-        val (playerTheme, paletteStyle, colorAccuracyLevel) = withContext(Dispatchers.IO) {
-            Triple(
-                themePreferencesRepository.playerThemePreferenceFlow.first(),
-                AlbumArtPaletteStyle.fromStorageKey(themePreferencesRepository.albumArtPaletteStyleFlow.first().storageKey),
-                AlbumArtColorAccuracy.clamp(themePreferencesRepository.albumArtColorAccuracyFlow.first())
+        val themeInputs = withContext(Dispatchers.IO) {
+            WidgetThemeInputs(
+                playerTheme = themePreferencesRepository.playerThemePreferenceFlow.first(),
+                paletteStyle = AlbumArtPaletteStyle.fromStorageKey(themePreferencesRepository.albumArtPaletteStyleFlow.first().storageKey),
+                colorAccuracyLevel = AlbumArtColorAccuracy.clamp(themePreferencesRepository.albumArtColorAccuracyFlow.first()),
+                accentSeed = AccentColor.seedOrNull(themePreferencesRepository.accentColorFlow.first())
             )
         }
+        val playerTheme = themeInputs.playerTheme
+        val paletteStyle = themeInputs.paletteStyle
+        val colorAccuracyLevel = themeInputs.colorAccuracyLevel
+        val accentSeed = themeInputs.accentSeed
 
         val schemePair: ColorSchemePair? = when {
+            // Player Theme › Accent Color with a chosen accent: the app's accent scheme (memoised,
+            // and this runs off the main thread). With the default accent, Material You below.
+            playerTheme == ThemePreference.DYNAMIC && accentSeed != null ->
+                AccentColorSchemes.pairFor(accentSeed)
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && playerTheme == ThemePreference.DYNAMIC ->
                 // Only changes with the wallpaper colours (a configuration change, which clears it).
                 cachedDynamicSchemePair ?: ColorSchemePair(
@@ -2312,6 +2452,15 @@ class MusicService : MediaLibraryService() {
     private var cachedColorSchemePair: ColorSchemePair? = null
     @Volatile
     private var cachedDynamicSchemePair: ColorSchemePair? = null
+
+    /** The theme preferences [buildPlayerInfo] reads in one IO hop. */
+    private data class WidgetThemeInputs(
+        val playerTheme: String,
+        val paletteStyle: AlbumArtPaletteStyle,
+        val colorAccuracyLevel: Int,
+        val accentSeed: Int?
+    )
+
     private var cachedWidgetArtFromEmbedded = false
     private var cachedWidgetArtSourceKey: String? = null
     private var cachedWidgetArtResolvedUri: String? = null

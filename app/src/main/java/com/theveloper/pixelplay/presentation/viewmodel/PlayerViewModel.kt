@@ -213,6 +213,7 @@ class PlayerViewModel @Inject constructor(
     private val jobsStateHolder: JobsStateHolder,
     private val homeGreetingStateHolder: HomeGreetingStateHolder,
     private val aiStateHolder: AiStateHolder,
+    private val aiAvailabilityStateHolder: AiAvailabilityStateHolder,
     private val libraryStateHolder: LibraryStateHolder,
     private val folderNavigationStateHolder: FolderNavigationStateHolder,
     private val libraryTabsStateHolder: LibraryTabsStateHolder,
@@ -228,6 +229,10 @@ class PlayerViewModel @Inject constructor(
     val lyricsSyncEditor: LyricsSyncEditorStateHolder,
     /** Spotify Connect output (facade only; the session lives in the holder's controller). */
     val spotifyConnect: SpotifyConnectStateHolder,
+    /** The lyrics page's Translate button (on-device translation; its state lives in the holder). */
+    private val lyricsTranslation: LyricsTranslationStateHolder,
+    /** The lyrics page's Sing button and the studio-instrumental state it owns. */
+    private val lyricsSing: LyricsSingStateHolder,
     private val sessionToken: SessionToken,
     private val mediaControllerFactory: com.theveloper.pixelplay.data.media.MediaControllerFactory
 ) : ViewModel() {
@@ -255,12 +260,14 @@ class PlayerViewModel @Inject constructor(
     val showNoInternetDialog: SharedFlow<Unit> = _showNoInternetDialog.asSharedFlow()
 
     private var studioOverrideMediaId: String? = null
-    private val _studioInstrumentalActive = MutableStateFlow(false)
-    /** True while the current track's playback source is a swapped-in TAIS Studio instrumental render (vs. the original audio). Drives the toggle in the lyrics sheet. */
-    val studioInstrumentalActive: StateFlow<Boolean> = _studioInstrumentalActive.asStateFlow()
-    private val _studioInstrumentalAvailable = MutableStateFlow(false)
-    /** True when a rendered instrumental already exists on disk for the current song — controls whether the "Play instrumental" toggle shows at all. */
-    val studioInstrumentalAvailable: StateFlow<Boolean> = _studioInstrumentalAvailable.asStateFlow()
+    /** True while the current track's playback source is a swapped-in TAIS Studio instrumental render (vs. the original audio). Owned by [LyricsSingStateHolder]. */
+    val studioInstrumentalActive: StateFlow<Boolean> = lyricsSing.active
+    /** True when a rendered instrumental already exists on disk for the current song. Owned by [LyricsSingStateHolder]. */
+    val studioInstrumentalAvailable: StateFlow<Boolean> = lyricsSing.available
+    /** The lyrics toolbar's Sing button. */
+    val singUi: StateFlow<SingUi> = lyricsSing.ui
+    /** The lyrics toolbar's Translate button while an on-device translation runs. */
+    val lyricsTranslationState: StateFlow<LyricsTranslateUiState> = lyricsTranslation.state
 
     val stablePlayerState: StateFlow<StablePlayerState> = playbackStateHolder.stablePlayerState
     val albumArtPaletteStyle: StateFlow<AlbumArtPaletteStyle> = themePreferencesRepository
@@ -520,52 +527,38 @@ class PlayerViewModel @Inject constructor(
             initialValue = CarouselStyle.NO_PEEK
         )
 
-    val hasActiveAiProviderApiKey: StateFlow<Boolean> = combine(
-        aiPreferencesRepository.aiProvider,
-        aiPreferencesRepository.geminiApiKey,
-        aiPreferencesRepository.deepseekApiKey,
-        aiPreferencesRepository.groqApiKey,
-        aiPreferencesRepository.mistralApiKey,
-        aiPreferencesRepository.nvidiaApiKey,
-        aiPreferencesRepository.kimiApiKey,
-        aiPreferencesRepository.glmApiKey,
-        aiPreferencesRepository.openaiApiKey,
-        aiPreferencesRepository.ollamaApiKey,
-        aiPreferencesRepository.customApiKey,
-        aiPreferencesRepository.openrouterApiKey
-    ) { values ->
-        val provider = values[0]
-        val gemini = values[1]
-        val deepseek = values[2]
-        val groq = values[3]
-        val mistral = values[4]
-        val nvidia = values[5]
-        val kimi = values[6]
-        val glm = values[7]
-        val openai = values[8]
-        val ollama = values[9]
-        val custom = values[10]
-        val openrouter = values[11]
-        when (provider) {
-            "GEMINI" -> gemini.isNotBlank()
-            "DEEPSEEK" -> deepseek.isNotBlank()
-            "GROQ" -> groq.isNotBlank()
-            "MISTRAL" -> mistral.isNotBlank()
-            "NVIDIA" -> nvidia.isNotBlank()
-            "KIMI" -> kimi.isNotBlank()
-            "GLM" -> glm.isNotBlank()
-            "OPENAI" -> openai.isNotBlank()
-            "OPENROUTER" -> openrouter.isNotBlank()
-            "OLLAMA" -> ollama.isNotBlank()
-            "CUSTOM" -> custom.isNotBlank()
-            else -> false
-        }
-    }.distinctUntilChanged()
+    /**
+     * Whether AI features can run and, if not, why (AiAvailabilityStateHolder). On-device — the
+     * default — counts as ready; the old 12-way API-key combine said false for it, which locked
+     * on-device users out of Library "With AI" and the playlist sheet.
+     */
+    val aiAvailability: StateFlow<AiAvailability> = aiAvailabilityStateHolder.availability
+
+    /** Kept for the existing call sites: true when an AI entry point may open. */
+    val hasActiveAiProviderApiKey: StateFlow<Boolean> = aiAvailabilityStateHolder.availability
+        .map { it.isUsable }
+        .distinctUntilChanged()
         .stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5000),
-        initialValue = false
-    )
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = true
+        )
+
+    /**
+     * Why AI can't run right now, for a toast; also asks Android to fetch Gemini Nano when it is
+     * only waiting for its download ("Getting on-device AI ready…").
+     */
+    fun aiUnavailableMessage(): String {
+        val availability = aiAvailabilityStateHolder.availability.value
+        if (availability is AiAvailability.NeedsNanoDownload) aiAvailabilityStateHolder.prepareOnDevice()
+        else aiAvailabilityStateHolder.refresh()
+        return context.getString(availability.reasonRes ?: R.string.ai_availability_not_supported)
+    }
+
+    /** Loads the on-device model as an AI sheet opens (no-op on a cloud route). */
+    fun prewarmAi() {
+        aiStateHolder.prewarm()
+    }
 
     val hasGeminiApiKey: StateFlow<Boolean> = aiPreferencesRepository.geminiApiKey
         .map { it.isNotBlank() }
@@ -780,6 +773,9 @@ class PlayerViewModel @Inject constructor(
     val bluetoothName: StateFlow<String?> = connectivityStateHolder.bluetoothName
     val bluetoothAudioDeviceStates: StateFlow<List<BluetoothAudioDeviceState>> = connectivityStateHolder.bluetoothAudioDeviceStates
     val bluetoothAudioDevices: StateFlow<List<String>> = connectivityStateHolder.bluetoothAudioDevices
+    /** Where media audio is routed on this phone (the full player's output pill). */
+    val localAudioOutput: StateFlow<LocalAudioOutput> = connectivityStateHolder.localAudioOutput
+    fun refreshLocalAudioOutput() = connectivityStateHolder.refreshLocalAudioOutput()
 
 
 
@@ -800,6 +796,8 @@ class PlayerViewModel @Inject constructor(
         listeningStatsTracker.initialize(viewModelScope)
         dailyMixStateHolder.initialize(viewModelScope)
         lyricsStateHolder.initialize(viewModelScope, lyricsLoadCallback, playbackStateHolder.stablePlayerState)
+        lyricsTranslation.initialize(viewModelScope)
+        lyricsSing.initialize(viewModelScope)
         viewModelScope.launch {
             // Opening the editor from outside the player (Edit song → Fix timing) shows the player.
             lyricsSyncEditor.expandPlayerRequests.collect { expandPlayerSheet() }
@@ -810,8 +808,7 @@ class PlayerViewModel @Inject constructor(
             // suspension, keep-screen-on and Back handling never leak into the rest of the app.
             sheetState.collect { state ->
                 if (state == PlayerSheetState.COLLAPSED && lyricsSyncEditor.phase.value != SyncPhase.Closed) {
-                    lyricsSyncEditor.onHostStopped()
-                    lyricsSyncEditor.close()
+                    lyricsSyncEditor.endForHostCollapse()
                 }
             }
         }
@@ -923,14 +920,38 @@ class PlayerViewModel @Inject constructor(
             .onEach { msg: String -> _toastEvents.emit(msg) }
             .launchIn(viewModelScope)
 
+        lyricsSyncEditor.messageEvents
+            .onEach { msg: String -> _toastEvents.emit(msg) }
+            .launchIn(viewModelScope)
+
         spotifyConnect.messages
             .onEach { msg: String -> _toastEvents.emit(msg) }
             .launchIn(viewModelScope)
 
+        lyricsTranslation.messages
+            .onEach { msg: String -> _toastEvents.emit(msg) }
+            .launchIn(viewModelScope)
+
+        lyricsSing.messages
+            .onEach { msg: String -> _toastEvents.emit(msg) }
+            .launchIn(viewModelScope)
+
+        // Sing decides; the swap itself is a MusicService command sent through the controller.
+        lyricsSing.requests
+            .onEach { request: SingRequest ->
+                when (request) {
+                    is SingRequest.Instrumental -> switchToStudioInstrumental(request.path)
+                    SingRequest.Original -> switchToOriginalAudio()
+                }
+            }
+            .launchIn(viewModelScope)
+
+        // A new song plays its own audio: any instrumental swap belonged to the previous one
+        // (LyricsSingStateHolder resets its own active/available state on the same change).
         stablePlayerState
             .map { it.currentSong?.id }
             .distinctUntilChanged()
-            .onEach { songId -> refreshStudioInstrumentalAvailability(songId) }
+            .onEach { studioOverrideMediaId = null }
             .launchIn(viewModelScope)
 
         viewModelScope.launch {
@@ -1351,10 +1372,9 @@ class PlayerViewModel @Inject constructor(
         val immersiveLyricsEnabled: Boolean = false,
         val immersiveLyricsTimeout: Long = 4000L,
         val isImmersiveTemporarilyDisabled: Boolean = false,
-        val isRemotePlaybackActive: Boolean = false,
-        val selectedRouteName: String? = null,
-        val isBluetoothEnabled: Boolean = false,
-        val bluetoothName: String? = null
+        val isRemotePlaybackActive: Boolean = false
+        // The output route and Bluetooth name left this slice (2026-10-07): the top bar's output
+        // pill collects them itself, so a route change no longer recomposes the full player.
     )
 
     // Intermediate combine #1: 5 settings flows
@@ -1369,23 +1389,14 @@ class PlayerViewModel @Inject constructor(
         FullPlayerSlicePart1(artists, syncOffset, artQuality, audioMeta, showFileInfo)
     }
 
-    private data class BluetoothSlice(val enabled: Boolean, val name: String?)
-
-    private val bluetoothSlice = combine(isBluetoothEnabled, bluetoothName) { bt, btName ->
-        BluetoothSlice(bt, btName)
-    }
-
     // Intermediate combine #2: remaining flows (≤5 for Kotlin type inference)
     private val fullPlayerSlicePart2 = combine(
         immersiveLyricsEnabled,
         immersiveLyricsTimeout,
         isImmersiveTemporarilyDisabled,
-        isRemotePlaybackActive,
-        combine(selectedRouteName, bluetoothSlice) { route, bt -> route to bt }
-    ) { immersive: Boolean, immersiveTimeout: Long, immersiveDisabled: Boolean,
-        remotePb: Boolean, routeAndBt: Pair<String?, BluetoothSlice> ->
-        val (routeName, bt) = routeAndBt
-        FullPlayerSlicePart2(immersive, immersiveTimeout, immersiveDisabled, remotePb, routeName, bt.enabled, bt.name)
+        isRemotePlaybackActive
+    ) { immersive: Boolean, immersiveTimeout: Long, immersiveDisabled: Boolean, remotePb: Boolean ->
+        FullPlayerSlicePart2(immersive, immersiveTimeout, immersiveDisabled, remotePb)
     }
 
     private data class FullPlayerSlicePart1(
@@ -1400,10 +1411,7 @@ class PlayerViewModel @Inject constructor(
         val immersiveLyricsEnabled: Boolean,
         val immersiveLyricsTimeout: Long,
         val isImmersiveTemporarilyDisabled: Boolean,
-        val isRemotePlaybackActive: Boolean,
-        val selectedRouteName: String?,
-        val isBluetoothEnabled: Boolean,
-        val bluetoothName: String?
+        val isRemotePlaybackActive: Boolean
     )
 
     val fullPlayerSlice: StateFlow<FullPlayerSlice> = combine(
@@ -1419,10 +1427,7 @@ class PlayerViewModel @Inject constructor(
             immersiveLyricsEnabled = p2.immersiveLyricsEnabled,
             immersiveLyricsTimeout = p2.immersiveLyricsTimeout,
             isImmersiveTemporarilyDisabled = p2.isImmersiveTemporarilyDisabled,
-            isRemotePlaybackActive = p2.isRemotePlaybackActive,
-            selectedRouteName = p2.selectedRouteName,
-            isBluetoothEnabled = p2.isBluetoothEnabled,
-            bluetoothName = p2.bluetoothName
+            isRemotePlaybackActive = p2.isRemotePlaybackActive
         )
     }
         .distinctUntilChanged()
@@ -1649,6 +1654,11 @@ class PlayerViewModel @Inject constructor(
 
         viewModelScope.launch {
             userPreferencesRepository.migrateTabOrder()
+        }
+
+        viewModelScope.launch {
+            // Settings that no longer exist (e.g. the lyrics "Keep screen on" switch).
+            userPreferencesRepository.removeRetiredPreferences()
         }
 
         viewModelScope.launch {
@@ -2418,22 +2428,22 @@ class PlayerViewModel @Inject constructor(
             val currentlyFavorite = favoriteSongIds.value.contains(favoriteSongId)
             val targetFavoriteState = if (removing) false else !currentlyFavorite
 
+            // The heart first (player-controls plan, 2026-10-07): the clean-up below rebuilds
+            // the whole Spotify mirror (seconds on a big library), and the heart only changes
+            // once Room has the new favourite. Both orders end the same way: the clean-up never
+            // touches the favorites table.
+            setFavoriteStatusEverywhere(favoriteSongId, targetFavoriteState)
+
             // Unliking a track that only exists because the user pulled it in from "More on
             // Spotify" removes it from the library outright, instead of leaving an
             // unfavorited orphan that still has to be found and deleted from a playlist by
             // hand. A song from an actual synced playlist or Liked Songs is untouched here —
             // removeFromExploredCatalog only acts when the browse import is its sole
-            // membership, and returns false otherwise so the plain unfavorite below runs.
+            // membership, and leaves it as a plain unfavourite otherwise.
             val spotifyId = song.spotifyId
             if (!targetFavoriteState && spotifyId != null) {
-                val removedFromLibrary = spotifyRepository.removeFromExploredCatalog(spotifyId)
-                if (removedFromLibrary) {
-                    setFavoriteStatusEverywhere(favoriteSongId, false)
-                    return@launch
-                }
+                spotifyRepository.removeFromExploredCatalog(spotifyId)
             }
-
-            setFavoriteStatusEverywhere(favoriteSongId, targetFavoriteState)
         }
     }
 
@@ -2801,6 +2811,7 @@ class PlayerViewModel @Inject constructor(
 
     fun showAiPlaylistSheet() {
         aiStateHolder.showAiPlaylistSheet()
+        aiStateHolder.prewarm()
     }
 
     fun dismissAiPlaylistSheet() {
@@ -3082,8 +3093,7 @@ class PlayerViewModel @Inject constructor(
             args
         )
         studioOverrideMediaId = controller.currentMediaItem?.mediaId
-        _studioInstrumentalActive.value = true
-        _studioInstrumentalAvailable.value = true
+        lyricsSing.onInstrumentalPlaying()
     }
 
     /** Reverts a [switchToStudioInstrumental] swap back to the original (non-instrumental) audio for the same track. No-op if nothing was overridden. */
@@ -3094,7 +3104,7 @@ class PlayerViewModel @Inject constructor(
             SessionCommand(MusicNotificationProvider.CUSTOM_COMMAND_SET_STUDIO_AUDIO_OVERRIDE, Bundle()),
             Bundle()
         )
-        _studioInstrumentalActive.value = false
+        lyricsSing.onOriginalPlaying()
     }
 
     /**
@@ -3107,21 +3117,11 @@ class PlayerViewModel @Inject constructor(
         return com.theveloper.pixelplay.data.tais.TaisInstrumentalIndex.bestAvailableFile(context, songId)
     }
 
-    /** Checks whether a rendered instrumental already exists for [songId] and updates [studioInstrumentalAvailable]. Called whenever the current song changes. */
-    private fun refreshStudioInstrumentalAvailability(songId: String?) {
-        studioOverrideMediaId = null
-        _studioInstrumentalActive.value = false
-        if (songId == null) {
-            _studioInstrumentalAvailable.value = false
-            return
-        }
-        viewModelScope.launch(Dispatchers.IO) {
-            val available = bestAvailableInstrumentalPath(songId) != null
-            if (playbackStateHolder.stablePlayerState.value.currentSong?.id == songId) {
-                _studioInstrumentalAvailable.value = available
-            }
-        }
-    }
+    /** The lyrics toolbar's Sing: vocals off / on, rendering the instrumental first if needed. */
+    fun toggleSing() = lyricsSing.onSingTapped()
+
+    /** The lyrics toolbar's Translate when the lyrics have no translation yet: translate on this phone. */
+    fun translateLyricsOnDevice() = lyricsTranslation.translateCurrent()
 
     fun saveBatchMetadata(
         songs: List<Song>,
@@ -3168,7 +3168,14 @@ class PlayerViewModel @Inject constructor(
         metadataEditStateHolder.onWritePermissionResult(granted, metadataEditCallbacks())
 
     fun saveLyricsToFile(song: Song, lyrics: Lyrics, preferSynced: Boolean) =
-        metadataEditStateHolder.saveLyricsToFile(song, lyrics, preferSynced, metadataEditCallbacks())
+        metadataEditStateHolder.saveLyricsToFile(
+            song,
+            // The .lrc next to the song becomes its lyrics: the on-device translations (Translate's
+            // tap, memory only) stay out of it, as they stay out of every other save.
+            lyricsTranslation.withoutOnDeviceTranslations(song.id, lyrics) ?: lyrics,
+            preferSynced,
+            metadataEditCallbacks()
+        )
 
     suspend fun forceRegenerateAlbumPaletteForSong(song: Song): Boolean {
         val albumArtUri = song.albumArtUriString?.takeIf { it.isNotBlank() } ?: return false
@@ -3260,7 +3267,12 @@ class PlayerViewModel @Inject constructor(
         val currentSong = stablePlayerState.value.currentSong ?: return
         lyricsStateHolder.translateLyricsViaAi(
             currentSong = currentSong,
-            lyricsObj = stablePlayerState.value.lyrics,
+            // On-device translations (Translate's tap) don't count as "already translated": they
+            // only live in memory, and holding Translate for AI is how to get a better one.
+            lyricsObj = lyricsTranslation.withoutOnDeviceTranslations(
+                currentSong.id,
+                stablePlayerState.value.lyrics
+            ),
             cb = LyricsTranslationCallbacks(
                 translate = { rawLyrics -> aiStateHolder.translateLyrics(rawLyrics) },
                 getString = { resId -> context.getString(resId) },

@@ -189,7 +189,6 @@
     <string name="settings_player_theme_title">Tema del reproductor</string>
     <string name="settings_player_theme_subtitle">Aspecto del reproductor flotante.</string>
     <string name="settings_player_theme_album_art">Carátula</string>
-    <string name="settings_player_theme_dynamic">Dinámico del sistema</string>
     <string name="settings_show_player_file_info_title">Mostrar información del archivo</string>
     <string name="settings_show_player_file_info_subtitle">Mostrar códec, tasa de bits y frecuencia de muestreo en la sección de progreso del reproductor.</string>
     <string name="settings_album_art_palette_title">Estilo de paleta de carátula</string>

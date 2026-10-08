@@ -12,6 +12,7 @@ import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.theveloper.pixelplay.data.spotify.connect.SpotifyConnectController
 import com.theveloper.pixelplay.data.spotify.connect.SpotifyConnectSessionState
+import com.theveloper.pixelplay.data.spotify.connect.SpotifyConnectVolume
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -31,7 +32,13 @@ import kotlin.math.abs
  *   the local player is never told to play.
  * - Queue edits are applied to the local player as usual, then reported so the controller can re-send.
  * - The reported state is the local queue and current entry, with the device's play state, an
- *   interpolated position and a remote volume ([DeviceInfo.PLAYBACK_TYPE_REMOTE], 0…100) on top.
+ *   interpolated position and a remote volume on top: [DeviceInfo.PLAYBACK_TYPE_REMOTE] on a 0…20
+ *   scale, one unit per volume key press (5 %, [SpotifyConnectVolume]). A Smartphone/Tablet target
+ *   keeps the local player's DeviceInfo, so the keys keep changing this phone's media volume.
+ * - Invariant: whether the keys can change the volume must always change the DeviceInfo too (max
+ *   20 vs 0, or remote vs local). Media3 (checked in 1.10.1 and 1.11.1) rebuilds the platform
+ *   VolumeProvider and its FIXED/ABSOLUTE control type only on a DeviceInfo change or a player
+ *   swap, never on an available-commands change.
  * - The app also plays songs straight on the engine (bypassing the session); a listener on the
  *   local player catches those attempts and turns them into a play on the device.
  */
@@ -99,16 +106,20 @@ class SpotifyConnectSessionPlayer(
             .setPlaybackSuppressionReason(Player.PLAYBACK_SUPPRESSION_REASON_NONE)
             .setPlayerError(null)
             .setContentPositionMs { session.positionAt(SystemClock.elapsedRealtime()) }
-            .setDeviceInfo(
-                DeviceInfo.Builder(DeviceInfo.PLAYBACK_TYPE_REMOTE)
-                    .setMinVolume(0)
-                    .setMaxVolume(if (session.supportsVolume) 100 else 0)
-                    .build()
-            )
-            .setDeviceVolume(if (session.supportsVolume) (session.volumePercent ?: 0) else 0)
-            .setIsDeviceMuted(false)
+        val remoteVolume = SpotifyConnectVolume.remoteFor(session.deviceType, session.supportsVolume, session.volumePercent)
+        if (remoteVolume != null) {
+            builder
+                .setDeviceInfo(
+                    DeviceInfo.Builder(DeviceInfo.PLAYBACK_TYPE_REMOTE)
+                        .setMinVolume(0)
+                        .setMaxVolume(remoteVolume.maxVolume)
+                        .build()
+                )
+                .setDeviceVolume(remoteVolume.volume)
+                .setIsDeviceMuted(false)
+        }
         val commands = base.availableCommands.buildUpon()
-        if (session.supportsVolume) {
+        if (remoteVolume?.adjustable == true) {
             commands.addAll(
                 Player.COMMAND_GET_DEVICE_VOLUME,
                 Player.COMMAND_SET_DEVICE_VOLUME_WITH_FLAGS,
@@ -188,7 +199,8 @@ class SpotifyConnectSessionPlayer(
     }
 
     override fun handleSetDeviceVolume(deviceVolume: Int, flags: Int): ListenableFuture<*> {
-        controller.setVolume(deviceVolume)
+        // The system panel's slider: 0…20 units of 5 %.
+        controller.setVolume(SpotifyConnectVolume.stepsToPercent(deviceVolume))
         return Futures.immediateVoidFuture()
     }
 

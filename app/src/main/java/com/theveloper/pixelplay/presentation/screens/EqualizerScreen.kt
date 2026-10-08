@@ -94,6 +94,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign // Added
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.ui.input.pointer.pointerInput
@@ -368,11 +369,23 @@ fun EqualizerScreen(
             
             // Volume Control
             item(key = "volume_control") {
-                val volume by equalizerViewModel.systemVolume.collectAsStateWithLifecycle()
-                VolumeControlCard(
-                    volume = volume,
-                    onVolumeChange = { equalizerViewModel.setSystemVolume(it) }
-                )
+                val connectVolume by equalizerViewModel.connectVolume.collectAsStateWithLifecycle()
+                val device = connectVolume
+                if (device != null) {
+                    // Spotify Connect plays: the card is the speaker's volume (owner decision 2026-10-07).
+                    VolumeControlCard(
+                        volume = (device.percent ?: 50) / 100f,
+                        onVolumeChange = { equalizerViewModel.setConnectVolume(it) },
+                        title = stringResource(R.string.equalizer_volume_device, device.name),
+                        note = if (device.supportsVolume) null else stringResource(R.string.equalizer_volume_device_fixed)
+                    )
+                } else {
+                    val volume by equalizerViewModel.systemVolume.collectAsStateWithLifecycle()
+                    VolumeControlCard(
+                        volume = volume,
+                        onVolumeChange = { equalizerViewModel.setSystemVolume(it) }
+                    )
+                }
             }
         }
         
@@ -1499,8 +1512,11 @@ private fun IndividualEffectRow(
 @OptIn(ExperimentalMaterial3ExpressiveApi::class, ExperimentalMaterial3Api::class)
 @Composable
 private fun VolumeControlCard(
-    volume: Float, 
-    onVolumeChange: (Float) -> Unit
+    volume: Float,
+    onVolumeChange: (Float) -> Unit,
+    title: String = stringResource(R.string.equalizer_volume),
+    /** Shown instead of the slider: a Connect device that sets its own volume. */
+    note: String? = null
 ) {
     val haptic = LocalHapticFeedback.current
     var lastHapticValue by remember { mutableStateOf(volume) }
@@ -1519,13 +1535,21 @@ private fun VolumeControlCard(
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(
-                text = stringResource(R.string.equalizer_volume),
+                text = title,
                 style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurface
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
             Spacer(modifier = Modifier.height(16.dp))
-            
-            Row(
+            if (note != null) {
+                Text(
+                    text = note,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center
+                )
+            } else Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(16.dp)
             ) {

@@ -4,10 +4,14 @@ import android.os.SystemClock
 import android.net.Uri
 import android.content.ComponentCallbacks2
 import android.os.Trace
+import androidx.compose.runtime.Immutable
 import androidx.compose.ui.graphics.Color
+import com.theveloper.pixelplay.data.preferences.AccentColor
 import com.theveloper.pixelplay.data.preferences.AlbumArtColorAccuracy
 import com.theveloper.pixelplay.data.preferences.AlbumArtPaletteStyle
 import com.theveloper.pixelplay.data.preferences.ThemePreferencesRepository
+import com.theveloper.pixelplay.di.AppScope
+import com.theveloper.pixelplay.ui.theme.AccentColorSchemes
 import com.theveloper.pixelplay.ui.theme.DarkColorScheme
 import com.theveloper.pixelplay.ui.theme.clearExtractedColorCache
 import kotlinx.collections.immutable.ImmutableList
@@ -16,19 +20,54 @@ import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 import javax.inject.Singleton
 
+/**
+ * The app-wide accent (Settings › Appearance › Accent Color) as stored ([hex], `"#RRGGBB"` or `""`)
+ * and its scheme pair. A null [pair] is the default, "Dynamic": Material You on API 31+, the static
+ * scheme on API 30. Pairs come from `AccentColorSchemes`, so equal accents are equal instances.
+ */
+@Immutable
+data class AccentScheme(val hex: String, val pair: ColorSchemePair?) {
+    companion object {
+        val Default = AccentScheme(AccentColor.DEFAULT, null)
+    }
+}
+
 @Singleton
 class ThemeStateHolder @Inject constructor(
     private val colorSchemeProcessor: ColorSchemeProcessor,
-    private val themePreferencesRepository: ThemePreferencesRepository
+    private val themePreferencesRepository: ThemePreferencesRepository,
+    @AppScope appScope: CoroutineScope
 ) {
+
+    /**
+     * The app-wide accent scheme. Null until the first DataStore read resolves: MainActivity keeps
+     * the splash up until then (bounded by its deadline), so a chosen accent is on the first frame
+     * instead of a Material You flash. Built on Default (a pair costs a few ms, ~100 ms the very
+     * first time) and shared process-wide, independent of [initialize], so the activity can read it
+     * before PlayerViewModel exists. A restored backup re-emits through the DataStore, so the app
+     * re-tints live. A failed read falls back to the default rather than holding the splash.
+     */
+    val accentScheme: StateFlow<AccentScheme?> = themePreferencesRepository.accentColorFlow
+        .map { hex ->
+            val seed = AccentColor.seedOrNull(hex)
+            if (seed == null) AccentScheme.Default else AccentScheme(hex, AccentColorSchemes.pairFor(seed))
+        }
+        .flowOn(Dispatchers.Default)
+        .catch { emit(AccentScheme.Default) }
+        .stateIn(appScope, SharingStarted.Eagerly, null)
 
     private var scope: CoroutineScope? = null
     @Volatile

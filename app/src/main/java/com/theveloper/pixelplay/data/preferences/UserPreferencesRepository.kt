@@ -36,6 +36,11 @@ val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "se
 
 object ThemePreference {
     const val DEFAULT = "default"
+    /**
+     * Player Theme › Accent Color (shown as "System Dynamic" before the 2026-10-07 accent setting):
+     * the player uses the app scheme, i.e. Settings › Appearance › Accent Color, which is Material
+     * You while the accent is Dynamic. The stored value stays "dynamic" so old backups keep it.
+     */
     const val DYNAMIC = "dynamic"
     const val ALBUM_ART = "album_art"
     const val GLOBAL = "global"
@@ -124,7 +129,10 @@ class UserPreferencesRepository @Inject constructor(
 ) {
 
     private val backupExcludedKeyNames = setOf(
-        PreferencesKeys.INITIAL_SETUP_DONE.name
+        PreferencesKeys.INITIAL_SETUP_DONE.name,
+        // Device-local: the downloaded AI model itself is in noBackupFilesDir, so a restored
+        // switch would point at a file that isn't there (and a restore must not clear it either).
+        AiPreferencesRepository.DOWNLOADED_MODEL_ENABLED_KEY
     )
 
     // ─── Preference keys ────────────────────────────────────────────────────
@@ -1538,10 +1546,26 @@ suspend fun markDirectoryRulesVersionApplied(version: Int) {
         }
     }
 
+    /**
+     * Deletes stored values of settings that no longer exist ([RETIRED_PREFERENCE_KEYS]), so they
+     * neither linger in the DataStore nor travel in new backups. Called once per launch.
+     */
+    suspend fun removeRetiredPreferences() {
+        dataStore.edit { preferences ->
+            preferences.asMap().keys
+                .filter { key -> key.name in RETIRED_PREFERENCE_KEYS }
+                .forEach { key ->
+                    @Suppress("UNCHECKED_CAST")
+                    preferences.remove(key as Preferences.Key<Any>)
+                }
+        }
+    }
+
     suspend fun exportPreferencesForBackup(): List<PreferenceBackupEntry> {
         val snapshot = dataStore.data.first().asMap()
         return snapshot.mapNotNull { (key, value) ->
             if (key.name in backupExcludedKeyNames) return@mapNotNull null
+            if (key.name in RETIRED_PREFERENCE_KEYS) return@mapNotNull null
             when (value) {
                 is String  -> PreferenceBackupEntry(key = key.name, type = "string",     stringValue = value)
                 is Int     -> PreferenceBackupEntry(key = key.name, type = "int",        intValue = value)
@@ -1573,6 +1597,9 @@ suspend fun markDirectoryRulesVersionApplied(version: Int) {
             }
             entries.forEach { entry ->
                 if (entry.key in backupExcludedKeyNames) return@forEach
+                // Old backups still carry settings that were removed since: skip them, so a
+                // stale value never comes back (the restore preview lists them as skipped).
+                if (entry.key in RETIRED_PREFERENCE_KEYS) return@forEach
                 when (entry.type) {
                     "string"     -> entry.stringValue?.let { preferences[stringPreferencesKey(entry.key)] = it }
                     "int"        -> (entry.intValue ?: entry.doubleValue?.toInt() ?: entry.longValue?.toInt())
@@ -1593,6 +1620,16 @@ suspend fun markDirectoryRulesVersionApplied(version: Int) {
     // ─── Companion ────────────────────────────────────────────────────────────
 
     companion object {
+        /**
+         * Settings that were removed. Old backups may still carry them: restore skips them and its
+         * preview says so (ModuleSchemaValidator), exports leave them out, and
+         * [removeRetiredPreferences] deletes any stored value.
+         *
+         * - `keep_screen_on_lyrics`, retired 2026-10: the lyrics screen always keeps the screen on.
+         */
+        const val KEEP_SCREEN_ON_LYRICS_KEY = "keep_screen_on_lyrics"
+        val RETIRED_PREFERENCE_KEYS: Set<String> = setOf(KEEP_SCREEN_ON_LYRICS_KEY)
+
         /** Default character delimiters for splitting multi-artist tags. */
         val DEFAULT_ARTIST_DELIMITERS = listOf(";")
 

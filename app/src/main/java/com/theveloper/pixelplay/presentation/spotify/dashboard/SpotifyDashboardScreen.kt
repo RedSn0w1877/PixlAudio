@@ -2,6 +2,8 @@ package com.theveloper.pixelplay.presentation.spotify.dashboard
 
 import com.theveloper.pixelplay.presentation.components.AdaptiveAlertDialog
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.ui.res.stringResource
+import com.theveloper.pixelplay.R
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -746,7 +748,46 @@ private fun DiagnosticsCard(
                 fontWeight = FontWeight.SemiBold
             )
 
+            StreamStartTimingsSection(report.streamStarts)
+
             OutlinedButton(onClick = onDismiss) { Text("Close") }
+        }
+    }
+}
+
+/**
+ * Streaming speed (R12): the last streamed-song starts, newest first, so a slow start can be
+ * read on the phone without logcat. Plain text on purpose: the same card serves Material and
+ * Liquid Glass modes, and these lines are meant to be copied into a bug report.
+ */
+@Composable
+private fun StreamStartTimingsSection(lines: List<String>) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(
+            text = stringResource(R.string.stream_start_timings_title),
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.SemiBold
+        )
+        Text(
+            text = stringResource(
+                if (lines.isEmpty()) R.string.stream_start_timings_empty else R.string.stream_start_timings_explainer
+            ),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        // Selectable, so the lines can be long-pressed and copied on the phone itself.
+        if (lines.isNotEmpty()) {
+            SelectionContainer {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    lines.forEach { line ->
+                        Text(
+                            text = line,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
         }
     }
 }

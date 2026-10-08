@@ -113,6 +113,8 @@ Cloud audio is streamed through a **local Ktor CIO HTTP proxy**: subclass `data/
 
 Material You plus album-art color extraction: `ThemeStateHolder` + `ColorSchemeProcessor` derive schemes from artwork, cached in the `AlbumArtThemeEntity` table and reused by the Glance widgets (`ui/glancewidget/`) and the Wear app.
 
+The app scheme is Material You ("Dynamic", the default) or the accent the user picks in Settings › Appearance › Accent Color: `accent_color_v1` (`"#RRGGBB"`, `""` = Dynamic, same key and format as iOS) → `ThemeStateHolder.accentScheme` → `PixelPlayTheme(accentSchemePair)`. Accent schemes are the vivid seed-chroma variant (`generateAccentColorSchemePair` in `ColorRoles.kt`, memoised by `AccentColorSchemes`; `ColorScheme` has no `equals`, so always go through the memo). The player keeps album colours under Player Theme › Album Art; Player Theme › Accent Color (stored `"dynamic"`) uses the app scheme, and so do the widgets and the watch. In glass mode the app-wide accent follows the album only while the accent is Dynamic (`GlassPalette.rootAccent`); the player sheet gets its own palette (`ProvidePlayerGlassPalette`).
+
 ### AI
 
 `data/ai/` — provider-agnostic (`AiProvider`, `AiClientFactory`, `GeminiAiClient`, `GenericOpenAiClient` for OpenAI-compatible endpoints). Playlist generation and metadata work run through `AiWorker`/`AiWorkerManager` with results cached in `AiCacheEntity` and usage tracked in `AiUsageEntity`.

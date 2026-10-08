@@ -19,6 +19,20 @@ class ModuleSchemaValidatorTest {
     }
 
     @Test
+    fun `an old global settings backup with keep screen on is valid and lists the setting as skipped`() {
+        val payload = """[
+            {"key": "keep_screen_on_lyrics", "type": "boolean", "booleanValue": true},
+            {"key": "nav_bar_style", "type": "string", "stringValue": "compact"}
+        ]"""
+        val result = validator.validate(BackupSection.GLOBAL_SETTINGS, payload)
+
+        assertTrue(result.isValid())
+        val warnings = (result as BackupValidationResult.Invalid).warnings
+        assertTrue(warnings.size == 1 && warnings.single().code == "RETIRED_PREF")
+        assertTrue(warnings.single().severity == Severity.WARNING)
+    }
+
+    @Test
     fun `invalid JSON fails validation`() {
         val payload = "not valid json{"
         val result = validator.validate(BackupSection.FAVORITES, payload)

@@ -347,9 +347,20 @@ dependencies {
     implementation(libs.androidx.browser)
     implementation(libs.google.play.services.cast.framework)
 
-    // On-device LLM inference (Settings > AI > On-Device) — runs a user-imported .task model
-    // fully offline via MediaPipe's GenAI runtime, no network/server required.
-    implementation(libs.mediapipe.tasks.genai)
+    // On-device AI, the default for every AI feature (Settings > AI features):
+    // - Gemini Nano through AICore (ML Kit GenAI Prompt API). The model ships with the system,
+    //   nothing is bundled here; AICore downloads and updates it.
+    // - The optional "Use downloaded AI model" (Gemma 4 E2B) through LiteRT-LM, which replaces
+    //   MediaPipe LLM Inference (maintenance-only). It ships arm64-v8a/x86_64 .so files only, so
+    //   the armeabi-v7a split has no engine and Settings hides the switch on 32-bit-only phones.
+    implementation(libs.mlkit.genai.prompt)
+    implementation(libs.litertlm.android)
+
+    // On-device lyrics translation for the lyrics page's Translate button: Google ML Kit's
+    // translator (one ~30 MB model per language, downloaded on first use) and its language ID
+    // (bundled, works offline) to tell which language the lyrics are in.
+    implementation(libs.mlkit.translate)
+    implementation(libs.mlkit.language.id)
 
     // UI Utilities & Extra
     implementation(libs.timber)

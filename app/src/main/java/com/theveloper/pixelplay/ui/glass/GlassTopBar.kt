@@ -13,9 +13,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
@@ -92,6 +96,12 @@ fun RowScope.GlassTopBarTitle(
  * NexHome's round top-bar action (the 40 dp orb): a light circular [GlassPanel] with the subtle
  * tint, a shallow lens (16/32 → 8/16 for a light panel), [LiquidMotion.OrbPressScale] swell, no
  * glint, and the accent emitted as light while touched.
+ *
+ * [lit] (0..1, e.g. a toggle's on state through `animateFloatAsState`) floods the circle with the
+ * accent in NexHome's chip recipe (Hue 0.9, then 0.42, then a 1 dp accent rim). It is drawn in the
+ * panel's surface child layer and read only there, so switching a toggle (and its glow spring)
+ * redraws that layer, never the lens. Null draws nothing and adds no layer.
+ * [enterProgress] scales the lens for a bloom-in or a fade-out (see [GlassPanel]).
  */
 @Composable
 fun GlassCircleAction(
@@ -101,8 +111,18 @@ fun GlassCircleAction(
     size: Dp = 40.dp,
     tint: Color = LocalGlassPalette.current.tintSubtle,
     accent: Color = LocalGlassPalette.current.accent,
+    lit: (() -> Float)? = null,
+    enterProgress: () -> Float = { 1f },
     content: @Composable BoxScope.() -> Unit,
 ) {
+    val litSurface: (DrawScope.() -> Unit)? = if (lit == null) {
+        null
+    } else {
+        remember(lit, accent) {
+            val draw: DrawScope.() -> Unit = { drawGlassLit(accent, lit()) }
+            draw
+        }
+    }
     GlassPanel(
         modifier = modifier
             .size(size)
@@ -121,7 +141,26 @@ fun GlassCircleAction(
         refractionHeight = 16.dp,
         refractionAmount = 32.dp,
         pressScale = LiquidMotion.OrbPressScale,
+        enterProgress = enterProgress,
+        onDrawSurface = litSurface,
     ) {
         Box(Modifier.align(Alignment.Center), contentAlignment = Alignment.Center, content = content)
     }
+}
+
+/**
+ * NexHome's lit chip recipe on a round surface at [level] (0..1): the accent as a Hue flood at
+ * 0.9, then a 0.42 wash, then a 1 dp accent rim at 0.8. Nothing below 0.001.
+ */
+internal fun DrawScope.drawGlassLit(accent: Color, level: Float) {
+    val l = level.coerceIn(0f, 1f)
+    if (l <= 0.001f) return
+    drawRect(accent.copy(alpha = 0.9f * l), blendMode = BlendMode.Hue)
+    drawRect(accent.copy(alpha = 0.42f * l))
+    val stroke = 1.dp.toPx()
+    drawCircle(
+        color = accent.copy(alpha = 0.8f * l),
+        radius = size.minDimension / 2f - stroke / 2f,
+        style = Stroke(width = stroke),
+    )
 }

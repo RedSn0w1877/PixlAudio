@@ -4,7 +4,10 @@ aboutLibraries = "15.2.0"
 agp = "9.5.0-alpha07"
 app = "1.7.0"
 googleGenai = "1.73.0"
-mediapipeTasksGenai = "0.10.35"
+# On-device AI (Settings > AI features). Gemini Nano through AICore, and the optional
+# downloaded Gemma model through LiteRT-LM (MediaPipe LLM Inference is maintenance-only).
+mlkitGenaiPrompt = "1.0.0-beta4"
+litertlm = "0.18.0"
 googlePlayServicesCast = "22.3.1"
 animation = "1.11.3"
 appcompat = "1.8.0"
@@ -87,6 +90,9 @@ ksp = "2.3.12"
 smoothCornerRectAndroidCompose = "v1.0.0"
 spleeterAndroidIos = "1.0.2"
 onnxruntimeAndroid = "1.30.0"
+# On-device lyrics translation (the lyrics page's Translate button) and its language detection.
+mlkitTranslate = "17.0.3"
+mlkitLanguageId = "17.0.6"
 tensorflowLite = "2.17.0"
 litert = "2.2.0"
 tensorflowLiteSelectTfOps = "2.16.1"
@@ -131,7 +137,8 @@ androidx-app-projected = { module = "androidx.car.app:app-projected", version.re
 androidx-media = { module = "androidx.media:media", version.ref = "media" }
 androidx-ui-text-google-fonts = { module = "androidx.compose.ui:ui-text-google-fonts", version.ref = "composeUi" }
 google-genai = { group = "com.google.genai", name = "google-genai", version.ref = "googleGenai" }
-mediapipe-tasks-genai = { group = "com.google.mediapipe", name = "tasks-genai", version.ref = "mediapipeTasksGenai" }
+mlkit-genai-prompt = { group = "com.google.mlkit", name = "genai-prompt", version.ref = "mlkitGenaiPrompt" }
+litertlm-android = { group = "com.google.ai.edge.litertlm", name = "litertlm-android", version.ref = "litertlm" }
 google-play-services-cast-framework = { group = "com.google.android.gms", name = "play-services-cast-framework", version.ref = "googlePlayServicesCast" }
 androidx-animation = { module = "androidx.compose.animation:animation", version.ref = "animation" }
 desugar-jdk-libs = { module = "com.android.tools:desugar_jdk_libs_nio", version.ref = "desugarJdkLibs" }
@@ -217,6 +224,8 @@ accompanist-permissions = { module = "com.google.accompanist:accompanist-permiss
 smooth-corner-rect-android-compose = { module = "com.github.racra:smooth-corner-rect-android-compose", version.ref = "smoothCornerRectAndroidCompose" }
 spleeter-android-ios = { module = "com.github.FaceOnLive:Spleeter-Android-iOS", version.ref = "spleeterAndroidIos" }
 onnxruntime-android = { module = "com.microsoft.onnxruntime:onnxruntime-android", version.ref = "onnxruntimeAndroid" }
+mlkit-translate = { module = "com.google.mlkit:translate", version.ref = "mlkitTranslate" }
+mlkit-language-id = { module = "com.google.mlkit:language-id", version.ref = "mlkitLanguageId" }
 tensorflow-lite = { module = "org.tensorflow:tensorflow-lite", version.ref = "tensorflowLite" }
 litert = { module = "com.google.ai.edge.litert:litert", version.ref = "litert" }
 #tensorflow-lite-select-tf-ops = { module = "org.tensorflow:tensorflow-lite-select-tf-ops", version.ref = "tensorflowLiteSelectTfOps" }

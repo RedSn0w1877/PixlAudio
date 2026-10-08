@@ -27,6 +27,7 @@ import androidx.compose.material3.MotionScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -88,8 +89,12 @@ fun AnimatedPlaybackControls(
     var clickTrigger by remember { mutableStateOf(0) }
     val latestIsPlayingProvider by rememberUpdatedState(newValue = isPlayingProvider)
     val latestLastClicked by rememberUpdatedState(newValue = lastClicked)
-    val isPlayPauseLocked =
-        lastClicked == PlaybackButtonType.NEXT || lastClicked == PlaybackButtonType.PREVIOUS
+    // After a skip the play/pause icon holds its current glyph a little longer than the press
+    // morph lasts, so a skipped-to stream that buffers for a moment doesn't flash "Play". This
+    // used to be derived from lastClicked, which tied it to the 600 ms skip squeeze; the squeeze
+    // now settles like play/pause, so the lock has its own timer.
+    var skipIconLockToken by remember { mutableIntStateOf(0) }
+    var isPlayPauseLocked by remember { mutableStateOf(false) }
     var playPauseVisualState by remember { mutableStateOf(isPlaying) }
     var pendingPlayPauseState by remember { mutableStateOf<Boolean?>(null) }
     val hapticFeedback = LocalHapticFeedback.current
@@ -99,13 +104,18 @@ fun AnimatedPlaybackControls(
 
     LaunchedEffect(lastClicked, clickTrigger) {
         if (lastClicked != null) {
-            val delayTime = when (lastClicked) {
-                PlaybackButtonType.NEXT, PlaybackButtonType.PREVIOUS -> 600L
-                else -> releaseDelay
-            }
-            delay(delayTime)
+            // Owner 2026-10-07: previous/next settle back exactly like play/pause (they used to
+            // hold the squeeze for 600 ms, about 0.83 s from tap to rest against 0.45 s).
+            delay(releaseDelay)
             lastClicked = null
         }
+    }
+
+    LaunchedEffect(skipIconLockToken) {
+        if (skipIconLockToken == 0) return@LaunchedEffect
+        isPlayPauseLocked = true
+        delay(SkipPlayPauseIconLockMs)
+        isPlayPauseLocked = false
     }
 
     LaunchedEffect(isPlaying) {
@@ -138,7 +148,7 @@ fun AnimatedPlaybackControls(
         else -> compressionWeight
     }
 
-    // The press weights animate for up to ~0.8 s per press. They are read only in the measure
+    // The press weights animate for about 0.45 s per press. They are read only in the measure
     // policy below, so a press relays out the row each frame instead of recomposing it.
     val prevWeight = animateFloatAsState(
         targetValue = weightFor(PlaybackButtonType.PREVIOUS),
@@ -173,6 +183,7 @@ fun AnimatedPlaybackControls(
                 val onPreviousClick = {
                     lastClicked = PlaybackButtonType.PREVIOUS
                     clickTrigger++
+                    skipIconLockToken++
                     onPrevious()
                 }
                 Box(
@@ -199,6 +210,9 @@ fun AnimatedPlaybackControls(
                 val onPlayPauseClick = {
                     lastClicked = PlaybackButtonType.PLAY_PAUSE
                     clickTrigger++
+                    // A tap on play/pause itself always shows its result at once, even right
+                    // after a skip (the old lastClicked-derived lock behaved the same way).
+                    isPlayPauseLocked = false
                     hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                     onPlayPause()
                 }
@@ -239,6 +253,7 @@ fun AnimatedPlaybackControls(
                 val onNextClick = {
                     lastClicked = PlaybackButtonType.NEXT
                     clickTrigger++
+                    skipIconLockToken++
                     onNext()
                 }
                 Box(
@@ -330,6 +345,12 @@ private fun weightedControlsMeasurePolicy(
 }
 
 private val ControlsSpacing = 6.dp
+
+/**
+ * How long the play/pause icon keeps its glyph after previous/next. This is the icon lock, not
+ * the press morph (that one settles after `releaseDelay`, like play/pause).
+ */
+private const val SkipPlayPauseIconLockMs = 600L
 
 @Composable
 private fun MorphingPlayPauseIcon(

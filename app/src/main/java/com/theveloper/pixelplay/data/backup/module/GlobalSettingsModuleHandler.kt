@@ -3,6 +3,7 @@ package com.theveloper.pixelplay.data.backup.module
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import com.theveloper.pixelplay.data.backup.model.BackupSection
+import com.theveloper.pixelplay.data.preferences.AiPreferencesRepository
 import com.theveloper.pixelplay.data.preferences.PreferenceBackupEntry
 import com.theveloper.pixelplay.data.preferences.UserPreferencesRepository
 import com.theveloper.pixelplay.di.BackupGson
@@ -14,6 +15,7 @@ import javax.inject.Singleton
 @Singleton
 class GlobalSettingsModuleHandler @Inject constructor(
     private val userPreferencesRepository: UserPreferencesRepository,
+    private val aiPreferencesRepository: AiPreferencesRepository,
     @BackupGson private val gson: Gson
 ) : BackupModuleHandler {
 
@@ -44,6 +46,11 @@ class GlobalSettingsModuleHandler @Inject constructor(
         if (entries.isNotEmpty()) {
             userPreferencesRepository.importPreferencesFromBackup(entries, clearExisting = false)
         }
+        // A backup from before on-device AI (or from iOS) can bring back a cloud provider with no
+        // key and without the migration flag; convert it once more, like at first launch. A
+        // restored provider that has its key stays on the cloud.
+        aiPreferencesRepository.migrateProviderIfNeeded()
+        Unit
     }
 
     override suspend fun rollback(snapshot: String) = restore(snapshot)

@@ -1,6 +1,8 @@
 package com.theveloper.pixelplay.presentation.components.player
 
 import com.kyant.shapes.RoundedRectangle
+import com.theveloper.pixelplay.ui.glass.GlassCircleAction
+import com.theveloper.pixelplay.ui.glass.GlassPillShape
 import com.theveloper.pixelplay.ui.glass.LocalGlassModeEnabled
 import com.theveloper.pixelplay.ui.glass.components.GlassPanel
 import com.theveloper.pixelplay.ui.glass.controls.MediaScrubber
@@ -118,7 +120,6 @@ import androidx.compose.ui.unit.coerceAtLeast
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.rounded.AutoAwesome
-import androidx.compose.material.icons.rounded.Cloud
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.runtime.derivedStateOf
@@ -306,13 +307,8 @@ fun FullPlayerContent(
     val immersiveLyricsTimeout = fullPlayerSlice.immersiveLyricsTimeout
     val isImmersiveTemporarilyDisabled = fullPlayerSlice.isImmersiveTemporarilyDisabled
     val isRemotePlaybackActive = fullPlayerSlice.isRemotePlaybackActive
-    val selectedRouteName = fullPlayerSlice.selectedRouteName
-    // Spotify Connect: the output chip shows the device like a Cast route ("Playing on <device>").
-    val spotifyConnectDeviceName by playerViewModel.spotifyConnect.playingOnName.collectAsStateWithLifecycle()
-    val chipRemoteActive = isRemotePlaybackActive || spotifyConnectDeviceName != null
-    val chipRouteName = spotifyConnectDeviceName ?: selectedRouteName
-    val isBluetoothEnabled = fullPlayerSlice.isBluetoothEnabled
-    val bluetoothName = fullPlayerSlice.bluetoothName
+    // The top bar's output pill (route, Bluetooth, Spotify Connect) collects its own state in
+    // FullPlayerTopActions, so output changes don't recompose this body.
     val navigationBarBottomInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     val queueGestureBottomExclusion = maxOf(20.dp, navigationBarBottomInset + 8.dp)
     val queueGestureBottomExclusionPx = with(LocalDensity.current) {
@@ -778,31 +774,9 @@ fun FullPlayerContent(
                         containerColor = Color.Transparent,
                         titleContentColor = LocalMaterialTheme.current.onPrimaryContainer,
                     ),
-                    title = {
-                        if (!isCastConnecting) {
-                            AnimatedVisibility(visible = (!isRemotePlaybackActive)) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(
-                                        modifier = Modifier.padding(start = 18.dp),
-                                        text = stringResource(R.string.player_now_playing),
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                        style = MaterialTheme.typography.labelLargeEmphasized,
-                                        fontWeight = FontWeight.SemiBold
-                                    )
-
-                                    if (currentSong != null && currentSong.contentUriString.startsWith("spotify:")) {
-                                        Icon(
-                                            imageVector = androidx.compose.material.icons.Icons.Rounded.Cloud,
-                                            contentDescription = stringResource(R.string.player_cd_cloud_stream),
-                                            tint = LocalMaterialTheme.current.onPrimaryContainer.copy(alpha = 0.6f),
-                                            modifier = Modifier.padding(start = 8.dp).size(16.dp)
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    },
+                    // Owner 2026-10-07 (same as iOS): no "Now Playing" title and no cloud icon; the
+                    // output pill on the right names where the music plays instead.
+                    title = {},
                     navigationIcon = {
                         Box(
                             modifier = Modifier
@@ -833,164 +807,19 @@ fun FullPlayerContent(
                         }
                     },
                     actions = {
-                        if (glassMode) {
-                            GlassPlayerTopActions(
-                                isCastConnecting = isCastConnecting,
-                                isRemotePlaybackActive = chipRemoteActive,
-                                selectedRouteName = chipRouteName,
-                                isBluetoothEnabled = isBluetoothEnabled,
-                                bluetoothName = bluetoothName,
-                                onCastClick = onShowCastClicked,
-                                onQueueClick = {
-                                    showSongInfoBottomSheet = true
-                                    onShowQueueClicked()
-                                }
-                            )
-                        } else
-                        Row(
-                            modifier = Modifier
-                                .padding(end = 14.dp),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            val showCastLabel = isCastConnecting || (chipRemoteActive && chipRouteName != null)
-                            val isBluetoothActive =
-                                isBluetoothEnabled && !bluetoothName.isNullOrEmpty() && !chipRemoteActive && !isCastConnecting
-                            val castIconPainter = when {
-                                isCastConnecting || chipRemoteActive -> painterResource(R.drawable.rounded_cast_24)
-                                isBluetoothActive -> painterResource(R.drawable.rounded_bluetooth_24)
-                                else -> painterResource(R.drawable.rounded_mobile_speaker_24)
+                        FullPlayerTopActions(
+                            playerViewModel = playerViewModel,
+                            isCastConnecting = isCastConnecting,
+                            isExpanded = currentSheetState == PlayerSheetState.EXPANDED,
+                            glassMode = glassMode,
+                            accent = playerAccentColor,
+                            onAccent = playerOnAccentColor,
+                            onOutputClick = onShowCastClicked,
+                            onQueueClick = {
+                                showSongInfoBottomSheet = true
+                                onShowQueueClicked()
                             }
-                            val castCornersExpanded = 50.dp
-                            val castCornersCompact = 6.dp
-                            val castTopStart = castCornersExpanded
-                            val castTopEnd by animateDpAsState(
-                                targetValue = if (showCastLabel) castCornersExpanded else castCornersCompact,
-                                animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow)
-                            )
-                            val castBottomStart = castCornersExpanded
-                            val castBottomEnd by animateDpAsState(
-                                targetValue = if (showCastLabel) castCornersExpanded else castCornersCompact,
-                                animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow)
-                            )
-                            val castContainerColor = playerOnAccentColor.copy(alpha = 0.7f)
-                            Box(
-                                modifier = Modifier
-                                    .height(42.dp)
-                                    .align(Alignment.CenterVertically)
-                                    .animateContentSize(
-                                        animationSpec = spring(
-                                            dampingRatio = Spring.DampingRatioMediumBouncy,
-                                            stiffness = Spring.StiffnessLow
-                                        )
-                                    )
-                                    .widthIn(
-                                        min = 50.dp,
-                                        max = if (showCastLabel) 190.dp else 58.dp
-                                    )
-                                    .clip(
-                                        RoundedCornerShape(
-                                            topStart = castTopStart.coerceAtLeast(0.dp),
-                                            topEnd = castTopEnd.coerceAtLeast(0.dp),
-                                            bottomStart = castBottomStart.coerceAtLeast(0.dp),
-                                            bottomEnd = castBottomEnd.coerceAtLeast(0.dp)
-                                        )
-                                    )
-                                    .background(castContainerColor)
-                                    .clickable { onShowCastClicked() },
-                                contentAlignment = Alignment.CenterStart
-                            ) {
-                                Row(
-                                    modifier = Modifier
-                                        .padding(start = 14.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.Start
-                                ) {
-                                    Icon(
-                                        painter = castIconPainter,
-                                        contentDescription = when {
-                                            isCastConnecting || chipRemoteActive -> stringResource(R.string.player_cd_cast)
-                                            isBluetoothActive -> stringResource(R.string.player_cd_bluetooth)
-                                            else -> stringResource(R.string.player_cd_local_playback)
-                                        },
-                                        tint = playerAccentColor
-                                    )
-                                    AnimatedVisibility(visible = showCastLabel) {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Spacer(Modifier.width(8.dp))
-                                            AnimatedContent(
-                                                targetState = when {
-                                                    isCastConnecting -> stringResource(R.string.player_connecting)
-                                                    chipRemoteActive && chipRouteName != null -> chipRouteName
-                                                    else -> ""
-                                                },
-                                                transitionSpec = {
-                                                    fadeIn(animationSpec = tween(150)) togetherWith fadeOut(animationSpec = tween(120))
-                                                },
-                                                label = "castButtonLabel"
-                                            ) { label ->
-                                                Row(
-                                                    modifier = Modifier.padding(end = 16.dp),
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                                                ) {
-                                                    Text(
-                                                        text = label,
-                                                        style = MaterialTheme.typography.labelMedium,
-                                                        color = playerAccentColor,
-                                                        maxLines = 1,
-                                                        overflow = TextOverflow.Ellipsis,
-                                                        modifier = Modifier.weight(1f, fill = false)
-                                                    )
-                                                    AnimatedVisibility(visible = isCastConnecting) {
-                                                        CircularProgressIndicator(
-                                                            modifier = Modifier
-                                                                .size(14.dp),
-                                                            strokeWidth = 2.dp,
-                                                            color = playerAccentColor
-                                                        )
-                                                    }
-                                                    if (chipRemoteActive && !isCastConnecting) {
-                                                        Box(
-                                                            modifier = Modifier
-                                                                .size(8.dp)
-                                                                .clip(CircleShape)
-                                                                .background(LocalMaterialTheme.current.onTertiaryContainer)
-                                                        )
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            // Queue Button
-                            Box(
-                                modifier = Modifier
-                                    .size(height = 42.dp, width = 50.dp)
-                                    .clip(
-                                        RoundedCornerShape(
-                                            topStart = 6.dp,
-                                            topEnd = 50.dp,
-                                            bottomStart = 6.dp,
-                                            bottomEnd = 50.dp
-                                        )
-                                    )
-                                    .background(playerOnAccentColor.copy(alpha = 0.7f))
-                                    .clickable {
-                                        showSongInfoBottomSheet = true
-                                        onShowQueueClicked()
-                                    },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    painter = painterResource(R.drawable.rounded_queue_music_24),
-                                    contentDescription = stringResource(R.string.player_cd_open_queue),
-                                    tint = playerAccentColor
-                                )
-                            }
-                        }
+                        )
                     }
                 )
             }
@@ -1064,20 +893,17 @@ fun FullPlayerContent(
             playbackPositionFlow = playerViewModel.currentPlaybackPosition,
             positionProvider = lyricsPositionSource,
             preparedLyricsFlow = playerViewModel.preparedLyrics,
-            studioInstrumentalAvailableFlow = playerViewModel.studioInstrumentalAvailable,
             studioInstrumentalActiveFlow = playerViewModel.studioInstrumentalActive,
             onPlayInstrumental = playerViewModel::switchToStudioInstrumental,
-            onToggleStudioInstrumental = {
-                if (playerViewModel.studioInstrumentalActive.value) {
-                    playerViewModel.switchToOriginalAudio()
-                } else {
-                    val songId = playerViewModel.stablePlayerState.value.currentSong?.id
-                    val path = songId?.let { playerViewModel.bestAvailableInstrumentalPath(it) }?.absolutePath
-                    if (path != null) {
-                        playerViewModel.switchToStudioInstrumental(path)
-                    }
-                }
-            },
+            // The no-lyrics card's "Play original" and the toolbar's Sing share one path.
+            onToggleStudioInstrumental = playerViewModel::toggleSing,
+            translationStateFlow = playerViewModel.lyricsTranslationState,
+            singUiFlow = playerViewModel.singUi,
+            onTranslateOnDevice = playerViewModel::translateLyricsOnDevice,
+            onSing = playerViewModel::toggleSing,
+            // The full player stays composed after it collapses: lyrics left open must not keep
+            // the screen on over the library.
+            screenAwake = currentSheetState == PlayerSheetState.EXPANDED,
             lyricsSearchUiState = lyricsSearchUiState,
             resetLyricsForCurrentSong = {
                 showLyricsSheet = false
@@ -1726,6 +1552,11 @@ private fun SongMetadataDisplaySection(
         }.collectAsStateWithLifecycle(initialValue = playerViewModel.stablePlayerState.value.isBuffering)
 
 
+        // Liquid Glass mode: the row's chips are glass circles (NexHome's light orb, sampling the
+        // root ambient like the rest of the player's glass) instead of solid onAccent fills.
+        // Static at rest: their lenses re-render only while the player sheet moves.
+        val glassChips = LocalGlassModeEnabled.current
+
         AnimatedVisibility(
             visible = isBuffering,
             enter = scaleIn(
@@ -1753,13 +1584,35 @@ private fun SongMetadataDisplaySection(
                 )
             )
         ) {
+            if (glassChips) {
+                // A non-interactive clear glass circle around the indicator.
+                val palette = LocalGlassPalette.current
+                GlassPanel(
+                    modifier = Modifier.padding(end = 8.dp),
+                    shape = CircleShape,
+                    tint = palette.tintSubtle,
+                    showHighlight = false,
+                    refractionHeight = 16.dp,
+                    refractionAmount = 32.dp,
+                ) {
+                    Box(
+                        modifier = Modifier.padding(10.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        LoadingIndicator(
+                            modifier = Modifier.size(28.dp),
+                            color = palette.primary
+                        )
+                    }
+                }
+            } else
             Surface(
                 shape = CircleShape,
                 color = chipColor,
                 modifier = Modifier.padding(end = 8.dp)
             ) {
                 Box(
-                    modifier = Modifier.padding(10.dp), 
+                    modifier = Modifier.padding(10.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     LoadingIndicator(
@@ -1770,7 +1623,27 @@ private fun SongMetadataDisplaySection(
             }
         }
 
-        if (showQueueButton) {
+        if (showQueueButton && glassChips) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                GlassCircleAction(
+                    onClick = onClickLyrics,
+                    size = 48.dp,
+                    contentDescription = stringResource(R.string.common_lyrics)
+                ) {
+                    Icon(painter = painterResource(R.drawable.rounded_lyrics_24), contentDescription = null)
+                }
+                GlassCircleAction(
+                    onClick = onClickQueue,
+                    size = 48.dp,
+                    contentDescription = stringResource(R.string.player_cd_open_queue)
+                ) {
+                    Icon(painter = painterResource(R.drawable.rounded_queue_music_24), contentDescription = null)
+                }
+            }
+        } else if (showQueueButton) {
             Row(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -1818,6 +1691,14 @@ private fun SongMetadataDisplaySection(
                     )
                 }
             }
+        } else if (glassChips) {
+            GlassCircleAction(
+                onClick = onClickLyrics,
+                size = 48.dp,
+                contentDescription = stringResource(R.string.common_lyrics)
+            ) {
+                Icon(painter = painterResource(R.drawable.rounded_lyrics_24), contentDescription = null)
+            }
         } else {
             // Portrait Mode: Just the Lyrics button (Queue is in TopBar)
             FilledIconButton(
@@ -1839,6 +1720,19 @@ private fun SongMetadataDisplaySection(
         // Taizo — TAIS Engine 3's on-device DJ. Same 48dp footprint and monochrome chipColor/
         // chipContentColor styling as the Lyrics button so it reads as a sibling action, not a
         // rainbow afterthought.
+        if (glassChips) {
+            GlassCircleAction(
+                onClick = onClickTaizo,
+                size = 48.dp,
+                contentDescription = stringResource(R.string.player_cd_ask_taizo)
+            ) {
+                Icon(
+                    imageVector = androidx.compose.material.icons.Icons.Rounded.AutoAwesome,
+                    contentDescription = null,
+                    modifier = Modifier.size(22.dp)
+                )
+            }
+        } else
         Box(
             modifier = Modifier
                 .size(48.dp)
@@ -1848,7 +1742,7 @@ private fun SongMetadataDisplaySection(
         ) {
             Icon(
                 imageVector = androidx.compose.material.icons.Icons.Rounded.AutoAwesome,
-                contentDescription = "Ask Taizo",
+                contentDescription = stringResource(R.string.player_cd_ask_taizo),
                 tint = chipContentColor,
                 modifier = Modifier.size(22.dp)
             )
@@ -2297,7 +2191,34 @@ private fun EfficientTimeLabels(
             )
         }
 
-        if (!audioMetaLabel.isNullOrBlank()) {
+        if (!audioMetaLabel.isNullOrBlank() && LocalGlassModeEnabled.current) {
+            // Liquid Glass mode: a small clear glass capsule (NexHome LiquidChip's 6 / 12 lens,
+            // no glint) instead of a tinted fill. Its glass is built once: the per-second label
+            // recomposition above never touches it.
+            val palette = LocalGlassPalette.current
+            GlassPanel(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .padding(horizontal = 58.dp),
+                shape = GlassPillShape,
+                tint = palette.tintSubtle,
+                showHighlight = false,
+                refractionHeight = 12.dp,
+                refractionAmount = 24.dp,
+            ) {
+                Text(
+                    text = audioMetaLabel,
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontWeight = FontWeight.Medium,
+                        fontSize = 11.sp
+                    ),
+                    color = palette.primary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp)
+                )
+            }
+        } else if (!audioMetaLabel.isNullOrBlank()) {
             Surface(
                 modifier = Modifier
                     .align(Alignment.Center)

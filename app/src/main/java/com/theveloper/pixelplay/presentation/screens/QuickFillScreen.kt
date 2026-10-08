@@ -29,6 +29,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextGeometricTransform
@@ -41,6 +42,11 @@ import com.theveloper.pixelplay.data.model.Song
 import com.theveloper.pixelplay.presentation.components.SongPickerList
 import com.theveloper.pixelplay.presentation.components.SmartImage
 import com.theveloper.pixelplay.presentation.utils.GenreIconProvider
+import com.theveloper.pixelplay.ui.glass.GlassPillButton
+import com.theveloper.pixelplay.ui.glass.GlassPillShape
+import com.theveloper.pixelplay.ui.glass.LocalGlassModeEnabled
+import com.theveloper.pixelplay.ui.glass.components.GlassPanel
+import com.theveloper.pixelplay.ui.glass.theme.LocalGlassPalette
 import com.theveloper.pixelplay.ui.theme.GoogleSansRounded
 import racra.compose.smooth_corner_rect_library.AbsoluteSmoothCornerShape
 import androidx.compose.ui.res.stringResource
@@ -190,7 +196,29 @@ fun QuickFillContent(
         
         // Docked Toolbar
         val isNextEnabled = if (step == 0) selectedSongIds.containsValue(true) else selectedGenre != null
-        
+        val advance: () -> Unit = {
+            if (step == 0) {
+                step = 1
+            } else {
+                val songsToUpdate = songs.filter { selectedSongIds[it.id] == true }
+                val genre = selectedGenre
+                if (songsToUpdate.isNotEmpty() && genre != null) {
+                    onApply(songsToUpdate, genre)
+                }
+            }
+        }
+
+        if (LocalGlassModeEnabled.current) {
+            QuickFillGlassBar(
+                step = step,
+                selectedGenre = selectedGenre,
+                isNextEnabled = isNextEnabled,
+                onSelectAll = { songs.forEach { selectedSongIds[it.id] = true } },
+                onClear = { selectedSongIds.clear() },
+                onNext = advance,
+                modifier = Modifier.align(Alignment.BottomCenter)
+            )
+        } else
         Surface(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
@@ -266,16 +294,7 @@ fun QuickFillContent(
 
                 // Action Button
                 Button(
-                    onClick = {
-                        if (step == 0) {
-                            step = 1
-                        } else {
-                            val songsToUpdate = songs.filter { selectedSongIds[it.id] == true }
-                            if (songsToUpdate.isNotEmpty() && selectedGenre != null) {
-                                onApply(songsToUpdate, selectedGenre!!)
-                            }
-                        }
-                    },
+                    onClick = advance,
                     enabled = isNextEnabled,
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.primary,
@@ -300,6 +319,136 @@ fun QuickFillContent(
                 }
             }
         }
+    }
+}
+
+/**
+ * Liquid Glass mode's Quick Fill bar: no bar behind the controls (a glass button on a glass bar is
+ * glass-on-glass). On the songs step the Select all · Clear pair is one glass capsule and the gap
+ * to Next stays empty; on the genre step a status capsule takes that room. Next / Quick Fill is
+ * its own lit glass pill, disabled until something is chosen. All 56 dp, as on iOS.
+ */
+@Composable
+private fun QuickFillGlassBar(
+    step: Int,
+    selectedGenre: String?,
+    isNextEnabled: Boolean,
+    onSelectAll: () -> Unit,
+    onClear: () -> Unit,
+    onNext: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val palette = LocalGlassPalette.current
+    // A stable click: ticking songs recomposes the bar, the pill's click must not change with it.
+    val latestOnNext = rememberUpdatedState(onNext)
+    val onNextPill = remember { { latestOnNext.value() } }
+    Row(
+        modifier = modifier
+            .padding(16.dp)
+            .padding(bottom = 16.dp)
+            .fillMaxWidth()
+            .imePadding(),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        if (step == 0) {
+            GlassPanel(
+                // The capsules float over the song list / genre grid. Like the Material bar they
+                // replace, they take every touch on them (an empty handler, as M3's Surface uses),
+                // so a tap on the glass never ticks the row hidden under it.
+                modifier = Modifier
+                    .height(56.dp)
+                    .pointerInput(Unit) {},
+                shape = GlassPillShape,
+                tint = palette.tintStrong,
+                showHighlight = false,
+            ) {
+                Row(
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .padding(horizontal = 6.dp)
+                        .height(44.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    QuickFillGlassSegment(
+                        text = stringResource(R.string.common_select_all),
+                        onClick = onSelectAll,
+                        shape = RoundedCornerShape(topStart = 50.dp, bottomStart = 50.dp, topEnd = 4.dp, bottomEnd = 4.dp)
+                    )
+                    Spacer(modifier = Modifier.width(2.dp))
+                    QuickFillGlassSegment(
+                        text = stringResource(R.string.common_clear),
+                        onClick = onClear,
+                        shape = RoundedCornerShape(topStart = 4.dp, bottomStart = 4.dp, topEnd = 50.dp, bottomEnd = 50.dp)
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.weight(1f))
+        } else {
+            GlassPanel(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(56.dp)
+                    .pointerInput(Unit) {},
+                shape = GlassPillShape,
+                tint = palette.tintStrong,
+                showHighlight = false,
+            ) {
+                Text(
+                    text = if (selectedGenre != null) {
+                        stringResource(R.string.quick_fill_select_genre_label_format, selectedGenre)
+                    } else {
+                        stringResource(R.string.quik_fill_select_a_genre_label)
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    color = palette.secondary,
+                    modifier = Modifier
+                        .align(Alignment.CenterStart)
+                        .padding(horizontal = 20.dp)
+                )
+            }
+        }
+
+        GlassPillButton(
+            onClick = onNextPill,
+            enabled = isNextEnabled,
+            modifier = Modifier.height(56.dp)
+        ) {
+            Text(
+                text = if (step == 0) stringResource(R.string.common_next)
+                else stringResource(R.string.quick_fill_action_title),
+                maxLines = 1
+            )
+            Icon(
+                if (step == 0) Icons.AutoMirrored.Rounded.ArrowForward else Icons.Rounded.AutoFixHigh,
+                contentDescription = null,
+                modifier = Modifier.size(20.dp)
+            )
+        }
+    }
+}
+
+/** One half of the glass Select all · Clear pair: a subtle fill on the capsule, no extra lens. */
+@Composable
+private fun QuickFillGlassSegment(
+    text: String,
+    onClick: () -> Unit,
+    shape: androidx.compose.ui.graphics.Shape,
+) {
+    val palette = LocalGlassPalette.current
+    FilledTonalButton(
+        onClick = onClick,
+        shape = shape,
+        colors = ButtonDefaults.filledTonalButtonColors(
+            containerColor = palette.tintSubtle,
+            contentColor = palette.primary
+        ),
+        contentPadding = PaddingValues(horizontal = 16.dp),
+        modifier = Modifier.fillMaxHeight()
+    ) {
+        Text(text, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
