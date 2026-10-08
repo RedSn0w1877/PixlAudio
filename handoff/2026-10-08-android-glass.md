@@ -84,9 +84,27 @@ Performance notes (all by construction; nothing was profiled):
 - `android-ci.yml` on `port-glass`: `:app:compileDebugKotlin`, `:app:testDebugUnitTest` (including the three new test classes), `:wear:compileDebugKotlin` and `:app:assembleDebug` (arm64 APK artifact `pixlaudio-arm64-debug-apk`).
   - Run 37772185912: green (the kit, the queue and the floating bars).
   - Run 37773115814: green (adds the song-row chips, the format pill and the screen orbs).
-  - Run 37773927821: green on `5ede6bf`, the last code commit (adds the ⋯ anchor fallback and its test). **Install the APK from this run.**
+  - Run 37773927821: green on `5ede6bf` (adds the ⋯ anchor fallback and its test).
+  - Run 37778375028: green on `f26ce3f`, the review fixes below (compile, unit tests, Wear compile, arm64 APK). **Install the APK from this run.**
   - The new test classes compiled and ran inside `:app:testDebugUnitTest`; CI doesn't print per-class results on success.
 - Nothing ran on a phone, and nothing was profiled. Every visual and feel claim above is by construction.
+
+## Review fixes (adversarial review, 2026-10-08, commit `f26ce3f`)
+A second pass read the whole diff the way the compiler and a strict reviewer would. It found one class of real bug and fixed it with a few small cleanups.
+- **Taps fell through glass that replaced a Material surface.** M3's `Surface` swallows every touch on it (an empty `pointerInput`). A `GlassPanel` without a click has no touch handler, so a tap went to whatever was drawn under it:
+  - a tap on the queue's undo bar that missed Undo played the song row underneath;
+  - a tap on Quick Fill's disabled Next (or its Select all · Clear capsule, or the genre step's status capsule) ticked the song or genre under it;
+  - a tap on the playlist editor's disabled Create pill hit the form under it.
+  These surfaces now take the touch like the Material ones. The fix for disabled pills sits in `GlassPillButton`, so every disabled pill behaves this way.
+- **Locate and Clear ignored "closing".** While the menu closes, the two pills fade out but stay laid out for about 250 ms, and a quick second tap there still ran Clear or Locate. They now act only while the menu is open.
+- The Taizo button's label is now a string resource (`player_cd_ask_taizo`) instead of a hard-coded "Ask Taizo" in both modes.
+- `QueueSheetGeometryTest` had a test that only checked its own arithmetic. It now sweeps screen sizes and status-bar heights through `resolveQueueSheetHeightPx`.
+
+Left as they are, on purpose:
+- **Material 3 mode is still unchanged.** DECISIONS says to take a plan's recommended option for every question Hoa didn't answer, and this plan recommended a 92 % queue and M3's FAB menu for Material mode too. The Android rule (Material stays as it is unless a decision says so) wins here, and the FAB-menu API was only checked against an older alpha. **Hoa: say if you want the Material queue changed too.**
+- The undo bar's Undo and Quick Fill's Select all / Clear are Material buttons inside glass, so they ripple instead of swelling. That is the kit's documented rule for Material buttons in glass (`GlassPressIndication.kt`).
+- During the ~300 ms morph, the layout allocates a few small `Rect`s per frame and re-measures the pill label's width. That costs far less than the one lens the morph re-renders per frame.
+- TalkBack can still reach the queue rows behind the open ⋯ menu, as in Material mode.
 
 ## Checklist for Hoa's Pixel 10 Pro (glass mode, unless it says otherwise)
 - [ ] Open the queue (button and swipe up from the player): it slides up to about 92 % with the player visible and dimmed above it.
@@ -96,12 +114,12 @@ Performance notes (all by construction; nothing was profiled):
 - [ ] Shuffle, repeat and the timer light up when on and go dark when off; the press swells. TalkBack says "selected" on the active ones.
 - [ ] ⋯: the circle stretches into "Save as playlist" with Locate and Clear appearing above it. Then close it by tapping the dim and, separately, with Back; it flows back into the circle both times. Try each action (Locate scrolls to the playing song, Clear asks first, Save opens Save as playlist).
 - [ ] Back with the menu open closes only the menu; a second Back closes the queue.
-- [ ] Swipe a song away in the queue: the glass undo bar appears, and Undo works.
+- [ ] Swipe a song away in the queue: the glass undo bar appears, and Undo works. Tap the bar's song title (not Undo): nothing plays.
 - [ ] Save as playlist: the summary capsule and the Save pill; untick every song and Save disables, tick one and it enables.
 - [ ] Edit song (from a song's ⋯ › Edit): Cancel and Save pills; typing stays smooth; both pills hide while the keyboard is up.
 - [ ] Library › reorder tabs: the Reset circle and the Done pill.
-- [ ] A genre with untagged songs › Quick Fill: Select all · Clear capsule and Next (disabled until a song is ticked); the genre step's status capsule and Quick Fill pill.
-- [ ] Create a playlist and edit one: the Next / Create / Save pills (Create disabled until there's a name).
+- [ ] A genre with untagged songs › Quick Fill: Select all · Clear capsule and Next (disabled until a song is ticked); the genre step's status capsule and Quick Fill pill. Scroll a song under the bar and tap the disabled Next and the capsule: no song gets ticked.
+- [ ] Create a playlist and edit one: the Next / Create / Save pills (Create disabled until there's a name; tapping it then does nothing).
 - [ ] Full player: the lyrics and Taizo glass circles (and the lyrics | queue pair in landscape), the buffering circle while a song loads, the format pill under the seek bar.
 - [ ] Genre page options orb; Daily Mix's AI orb (round now instead of a star in glass mode: OK?).
 - [ ] Unchanged: the Stats header, song options, AI Daily Mix and Taizo sheets.
