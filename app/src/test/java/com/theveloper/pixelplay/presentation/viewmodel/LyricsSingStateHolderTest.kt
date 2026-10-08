@@ -13,7 +13,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
-import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -59,6 +59,8 @@ class LyricsSingStateHolderTest {
         val messages: MutableList<String>,
     )
 
+    // The holder runs in backgroundScope, so the tests step it with runCurrent(): advanceUntilIdle()
+    // stops as soon as no FOREGROUND work is left and would never run it.
     private fun TestScope.harness(jobs: FakeJobs): Harness {
         val player = MutableStateFlow(StablePlayerState(currentSong = song("1")))
         val playback = mockk<PlaybackStateHolder>(relaxed = true)
@@ -78,7 +80,7 @@ class LyricsSingStateHolderTest {
         val messages = mutableListOf<String>()
         backgroundScope.launch { holder.requests.collect { requests += it } }
         backgroundScope.launch { holder.messages.collect { messages += it } }
-        advanceUntilIdle()
+        runCurrent()
         return Harness(holder, player, connectDevice, requests, messages)
     }
 
@@ -88,7 +90,7 @@ class LyricsSingStateHolderTest {
         val h = harness(jobs)
 
         h.holder.onSingTapped()
-        advanceUntilIdle()
+        runCurrent()
 
         assertEquals(listOf<SingRequest>(SingRequest.Instrumental("/stems/1.wav")), h.requests)
         assertTrue(jobs.enqueued.isEmpty())
@@ -100,7 +102,7 @@ class LyricsSingStateHolderTest {
         h.holder.onInstrumentalPlaying()
 
         h.holder.onSingTapped()
-        advanceUntilIdle()
+        runCurrent()
 
         assertEquals(listOf<SingRequest>(SingRequest.Original), h.requests)
     }
@@ -111,20 +113,20 @@ class LyricsSingStateHolderTest {
         val h = harness(jobs)
 
         h.holder.onSingTapped()
-        advanceUntilIdle()
+        runCurrent()
         assertEquals(listOf("1"), jobs.enqueued)
         assertTrue(h.requests.isEmpty())
 
         jobs.flowFor("1").value = listOf(job("a", RenderJobState.RUNNING))
-        advanceUntilIdle()
+        runCurrent()
         assertTrue(h.holder.ui.value.rendering)
 
         val done = listOf(job("a", RenderJobState.SUCCEEDED, path = "/stems/1.wav"))
         jobs.flowFor("1").value = done
-        advanceUntilIdle()
+        runCurrent()
         // The same finished job reported again must not switch a second time.
         jobs.flowFor("1").value = done.toList()
-        advanceUntilIdle()
+        runCurrent()
 
         assertEquals(listOf<SingRequest>(SingRequest.Instrumental("/stems/1.wav")), h.requests)
         assertTrue(h.holder.available.value)
@@ -135,13 +137,13 @@ class LyricsSingStateHolderTest {
         val jobs = FakeJobs()
         val h = harness(jobs)
         h.holder.onSingTapped()
-        advanceUntilIdle()
+        runCurrent()
 
         h.player.value = StablePlayerState(currentSong = song("2"))
-        advanceUntilIdle()
+        runCurrent()
         jobs.flowFor("1").value = listOf(job("a", RenderJobState.SUCCEEDED, path = "/stems/1.wav"))
         jobs.flowFor("2").value = listOf(job("b", RenderJobState.SUCCEEDED, path = "/stems/2.wav"))
-        advanceUntilIdle()
+        runCurrent()
 
         assertTrue(h.requests.isEmpty())
         assertFalse(h.holder.active.value)
@@ -152,10 +154,10 @@ class LyricsSingStateHolderTest {
         val jobs = FakeJobs()
         val h = harness(jobs)
         h.holder.onSingTapped()
-        advanceUntilIdle()
+        runCurrent()
 
         jobs.flowFor("1").value = listOf(job("a", RenderJobState.FAILED, failure = "no audio"))
-        advanceUntilIdle()
+        runCurrent()
 
         assertEquals(listOf("s${R.string.lyrics_sing_queued}", "s${R.string.lyrics_sing_failed}"), h.messages)
         assertTrue(h.requests.isEmpty())
@@ -166,15 +168,15 @@ class LyricsSingStateHolderTest {
         val jobs = FakeJobs()
         val h = harness(jobs)
         h.holder.onSingTapped()
-        advanceUntilIdle()
+        runCurrent()
 
         jobs.flowFor("1").value = listOf(job("auto", RenderJobState.CANCELLED, automatic = true))
-        advanceUntilIdle()
+        runCurrent()
         jobs.flowFor("1").value = listOf(
             job("auto", RenderJobState.CANCELLED, automatic = true),
             job("mine", RenderJobState.SUCCEEDED, path = "/stems/1.wav", createdAt = 2L),
         )
-        advanceUntilIdle()
+        runCurrent()
 
         assertEquals(listOf<SingRequest>(SingRequest.Instrumental("/stems/1.wav")), h.requests)
     }
@@ -184,10 +186,10 @@ class LyricsSingStateHolderTest {
         val jobs = FakeJobs().apply { onDisk["1"] = "/stems/1.wav" }
         val h = harness(jobs)
         h.connectDevice.value = "Echo"
-        advanceUntilIdle()
+        runCurrent()
 
         h.holder.onSingTapped()
-        advanceUntilIdle()
+        runCurrent()
 
         assertTrue(jobs.enqueued.isEmpty())
         assertTrue(h.requests.isEmpty())
@@ -202,7 +204,7 @@ class LyricsSingStateHolderTest {
         assertTrue(h.holder.active.value)
 
         h.player.value = StablePlayerState(currentSong = song("2"))
-        advanceUntilIdle()
+        runCurrent()
 
         assertFalse(h.holder.active.value)
     }

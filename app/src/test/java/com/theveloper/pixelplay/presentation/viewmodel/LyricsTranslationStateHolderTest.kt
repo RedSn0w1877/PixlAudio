@@ -19,7 +19,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
-import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
@@ -96,6 +96,8 @@ class LyricsTranslationStateHolderTest {
         val messages: MutableList<String>,
     )
 
+    // The holder runs in backgroundScope, so the tests step it with runCurrent(): advanceUntilIdle()
+    // stops as soon as no FOREGROUND work is left and would never run it.
     private fun TestScope.harness(
         translator: FakeTranslator,
         initial: StablePlayerState = StablePlayerState(currentSong = song("1"), lyrics = spanish),
@@ -115,7 +117,7 @@ class LyricsTranslationStateHolderTest {
         holder.initialize(backgroundScope)
         val messages = mutableListOf<String>()
         backgroundScope.launch { holder.messages.collect { messages += it } }
-        advanceUntilIdle()
+        runCurrent()
         return Harness(holder, player, preferences, messages)
     }
 
@@ -127,7 +129,7 @@ class LyricsTranslationStateHolderTest {
         val h = harness(translator)
 
         h.holder.translateCurrent()
-        advanceUntilIdle()
+        runCurrent()
 
         val lines = h.player.value.lyrics!!.synced!!
         assertEquals("[en] Hola amigo", lines[0].translation)
@@ -145,13 +147,13 @@ class LyricsTranslationStateHolderTest {
         val h = harness(translator)
 
         h.holder.translateCurrent()
-        advanceUntilIdle()
+        runCurrent()
         assertEquals(LyricsTranslatePhase.Translating, h.holder.state.value.phase)
 
         h.player.value = StablePlayerState(currentSong = song("2"), lyrics = spanish)
-        advanceUntilIdle()
+        runCurrent()
         translator.translateGate!!.complete(Unit)
-        advanceUntilIdle()
+        runCurrent()
 
         assertTrue(h.player.value.lyrics!!.synced!!.all { it.translation == null })
         assertEquals("2", h.holder.state.value.songId)
@@ -164,7 +166,7 @@ class LyricsTranslationStateHolderTest {
         val h = harness(translator)
 
         h.holder.translateCurrent()
-        advanceUntilIdle()
+        runCurrent()
 
         assertEquals(listOf(message(R.string.lyrics_translate_already_in_target_language)), h.messages)
         assertEquals(0, translator.translateCalls)
@@ -175,13 +177,13 @@ class LyricsTranslationStateHolderTest {
         val unknown = FakeTranslator().apply { songLanguage = null }
         val h1 = harness(unknown)
         h1.holder.translateCurrent()
-        advanceUntilIdle()
+        runCurrent()
         assertEquals(listOf(message(R.string.lyrics_translate_unknown_language)), h1.messages)
 
         val unsupported = FakeTranslator().apply { songLanguage = "xx" }
         val h2 = harness(unsupported)
         h2.holder.translateCurrent()
-        advanceUntilIdle()
+        runCurrent()
         assertEquals(listOf(message(R.string.lyrics_translate_unsupported)), h2.messages)
         assertEquals(0, unknown.translateCalls + unsupported.translateCalls)
     }
@@ -195,12 +197,12 @@ class LyricsTranslationStateHolderTest {
         val h = harness(translator)
 
         h.holder.translateCurrent()
-        advanceUntilIdle()
+        runCurrent()
         assertTrue(h.holder.state.value.phase is LyricsTranslatePhase.DownloadingModel)
         assertEquals(listOf(message(R.string.lyrics_translate_downloading_model)), h.messages)
 
         translator.downloadGate!!.complete(Unit)
-        advanceUntilIdle()
+        runCurrent()
         assertEquals("[en] Buenos días", h.player.value.lyrics!!.synced!![1].translation)
         assertEquals(LyricsTranslatePhase.Idle, h.holder.state.value.phase)
     }
@@ -210,11 +212,11 @@ class LyricsTranslationStateHolderTest {
         val translator = FakeTranslator()
         val h = harness(translator)
         h.holder.translateCurrent()
-        advanceUntilIdle()
+        runCurrent()
 
         // A resync / metadata edit reloads the lyrics without the on-device translations.
         h.player.value = h.player.value.copy(lyrics = spanish.copy())
-        advanceUntilIdle()
+        runCurrent()
 
         assertEquals("[en] Buenos días", h.player.value.lyrics!!.synced!![1].translation)
         assertEquals(1, translator.translateCalls)
@@ -227,7 +229,7 @@ class LyricsTranslationStateHolderTest {
         val h = harness(translator, StablePlayerState(currentSong = song("1"), lyrics = mixed))
 
         h.holder.translateCurrent()
-        advanceUntilIdle()
+        runCurrent()
 
         val lines = h.player.value.lyrics!!.synced!!
         assertEquals("[en] Te quiero", lines[0].translation)
@@ -241,7 +243,7 @@ class LyricsTranslationStateHolderTest {
         val h = harness(translator, StablePlayerState(currentSong = song("1"), lyrics = Lyrics(plain = listOf("Hola"))))
 
         h.holder.translateCurrent()
-        advanceUntilIdle()
+        runCurrent()
 
         assertEquals(listOf(message(R.string.lyrics_translate_needs_synced)), h.messages)
         assertEquals(0, translator.translateCalls)
