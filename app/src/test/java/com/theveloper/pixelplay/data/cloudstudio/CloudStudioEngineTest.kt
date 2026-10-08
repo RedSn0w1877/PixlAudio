@@ -25,6 +25,8 @@ class CloudStudioEngineTest {
     @TempDir lateinit var directory: Path
 
     private var now = 1_800_000_000_000L
+    /** A worker pass with room for transfers (a pass doesn't start one in its last 3 minutes). */
+    private val PASS_MS = 10L * 60_000
     private val keys = ArrayDeque((1..50).map { "%08x-0000-4000-8000-%012x".format(it, it) })
     private lateinit var settings: FakeSettings
     private lateinit var store: FakeStore
@@ -71,7 +73,7 @@ class CloudStudioEngineTest {
         val record = sendOne(engine)
         assertEquals(listOf(CloudTask.INSTRUMENTAL, CloudTask.LYRICS), record.tasks)
         assertTrue(scheduler.passRequests > 0)
-        engine.workerPass(now + 60_000)
+        engine.workerPass(now + PASS_MS)
         val done = engine.job(record.jobKey)!!
         assertEquals(CloudJobState.IMPORTED, done.state, "last error: ${done.lastError}")
         assertTrue(done.importedInstrumental && done.importedLyrics)
@@ -112,7 +114,7 @@ class CloudStudioEngineTest {
         // And a pass while switched off never writes an empty list either.
         settings.snapshot = settings.snapshot.copy(enabled = false)
         val fresh = engine()
-        fresh.workerPass(now + 1_000)
+        fresh.workerPass(now + PASS_MS)
         assertEquals(3, store.saved.size)
         assertEquals(CloudNotice.OFF, fresh.state.value.notice)
     }
@@ -129,7 +131,7 @@ class CloudStudioEngineTest {
             ).toByteArray()
             RunPodJob(id, "IN_QUEUE")
         }
-        engine.workerPass(now + 60_000)
+        engine.workerPass(now + PASS_MS)
         var job = engine.job(record.jobKey)!!
         assertEquals(CloudJobState.UPLOADED, job.state)
         assertEquals("GPU_OOM", job.lastErrorCode)
@@ -138,7 +140,7 @@ class CloudStudioEngineTest {
         now = job.nextAttemptAtMs!! + 1
         runpod.behaviour = { _, id -> RunPodJob(id, "IN_QUEUE") }
         runpod.statusFor = { id -> RunPodJob(id, "IN_QUEUE") }
-        engine.workerPass(now + 60_000)
+        engine.workerPass(now + PASS_MS)
         job = engine.job(record.jobKey)!!
         assertEquals(2, runpod.runs.size)
         // The old manifest and marker were removed BEFORE the second /run, so the listing can't take them.
@@ -159,7 +161,7 @@ class CloudStudioEngineTest {
         val engine = engine()
         sendOne(engine)
         runpod.finishImmediately = false
-        engine.workerPass(now + 60_000)
+        engine.workerPass(now + PASS_MS)
         val run = runpod.runs.single()
         assertEquals(CloudJobInputPolicy(lastInBatch = true), run.input.policy)
         // RunPod's own request policy is untouched.
@@ -172,7 +174,7 @@ class CloudStudioEngineTest {
         val engine = engine()
         assertEquals(3, engine.send(engine.preview(threeSongs, "Three")))
         val keys = engine.state.value.jobs.map { it.jobKey }
-        engine.workerPass(now + 60_000)
+        engine.workerPass(now + PASS_MS)
         assertEquals(keys, runpod.runs.map { it.input.jobKey }, "one burst, in queue order")
         // The worker stays warm between the songs and stops itself after the last one; the others send no policy.
         assertEquals(listOf(null, null, CloudJobInputPolicy(lastInBatch = true)), runpod.runs.map { it.input.policy })
@@ -184,10 +186,10 @@ class CloudStudioEngineTest {
         runpod.finishImmediately = false
         val engine = engine()
         sendOne(engine, threeSongs[0])
-        engine.workerPass(now + 60_000)
+        engine.workerPass(now + PASS_MS)
         now += 1_000
         sendOne(engine, threeSongs[1])
-        engine.workerPass(now + 60_000)
+        engine.workerPass(now + PASS_MS)
         assertEquals(listOf(true, true), runpod.runs.map { it.input.isLastInBatch })
     }
 
@@ -202,7 +204,7 @@ class CloudStudioEngineTest {
         val plan = record.plan.copy(durationMs = 240_000)
         val estimate = CloudCost.estimatedSeconds(plan, record.quality) * settings.snapshot.pricePerSecondMicroUsd
         settings.snapshot = settings.snapshot.copy(monthlyCapMicroUsd = 2 * estimate)
-        engine.workerPass(now + 60_000)
+        engine.workerPass(now + PASS_MS)
         assertEquals(keys.take(2), runpod.runs.map { it.input.jobKey })
         assertEquals(listOf(false, true), runpod.runs.map { it.input.isLastInBatch })
         assertEquals(CloudNotice.CAP_REACHED, engine.state.value.notice)
@@ -217,7 +219,7 @@ class CloudStudioEngineTest {
         assertEquals(3, engine.send(engine.preview(threeSongs, "Three")))
         // The person switches Cloud processing off while the first song is being prepared.
         preparer.onPrepare = { settings.snapshot = settings.snapshot.copy(enabled = false) }
-        val outcome = engine.workerPass(now + 60_000)
+        val outcome = engine.workerPass(now + PASS_MS)
         assertEquals(1, preparer.forceDecodes.size, "only the song already in hand was prepared")
         assertTrue(runpod.runs.isEmpty(), "nothing was sent after the switch went off")
         assertTrue(outcome.blocked)
@@ -239,12 +241,12 @@ class CloudStudioEngineTest {
         val record = sendOne(engine)
         runpod.finishImmediately = false
         bucket.failUploads = 1
-        engine.workerPass(now + 60_000)
+        engine.workerPass(now + PASS_MS)
         var job = engine.job(record.jobKey)!!
         assertEquals(CloudJobState.UPLOADING, job.state)
         assertNotNull(job.nextAttemptAtMs)
         now = job.nextAttemptAtMs!! + 1
-        engine.workerPass(now + 60_000)
+        engine.workerPass(now + PASS_MS)
         job = engine.job(record.jobKey)!!
         assertTrue(job.state.isAtRunPod, "state ${job.state}")
         assertNull(job.nextAttemptAtMs, "no \"Trying again soon\" once the upload went through")
@@ -255,7 +257,7 @@ class CloudStudioEngineTest {
         val engine = engine()
         val record = sendOne(engine, streamedSong)
         runpod.finishImmediately = false
-        engine.workerPass(now + 60_000)
+        engine.workerPass(now + PASS_MS)
         assertEquals(listOf(true), preparer.forceDecodes)
         assertEquals(listOf(streamedSong.id), host.audioSourceCalls)
         assertEquals("VIDEO_A", engine.job(record.jobKey)!!.videoId)
@@ -263,7 +265,7 @@ class CloudStudioEngineTest {
         host.videoIds[streamedSong.id] = "VIDEO_B"
         runpod.completeAll()
         now += CloudTiming.STATUS_POLL_INTERVAL_MS + 1
-        engine.workerPass(now + 60_000)
+        engine.workerPass(now + PASS_MS)
         val job = engine.job(record.jobKey)!!
         assertEquals(CloudJobState.FAILED, job.state)
         assertTrue(job.lastError!!.contains("different YouTube video"))
@@ -275,7 +277,7 @@ class CloudStudioEngineTest {
         val engine = engine()
         val streamed = sendOne(engine, streamedSong)
         val local = sendOne(engine, localSong)
-        val outcome = engine.workerPass(now + 60_000)
+        val outcome = engine.workerPass(now + PASS_MS)
         assertTrue(preparer.forceDecodes == listOf(false), "only the local song was prepared")
         assertEquals(CloudJobState.QUEUED, engine.job(streamed.jobKey)!!.state)
         assertEquals(CloudJobState.UPLOADING, engine.job(local.jobKey)!!.state)
@@ -285,7 +287,7 @@ class CloudStudioEngineTest {
         assertTrue(runpod.runs.isEmpty())
         // Allowing mobile data lets everything go.
         settings.snapshot = settings.snapshot.copy(useCellular = true)
-        engine.workerPass(now + 60_000)
+        engine.workerPass(now + PASS_MS)
         assertEquals(2, runpod.runs.size)
     }
 
@@ -299,7 +301,7 @@ class CloudStudioEngineTest {
         settings.snapshot = settings.snapshot.copy(monthlyCapMicroUsd = 3_000_000)
         val record = sendOne(engine)
         settings.snapshot = settings.snapshot.copy(monthlyCapMicroUsd = 10)
-        engine.workerPass(now + 60_000)
+        engine.workerPass(now + PASS_MS)
         assertEquals(CloudJobState.UPLOADED, engine.job(record.jobKey)!!.state)
         assertEquals(CloudNotice.CAP_REACHED, engine.state.value.notice)
         assertTrue(runpod.runs.isEmpty())
@@ -309,7 +311,7 @@ class CloudStudioEngineTest {
         val engine = engine()
         val record = sendOne(engine)
         runpod.finishImmediately = false
-        engine.workerPass(now + 60_000)
+        engine.workerPass(now + PASS_MS)
         runpod.statusFor = { id -> RunPodJob(id, "FAILED", error = "INPUT_MISSING: the input GET answered 404") }
         now += CloudTiming.STATUS_POLL_INTERVAL_MS + 1
         engine.workerPass(now + 1) // deadline already reached: watch only
@@ -320,7 +322,7 @@ class CloudStudioEngineTest {
         // Uploaded again and sent again; this time the worker refuses it as poisoned: no retry.
         runpod.statusFor = null
         now = job.nextAttemptAtMs!! + 1
-        engine.workerPass(now + 60_000)
+        engine.workerPass(now + PASS_MS)
         assertEquals(CloudJobState.RUNNING, engine.job(record.jobKey)!!.state)
         runpod.statusFor = { id -> RunPodJob(id, "FAILED", error = "POISONED: third delivery") }
         now += CloudTiming.STATUS_POLL_INTERVAL_MS + 1
@@ -335,15 +337,15 @@ class CloudStudioEngineTest {
         val engine = engine()
         val record = sendOne(engine)
         runpod.finishImmediately = false
-        engine.workerPass(now + 60_000)
+        engine.workerPass(now + PASS_MS)
         runpod.statusFor = { throw RunPodError.JobNotFound() }
         now += CloudTiming.TTL_MS + CloudTiming.EXECUTION_TIMEOUT_MS + 1
-        engine.workerPass(now + 60_000)
+        engine.workerPass(now + PASS_MS)
         var job = engine.job(record.jobKey)!!
         assertEquals(1, job.resubmits)
         // Its upload is now older than 3 days (the R2 lifecycle deletes inputs after 7), so it goes up again first.
         assertEquals(CloudJobState.QUEUED, job.state)
-        engine.workerPass(now + 60_000)
+        engine.workerPass(now + PASS_MS)
         assertEquals(2, runpod.runs.size)
         assertTrue(engine.job(record.jobKey)!!.state.isAtRunPod)
         now += CloudTiming.TTL_MS + CloudTiming.EXECUTION_TIMEOUT_MS + 1
@@ -356,7 +358,7 @@ class CloudStudioEngineTest {
         runpod.samplesOffset = 5_000
         val engine = engine()
         val record = sendOne(engine)
-        engine.workerPass(now + 60_000)
+        engine.workerPass(now + PASS_MS)
         var job = engine.job(record.jobKey)!!
         assertEquals(CloudOutputCodec.FLAC, job.outputCodec)
         assertTrue(job.flacRedone)
@@ -365,7 +367,7 @@ class CloudStudioEngineTest {
         assertEquals(listOf(CloudTask.INSTRUMENTAL), job.tasks)
         // The redo still doesn't line up: it stops instead of looping.
         now += CloudTiming.STATUS_POLL_INTERVAL_MS + 1
-        engine.workerPass(now + 60_000)
+        engine.workerPass(now + PASS_MS)
         job = engine.job(record.jobKey)!!
         assertEquals(CloudJobState.FAILED, job.state)
         assertEquals("flac", runpod.runs.last().input.output?.codec)
@@ -378,7 +380,7 @@ class CloudStudioEngineTest {
         val engine = engine()
         val record = sendOne(engine)
         runpod.finishImmediately = false
-        engine.workerPass(now + 60_000)
+        engine.workerPass(now + PASS_MS)
         assertTrue(engine.job(record.jobKey)!!.state.isAtRunPod)
         engine.cancel(record.jobKey)
         assertEquals(CloudJobState.CANCELLED, engine.job(record.jobKey)!!.state)
@@ -395,12 +397,12 @@ class CloudStudioEngineTest {
         val engine = engine()
         sendOne(engine)
         val before = scheduler.passRequests
-        val outcome = engine.workerPass(now + 60_000)
+        val outcome = engine.workerPass(now + PASS_MS)
         assertTrue(outcome.blocked)
         assertEquals(CloudNotice.KEYS_MISSING, engine.state.value.notice)
         assertEquals(before, scheduler.passRequests)
         settings.secretsState = CloudSecretsState(CloudSecrets("rpa", "", ""))
-        engine.workerPass(now + 60_000)
+        engine.workerPass(now + PASS_MS)
         assertEquals(CloudNotice.NOT_CONFIGURED, engine.state.value.notice)
     }
 
