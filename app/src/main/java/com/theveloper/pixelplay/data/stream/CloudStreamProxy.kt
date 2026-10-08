@@ -90,7 +90,7 @@ abstract class CloudStreamProxy<K : Any>(
     })
     private val urlPrefetcher = StreamUrlPrefetcher<K>(
         scope = proxyScope,
-        resolve = { id -> getOrFetchStreamUrl(id, minOf(cacheExpirationMs, 120_000L)); Unit },
+        resolve = { id -> getOrFetchStreamUrl(id, minOf(cacheExpirationMs, SPECULATIVE_URL_TTL_MS)); Unit },
         onFailure = { Timber.d(it, "$proxyTag next-track preparation failed") }
     )
 
@@ -99,6 +99,11 @@ abstract class CloudStreamProxy<K : Any>(
         // URLs every 600 KB. Refresh only on expiry or a real upstream rejection.
         const val UPSTREAM_CHUNK_SIZE = 512_000L
         const val MAX_UPSTREAM_ATTEMPTS = 4
+
+        // A warmed-up URL for an upcoming song lives 10 minutes (was 2): with 2 a 4-minute
+        // song resolved its successor about twice. The signed `expire` (minus a minute) still
+        // caps it, and a 403 after a Wi-Fi/cellular switch refreshes it in one round trip.
+        const val SPECULATIVE_URL_TTL_MS = 10 * 60_000L
     }
 
     // ─── Public API ────────────────────────────────────────────────────
@@ -128,6 +133,15 @@ abstract class CloudStreamProxy<K : Any>(
      */
     fun prefetchStreamUrl(id: K?) {
         urlPrefetcher.prefetch(id?.takeIf(::validateId))
+    }
+
+    /**
+     * Streaming speed R3: resolve the upcoming songs' URLs (matching first when needed) one
+     * after another, the next song first. The same list again is a no-op while it runs; a
+     * different list replaces it; an empty list cancels. No audio, no server start.
+     */
+    fun prefetchStreamUrls(ids: List<K>) {
+        urlPrefetcher.prefetch(ids.filter(::validateId))
     }
 
     fun getProxyUrl(id: K): String {

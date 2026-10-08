@@ -251,6 +251,10 @@ class DualPlayerEngine @Inject constructor(
         private const val CLOUD_RESOLVE_TIMEOUT_MS = 25_000L
         // SpotifyStreamProxy's route prefix as seen in the resolved loopback URL.
         private const val PROXY_SPOTIFY_PATH = "/spotify/"
+        // How much of the next item the master preloads: 10 s of audio. ProgressiveMediaPeriod
+        // checks whether to keep loading only every 1 MiB, so expect up to about 1 MiB per
+        // prepared song in practice (the stream-start lines show it as "preload: yes (N KiB)").
+        private const val NEXT_ITEM_PRELOAD_US = 10_000_000L
     }
 
     data class TransitionTarget(
@@ -564,24 +568,20 @@ class DualPlayerEngine @Inject constructor(
 
             applyWakeModeForCurrentItem()
 
-            // --- Pre-Resolve Next/Prev Tracks with Debounce to prevent flooding ---
+            // --- Pre-resolve the next track with a debounce to prevent flooding ---
+            // Cheap since the streaming-speed batch: resolveCloudUri is now a local-copy lookup
+            // plus the proxy start (the full-song listening cache moved to MusicService, which
+            // gates it on playback time and Data Saver). Only the next song in skip order
+            // (shuffle included); the previous one no longer gets anything.
             preResolutionJob?.cancel()
             preResolutionJob = scope.launch {
                 delay(600) // Wait for user to stop skipping/navigating
                 try {
-                    val currentIndex = playerA.currentMediaItemIndex
-                    if (currentIndex != C.INDEX_UNSET) {
-                        // Resolve each neighbour directly — no intermediate list allocation.
-                        if (currentIndex + 1 < playerA.mediaItemCount) {
-                            playerA.getMediaItemAt(currentIndex + 1).localConfiguration?.uri
-                                ?.takeIf { it.scheme in CLOUD_PROXY_SCHEMES }
-                                ?.let { resolveCloudUri(it) }
-                        }
-                        if (currentIndex - 1 >= 0) {
-                            playerA.getMediaItemAt(currentIndex - 1).localConfiguration?.uri
-                                ?.takeIf { it.scheme in CLOUD_PROXY_SCHEMES }
-                                ?.let { resolveCloudUri(it) }
-                        }
+                    val nextIndex = playerA.nextMediaItemIndex
+                    if (nextIndex != C.INDEX_UNSET && nextIndex < playerA.mediaItemCount) {
+                        playerA.getMediaItemAt(nextIndex).localConfiguration?.uri
+                            ?.takeIf { it.scheme in CLOUD_PROXY_SCHEMES }
+                            ?.let { resolveCloudUri(it) }
                     }
                 } catch (e: Exception) {
                     Timber.tag("DualPlayerEngine").w(e, "Pre-resolution error")
@@ -791,6 +791,31 @@ class DualPlayerEngine @Inject constructor(
 
     fun getAudioSessionId(): Int = if (::playerA.isInitialized) playerA.audioSessionId else 0
 
+    // ── Next-item preload (streaming speed R3 bytes + R7) ────────────────────────────────────
+    // ExoPlayer's playlist preloading: while the current song's buffer is full, the master
+    // player loads the first seconds of the next item (skip order, shuffle included). A skip or
+    // auto-advance to it then reuses that loaded period (MediaPeriodQueue reuses a matching
+    // preloaded holder), so it starts from memory with no new proxy request. MusicService turns
+    // it on only while playing locally on an allowed network, and off on pause: ExoPlayer keeps
+    // buffering while paused, and the owner's rule is "only while playing".
+    private var nextItemPreloadEnabled = false
+
+    /** Main thread. Survives player rebuilds and crossfade swaps (re-applied to the new master). */
+    fun setNextItemPreload(enabled: Boolean) {
+        nextItemPreloadEnabled = enabled
+        if (!isReleased && ::playerA.isInitialized) applyNextItemPreload(playerA, enabled)
+    }
+
+    private fun applyNextItemPreload(player: ExoPlayer, enabled: Boolean) {
+        val target = if (enabled) NEXT_ITEM_PRELOAD_US else C.TIME_UNSET
+        if (player.preloadConfiguration.targetPreloadDurationUs == target) return
+        player.preloadConfiguration = if (enabled) {
+            ExoPlayer.PreloadConfiguration(NEXT_ITEM_PRELOAD_US)
+        } else {
+            ExoPlayer.PreloadConfiguration.DEFAULT
+        }
+    }
+
     private var isReleased = false
 
     // Whether the OS classifies this as a low-RAM device. Used to cap the player's max
@@ -815,6 +840,7 @@ class DualPlayerEngine @Inject constructor(
         playerB = null
 
         playerA = buildPlayer()
+        applyNextItemPreload(playerA, nextItemPreloadEnabled)
 
         addMasterPlayerListeners(playerA)
 
@@ -993,6 +1019,7 @@ class DualPlayerEngine @Inject constructor(
         playerB = null
 
         playerA = buildPlayer()
+        applyNextItemPreload(playerA, nextItemPreloadEnabled)
 
         addMasterPlayerListeners(playerA)
         playerA.volume = volume
@@ -1376,9 +1403,11 @@ class DualPlayerEngine @Inject constructor(
             return@withContext Uri.fromFile(localFile)
         }
 
-        // Sin copia local: además de servir en directo, se deja la canción encolada para
-        // que la próxima vez ya esté — sin bloquear esta reproducción por ello.
-        audioCacheManager.maybeAutoCache(spotifyId)
+        // No full-song download from here any more (streaming speed): this runs for the UI's
+        // pre-play call, every ExoPlayer open and re-open, the neighbour pre-resolution and
+        // ExoPlayer's next-item preload, so the listening cache competed with the very first
+        // bytes and downloaded songs nobody played. MusicService now adds the song that is
+        // actually playing, 5 s in, never under Data Saver.
 
         // El proxy arranca perezosamente: la primera pista de Spotify de la sesión es la
         // que levanta el servidor local.
@@ -1565,6 +1594,9 @@ class DualPlayerEngine @Inject constructor(
 
         playerA = incomingPlayer
         playerB = outgoingPlayer
+        // Only the master preloads its next item; the auxiliary player never does.
+        applyNextItemPreload(outgoingPlayer, enabled = false)
+        applyNextItemPreload(incomingPlayer, nextItemPreloadEnabled)
         activeWindowStartIndex = preparedWindowStartIndex
         activePlayerUsesWindowedQueue = preparedPlayerUsesWindowedQueue
         resetPreparedWindowState()
