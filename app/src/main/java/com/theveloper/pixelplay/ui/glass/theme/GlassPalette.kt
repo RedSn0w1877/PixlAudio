@@ -13,8 +13,12 @@ import androidx.compose.ui.graphics.isSpecified
  * Dark values are NexHome's verbatim (`theme/Color.kt`). NexHome is always dark, so the light values
  * come from the Kyant catalog components NexHome ported (their `isLightTheme` branches: tab bar
  * `#FAFAFA@0.4`, tab blob wash Black@0.1, track `#787878@0.2`, black content) plus a few derived
- * tints marked *derived* below, which need tuning on the device. The accent is the album-art scheme's
- * primary; content text over glass is always [primary], never the accent.
+ * tints marked *derived* below, which need tuning on the device. Content text over glass is always
+ * [primary], never the accent.
+ *
+ * The accent (see [rootAccent] / [playerAccent]): app-wide it is the album-art scheme's primary while
+ * Settings › Appearance › Accent Color is "Dynamic" (the default, today's behaviour), and the chosen
+ * accent once one is picked. The player sheet gets its own palette, so it keeps the album colours.
  */
 @Immutable
 data class GlassPalette(
@@ -116,6 +120,22 @@ data class GlassPalette(
             val base = if (isDark) Dark else Light
             return if (accent.isSpecified && accent != base.accent) base.copy(accent = accent) else base
         }
+
+        /**
+         * The app-wide glass accent (tab bar, toggles, sliders, chips, settings icon discs). With the
+         * default "Dynamic" accent it follows the playing album, as before the accent setting existed;
+         * a chosen accent ([accentChosen]) wins over the album, or it would be repainted on every track.
+         */
+        fun rootAccent(accentChosen: Boolean, albumPrimary: Color?, appPrimary: Color): Color =
+            if (accentChosen) appPrimary else albumPrimary ?: appPrimary
+
+        /**
+         * The player sheet's glass accent: the player's album scheme ([playerAlbumPrimary], present only
+         * under Player Theme › Album Art) else the app scheme's primary, which is what Player Theme ›
+         * Accent Color means (Material You while the accent is Dynamic). Matches the Material player.
+         */
+        fun playerAccent(playerAlbumPrimary: Color?, appPrimary: Color): Color =
+            playerAlbumPrimary ?: appPrimary
     }
 }
 

@@ -189,7 +189,6 @@
     <string name="settings_player_theme_title">Tema player</string>
     <string name="settings_player_theme_subtitle">Scegli l\'aspetto per il player fluttuante.</string>
     <string name="settings_player_theme_album_art">Copertina album</string>
-    <string name="settings_player_theme_dynamic">Dinamico sistema</string>
     <string name="settings_show_player_file_info_title">Mostra info file player</string>
     <string name="settings_show_player_file_info_subtitle">Mostra codec, bitrate e frequenza di campionamento nella sezione avanzamento del player.</string>
     <string name="settings_album_art_palette_title">Stile palette copertina album</string>

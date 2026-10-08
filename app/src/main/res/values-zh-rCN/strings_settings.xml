@@ -189,7 +189,6 @@
     <string name="settings_player_theme_title">播放器主题</string>
     <string name="settings_player_theme_subtitle">选择悬浮播放器的外观。</string>
     <string name="settings_player_theme_album_art">专辑封面</string>
-    <string name="settings_player_theme_dynamic">系统动态主题</string>
     <string name="settings_show_player_file_info_title">显示播放器文件信息</string>
     <string name="settings_show_player_file_info_subtitle">在播放器进度部分显示编解码器、比特率和采样率。</string>
     <string name="settings_album_art_palette_title">专辑封面调色板样式</string>

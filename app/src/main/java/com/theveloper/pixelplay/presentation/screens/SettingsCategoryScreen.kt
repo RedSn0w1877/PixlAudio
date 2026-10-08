@@ -641,6 +641,7 @@ fun SettingsCategoryScreen(
                     item(key = "appearance_theme", contentType = "settings_subsection") {
                         Column {
                             val useSmoothCorners by settingsViewModel.useSmoothCorners.collectAsStateWithLifecycle()
+                            val accentColor by settingsViewModel.accentColor.collectAsStateWithLifecycle()
                             SettingsSubsection(title = stringResource(R.string.settings_global_theme_section)) {
                                 ThemeSelectorItem(
                                     label = stringResource(R.string.settings_app_language_title),
@@ -664,6 +665,10 @@ fun SettingsCategoryScreen(
                                     selectedKey = uiState.appThemeMode,
                                     onSelectionChanged = { settingsViewModel.setAppThemeMode(it) },
                                     leadingIcon = { Icon(Icons.Outlined.LightMode, null, tint = MaterialTheme.colorScheme.secondary) }
+                                )
+                                AccentColorSettingItem(
+                                    selectedHex = accentColor,
+                                    onSelect = settingsViewModel::setAccentColor
                                 )
                                 SwitchSettingItem(
                                     title = stringResource(R.string.settings_smooth_corners_title),
@@ -697,7 +702,8 @@ fun SettingsCategoryScreen(
                                     description = stringResource(R.string.settings_player_theme_subtitle),
                                     options = mapOf(
                                         ThemePreference.ALBUM_ART to stringResource(R.string.settings_player_theme_album_art),
-                                        ThemePreference.DYNAMIC to stringResource(R.string.settings_player_theme_dynamic)
+                                        // Stored as "dynamic" (backups); the player uses the app's accent.
+                                        ThemePreference.DYNAMIC to stringResource(R.string.settings_player_theme_accent)
                                     ),
                                     selectedKey = uiState.playerThemePreference,
                                     onSelectionChanged = { settingsViewModel.setPlayerThemePreference(it) },

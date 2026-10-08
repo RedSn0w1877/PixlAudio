@@ -124,16 +124,34 @@ val LightColorScheme = lightColorScheme(
     onError = PixelPlayWhite
 )
 
+/**
+ * The app's root theme.
+ *
+ * Scheme order: an explicit [colorSchemePairOverride], then the app-wide accent
+ * ([accentSchemePair], Settings › Appearance › Accent Color; null = the default "Dynamic"), then
+ * Material You from the wallpaper (API 31+), then the static PixelPlay scheme. Accent pairs come
+ * memoised from `AccentColorSchemes`, so the same accent is the same instance on every
+ * recomposition. An accent change snaps (no colour animation), as on iOS: the static
+ * LocalColorScheme recomposes the app once.
+ */
 @Composable
 fun PixelPlayTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     colorSchemePairOverride: ColorSchemePair? = null,
+    accentSchemePair: ColorSchemePair? = null,
     content: @Composable () -> Unit
 ) {
     val context = LocalContext.current
     val uiMode = LocalConfiguration.current.uiMode
     val finalColorScheme = when {
-        colorSchemePairOverride == null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
+        colorSchemePairOverride != null -> {
+            // Usar el esquema del álbum si se proporciona
+            if (darkTheme) colorSchemePairOverride.dark else colorSchemePairOverride.light
+        }
+        accentSchemePair != null -> {
+            if (darkTheme) accentSchemePair.dark else accentSchemePair.light
+        }
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
             // Tema dinámico del sistema como prioridad si no hay override.
             // Remembered: a fresh ColorScheme on every recomposition invalidated every reader of
             // the (static) LocalColorScheme, i.e. the whole app. A wallpaper change recreates
@@ -146,10 +164,6 @@ fun PixelPlayTheme(
                     if (darkTheme) DarkColorScheme else LightColorScheme
                 }
             }
-        }
-        colorSchemePairOverride != null -> {
-            // Usar el esquema del álbum si se proporciona
-            if (darkTheme) colorSchemePairOverride.dark else colorSchemePairOverride.light
         }
         // Fallback final a los defaults si no hay override ni dynamic colors aplicables
         darkTheme -> DarkColorScheme

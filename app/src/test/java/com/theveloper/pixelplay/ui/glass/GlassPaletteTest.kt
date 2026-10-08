@@ -76,6 +76,27 @@ class GlassPaletteTest {
     }
 
     @Test
+    fun rootAccent_followsTheAlbumOnlyWhileTheAccentIsDynamic() {
+        val album = Color(0xFFFF8FB4)
+        val app = Color(0xFF005DB8)
+        // Default (Dynamic) accent: today's behaviour, the album wins, else the app scheme.
+        assertColor(album, GlassPalette.rootAccent(accentChosen = false, albumPrimary = album, appPrimary = app))
+        assertColor(app, GlassPalette.rootAccent(accentChosen = false, albumPrimary = null, appPrimary = app))
+        // A chosen accent is never repainted by the playing track.
+        assertColor(app, GlassPalette.rootAccent(accentChosen = true, albumPrimary = album, appPrimary = app))
+        assertColor(app, GlassPalette.rootAccent(accentChosen = true, albumPrimary = null, appPrimary = app))
+    }
+
+    @Test
+    fun playerAccent_keepsTheAlbumColour() {
+        val album = Color(0xFFFF8FB4)
+        val app = Color(0xFF005DB8)
+        assertColor(album, GlassPalette.playerAccent(playerAlbumPrimary = album, appPrimary = app))
+        // Player Theme › Accent Color (no player album scheme): the app accent.
+        assertColor(app, GlassPalette.playerAccent(playerAlbumPrimary = null, appPrimary = app))
+    }
+
+    @Test
     fun contentText_isNeverTheAccent() {
         val p = GlassPalette.of(isDark = true, accent = Color(0xFF52B6FF))
         assertNotEquals(p.accent, p.primary)
