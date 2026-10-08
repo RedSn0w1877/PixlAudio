@@ -66,6 +66,9 @@ class PixelPlayApplication : Application(), ImageLoaderFactory, Configuration.Pr
     lateinit var automaticStudioManager: dagger.Lazy<com.theveloper.pixelplay.data.worker.AutomaticStudioManager>
 
     @Inject
+    lateinit var cloudStudioEngine: dagger.Lazy<com.theveloper.pixelplay.data.cloudstudio.CloudStudioEngine>
+
+    @Inject
     lateinit var appUpdateManager: dagger.Lazy<com.theveloper.pixelplay.data.update.AppUpdateManager>
 
     @Inject
@@ -93,11 +96,14 @@ class PixelPlayApplication : Application(), ImageLoaderFactory, Configuration.Pr
             // visible/hidden calls keep their order.
             startupScope.launch(appVisibilityDispatcher) {
                 automaticStudioManager.get().setAppVisible(true)
+                // Cloud Studio watches its jobs every 15 s while the app is on screen (nothing while it's off).
+                cloudStudioEngine.get().setAppVisible(true)
             }
         }
         override fun onStop(owner: LifecycleOwner) {
             startupScope.launch(appVisibilityDispatcher) {
                 automaticStudioManager.get().setAppVisible(false)
+                cloudStudioEngine.get().setAppVisible(false)
             }
         }
     }

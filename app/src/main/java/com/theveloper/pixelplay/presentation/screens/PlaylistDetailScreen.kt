@@ -57,6 +57,7 @@ import androidx.compose.material.icons.filled.RemoveCircleOutline
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.CloudUpload
 import androidx.compose.material.icons.rounded.DragIndicator
 import androidx.compose.material.icons.rounded.FileDownload
 import androidx.compose.material.icons.rounded.PlayArrow
@@ -199,6 +200,8 @@ fun PlaylistDetailScreen(
     val currentPlaylist = uiState.currentPlaylistDetails
     val isFolderPlaylist = currentPlaylist?.id?.startsWith(FOLDER_PLAYLIST_PREFIX) == true
     val songsInPlaylist = uiState.currentPlaylistSongs
+    val cloudStudio: com.theveloper.pixelplay.presentation.viewmodel.CloudStudioViewModel = hiltViewModel()
+    val cloudSettings by cloudStudio.settings.collectAsStateWithLifecycle()
 
     LaunchedEffect(playlistId) {
         playlistViewModel.loadPlaylistDetails(playlistId)
@@ -972,10 +975,30 @@ fun PlaylistDetailScreen(
                         playlistViewModel.instrumentalizeAllSongsInCurrentPlaylist()
                     }
                 )
+                // Cloud Studio: only once Cloud processing is switched on; the confirm sheet comes first (iOS parity).
+                if (cloudSettings.enabled) {
+                    PlaylistActionItem(
+                        icon = rememberVectorPainter(Icons.Rounded.CloudUpload),
+                        label = "Process all in the cloud",
+                        onClick = {
+                            showPlaylistOptionsSheet = false
+                            cloudStudio.requestBatch(
+                                songsInPlaylist,
+                                currentPlaylist?.name ?: fallbackPlaylistName,
+                                com.theveloper.pixelplay.presentation.viewmodel.CloudBatchOrigin.PLAYLIST,
+                            )
+                        }
+                    )
+                }
             }
             }
         }
     }
+
+    com.theveloper.pixelplay.presentation.screens.cloudstudio.CloudConfirmSheetHost(
+        origin = com.theveloper.pixelplay.presentation.viewmodel.CloudBatchOrigin.PLAYLIST,
+        viewModel = cloudStudio,
+    )
 
     if (showEditPlaylistDialog && currentPlaylist != null) {
         val initialShapeType = try {

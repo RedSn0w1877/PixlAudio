@@ -55,7 +55,9 @@ class AutomaticStudioManager @Inject constructor(
     private val engagementDao: EngagementDao,
     private val lyricsAligner: TaisLyricsAligner,
     private val preferences: UserPreferencesRepository,
-    private val environment: AutomaticStudioEnvironment
+    private val environment: AutomaticStudioEnvironment,
+    /** Songs on their way to Cloud Studio are left to it (the iOS `skipsSong` hook). */
+    private val cloudStudio: dagger.Lazy<com.theveloper.pixelplay.data.cloudstudio.CloudStudioEngine>
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val requests = Channel<Unit>(Channel.CONFLATED)
@@ -120,6 +122,14 @@ class AutomaticStudioManager @Inject constructor(
                 }
             }
         }
+    }
+
+    /**
+     * Another producer (Cloud Studio's import) saved new lyrics for [songId]: the lyrics screen reloads them when it
+     * shows that song, exactly as after an automatic lyric sync.
+     */
+    fun noteLyricsUpdated(songId: String) {
+        _lyricsUpdated.tryEmit(songId)
     }
 
     @Synchronized
@@ -241,8 +251,17 @@ class AutomaticStudioManager @Inject constructor(
             _status.value = environment.blockedReason(kinds.first()) ?: "Waiting for suitable conditions"
             return
         }
+        // Cloud Studio's stored jobs are read first, so a song already on its way there is skipped on a cold start too.
+        try {
+            cloudStudio.get().loadForDisplay()
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            Timber.d("Cloud Studio jobs unreadable: %s", error.javaClass.simpleName)
+        }
         for (song in candidates()) {
             if (!AutomaticStudioPolicy.canProcessDuration(song.duration)) continue
+            if (cloudStudio.get().hasPendingJob(song.id)) continue
             val localAudio = AutomaticStudioEnvironment.localAudio(song, audioCacheManager)
             for (kind in allowedKinds) {
                 val now = System.currentTimeMillis()

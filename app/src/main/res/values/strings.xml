@@ -239,6 +239,9 @@
     <string name="settings_lyrics_tap_haptics">Vibrate on each tap</string>
     <string name="lyrics_sync_decrease">Less</string>
     <string name="lyrics_sync_increase">More</string>
+    <!-- Cloud Studio (Settings › Experimental › Cloud processing) -->
+    <string name="cloud_processing_title">Cloud processing</string>
+    <string name="cloud_processing_notification">Sending songs to your RunPod GPU and bringing back the finished ones</string>
 
     <!-- On-device AI (2026-10-08). The ai_on_device_error_* messages must never contain the words
          network, connect, offline, wifi, timeout, key or config: older error tables match those

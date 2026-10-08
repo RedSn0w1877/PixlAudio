@@ -342,6 +342,32 @@ fun AppNavigation(
                 }
             }
             composable(
+                Screen.CloudProcessing.route,
+            ) {
+                ScreenWrapper(navController = navController, playerViewModel = playerViewModel, animatedVisibilityScope = this) {
+                    com.theveloper.pixelplay.presentation.screens.cloudstudio.CloudProcessingSettingsScreen(
+                        onBack = { navController.popBackStack() },
+                        onOpenQueue = { navController.navigate(Screen.CloudQueue.route) },
+                    )
+                }
+            }
+            composable(
+                Screen.CloudQueue.route,
+            ) {
+                ScreenWrapper(navController = navController, playerViewModel = playerViewModel, animatedVisibilityScope = this) {
+                    com.theveloper.pixelplay.presentation.screens.cloudstudio.CloudQueueScreen(
+                        currentSong = { playerViewModel.stablePlayerState.value.currentSong },
+                        onBack = { navController.popBackStack() },
+                        onOpenSettings = {
+                            // Back to the settings screen when the queue was opened from it, else open it.
+                            if (!navController.popBackStack(Screen.CloudProcessing.route, inclusive = false)) {
+                                navController.navigate(Screen.CloudProcessing.route)
+                            }
+                        },
+                    )
+                }
+            }
+            composable(
                 Screen.DailyMixScreen.route,
             ) {
                 ScreenWrapper(navController = navController, playerViewModel = playerViewModel, animatedVisibilityScope = this) {

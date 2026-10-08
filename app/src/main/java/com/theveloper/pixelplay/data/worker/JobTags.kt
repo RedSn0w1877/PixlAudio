@@ -26,6 +26,7 @@ enum class PixelPlayJobKind(val label: String) {
     LYRICS_SYNC("Syncing lyrics"),
     AI_TASK("AI task"),
     AI_DAILY_MIX("Curating Daily Mix"),
+    CLOUD_STUDIO("Cloud processing"),
     UNKNOWN("Working")
 }
 
@@ -37,6 +38,8 @@ enum class PixelPlayJobKind(val label: String) {
 fun WorkInfo.pixelPlayJobKind(): PixelPlayJobKind = when {
     tags.contains(AiDailyMixWorker.WORK_NAME) -> PixelPlayJobKind.AI_DAILY_MIX
     tags.contains(AiWorker.WORK_NAME) -> PixelPlayJobKind.AI_TASK
+    tags.contains(com.theveloper.pixelplay.data.cloudstudio.CloudStudioWorker.PASS_WORK) ||
+        tags.contains(com.theveloper.pixelplay.data.cloudstudio.CloudStudioWorker.WIFI_WORK) -> PixelPlayJobKind.CLOUD_STUDIO
     tags.any { it == SyncWorker.WORK_NAME || it == SyncWorker.PERIODIC_MAINTENANCE_WORK_NAME } ->
         PixelPlayJobKind.LIBRARY_SYNC
     tags.contains(SpotifySyncWorker.WORK_NAME) -> PixelPlayJobKind.SPOTIFY_SYNC
