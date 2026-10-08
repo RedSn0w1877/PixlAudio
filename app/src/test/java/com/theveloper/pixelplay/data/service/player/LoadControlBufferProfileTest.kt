@@ -16,6 +16,19 @@ class LoadControlBufferProfileTest {
     }
 
     @Test
+    fun streamsStartSoonerThanLocalFiles() {
+        // Streaming speed: a streamed song starts after 1 s of audio (Media3's default), a
+        // local file keeps 2.5 s; a rebuffer waits 5 s on both.
+        for (isLowRam in listOf(false, true)) {
+            val profile = loadControlBufferProfileFor(isLowRam)
+
+            assertThat(profile.bufferForPlaybackMs).isEqualTo(1_000)
+            assertThat(profile.localBufferForPlaybackMs).isEqualTo(2_500)
+            assertThat(profile.bufferForPlaybackAfterRebufferMs).isEqualTo(5_000)
+        }
+    }
+
+    @Test
     fun lowRamDevice_cutsPrefetchWindow() {
         val normal = loadControlBufferProfileFor(isLowRamDevice = false)
         val lowRam = loadControlBufferProfileFor(isLowRamDevice = true)
@@ -42,6 +55,7 @@ class LoadControlBufferProfileTest {
 
             // DefaultLoadControl.Builder.build() asserts these; violating them crashes at runtime.
             assertThat(profile.minBufferMs).isAtLeast(profile.bufferForPlaybackMs)
+            assertThat(profile.minBufferMs).isAtLeast(profile.localBufferForPlaybackMs)
             assertThat(profile.minBufferMs).isAtLeast(profile.bufferForPlaybackAfterRebufferMs)
             assertThat(profile.maxBufferMs).isAtLeast(profile.minBufferMs)
         }

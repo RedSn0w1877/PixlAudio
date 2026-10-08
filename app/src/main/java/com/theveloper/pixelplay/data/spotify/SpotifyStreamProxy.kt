@@ -1,6 +1,8 @@
 package com.theveloper.pixelplay.data.spotify
 
+import android.os.SystemClock
 import com.theveloper.pixelplay.data.database.SpotifyDao
+import com.theveloper.pixelplay.data.diagnostics.StreamStartTimings
 import com.theveloper.pixelplay.data.database.SpotifyMatchState
 import com.theveloper.pixelplay.data.youtube.TrackMatcher
 import kotlinx.coroutines.CancellationException
@@ -89,6 +91,16 @@ class SpotifyStreamProxy @Inject constructor(
     private val failuresById = java.util.concurrent.ConcurrentHashMap<String, List<FailedStrategy>>()
     private val matchLocks = Array(32) { Mutex() }
 
+    // Streaming speed R11: a song nothing on YouTube matches is not searched again for 10
+    // minutes; the next-song warm-up re-checks every 60 s and would otherwise run its searches
+    // four times a minute. The stored match is still read first, so a later manual or
+    // background match wins at once. Timeouts and network failures are not remembered.
+    private val noMatchUntilMs = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+    private companion object {
+        const val NO_MATCH_MEMORY_MS = 10 * 60_000L
+    }
+
     override fun onUpstreamFailure(id: String, url: String, status: Int) {
         if (status !in setOf(401, 403, 404, 410)) return
         val strategy = identityByUrl[url]?.strategy ?: return
@@ -114,13 +126,32 @@ class SpotifyStreamProxy @Inject constructor(
     }
 
     override suspend fun resolveStreamUrl(id: String): String? {
+        // R12: how long matching (only when it happens on the spot) and resolving took.
+        var matchMs: Long? = null
         // Playback and offline rendering may start before WorkManager runs. Repair the
         // missing match here, coalescing concurrent requests for the same track.
         val videoId = spotifyDao.getMatchedVideoId(id) ?: matchLocks[(id.hashCode() and Int.MAX_VALUE) % matchLocks.size].withLock {
             spotifyDao.getMatchedVideoId(id) ?: run {
                 val song = spotifyDao.getSongBySpotifyId(id) ?: return@withLock null
                 if (song.matchState == SpotifyMatchState.MANUAL) return@withLock null
-                val match = withTimeoutOrNull(25_000L) { trackMatcher.findMatch(song) } ?: return@withLock null
+                val nowMs = System.currentTimeMillis()
+                if ((noMatchUntilMs[id] ?: 0L) > nowMs) return@withLock null
+                val matchStartedAtMs = SystemClock.elapsedRealtime()
+                var timedOut = true
+                // Fan-out: same video as the background matcher, without waiting for each
+                // search in turn (TrackMatcher.findMatchFanOut).
+                val match = withTimeoutOrNull(25_000L) {
+                    trackMatcher.findMatchFanOut(song).also { timedOut = false }
+                }
+                matchMs = SystemClock.elapsedRealtime() - matchStartedAtMs
+                if (match == null) {
+                    if (!timedOut) {
+                        if (noMatchUntilMs.size > 256) noMatchUntilMs.clear()
+                        noMatchUntilMs[id] = nowMs + NO_MATCH_MEMORY_MS
+                    }
+                    return@withLock null
+                }
+                noMatchUntilMs.remove(id)
                 spotifyDao.updateAutomaticMatch(id, match.videoId, match.score, SpotifyMatchState.MATCHED)
                 spotifyDao.getMatchedVideoId(id)
             }
@@ -142,10 +173,22 @@ class SpotifyStreamProxy @Inject constructor(
         // validate = false: que la única descarga sea la del propio proxy. Comprobar la URL
         // aquí la gastaría (googlevideo la da por usada) y la reproducción real moriría con
         // un 403 justo después.
+        val resolveStartedAtMs = SystemClock.elapsedRealtime()
+        fun reportResolved(url: String, strategy: String?, nTransformMs: Long?) {
+            StreamStartTimings.urlResolved(
+                id = id,
+                matchMs = matchMs,
+                resolveMs = SystemClock.elapsedRealtime() - resolveStartedAtMs,
+                strategy = strategy,
+                nParam = android.net.Uri.parse(url).getQueryParameter("n") != null,
+                nTransformMs = nTransformMs
+            )
+        }
         val excluded = excludedStrategies(id)
         val resolved = streamResolver.resolveStream(videoId, validate = false, excludedStrategies = excluded)
         if (resolved != null) {
             rememberUserAgent(resolved.url, resolved.userAgent, resolved.strategyName)
+            reportResolved(resolved.url, resolved.strategyName, resolved.nTransformMs)
             return resolved.url
         }
         Timber.d("Resolver propio no resolvió $videoId (${streamResolver.lastDetail}); probando Piped")
@@ -153,6 +196,7 @@ class SpotifyStreamProxy @Inject constructor(
         val pipedResolved = if ("Piped" in excluded) null else withTimeoutOrNull(15_000L) { pipedStreamResolver.resolve(videoId) }
         if (pipedResolved != null) {
             rememberUserAgent(pipedResolved.url, pipedResolved.userAgent, "Piped")
+            reportResolved(pipedResolved.url, "Piped", null)
             return pipedResolved.url
         }
         Timber.d("Piped no resolvió $videoId (${pipedStreamResolver.lastDetail}); probando NewPipeExtractor")
@@ -160,6 +204,7 @@ class SpotifyStreamProxy @Inject constructor(
         val newPipeResolved = if ("NewPipe" in excluded) null else withTimeoutOrNull(20_000L) { newPipeStreamResolver.resolve(videoId) }
         if (newPipeResolved != null) {
             rememberUserAgent(newPipeResolved.url, newPipeResolved.userAgent, "NewPipe")
+            reportResolved(newPipeResolved.url, "NewPipe", null)
             return newPipeResolved.url
         }
         Timber.d("NewPipeExtractor no resolvió $videoId (${newPipeStreamResolver.lastDetail})")

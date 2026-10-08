@@ -36,6 +36,16 @@ object PerformanceMetrics {
         const val TRANSITION = "transition"
         const val WIDGET_UPDATE = "widget_update"
         const val MEDIASESSION_ITEM_BUILD = "mediasession_item_build"
+
+        // Streamed-song starts (StreamStartTimings). Aggregates only, never a track id.
+        const val STREAM_START_TAP = "stream_start_tap"
+        const val STREAM_START_SKIP = "stream_start_skip"
+        const val STREAM_START_AUTO = "stream_start_auto"
+        const val STREAM_RESOLVE = "stream_resolve"
+        const val STREAM_MATCH = "stream_match"
+        const val STREAM_UPSTREAM_TTFB = "stream_upstream_ttfb"
+        const val STREAM_PLAYER_FIRST_BYTE = "stream_player_first_byte"
+        const val STREAM_PROXY_FLUSH_GAP = "stream_proxy_flush_gap"
     }
 
     object Counters {

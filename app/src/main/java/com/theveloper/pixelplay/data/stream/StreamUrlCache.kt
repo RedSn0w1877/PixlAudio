@@ -41,6 +41,9 @@ internal class StreamUrlCache<K : Any>(
         }
     }
 
+    /** The cached URL without resolving (diagnostics: was this start a cache hit?). */
+    fun peek(id: K): String? = cached(id)
+
     fun invalidate(id: K) { entries.remove(id) }
     fun clear() { entries.clear() }
 

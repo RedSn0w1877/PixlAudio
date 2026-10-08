@@ -63,6 +63,11 @@
     <string name="service_processing_action">Processing playback action…</string>
     <string name="player_playback_error">Playback error: %1$s</string>
 
+    <!-- Streaming speed: stream-start timings in the Spotify dashboard's Playback test -->
+    <string name="stream_start_timings_title">Recent stream starts</string>
+    <string name="stream_start_timings_explainer">Newest first, in milliseconds: from pressing play (or skipping) to hearing the song, and where the time went.</string>
+    <string name="stream_start_timings_empty">No streamed song has started since the app opened. Play one, then run the test again.</string>
+
     <!-- Common Text & Labels -->
     <string name="common_back">Back</string>
     <string name="common_ok">OK</string>

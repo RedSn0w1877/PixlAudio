@@ -12,6 +12,7 @@ import androidx.media3.session.MediaController
 import com.google.android.gms.cast.framework.media.RemoteMediaClient
 import com.theveloper.pixelplay.R
 import com.theveloper.pixelplay.data.service.cast.CastRemotePlaybackState
+import com.theveloper.pixelplay.data.diagnostics.StreamStartTimings
 import com.theveloper.pixelplay.data.model.Song
 import com.theveloper.pixelplay.data.preferences.UserPreferencesRepository
 import com.theveloper.pixelplay.data.repository.MusicRepository
@@ -884,20 +885,27 @@ class PlaybackDispatchStateHolder @Inject constructor(
     }
 
     /**
-     * Construye el MediaItem y va calentando la resolución del stream, pero **sin escribir
-     * la URL del proxy en el propio item**.
+     * Construye el MediaItem y arranca el proxy local antes de que el reproductor lo abra,
+     * pero **sin escribir la URL del proxy en el propio item**.
      *
      * Esa URL contiene el puerto del servidor local, que cambia en cada arranque. Si se
      * pega al MediaItem acaba viajando a la cola persistida, y al reabrir la app el
      * reproductor se conecta a un puerto que ya no existe. Quien traduce la dirección es
      * el resolver del motor, justo antes de abrirla, cuando el puerto es el bueno.
      *
-     * La llamada sigue mereciendo la pena: deja resuelto y cacheado el enlace de YouTube
-     * —lo verdaderamente lento— para que al pulsar play no haya espera.
+     * Note: this does NOT resolve the YouTube stream (the old comment said it did). It only
+     * looks for a local copy and starts the proxy; the URL is resolved by the proxy when the
+     * player's first request arrives, or earlier by the next-song warm-up in MusicService.
      */
     suspend fun buildResolvedPlaybackMediaItem(song: Song): MediaItem {
         val mediaItem = MediaItemBuilder.build(song)
         val originalUri = mediaItem.localConfiguration?.uri ?: return mediaItem
+        // R12: the tap, so the stream-start line can show request→transition.
+        if (originalUri.scheme == "spotify") {
+            originalUri.toString().removePrefix("spotify://").substringBefore('/').substringBefore('?')
+                .takeIf { it.isNotBlank() }
+                ?.let(StreamStartTimings::requested)
+        }
         runCatching { dualPlayerEngine.resolveCloudUri(originalUri) }
         return mediaItem
     }
