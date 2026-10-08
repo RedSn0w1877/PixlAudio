@@ -41,7 +41,8 @@ up ahead. `match N` = matched on the spot. `n: yes` means base.js is on the star
 - 37771412844: **red**, one compile error (JDK 21's `Deque.reversed()` member shadowed Kotlin's `reversed()`; fixed in c29eda2).
 - 37772332523: green (R12, flush, start buffer, prefetch v2, preload, listening cache).
 - 37773039127: green (+ R11 fan-out, + R8 hedging).
-- 37773888453: green on 1e87236, the last code commit (+ preload bytes fetched). Its `pixlaudio-arm64-debug-apk` artifact is
+- 37773888453: green on 1e87236 (+ preload bytes fetched).
+- 37779156771: green on 472b3c3, the last code commit (the review fixes below). Its `pixlaudio-arm64-debug-apk` artifact is
   the build to test. (This note is docs-only; CI skips handoff/ pushes.)
 - CI doesn't print per-test lines; the unit-test task compiled and ran the whole suite and would fail on any failing test.
 - New unit tests: `StreamStartTimingsTest`, `ProxyBodyWriterTest` (proves on Ktor 3.6.0 that an unflushed 64 KiB write is
@@ -66,8 +67,9 @@ starts" lines (or `adb logcat -s StreamStart`).
 - [ ] Wi-Fi: tap a Spotify song that was never played (not downloaded). It should start noticeably sooner than before. Line shows a small `flush gap`.
 - [ ] Wi-Fi: let it play 20 s, then skip. The next song should start almost at once; its line says `preload: yes` and `url cached`.
 - [ ] Wi-Fi: let a song end on its own. Auto-advance is seamless (`AUTO … preload: yes` or `AUTO 0 ms`).
-- [ ] Turn on crossfade, skip and auto-advance a few times: no glitch, no double audio.
-- [ ] Mobile data (Wi-Fi off): tap and skip again. Note the `KiB fetched` on preloaded starts (owner budget: about 512 KB to 1 MiB per prepared song).
+- [ ] Turn on crossfade, skip and auto-advance a few times: no glitch, no double audio. Crossfaded auto-advances show as `CROSSFADE 0 ms` lines.
+- [ ] Mobile data (Wi-Fi off): tap and skip again. Note the `KiB fetched` on preloaded SKIP/AUTO starts (owner budget: about 512 KB to 1 MiB per prepared song). Ignore it on `CROSSFADE` lines: that is the crossfade deck's own loading.
+- [ ] Skip a song 2 s in while the next one is slow to start (best on mobile data, a never-played song): the skipped song must not show up as cached later.
 - [ ] Data Saver on (phone Settings › Network & internet › Data Saver): play for a minute, skip once. The skipped-to line should say `preload: no`, and PixlAudio's auto-cache size in its storage settings shouldn't grow (no listening-cache download).
 - [ ] Pause for a minute, then play: nothing is prepared while paused; resuming works.
 - [ ] Spotify Connect to the Echo for a minute: the phone shouldn't warm local streams (no new lines while the Echo plays).
@@ -75,6 +77,29 @@ starts" lines (or `adb logcat -s StreamStart`).
 - [ ] A song played for more than 5 s on Wi-Fi shows up as cached later (offline replay still works).
 - [ ] Any `rebuffered within 10 s` lines? Send them; they'd mean the 1 s start buffer is too short on that network.
 - [ ] Send me five TAP and five SKIP lines from Wi-Fi and from 5G. Look at `n:` and the first tap after the app was closed.
+
+## Adversarial review (2026-10-08, commits 5f32b82, 74cfd15, 472b3c3)
+
+Reviewed `git diff origin/main...HEAD` against the plan, DECISIONS and the Android rules. Fixed:
+
+- **Major, listening cache:** a song skipped before its 5 s were up was still downloaded in full when the next song took a
+  while to start (the old check returned early while nothing played, so the skimmed song's wait ran out; on mobile data
+  too). New pure `data/stream/ListeningCacheGate` (tested in `ListeningCacheGateTest`): a wait belongs to its song; a skip,
+  a pause or a local song drops it, a rebuffer keeps it. The download job also re-checks the player before it fires.
+- Pause while a song is still loading changed neither `isPlaying` nor the state, so the preload and warm-up stayed on for up
+  to 60 s. `onPlayWhenReadyChanged` now runs `updateNextStreamPrefetch` too. `onDestroy` switches the engine's preload off
+  (the engine is a singleton; a stale "on" carried over to the next service instance).
+- R8 (flag off): a client ending in its own `CancellationException` left the overlapped race waiting (forever after the last
+  client); it now counts as a failed client (`HedgedRaceTest`). The remote-switch fetch retries in 30 min after an offline
+  failure instead of 6 h.
+- R12: a crossfade swap left the timings on the old song, so the incoming song's loading was later reported as a "preload"
+  of it. The swap now records a `CROSSFADE 0 ms` line. Crossfade lines and starts that waited for the play button (a
+  restored queue) stay out of the `stream_start_*` averages. The byte counter no longer allocates per read, and the Test
+  playback lines are selectable so they can be copied on the phone.
+
+Checked and left as is: the flush helper and its test, the Media3 1.11.1 local-vs-stream buffer split (decided by the
+MediaItem URI scheme, re-checked with javap), the fan-out matcher's equivalence, the Connect gate, `@YouTubeOkHttpClient`
+use (the GitHub fetch uses the default client on purpose), no Room or PlayerViewModel changes, no glass/M3E UI changes.
 
 ## Divergences from iOS (tell the iOS integrator)
 

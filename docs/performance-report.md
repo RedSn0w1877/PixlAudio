@@ -69,7 +69,7 @@ collected *while existing work happens* — there are no extra probes:
 | Artwork decode time + decoded dimensions (piggybacked on the real decode) | `CoilBitmapLoader` |
 | Audio decoder init time, live format (channels / sample rate / bit depth) | `DualPlayerEngine` analytics listener |
 | Playback prepare (buffering→ready), transition/crossfade time | `DualPlayerEngine` |
-| Streamed-song starts: `stream_start_tap` / `_skip` / `_auto` (to first audio), `stream_resolve`, `stream_match`, `stream_upstream_ttfb`, `stream_player_first_byte`, `stream_proxy_flush_gap` | `StreamStartTimings` (fed by `DualPlayerEngine`, `CloudStreamProxy`, `SpotifyStreamProxy`); aggregates only, no track ids |
+| Streamed-song starts: `stream_start_tap` / `_skip` / `_auto` (to first audio; crossfade hand-overs and starts that waited for the play button are left out), `stream_resolve`, `stream_match`, `stream_upstream_ttfb`, `stream_player_first_byte`, `stream_proxy_flush_gap` | `StreamStartTimings` (fed by `DualPlayerEngine`, `CloudStreamProxy`, `SpotifyStreamProxy`); aggregates only, no track ids |
 | Audio offload fallbacks (with reason) | `DualPlayerEngine.disableAudioOffloadForSession` |
 | External controllers (Android Auto / Wear / other) | `MusicService.onConnect` |
 | Widget update time + widget-active flag | `WidgetUpdateManager.updateGlanceWidgets` |
