@@ -90,6 +90,8 @@ class StreamStartTimingsTest {
         StreamStartTimings.playerBytes("current", 500_000)
         StreamStartTimings.playerBytes("next", 300_000)
         StreamStartTimings.playerBytes("next", 212_288)
+        StreamStartTimings.proxyBytesServed("current", 65_536)
+        StreamStartTimings.proxyBytesServed("next", 1_048_576)
 
         at(20_000); StreamStartTimings.begin("next", StreamStartTimings.Kind.SKIP)
         at(20_120); StreamStartTimings.ready()
@@ -99,7 +101,8 @@ class StreamStartTimingsTest {
         assertTrue(record.preloadHit)
         assertEquals(512_288L, record.preloadedBytes)
         assertTrue(record.line().startsWith("SKIP 130 ms"))
-        assertTrue(record.line().contains("preload: yes (500 KiB)"))
+        assertEquals(1_048_576L, record.preloadFetchedBytes)
+        assertTrue(record.line().contains("preload: yes (500 KiB read, 1024 KiB fetched)"))
         assertFalse(StreamStartTimings.recentRecords().last().preloadHit)
     }
 

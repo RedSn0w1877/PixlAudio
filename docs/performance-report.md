@@ -69,6 +69,7 @@ collected *while existing work happens* — there are no extra probes:
 | Artwork decode time + decoded dimensions (piggybacked on the real decode) | `CoilBitmapLoader` |
 | Audio decoder init time, live format (channels / sample rate / bit depth) | `DualPlayerEngine` analytics listener |
 | Playback prepare (buffering→ready), transition/crossfade time | `DualPlayerEngine` |
+| Streamed-song starts: `stream_start_tap` / `_skip` / `_auto` (to first audio), `stream_resolve`, `stream_match`, `stream_upstream_ttfb`, `stream_player_first_byte`, `stream_proxy_flush_gap` | `StreamStartTimings` (fed by `DualPlayerEngine`, `CloudStreamProxy`, `SpotifyStreamProxy`); aggregates only, no track ids |
 | Audio offload fallbacks (with reason) | `DualPlayerEngine.disableAudioOffloadForSession` |
 | External controllers (Android Auto / Wear / other) | `MusicService.onConnect` |
 | Widget update time + widget-active flag | `WidgetUpdateManager.updateGlanceWidgets` |
@@ -115,6 +116,15 @@ Match the symptom to the section:
 - **Slow to start a track / gaps** → **Timings → `playback_prepare`** and
   **`audio_decoder_init`** high; cross-reference **Playback → decoder class =
   software** and hi-res sample rate.
+- **Slow to start a streamed (Spotify → YouTube) song** → **Timings →
+  `stream_start_tap` / `stream_start_skip` / `stream_start_auto`**, then the step
+  timings: `stream_match` high = the song had no YouTube match yet (it was matched on
+  the spot); `stream_resolve` high = the InnerTube client was slow (check VISIONOS
+  against yt-dlp); `stream_upstream_ttfb` high = googlevideo itself was slow;
+  `stream_proxy_flush_gap` above ~50 ms = the local proxy is holding bytes back again.
+  The per-start breakdown (last 8 starts, with `n: yes/no`, the client, retries and
+  whether the song was preloaded) is in the Spotify dashboard → **Test playback** card,
+  and in logcat under `StreamStart`.
 - **Audio drops out mid-track, then recovers** → **Offload events** present and
   **`offloadFallbackCount` > 0**; the reason string says why the HAL reset.
 - **Jank only with crossfade** → **`transition`** timing high while crossfade is

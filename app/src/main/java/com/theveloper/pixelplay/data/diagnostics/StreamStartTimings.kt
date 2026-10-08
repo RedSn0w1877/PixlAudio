@@ -72,6 +72,8 @@ object StreamStartTimings {
         val backgroundRequests: Int = 0,
         val retries: Int = 0,
         val preloadedBytes: Long = 0L,
+        /** What the proxy sent for this song before it started (close to the network cost). */
+        val preloadFetchedBytes: Long = 0L,
         val rebufferedEarly: Boolean = false,
         val error: String? = null
     ) {
@@ -103,7 +105,12 @@ object StreamStartTimings {
             if (backgroundRequests > 0) append(" + ").append(backgroundRequests).append(" background")
             append(", ").append(retries).append(if (retries == 1) " retry" else " retries")
             append(", preload: ")
-            append(if (preloadHit) "yes (${preloadedBytes / 1024} KiB)" else "no")
+            when {
+                !preloadHit -> append("no")
+                preloadFetchedBytes > 0L ->
+                    append("yes (${preloadedBytes / 1024} KiB read, ${preloadFetchedBytes / 1024} KiB fetched)")
+                else -> append("yes (${preloadedBytes / 1024} KiB)")
+            }
             if (rebufferedEarly) append(", rebuffered within 10 s")
             error?.let { append(", error: ").append(it) }
         }
@@ -130,7 +137,8 @@ object StreamStartTimings {
         val kind: Kind,
         val beganAt: Long,
         val requestLeadMs: Long?,
-        val preloadedBytes: Long
+        val preloadedBytes: Long,
+        val preloadFetchedBytes: Long
     ) {
         var playRequestedAt = -1L
         var dataSpecMs: Long? = null
@@ -160,6 +168,7 @@ object StreamStartTimings {
     private var requestedAt = 0L
     private var lastFinishedAt = -1L
     private val preloadBytes = HashMap<String, Long>()
+    private val preloadFetched = HashMap<String, Long>()
     private val records = ArrayDeque<Record>(MAX_RECORDS)
 
     // ─── UI ────────────────────────────────────────────────────────────────
@@ -189,7 +198,7 @@ object StreamStartTimings {
             requestedId = null
             lastFinishedAt = -1L
             currentId = id
-            val started = Open(id, kind, now, lead, preloadBytes.remove(id) ?: 0L)
+            val started = Open(id, kind, now, lead, preloadBytes.remove(id) ?: 0L, preloadFetched.remove(id) ?: 0L)
             if (alreadyPlaying) {
                 started.readyAt = now
                 open = null
@@ -244,6 +253,22 @@ object StreamStartTimings {
             if (id == currentId) return
             if (preloadBytes.size >= MAX_PRELOAD_IDS && id !in preloadBytes) preloadBytes.clear()
             preloadBytes[id] = (preloadBytes[id] ?: 0L) + bytes
+        }
+    }
+
+    /**
+     * The proxy sent [bytes] of [id] for a request that is neither the start being timed nor a
+     * download: ExoPlayer preloading it (or a probe). The proxy reads googlevideo ahead of the
+     * player by up to one 512 KB request plus the loopback buffers, so this is what preparing
+     * a song costs on the network, which the owner's cellular budget is about.
+     */
+    fun proxyBytesServed(id: String, bytes: Int) {
+        synchronized(lock) {
+            val o = currentLocked(clock())
+            if (o != null && o.id == id) return
+            if (id == currentId) return
+            if (preloadFetched.size >= MAX_PRELOAD_IDS && id !in preloadFetched) preloadFetched.clear()
+            preloadFetched[id] = (preloadFetched[id] ?: 0L) + bytes
         }
     }
 
@@ -365,6 +390,7 @@ object StreamStartTimings {
             requestedAt = 0L
             lastFinishedAt = -1L
             preloadBytes.clear()
+            preloadFetched.clear()
             records.clear()
         }
     }
@@ -413,6 +439,7 @@ object StreamStartTimings {
             backgroundRequests = o.backgroundRequests,
             retries = o.retries,
             preloadedBytes = o.preloadedBytes,
+            preloadFetchedBytes = o.preloadFetchedBytes,
             error = o.error
         )
         if (records.size >= MAX_RECORDS) records.pollFirst()

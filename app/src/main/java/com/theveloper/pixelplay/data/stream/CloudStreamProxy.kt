@@ -259,10 +259,8 @@ abstract class CloudStreamProxy<K : Any>(
                     // R12: only the player's first request for the song being started records
                     // step marks; downloads, preloads and probes are just counted.
                     val idText = formatIdForUrl(id)
-                    val tracked = StreamStartTimings.proxyRequest(
-                        idText,
-                        isDownload = call.request.headers[PROXY_PURPOSE_HEADER] == PROXY_PURPOSE_DOWNLOAD
-                    )
+                    val isDownload = call.request.headers[PROXY_PURPOSE_HEADER] == PROXY_PURPOSE_DOWNLOAD
+                    val tracked = StreamStartTimings.proxyRequest(idText, isDownload)
                     try {
                         val urlWasCached = tracked && urlCache.peek(id) != null
                         val urlStartedAtMs = SystemClock.elapsedRealtime()
@@ -399,8 +397,10 @@ abstract class CloudStreamProxy<K : Any>(
                                         upstream.body.byteStream().use { input ->
                                             // Flushes every piece (see ProxyBodyWriter): the
                                             // player gets its first bytes now, not after 1 MiB.
-                                            written = ProxyBodyWriter.copyUpstream(input, channel, chunkLimit) {
+                                            written = ProxyBodyWriter.copyUpstream(input, channel, chunkLimit) { count ->
                                                 if (tracked && !deliveredAnyBytes) StreamStartTimings.proxyFirstBodyByte(idText)
+                                                // Preloads: what preparing an upcoming song costs.
+                                                if (!tracked && !isDownload) StreamStartTimings.proxyBytesServed(idText, count)
                                                 deliveredAnyBytes = true
                                             }
                                         }
