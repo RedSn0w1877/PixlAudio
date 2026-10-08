@@ -207,7 +207,10 @@ fun UnifiedPlayerSheetV2(
     }
     val isRemotePlaybackActive by playerViewModel.isRemotePlaybackActive.collectAsStateWithLifecycle()
 
-    val isFavorite by playerViewModel.isCurrentSongFavorite.collectAsStateWithLifecycle()
+    // The heart goes down as a provider and is read only by the toggle rows, so a tap redraws
+    // those rows instead of recomposing this sheet and its layers (player-controls plan).
+    val isFavoriteState = playerViewModel.isCurrentSongFavorite.collectAsStateWithLifecycle()
+    val isFavoriteProvider = remember(isFavoriteState) { { isFavoriteState.value } }
 
     val playerUiSheetSlice by remember {
         playerViewModel.playerUiState
@@ -858,7 +861,7 @@ fun UnifiedPlayerSheetV2(
                             isSheetDragGestureActive = sheetBackAndDragState.isDraggingPlayerArea,
                             playerViewModel = playerViewModel,
                             currentPositionProvider = positionToDisplayProvider,
-                            isFavorite = isFavorite,
+                            isFavoriteProvider = isFavoriteProvider,
                             shouldRenderFullPlayer = shouldRenderFullPlayer,
                             currentHorizontalPaddingStartPxProvider = currentHorizontalPaddingStartPxProvider,
                             currentHorizontalPaddingEndPxProvider = currentHorizontalPaddingEndPxProvider,
@@ -920,7 +923,7 @@ fun UnifiedPlayerSheetV2(
                     playerViewModel = playerViewModel,
                     currentPositionProvider = positionToDisplayProvider,
                     isCastConnecting = isCastConnecting,
-                    isFavorite = isFavorite,
+                    isFavoriteProvider = isFavoriteProvider,
                     onShowQueueClicked = sheetActionHandlers.openQueueSheet,
                     onQueueDragStart = sheetActionHandlers.beginQueueDrag,
                     onQueueDrag = sheetActionHandlers.dragQueueBy,
