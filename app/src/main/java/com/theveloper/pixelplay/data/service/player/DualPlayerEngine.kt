@@ -167,12 +167,18 @@ internal fun shouldDisableAudioOffloadOnEarlyBuffering(
         !isPostMediaItemTransition
 }
 
-/** ExoPlayer [DefaultLoadControl] buffer durations (ms) for a build of the player. */
+/**
+ * ExoPlayer [DefaultLoadControl] buffer durations (ms) for a build of the player.
+ *
+ * [bufferForPlaybackMs] applies to streams (anything whose MediaItem URI is not a local
+ * scheme, so `spotify://` songs, cached or not); [localBufferForPlaybackMs] to local files.
+ */
 internal data class LoadControlBufferProfile(
     val minBufferMs: Int,
     val maxBufferMs: Int,
     val bufferForPlaybackMs: Int,
-    val bufferForPlaybackAfterRebufferMs: Int
+    val bufferForPlaybackAfterRebufferMs: Int,
+    val localBufferForPlaybackMs: Int = bufferForPlaybackMs
 )
 
 /**
@@ -185,19 +191,25 @@ internal data class LoadControlBufferProfile(
  * still ample for remote streams. Normal-RAM devices are unchanged.
  */
 internal fun loadControlBufferProfileFor(isLowRamDevice: Boolean): LoadControlBufferProfile {
+    // Streams start after 1 s of audio, Media3's own default since 1.5.0
+    // (DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_MS): waiting for 2.5 s of a streamed song
+    // only delayed its first sound. Local files keep 2.5 s, which costs nothing there. A
+    // rebuffer still waits for 5 s, so a slow link doesn't stutter on and off.
     return if (isLowRamDevice) {
         LoadControlBufferProfile(
             minBufferMs = 15_000,
             maxBufferMs = 30_000,
             bufferForPlaybackMs = 1_000,
-            bufferForPlaybackAfterRebufferMs = 5_000
+            bufferForPlaybackAfterRebufferMs = 5_000,
+            localBufferForPlaybackMs = 2_500
         )
     } else {
         LoadControlBufferProfile(
             minBufferMs = 30_000,
             maxBufferMs = 60_000,
             bufferForPlaybackMs = 1_000,
-            bufferForPlaybackAfterRebufferMs = 5_000
+            bufferForPlaybackAfterRebufferMs = 5_000,
+            localBufferForPlaybackMs = 2_500
         )
     }
 }
@@ -1009,16 +1021,16 @@ class DualPlayerEngine @Inject constructor(
     }
 
     /**
-     * Returns a [DefaultLoadControl] tuned to the device's RAM tier.
+     * Returns a [DefaultLoadControl] tuned to the device's RAM tier ([loadControlBufferProfileFor]).
      *
      * Low-RAM devices ([ActivityManager.isLowRamDevice]) receive halved buffer ceilings
      * to prevent memory pressure when both players co-exist during a crossfade.
-     * [bufferForPlaybackMs] is set to ExoPlayer's documented default of 2 500 ms on both
-     * tiers — the previous value of 5 000 ms doubled first-audio latency with no benefit.
+     * Streams start after 1 s of buffered audio and local files after 2.5 s. Media3 tells the
+     * two apart by the MediaItem URI scheme (file/content/asset… are local), so `spotify://`
+     * songs always use the streaming values, even when the resolver serves a cached file.
      */
     private fun buildAdaptiveLoadControl(): DefaultLoadControl {
-        val isLowRam = (context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager)
-            .isLowRamDevice
+        val profile = loadControlBufferProfileFor(isLowRamDevice)
         // setPrioritizeTimeOverSizeThresholds(true): instructs ExoPlayer to use buffered
         // *duration* (not buffered *bytes*) as the criterion for deciding when to start
         // playback and when to stop buffering. This is required for correct behaviour with
@@ -1027,27 +1039,22 @@ class DualPlayerEngine @Inject constructor(
         // Without this flag ExoPlayer falls back to a default byte threshold that was
         // designed for typical compressed audio (~128–320 kbps) and will underperform on
         // files with bitrates above ~1 Mbps.
-        return if (isLowRam) {
-            DefaultLoadControl.Builder()
-                .setBufferDurationsMs(
-                    /* minBufferMs                      */ 15_000,
-                    /* maxBufferMs                      */ 30_000,
-                    /* bufferForPlaybackMs              */  2_500,
-                    /* bufferForPlaybackAfterRebufferMs */  5_000
-                )
-                .setPrioritizeTimeOverSizeThresholds(true)
-                .build()
-        } else {
-            DefaultLoadControl.Builder()
-                .setBufferDurationsMs(
-                    /* minBufferMs                      */ 30_000,
-                    /* maxBufferMs                      */ 60_000,
-                    /* bufferForPlaybackMs              */  2_500,
-                    /* bufferForPlaybackAfterRebufferMs */  5_000
-                )
-                .setPrioritizeTimeOverSizeThresholds(true)
-                .build()
-        }
+        return DefaultLoadControl.Builder()
+            .setBufferDurationsMsForStreaming(
+                profile.minBufferMs,
+                profile.maxBufferMs,
+                profile.bufferForPlaybackMs,
+                profile.bufferForPlaybackAfterRebufferMs
+            )
+            .setBufferDurationsMsForLocalPlayback(
+                profile.minBufferMs,
+                profile.maxBufferMs,
+                profile.localBufferForPlaybackMs,
+                profile.bufferForPlaybackAfterRebufferMs
+            )
+            .setPrioritizeTimeOverSizeThresholdsForStreaming(true)
+            .setPrioritizeTimeOverSizeThresholdsForLocalPlayback(true)
+            .build()
     }
 
     private fun buildPlayer(): ExoPlayer {

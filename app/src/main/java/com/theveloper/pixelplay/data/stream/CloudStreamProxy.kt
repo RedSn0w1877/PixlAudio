@@ -15,7 +15,6 @@ import io.ktor.server.response.respond
 import io.ktor.server.response.respondBytesWriter
 import io.ktor.server.routing.get
 import io.ktor.server.routing.routing
-import io.ktor.utils.io.writeFully
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -384,14 +383,10 @@ abstract class CloudStreamProxy<K : Any>(
                                     response.use { upstream ->
                                         verifyChunk(upstream, position)
                                         upstream.body.byteStream().use { input ->
-                                            val buffer = ByteArray(64 * 1024)
-                                            while (chunkLimit == null || written < chunkLimit) {
-                                                val count = input.read(buffer, 0, minOf(buffer.size.toLong(),
-                                                    chunkLimit?.minus(written) ?: buffer.size.toLong()).toInt())
-                                                if (count < 0) break
-                                                channel.writeFully(buffer, 0, count)
+                                            // Flushes every piece (see ProxyBodyWriter): the
+                                            // player gets its first bytes now, not after 1 MiB.
+                                            written = ProxyBodyWriter.copyUpstream(input, channel, chunkLimit) {
                                                 if (tracked && !deliveredAnyBytes) StreamStartTimings.proxyFirstBodyByte(idText)
-                                                written += count
                                                 deliveredAnyBytes = true
                                             }
                                         }
