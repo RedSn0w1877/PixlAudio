@@ -6,6 +6,7 @@ import android.media.AudioManager
 import android.os.Build
 import android.os.SystemClock
 import android.widget.Toast
+import androidx.annotation.StringRes
 import androidx.compose.runtime.Immutable
 import androidx.media3.common.Player
 import com.theveloper.pixelplay.R
@@ -24,6 +25,7 @@ import com.theveloper.pixelplay.data.repository.LyricsRepository
 import com.theveloper.pixelplay.data.service.player.DualPlayerEngine
 import com.theveloper.pixelplay.data.service.player.InstrumentalCrossfadeController
 import com.theveloper.pixelplay.data.service.player.TransitionController
+import com.theveloper.pixelplay.data.spotify.connect.SpotifyConnectController
 import com.theveloper.pixelplay.presentation.lyrics.model.PreparedLyrics
 import com.theveloper.pixelplay.presentation.lyrics.model.PreparedLyricsBuilder
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -37,6 +39,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -158,6 +161,7 @@ class LyricsSyncEditorStateHolder @Inject constructor(
     private val lyricsStateHolder: LyricsStateHolder,
     private val draftStore: LyricsSyncDraftStore,
     private val preferences: UserPreferencesRepository,
+    private val spotifyConnect: SpotifyConnectController,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
@@ -170,6 +174,20 @@ class LyricsSyncEditorStateHolder @Inject constructor(
     /** Asks the host to show the full player (the editor lives there). */
     private val _expandPlayerRequests = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
     val expandPlayerRequests: SharedFlow<Unit> = _expandPlayerRequests.asSharedFlow()
+
+    /**
+     * Short messages for the app's toast channel (PlayerViewModel forwards them): why the editor
+     * didn't open, or closed, instead of it silently doing nothing.
+     */
+    private val _messageEvents = MutableSharedFlow<String>(
+        extraBufferCapacity = 4,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST
+    )
+    val messageEvents: SharedFlow<String> = _messageEvents.asSharedFlow()
+
+    private fun message(@StringRes res: Int) {
+        _messageEvents.tryEmit(context.getString(res))
+    }
 
     val chipDismissedSongIds: kotlinx.coroutines.flow.Flow<Set<String>> =
         preferences.lyricsSyncChipDismissedSongIdsFlow
@@ -233,16 +251,25 @@ class LyricsSyncEditorStateHolder @Inject constructor(
     /**
      * Opens the editor for [song] from anywhere (e.g. Edit song → "Fix timing"): shows the full
      * player and waits for [song] to be the one playing (the caller starts it) before opening.
+     *
+     * Returns false when it won't open because playback is on another device (Cast or Spotify
+     * Connect): the full player then shows why, and the caller must not start the song, which
+     * would send a different song to the speaker.
      */
-    fun requestOpen(song: Song, entry: SyncEntry) {
+    fun requestOpen(song: Song, entry: SyncEntry): Boolean {
         pendingOpenJob?.cancel()
         _expandPlayerRequests.tryEmit(Unit)
+        remoteOutputMessage()?.let { blocked ->
+            if (_phase.value == SyncPhase.Closed) showBlocked(song, blocked)
+            return false
+        }
         pendingOpenJob = scope.launch {
             val current = withTimeoutOrNull(OPEN_WAIT_MS) {
                 playback.stablePlayerState.map { it.currentSong?.id }.first { it == song.id }
             }
-            if (current != null) open(entry)
+            if (current != null) open(entry) else message(R.string.lyrics_sync_open_timeout)
         }
+        return true
     }
 
     fun isCurrentSong(songId: String): Boolean = playback.stablePlayerState.value.currentSong?.id == songId
@@ -250,20 +277,68 @@ class LyricsSyncEditorStateHolder @Inject constructor(
     /** Opens the editor for the song that is playing now. */
     fun open(entry: SyncEntry = SyncEntry.AUTO) {
         if (_phase.value != SyncPhase.Closed) return
-        val song = playback.stablePlayerState.value.currentSong ?: return
+        val song = playback.stablePlayerState.value.currentSong ?: run {
+            message(R.string.lyrics_sync_no_song)
+            return
+        }
+        remoteOutputMessage()?.let { blocked ->
+            // No session: nothing is paused, sought or sent to the other device.
+            showBlocked(song, blocked)
+            return
+        }
         _uiState.value = SyncUiState(
             songId = song.id,
             title = song.title,
             artist = song.displayArtist,
             artUri = song.albumArtUriString,
         )
-        if (castStateHolder.castSession.value != null) {
-            _phase.value = SyncPhase.Error(context.getString(R.string.lyrics_sync_casting))
-            return
-        }
         _phase.value = SyncPhase.Loading
         startSession(song)
-        jobs += scope.launch { load(song, entry) }
+        val s = session
+        // Watchdog: the Loading screen has no Close button, so a load that hangs or throws (a
+        // DataStore read, a draft that won't decode) shows the Error screen instead of a spinner
+        // until Back, or an uncaught exception in this handler-less scope (an app crash).
+        jobs += scope.launch {
+            val finished = withTimeoutOrNull(LOAD_TIMEOUT_MS) {
+                try {
+                    load(song, entry)
+                    true
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Timber.w(e, "Lyrics sync: couldn't get the song ready")
+                    false
+                }
+            }
+            if (finished == null) Timber.w("Lyrics sync: the song wasn't ready after %d ms", LOAD_TIMEOUT_MS)
+            // Failed, timed out, or ended without picking a screen (still Loading): a dead end.
+            if (session === s && _phase.value == SyncPhase.Loading) {
+                _phase.value = SyncPhase.Error(context.getString(R.string.lyrics_sync_load_failed))
+            }
+        }
+    }
+
+    /**
+     * Why the editor can't run now, or null. Syncing needs this phone's own player: while Cast or
+     * Spotify Connect plays, the transport goes to the other device (opening would pause the
+     * speaker) and the taps would be stamped against the paused local position.
+     */
+    private fun remoteOutputMessage(): String? = when {
+        castStateHolder.castSession.value != null -> context.getString(R.string.lyrics_sync_casting)
+        spotifyConnect.isAttached.value || spotifyConnect.uiState.value.isConnecting ->
+            context.getString(R.string.lyrics_sync_connect)
+        else -> null
+    }
+
+    /** The Error screen with [message] and Close, without a session (Close just resets). */
+    private fun showBlocked(song: Song, message: String) {
+        _uiState.value = SyncUiState(
+            songId = song.id,
+            title = song.title,
+            artist = song.displayArtist,
+            artUri = song.albumArtUriString,
+        )
+        _phase.value = SyncPhase.Error(message)
     }
 
     private fun startSession(song: Song) {
@@ -291,8 +366,14 @@ class LyricsSyncEditorStateHolder @Inject constructor(
                         id == null -> {
                             // The player unloaded (notification close, playback stopped). A brief
                             // null can happen during a queue rebuild, so only close if it stays.
+                            // Closed with a toast, not an in-editor error like iOS: the player
+                            // sheet may hide when it unloads, and an error screen stranded there
+                            // would keep the session (speed, exact timing) and block the next open.
                             delay(UNLOADED_CLOSE_DELAY_MS)
-                            if (session != null) close()
+                            if (session != null) {
+                                close()
+                                message(R.string.lyrics_sync_playback_stopped)
+                            }
                         }
                         id != song.id -> onSongChangedOutside()
                     }
@@ -302,12 +383,11 @@ class LyricsSyncEditorStateHolder @Inject constructor(
             castStateHolder.castSession
                 .map { it != null }
                 .distinctUntilChanged()
-                .collect { casting ->
-                    if (casting && session != null) {
-                        flushDraft()
-                        _phase.value = SyncPhase.Error(context.getString(R.string.lyrics_sync_casting))
-                    }
-                }
+                .collect { casting -> if (casting) onRemoteOutput(R.string.lyrics_sync_casting) }
+        }
+        jobs += scope.launch {
+            // Spotify Connect took over mid-session (a connect still in flight at open).
+            spotifyConnect.isAttached.collect { attached -> if (attached) onRemoteOutput(R.string.lyrics_sync_connect) }
         }
         if (!prunedDrafts) {
             prunedDrafts = true
@@ -355,7 +435,11 @@ class LyricsSyncEditorStateHolder @Inject constructor(
         s.seedDraft = seed.draft
         _uiState.update { it.copy(origin = seed.origin) }
 
-        if (entry == SyncEntry.FIX_TIMING && seed.draft != null) {
+        // "Fix timing" on lyrics with no timed words (a line-timed document) has nothing to
+        // preview (goToPreview returns without a screen, leaving the spinner): start normally.
+        if (entry == SyncEntry.FIX_TIMING && seed.draft != null &&
+            (seed.draft.tappedCount > 0 || seed.draft.tappableCount == 0)
+        ) {
             setDraft(seed.draft, dirty = false)
             goToPreview()
             return
@@ -447,15 +531,48 @@ class LyricsSyncEditorStateHolder @Inject constructor(
         _uiState.value = SyncUiState()
     }
 
+    /**
+     * Playback moved to another device mid-session: stop everything that pauses, seeks or plays
+     * and show why. Never pause() or seekTo() here: through the MediaController they would reach
+     * the Spotify Connect speaker the user just picked. The session stays open, so Close still
+     * restores speed, exact timing, crossfades and the instrumental.
+     */
+    private fun onRemoteOutput(@StringRes res: Int) {
+        if (session == null || _phase.value is SyncPhase.Error) return
+        listOf(undoSeekJob, finishJob, fixLineReturnJob, previewJob, previewSeekJob, searchJob).forEach { it?.cancel() }
+        // Also the song watcher and a load still running (this collector is one of them; its
+        // cancellation only takes effect at its next suspension).
+        val running = jobs.toList()
+        jobs.clear()
+        running.forEach { it.cancel() }
+        flushDraft()
+        _uiState.update { it.copy(dialog = SyncDialog.NONE, notice = null) }
+        _phase.value = SyncPhase.Error(context.getString(res))
+    }
+
     /** The host went to the background: pause and keep the taps. */
     fun onHostStopped() {
         if (session == null) return
-        pause()
+        // On the error screen nothing plays for the editor any more, and under Spotify Connect a
+        // pause would go to the speaker.
+        if (_phase.value !is SyncPhase.Error) pause()
         flushDraft()
     }
 
+    /**
+     * The player collapsed with the editor open (PlayerViewModel's safety net): end it, keeping
+     * the taps as a draft, and say so when there were any.
+     */
+    fun endForHostCollapse() {
+        val s = session
+        val hadTaps = s != null && s.dirty && !s.saved && (draft?.tappedCount ?: 0) > 0
+        onHostStopped()
+        close()
+        if (hadTaps) message(R.string.lyrics_sync_ended_kept)
+    }
+
     private fun onSongChangedOutside() {
-        if (session == null || _phase.value == SyncPhase.Closed) return
+        if (session == null || _phase.value == SyncPhase.Closed || _phase.value is SyncPhase.Error) return
         pause()
         flushDraft()
         _uiState.update { it.copy(dialog = SyncDialog.SONG_CHANGED) }
@@ -511,17 +628,30 @@ class LyricsSyncEditorStateHolder @Inject constructor(
     fun removeMyTiming() {
         val s = session ?: return
         scope.launch {
-            try {
+            val removed = try {
                 lyricsRepository.resetLyrics(s.song)
-                draftStore.delete(s.song.id)
+                true
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 Timber.w(e, "Lyrics sync: could not remove the user's timing")
+                false
+            }
+            if (!removed) {
+                // Before, a failure closed the editor as if it had worked. Stay, and say so.
+                message(R.string.lyrics_sync_remove_failed)
+                return@launch
+            }
+            try {
+                draftStore.delete(s.song.id)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Timber.w(e, "Lyrics sync: could not delete the draft")
             }
             s.saved = true
             val song = s.song
-            close()
+            if (session === s) close()
             lyricsStateHolder.loadLyricsForSong(song, preferences.lyricsSourcePreferenceFlow.first())
         }
     }
@@ -1058,6 +1188,8 @@ class LyricsSyncEditorStateHolder @Inject constructor(
         val SPEEDS = listOf(1f, 0.75f, 0.5f)
         const val INTRO_SHOW_COUNT = 2
         private const val OPEN_WAIT_MS = 8_000L
+        /** How long Loading may take before the Error screen (same as [OPEN_WAIT_MS], iOS `openWaitMs`). */
+        internal const val LOAD_TIMEOUT_MS = 8_000L
         private const val UNLOADED_CLOSE_DELAY_MS = 600L
         private const val DRAFT_SAVE_DELAY_MS = 1_000L
         private const val FIX_LINE_RETURN_MS = 1_000L

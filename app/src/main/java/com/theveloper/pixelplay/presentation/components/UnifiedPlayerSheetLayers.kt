@@ -19,7 +19,6 @@ import com.kyant.backdrop.backdrops.emptyBackdrop
 import com.theveloper.pixelplay.ui.glass.LocalGlassBackdrop
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -62,7 +61,7 @@ internal fun BoxScope.UnifiedPlayerMiniAndFullLayers(
     isSheetDragGestureActive: Boolean = false,
     playerViewModel: PlayerViewModel,
     currentPositionProvider: () -> Long,
-    isFavorite: Boolean,
+    isFavoriteProvider: () -> Boolean,
     shouldRenderFullPlayer: Boolean = true,
     currentHorizontalPaddingStartPxProvider: () -> Float,
     currentHorizontalPaddingEndPxProvider: () -> Float,
@@ -218,12 +217,8 @@ internal fun BoxScope.UnifiedPlayerMiniAndFullLayers(
                     .zIndex(fullPlayerZIndex)
                     .offset { fullPlayerOffset }
             ) {
-                val latestIsFavorite = rememberUpdatedState(isFavorite)
                 val expansionFractionProvider = remember(playerContentExpansionFraction) {
                     { playerContentExpansionFraction.value }
-                }
-                val isFavoriteProvider = remember {
-                    { latestIsFavorite.value }
                 }
                 val onPlayPause = remember(playerViewModel) { playerViewModel::playPause }
                 val onSeek = remember(playerViewModel) { playerViewModel::seekTo }
@@ -306,7 +301,7 @@ internal fun UnifiedPlayerPrewarmLayer(
     playerViewModel: PlayerViewModel,
     currentPositionProvider: () -> Long,
     isCastConnecting: Boolean,
-    isFavorite: Boolean,
+    isFavoriteProvider: () -> Boolean,
     onShowQueueClicked: () -> Unit,
     onQueueDragStart: () -> Unit,
     onQueueDrag: (Float) -> Unit,
@@ -329,8 +324,6 @@ internal fun UnifiedPlayerPrewarmLayer(
         ) {
             // Memoize closures the same way the main layer does to avoid creating
             // new lambda instances on every recomposition.
-            val latestIsFavorite = rememberUpdatedState(isFavorite)
-            val isFavoriteProvider = remember { { latestIsFavorite.value } }
             val onPlayPause = remember(playerViewModel) { playerViewModel::playPause }
             val onSeek = remember(playerViewModel) { playerViewModel::seekTo }
             val onNext = remember(playerViewModel) { playerViewModel::nextSong }

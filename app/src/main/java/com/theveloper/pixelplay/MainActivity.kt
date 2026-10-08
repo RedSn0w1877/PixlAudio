@@ -70,7 +70,9 @@ import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -240,6 +242,23 @@ class MainActivity : ComponentActivity() {
         }
         super.onCreate(savedInstanceState)
         requestHighestRefreshRate()
+
+        // Spotify Connect volume keys (owner decision 2026-10-07): while a speaker that takes them
+        // plays, this window's volume keys go straight to the MediaSession, whose remote volume
+        // drives the speaker 5 % per press. Android routes keys to a remote session by itself only
+        // while it plays; this also covers a paused speaker while the app is open. A platform
+        // MediaController is not a Media3 controller, so it adds no queue serialisation (see onStart).
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                try {
+                    playerViewModel.spotifyConnect.volumeKeySessionToken.collect { token ->
+                        setMediaController(token?.let { android.media.session.MediaController(this@MainActivity, it) })
+                    }
+                } finally {
+                    setMediaController(null)
+                }
+            }
+        }
 
         // Keep the splash only until the startup snapshot (theme, setup gate, start tab) is read,
         // so the first frame the user sees is the real one at full opacity, never a blank or a

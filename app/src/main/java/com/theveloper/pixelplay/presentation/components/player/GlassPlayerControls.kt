@@ -24,13 +24,22 @@ import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
@@ -200,67 +209,73 @@ internal fun GlassPlayerCollapseButton(onCollapse: () -> Unit) {
 }
 
 /**
- * The full player's top-bar actions in glass mode: the output pill (cast / Bluetooth / phone,
- * with the route name while casting) and the queue orb. Same routes and labels as the Material 3
- * buttons, drawn as NexHome's light capsule and orb. Two glass nodes.
+ * The full player's output pill in glass mode: NexHome's light capsule with the output's icon,
+ * plus its name for anything but the phone's own speaker ([FullPlayerTopActions] decides the
+ * content; Material 3 draws the same in its split button). No width cap: the caller's
+ * weight(fill = false) lets a long name use the width the collapse orb leaves, then ellipsize.
  */
 @Composable
-internal fun GlassPlayerTopActions(
-    isCastConnecting: Boolean,
-    isRemotePlaybackActive: Boolean,
-    selectedRouteName: String?,
-    isBluetoothEnabled: Boolean,
-    bluetoothName: String?,
-    onCastClick: () -> Unit,
-    onQueueClick: () -> Unit,
+internal fun GlassPlayerOutputPill(
+    output: PlayerOutputUi,
+    label: String?,
+    spoken: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    Row(
-        modifier = Modifier.padding(end = 14.dp),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        verticalAlignment = Alignment.CenterVertically,
+    GlassPlayerPill(
+        onClick = onClick,
+        modifier = modifier.semantics {
+            contentDescription = spoken
+            role = Role.Button
+        },
     ) {
-        val showCastLabel = isCastConnecting || (isRemotePlaybackActive && selectedRouteName != null)
-        val isBluetoothActive =
-            isBluetoothEnabled && !bluetoothName.isNullOrEmpty() && !isRemotePlaybackActive && !isCastConnecting
-        val castIcon = when {
-            isCastConnecting || isRemotePlaybackActive -> R.drawable.rounded_cast_24
-            isBluetoothActive -> R.drawable.rounded_bluetooth_24
-            else -> R.drawable.rounded_mobile_speaker_24
-        }
-        val castDescription = when {
-            isCastConnecting || isRemotePlaybackActive -> stringResource(R.string.player_cd_cast)
-            isBluetoothActive -> stringResource(R.string.player_cd_bluetooth)
-            else -> stringResource(R.string.player_cd_local_playback)
-        }
-        GlassPlayerPill(onClick = onCastClick, modifier = Modifier.widthIn(max = 190.dp)) {
-            Icon(painterResource(castIcon), contentDescription = castDescription, modifier = Modifier.size(GlassOrbIconSize))
-            AnimatedVisibility(visible = showCastLabel) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        text = when {
-                            isCastConnecting -> stringResource(R.string.player_connecting)
-                            isRemotePlaybackActive && selectedRouteName != null -> selectedRouteName
-                            else -> ""
-                        },
-                        style = GlassType.Label,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+        Icon(output.iconPainter(), contentDescription = null, modifier = Modifier.size(GlassOrbIconSize))
+        AnimatedVisibility(visible = label != null) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = label.orEmpty(),
+                    style = GlassType.Label,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier
+                        .weight(1f, fill = false)
+                        .clearAndSetSemantics { },
+                )
+                if (output.isConnecting) {
+                    Spacer(Modifier.width(10.dp))
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(14.dp),
+                        strokeWidth = 2.dp,
+                        color = LocalContentColor.current,
+                    )
+                } else if (output.isRemote) {
+                    Spacer(Modifier.width(10.dp))
+                    Box(
+                        Modifier
+                            .size(8.dp)
+                            .clip(CircleShape)
+                            .background(LocalGlassPalette.current.accent)
                     )
                 }
             }
         }
-        GlassCircleAction(
-            onClick = onQueueClick,
-            size = 42.dp,
-            contentDescription = stringResource(R.string.player_cd_open_queue),
-        ) {
-            Icon(
-                painterResource(R.drawable.rounded_queue_music_24),
-                contentDescription = null,
-                modifier = Modifier.size(GlassOrbIconSize)
-            )
-        }
+    }
+}
+
+/** The full player's queue button in glass mode: NexHome's 42 dp top-bar orb. */
+@Composable
+internal fun GlassPlayerQueueOrb(onQueueClick: () -> Unit) {
+    GlassCircleAction(
+        onClick = onQueueClick,
+        size = 42.dp,
+        contentDescription = stringResource(R.string.player_cd_open_queue),
+    ) {
+        Icon(
+            painterResource(R.drawable.rounded_queue_music_24),
+            contentDescription = null,
+            modifier = Modifier.size(GlassOrbIconSize)
+        )
     }
 }
 

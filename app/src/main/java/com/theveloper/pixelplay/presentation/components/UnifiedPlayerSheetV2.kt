@@ -86,6 +86,7 @@ import com.theveloper.pixelplay.presentation.components.scoped.rememberSheetVisu
 import com.theveloper.pixelplay.presentation.viewmodel.PlayerSheetState
 import com.theveloper.pixelplay.presentation.viewmodel.PlayerViewModel
 import com.theveloper.pixelplay.presentation.viewmodel.StablePlayerState
+import com.theveloper.pixelplay.presentation.viewmodel.SyncPhase
 import com.theveloper.pixelplay.ui.glass.LocalGlassModeEnabled
 import com.theveloper.pixelplay.ui.glass.GlassPressIndication
 import com.theveloper.pixelplay.ui.glass.glassPressSwell
@@ -206,7 +207,10 @@ fun UnifiedPlayerSheetV2(
     }
     val isRemotePlaybackActive by playerViewModel.isRemotePlaybackActive.collectAsStateWithLifecycle()
 
-    val isFavorite by playerViewModel.isCurrentSongFavorite.collectAsStateWithLifecycle()
+    // The heart goes down as a provider and is read only by the toggle rows, so a tap redraws
+    // those rows instead of recomposing this sheet and its layers (player-controls plan).
+    val isFavoriteState = playerViewModel.isCurrentSongFavorite.collectAsStateWithLifecycle()
+    val isFavoriteProvider = remember(isFavoriteState) { { isFavoriteState.value } }
 
     val playerUiSheetSlice by remember {
         playerViewModel.playerUiState
@@ -567,6 +571,15 @@ fun UnifiedPlayerSheetV2(
     LaunchedEffect(showQueueSheet) {
         playerViewModel.updateQueueSheetVisibility(showQueueSheet)
     }
+    // The tap-sync editor is drawn inside the full player, under the queue sheet: opening it
+    // from the queue (row ⋮ → song info → Edit song → Fix timing) would start it unseen, with the
+    // music jumping behind the queue. Take the queue down when it opens.
+    val lyricsSyncEditorOpen by remember(playerViewModel) {
+        playerViewModel.lyricsSyncEditor.phase.map { it != SyncPhase.Closed }
+    }.collectAsStateWithLifecycle(initialValue = false)
+    LaunchedEffect(lyricsSyncEditorOpen) {
+        if (lyricsSyncEditorOpen && showQueueSheet) sheetActionHandlers.animateQueueSheet(false)
+    }
     LaunchedEffect(castSheetState.showCastSheet) {
         playerViewModel.updateCastSheetVisibility(castSheetState.showCastSheet)
     }
@@ -848,7 +861,7 @@ fun UnifiedPlayerSheetV2(
                             isSheetDragGestureActive = sheetBackAndDragState.isDraggingPlayerArea,
                             playerViewModel = playerViewModel,
                             currentPositionProvider = positionToDisplayProvider,
-                            isFavorite = isFavorite,
+                            isFavoriteProvider = isFavoriteProvider,
                             shouldRenderFullPlayer = shouldRenderFullPlayer,
                             currentHorizontalPaddingStartPxProvider = currentHorizontalPaddingStartPxProvider,
                             currentHorizontalPaddingEndPxProvider = currentHorizontalPaddingEndPxProvider,
@@ -910,7 +923,7 @@ fun UnifiedPlayerSheetV2(
                     playerViewModel = playerViewModel,
                     currentPositionProvider = positionToDisplayProvider,
                     isCastConnecting = isCastConnecting,
-                    isFavorite = isFavorite,
+                    isFavoriteProvider = isFavoriteProvider,
                     onShowQueueClicked = sheetActionHandlers.openQueueSheet,
                     onQueueDragStart = sheetActionHandlers.beginQueueDrag,
                     onQueueDrag = sheetActionHandlers.dragQueueBy,

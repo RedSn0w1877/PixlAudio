@@ -30,7 +30,18 @@ data class SpotifyConnectSessionState(
     /** Whether PixlAudio's queue has more to play after the window. */
     val hasMoreAfterWindow: Boolean = false,
     /** The URI for which the next window was already requested (once per arrival at the window's end). */
-    val extendedAtUri: String? = null
+    val extendedAtUri: String? = null,
+    /**
+     * Until then polls keep the volume PixlAudio set: the device may not have applied the last
+     * `PUT` yet, and a burst of key presses steps from the local value, not from a stale poll.
+     */
+    val volumeHoldUntilMs: Long = 0L,
+    /**
+     * The device refused a volume command (`VOLUME_CONTROL_DISALLOW`) although it reports
+     * `supports_volume`: no volume control for the rest of the session, whatever later polls and
+     * device lists say (else every poll would offer it again and every press would fail again).
+     */
+    val volumeRefused: Boolean = false
 ) {
     /** The queue index playing now. */
     val queueIndex: Int? get() = window.queueIndices.getOrNull(windowPosition)
@@ -97,8 +108,18 @@ object SpotifyConnectReducer {
     /** Grace after starting a session (the device may have to wake up and buffer). */
     const val START_GRACE_MS = 6_000L
 
-    /** Folds a poll (`null` = 204, nothing playing) into [state]. */
-    fun apply(poll: SpotifyPlaybackSnapshot?, state: SpotifyConnectSessionState, nowMs: Long): SpotifyConnectReduction {
+    /**
+     * Folds a poll (`null` = 204, nothing playing) into [state]. [volumeSending]: a volume change is
+     * still waiting to go out or on its way, so the poll's volume is older than the one shown; it is
+     * held however long that takes (a 429 can outlast [SpotifyConnectVolume.HOLD_MS], and a press
+     * after it would otherwise step from the device's old value).
+     */
+    fun apply(
+        poll: SpotifyPlaybackSnapshot?,
+        state: SpotifyConnectSessionState,
+        nowMs: Long,
+        volumeSending: Boolean = false
+    ): SpotifyConnectReduction {
         val inGrace = nowMs < state.graceUntilMs
         fun result(change: SpotifyConnectPollOutcome.Change, s: SpotifyConnectSessionState = state, next: Boolean = false) =
             SpotifyConnectReduction(s, SpotifyConnectPollOutcome(change, next))
@@ -142,12 +163,13 @@ object SpotifyConnectReducer {
             if (change == SpotifyConnectPollOutcome.Change.None) change = SpotifyConnectPollOutcome.Change.Updated
         }
         val volume = poll.device?.volumePercent
-        if (volume != null && volume != s.volumePercent) {
+        // Not over a value PixlAudio just set (the poll may predate the last `PUT`) or still has to send.
+        if (volume != null && volume != s.volumePercent && nowMs >= s.volumeHoldUntilMs && !volumeSending) {
             s = s.copy(volumePercent = volume)
             if (change == SpotifyConnectPollOutcome.Change.None) change = SpotifyConnectPollOutcome.Change.Updated
         }
         val supports = poll.device?.supportsVolume
-        if (supports != null && supports != s.supportsVolume) {
+        if (supports != null && !s.volumeRefused && supports != s.supportsVolume) {
             s = s.copy(supportsVolume = supports)
             if (change == SpotifyConnectPollOutcome.Change.None) change = SpotifyConnectPollOutcome.Change.Updated
         }
@@ -193,6 +215,22 @@ object SpotifyConnectReducer {
         extendedAtUri = null,
         graceUntilMs = nowMs + grace
     )
+
+    /** A local volume change: shown at once and held against polls for [SpotifyConnectVolume.HOLD_MS]. */
+    fun setVolume(percent: Int, state: SpotifyConnectSessionState, nowMs: Long): SpotifyConnectSessionState =
+        state.copy(volumePercent = percent.coerceIn(0, 100), volumeHoldUntilMs = nowMs + SpotifyConnectVolume.HOLD_MS)
+
+    /** The device accepted a volume `PUT`: polls keep the value a little longer (never shorter). */
+    fun volumeSent(state: SpotifyConnectSessionState, nowMs: Long): SpotifyConnectSessionState =
+        state.copy(volumeHoldUntilMs = maxOf(state.volumeHoldUntilMs, nowMs + SpotifyConnectVolume.HOLD_AFTER_SEND_MS))
+
+    /** The device refused a volume command: no volume control until the session ends. */
+    fun refuseVolume(state: SpotifyConnectSessionState): SpotifyConnectSessionState =
+        state.copy(volumeRefused = true, supportsVolume = false)
+
+    /** Whether a device that reports `supports_volume` takes volume commands in this session. */
+    fun supportsVolume(reported: Boolean, state: SpotifyConnectSessionState?): Boolean =
+        reported && state?.volumeRefused != true
 
     fun setPlaying(playing: Boolean, state: SpotifyConnectSessionState, nowMs: Long): SpotifyConnectSessionState =
         state.copy(

@@ -184,6 +184,8 @@ class MusicService : MediaLibraryService() {
     lateinit var appScope: CoroutineScope
     @Inject
     lateinit var spotifyConnectController: com.theveloper.pixelplay.data.spotify.connect.SpotifyConnectController
+    @Inject
+    lateinit var mediaSessionTokenHolder: MediaSessionTokenHolder
 
     /**
      * The MediaSession's player while a Spotify Connect session runs (wrapping the local player,
@@ -988,6 +990,8 @@ class MusicService : MediaLibraryService() {
             .setSessionActivity(getOpenAppPendingIntent())
             .setBitmapLoader(CoilBitmapLoader(this, serviceScope))
             .build()
+        // MainActivity pins its window's volume keys to this session during Spotify Connect.
+        mediaSessionTokenHolder.publish(mediaSession?.platformToken)
 
         val localOnlyProvider = LocalOnlyMediaNotificationProvider(this).also {
             it.setSmallIcon(R.drawable.monochrome_player)
@@ -1701,6 +1705,7 @@ class MusicService : MediaLibraryService() {
         mediaSession?.player?.removeListener(playerListener)
         engine.masterPlayer.removeListener(playerListener)
 
+        mediaSessionTokenHolder.publish(null)
         mediaSession?.run {
             release()
             mediaSession = null
