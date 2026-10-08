@@ -74,17 +74,36 @@ Performance notes:
   - `AccentColorTest`: hex normalise, presets, HSV round trip, check-mark colour.
   - `ThemePreferencesRepositoryTest`: default, normalise, key removal, junk, and a backup round trip through `GlobalSettingsModuleHandler`. It also checks that an old backup restores to Dynamic.
   - `GlassPaletteTest`: the `rootAccent` / `playerAccent` rules.
+- Later green runs on the same branch: [37754391597](https://github.com/RedSn0w1877/PixlAudio/actions/runs/37754391597) @ `5311de4` (picker smoothness, glass button label, `ThemeStateHolderAccentTest`) and [37766739875](https://github.com/RedSn0w1877/PixlAudio/actions/runs/37766739875) @ `8a28dba` (the review fixes below). Each ran all four steps above.
 - CI doesn't upload test reports on success. So the record shows that the test task passed with these classes compiled in; it doesn't list them one by one.
 - **Earlier in the session:** before writing the tests, I computed the pinned colours, the 4.5:1 sweep and the TonalSpot surface equality with plain `javac` against the real MDC 1.14.0 jar from the Gradle cache. There were no failures.
+
+## Review (second pass, 2026-10-08)
+
+A strict review of `git diff origin/main...HEAD` against the plan, DECISIONS and the Android rules. No blockers or majors were found:
+- the accent and its scheme are built off the main thread;
+- the widget/watch path runs on `Dispatchers.Default`;
+- the player keeps its album colours in both styles;
+- no backdrop is layered on an ancestor of a glass reader;
+- there are no Room, OkHttp or Spotify changes.
+
+Three small fixes went in (`8a28dba`):
+- **The swatch ring is right from the first frame.** Opening Appearance used to ring Dynamic for a frame and then jump to your accent. The row now starts from the accent the app already resolved (`SettingsViewModel.accentColor`).
+- **"Use color" saves exactly the hex in the field.** Before, it re-converted the HSV, so a typed preset hex could in theory land one step off and select Custom instead of the preset.
+- **No formatter on every drag step.** `AccentColor.toHex` builds the hex by hand. A new test checks it against `String.format` for 2,000 random colours and a round trip.
+
+One thing for Hoa to confirm: DECISIONS says "default stays today's soft PixlAudio violet". That was written for iOS. On Android, today's default is Material You, so this branch keeps **Dynamic** as the default (the plan's recommendation). If you want violet as Android's default too, it's a small follow-up: the empty value would mean #6C4FF5, and Dynamic would get its own stored value.
 
 ## Nothing has run on a phone. Checklist for the Pixel 10 Pro
 
 - [ ] Settings › Appearance shows **Accent Color** under App Theme. Check Material 3 mode and glass mode, light and dark.
+- [ ] With an accent picked, open Appearance: the ring is already on your accent, with no jump from Dynamic.
 - [ ] Tap each preset: the app recolours at once (buttons, switches, sliders, the navigation bar), with no stutter. **Dynamic** brings back the wallpaper colours.
 - [ ] Graphite looks grey, and text stays readable. The dark-mode pastels look OK.
 - [ ] **Custom:**
   - [ ] dragging the panel and the hue bar moves the thumbs, and the sheet stays put;
   - [ ] typing a hex works, and a bad one shows the hint;
+  - [ ] typing a preset's hex (e.g. #FF453A) and tapping **Use color** puts the check on Red, not on Custom;
   - [ ] **Use color** applies and **Cancel** doesn't;
   - [ ] the Custom swatch then shows your colour with a check.
 - [ ] With an accent picked and Player Theme › Album Art, the mini player, full player, lyrics and queue keep the **album colours** (Material and glass).
