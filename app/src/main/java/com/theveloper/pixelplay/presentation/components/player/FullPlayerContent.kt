@@ -1,6 +1,8 @@
 package com.theveloper.pixelplay.presentation.components.player
 
 import com.kyant.shapes.RoundedRectangle
+import com.theveloper.pixelplay.ui.glass.GlassCircleAction
+import com.theveloper.pixelplay.ui.glass.GlassPillShape
 import com.theveloper.pixelplay.ui.glass.LocalGlassModeEnabled
 import com.theveloper.pixelplay.ui.glass.components.GlassPanel
 import com.theveloper.pixelplay.ui.glass.controls.MediaScrubber
@@ -1726,6 +1728,11 @@ private fun SongMetadataDisplaySection(
         }.collectAsStateWithLifecycle(initialValue = playerViewModel.stablePlayerState.value.isBuffering)
 
 
+        // Liquid Glass mode: the row's chips are glass circles (NexHome's light orb, sampling the
+        // root ambient like the rest of the player's glass) instead of solid onAccent fills.
+        // Static at rest: their lenses re-render only while the player sheet moves.
+        val glassChips = LocalGlassModeEnabled.current
+
         AnimatedVisibility(
             visible = isBuffering,
             enter = scaleIn(
@@ -1753,13 +1760,35 @@ private fun SongMetadataDisplaySection(
                 )
             )
         ) {
+            if (glassChips) {
+                // A non-interactive clear glass circle around the indicator.
+                val palette = LocalGlassPalette.current
+                GlassPanel(
+                    modifier = Modifier.padding(end = 8.dp),
+                    shape = CircleShape,
+                    tint = palette.tintSubtle,
+                    showHighlight = false,
+                    refractionHeight = 16.dp,
+                    refractionAmount = 32.dp,
+                ) {
+                    Box(
+                        modifier = Modifier.padding(10.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        LoadingIndicator(
+                            modifier = Modifier.size(28.dp),
+                            color = palette.primary
+                        )
+                    }
+                }
+            } else
             Surface(
                 shape = CircleShape,
                 color = chipColor,
                 modifier = Modifier.padding(end = 8.dp)
             ) {
                 Box(
-                    modifier = Modifier.padding(10.dp), 
+                    modifier = Modifier.padding(10.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     LoadingIndicator(
@@ -1770,7 +1799,27 @@ private fun SongMetadataDisplaySection(
             }
         }
 
-        if (showQueueButton) {
+        if (showQueueButton && glassChips) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                GlassCircleAction(
+                    onClick = onClickLyrics,
+                    size = 48.dp,
+                    contentDescription = stringResource(R.string.common_lyrics)
+                ) {
+                    Icon(painter = painterResource(R.drawable.rounded_lyrics_24), contentDescription = null)
+                }
+                GlassCircleAction(
+                    onClick = onClickQueue,
+                    size = 48.dp,
+                    contentDescription = stringResource(R.string.player_cd_open_queue)
+                ) {
+                    Icon(painter = painterResource(R.drawable.rounded_queue_music_24), contentDescription = null)
+                }
+            }
+        } else if (showQueueButton) {
             Row(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -1818,6 +1867,14 @@ private fun SongMetadataDisplaySection(
                     )
                 }
             }
+        } else if (glassChips) {
+            GlassCircleAction(
+                onClick = onClickLyrics,
+                size = 48.dp,
+                contentDescription = stringResource(R.string.common_lyrics)
+            ) {
+                Icon(painter = painterResource(R.drawable.rounded_lyrics_24), contentDescription = null)
+            }
         } else {
             // Portrait Mode: Just the Lyrics button (Queue is in TopBar)
             FilledIconButton(
@@ -1839,6 +1896,19 @@ private fun SongMetadataDisplaySection(
         // Taizo — TAIS Engine 3's on-device DJ. Same 48dp footprint and monochrome chipColor/
         // chipContentColor styling as the Lyrics button so it reads as a sibling action, not a
         // rainbow afterthought.
+        if (glassChips) {
+            GlassCircleAction(
+                onClick = onClickTaizo,
+                size = 48.dp,
+                contentDescription = "Ask Taizo"
+            ) {
+                Icon(
+                    imageVector = androidx.compose.material.icons.Icons.Rounded.AutoAwesome,
+                    contentDescription = null,
+                    modifier = Modifier.size(22.dp)
+                )
+            }
+        } else
         Box(
             modifier = Modifier
                 .size(48.dp)
@@ -2297,7 +2367,34 @@ private fun EfficientTimeLabels(
             )
         }
 
-        if (!audioMetaLabel.isNullOrBlank()) {
+        if (!audioMetaLabel.isNullOrBlank() && LocalGlassModeEnabled.current) {
+            // Liquid Glass mode: a small clear glass capsule (NexHome LiquidChip's 6 / 12 lens,
+            // no glint) instead of a tinted fill. Its glass is built once: the per-second label
+            // recomposition above never touches it.
+            val palette = LocalGlassPalette.current
+            GlassPanel(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .padding(horizontal = 58.dp),
+                shape = GlassPillShape,
+                tint = palette.tintSubtle,
+                showHighlight = false,
+                refractionHeight = 12.dp,
+                refractionAmount = 24.dp,
+            ) {
+                Text(
+                    text = audioMetaLabel,
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontWeight = FontWeight.Medium,
+                        fontSize = 11.sp
+                    ),
+                    color = palette.primary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp)
+                )
+            }
+        } else if (!audioMetaLabel.isNullOrBlank()) {
             Surface(
                 modifier = Modifier
                     .align(Alignment.Center)

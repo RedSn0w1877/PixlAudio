@@ -103,10 +103,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import com.theveloper.pixelplay.ui.glass.GlassPillButton
+import com.theveloper.pixelplay.ui.glass.LocalGlassModeEnabled
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
@@ -444,6 +447,92 @@ private fun CreatePlaylistContent(
         },
         floatingActionButton = {
             if (!showCropUi && !(currentStep == 1 && creationMode == PlaylistCreationMode.MANUAL)) {
+                val onCreateFabClick: () -> Unit = {
+                    if (currentStep == 0) {
+                        if (playlistName.isNotBlank()) {
+                            if (creationMode == PlaylistCreationMode.MANUAL) {
+                                currentStep = 1
+                            } else {
+                                val imageUriString = if(selectedTab == 1) selectedImageUri?.toString() else null
+                                val color = if(selectedTab == 2) selectedColor else null
+                                val icon = if(selectedTab == 2) selectedIconName else null
+
+                                val scale = if(selectedTab == 1) cropScale else 1f
+                                val panX = if(selectedTab == 1) cropOffset.x else 0f
+                                val panY = if(selectedTab == 1) cropOffset.y else 0f
+
+                                val shapeTypeForSave = if (selectedTab == 2) selectedShapeType.name else null
+                                val (d1, d2, d3, d4) = if (selectedTab == 2) {
+                                    when (selectedShapeType) {
+                                        PlaylistShapeType.SmoothRect -> Quadruple(smoothRectCornerRadius, smoothRectSmoothness, 0f, 0f)
+                                        PlaylistShapeType.Star -> Quadruple(starCurve.toFloat(), starRotation, starScale, starSides.toFloat())
+                                        else -> Quadruple(0f, 0f, 0f, 0f)
+                                    }
+                                } else Quadruple(null, null, null, null)
+
+                                onCreate(
+                                    playlistName,
+                                    imageUriString,
+                                    color,
+                                    icon,
+                                    emptyList(),
+                                    scale,
+                                    panX,
+                                    panY,
+                                    shapeTypeForSave,
+                                    d1, d2, d3, d4,
+                                    selectedSmartRule.storageKey
+                                )
+                            }
+                        }
+                    } else {
+                        val imageUriString = if(selectedTab == 1) selectedImageUri?.toString() else null
+                        val color = if(selectedTab == 2) selectedColor else null
+                        val icon = if(selectedTab == 2) selectedIconName else null
+                        
+                        val scale = if(selectedTab == 1) cropScale else 1f
+                        val panX = if(selectedTab == 1) cropOffset.x else 0f
+                        val panY = if(selectedTab == 1) cropOffset.y else 0f
+                        
+                        val shapeTypeForSave = if (selectedTab == 2) selectedShapeType.name else null
+                        val (d1, d2, d3, d4) = if (selectedTab == 2) {
+                            when (selectedShapeType) {
+                                PlaylistShapeType.SmoothRect -> Quadruple(smoothRectCornerRadius, smoothRectSmoothness, 0f, 0f)
+                                PlaylistShapeType.Star -> Quadruple(starCurve.toFloat(), starRotation, starScale, starSides.toFloat())
+                                else -> Quadruple(0f, 0f, 0f, 0f)
+                            }
+                        } else Quadruple(null, null, null, null)
+
+                        onCreate(
+                            playlistName, 
+                            imageUriString, 
+                            color, 
+                            icon, 
+                            selectedSongIds.filterValues { it }.keys.toList(),
+                            scale,
+                            panX,
+                            panY,
+                            shapeTypeForSave,
+                            d1, d2, d3, d4,
+                            null
+                        )
+                    }
+                }
+                if (LocalGlassModeEnabled.current) {
+                    // Liquid Glass: the primary action as its own lit glass pill, disabled (as the
+                    // Material FAB is dimmed) until the playlist has a name.
+                    val isNextStep = currentStep == 0 && creationMode == PlaylistCreationMode.MANUAL
+                    CreatePlaylistGlassFab(
+                        onClick = onCreateFabClick,
+                        enabled = !(currentStep == 0 && playlistName.isBlank()),
+                        icon = if (isNextStep) Icons.AutoMirrored.Rounded.ArrowForward else Icons.Rounded.Check,
+                        text = if (isNextStep) {
+                            stringResource(R.string.playlist_creation_next)
+                        } else {
+                            stringResource(R.string.playlist_creation_create)
+                        },
+                    )
+                } else
                 MediumExtendedFloatingActionButton(
                     text = {
                         Text(
@@ -464,77 +553,7 @@ private fun CreatePlaylistContent(
                             contentDescription = null
                         ) 
                     },
-                    onClick = {
-                        if (currentStep == 0) {
-                            if (playlistName.isNotBlank()) {
-                                if (creationMode == PlaylistCreationMode.MANUAL) {
-                                    currentStep = 1
-                                } else {
-                                    val imageUriString = if(selectedTab == 1) selectedImageUri?.toString() else null
-                                    val color = if(selectedTab == 2) selectedColor else null
-                                    val icon = if(selectedTab == 2) selectedIconName else null
-
-                                    val scale = if(selectedTab == 1) cropScale else 1f
-                                    val panX = if(selectedTab == 1) cropOffset.x else 0f
-                                    val panY = if(selectedTab == 1) cropOffset.y else 0f
-
-                                    val shapeTypeForSave = if (selectedTab == 2) selectedShapeType.name else null
-                                    val (d1, d2, d3, d4) = if (selectedTab == 2) {
-                                        when (selectedShapeType) {
-                                            PlaylistShapeType.SmoothRect -> Quadruple(smoothRectCornerRadius, smoothRectSmoothness, 0f, 0f)
-                                            PlaylistShapeType.Star -> Quadruple(starCurve.toFloat(), starRotation, starScale, starSides.toFloat())
-                                            else -> Quadruple(0f, 0f, 0f, 0f)
-                                        }
-                                    } else Quadruple(null, null, null, null)
-
-                                    onCreate(
-                                        playlistName,
-                                        imageUriString,
-                                        color,
-                                        icon,
-                                        emptyList(),
-                                        scale,
-                                        panX,
-                                        panY,
-                                        shapeTypeForSave,
-                                        d1, d2, d3, d4,
-                                        selectedSmartRule.storageKey
-                                    )
-                                }
-                            }
-                        } else {
-                            val imageUriString = if(selectedTab == 1) selectedImageUri?.toString() else null
-                            val color = if(selectedTab == 2) selectedColor else null
-                            val icon = if(selectedTab == 2) selectedIconName else null
-                            
-                            val scale = if(selectedTab == 1) cropScale else 1f
-                            val panX = if(selectedTab == 1) cropOffset.x else 0f
-                            val panY = if(selectedTab == 1) cropOffset.y else 0f
-                            
-                            val shapeTypeForSave = if (selectedTab == 2) selectedShapeType.name else null
-                            val (d1, d2, d3, d4) = if (selectedTab == 2) {
-                                when (selectedShapeType) {
-                                    PlaylistShapeType.SmoothRect -> Quadruple(smoothRectCornerRadius, smoothRectSmoothness, 0f, 0f)
-                                    PlaylistShapeType.Star -> Quadruple(starCurve.toFloat(), starRotation, starScale, starSides.toFloat())
-                                    else -> Quadruple(0f, 0f, 0f, 0f)
-                                }
-                            } else Quadruple(null, null, null, null)
-
-                            onCreate(
-                                playlistName, 
-                                imageUriString, 
-                                color, 
-                                icon, 
-                                selectedSongIds.filterValues { it }.keys.toList(),
-                                scale,
-                                panX,
-                                panY,
-                                shapeTypeForSave,
-                                d1, d2, d3, d4,
-                                null
-                            )
-                        }
-                    },
+                    onClick = onCreateFabClick,
                     expanded = true,
                     shape = CircleShape,
                     modifier = Modifier
@@ -872,39 +891,48 @@ fun EditPlaylistContent(
         },
         floatingActionButton = {
             if (!showCropUi) {
+                val onSaveFabClick: () -> Unit = {
+                    val imageUriString = if(selectedTab == 1) selectedImageUri?.toString() else null
+                    val color = if(selectedTab == 2) selectedColor else null
+                    val icon = if(selectedTab == 2) selectedIconName else null
+                    
+                    val scale = if(selectedTab == 1) cropScale else 1f
+                    val panX = if(selectedTab == 1) cropOffset.x else 0f
+                    val panY = if(selectedTab == 1) cropOffset.y else 0f
+                    
+                    val shapeTypeForSave = if (selectedTab == 2) selectedShapeType.name else null
+                    val (d1, d2, d3, d4) = if (selectedTab == 2) {
+                        when (selectedShapeType) {
+                            PlaylistShapeType.SmoothRect -> Quadruple(smoothRectCornerRadius, smoothRectSmoothness, 0f, 0f)
+                            PlaylistShapeType.Star -> Quadruple(starCurve.toFloat(), starRotation, starScale, starSides.toFloat())
+                            else -> Quadruple(0f, 0f, 0f, 0f)
+                        }
+                    } else Quadruple(null, null, null, null)
+
+                    onSave(
+                        playlistName,
+                        imageUriString,
+                        color,
+                        icon,
+                        scale,
+                        panX,
+                        panY,
+                        shapeTypeForSave,
+                        d1, d2, d3, d4
+                    )
+                }
+                if (LocalGlassModeEnabled.current) {
+                    // Liquid Glass: the primary action as its own lit glass pill.
+                    CreatePlaylistGlassFab(
+                        onClick = onSaveFabClick,
+                        icon = Icons.Rounded.Check,
+                        text = stringResource(R.string.common_save),
+                    )
+                } else
                 MediumExtendedFloatingActionButton(
                     text = { Text(stringResource(R.string.common_save)) },
                     icon = { Icon(Icons.Rounded.Check, contentDescription = null) },
-                    onClick = {
-                        val imageUriString = if(selectedTab == 1) selectedImageUri?.toString() else null
-                        val color = if(selectedTab == 2) selectedColor else null
-                        val icon = if(selectedTab == 2) selectedIconName else null
-                        
-                        val scale = if(selectedTab == 1) cropScale else 1f
-                        val panX = if(selectedTab == 1) cropOffset.x else 0f
-                        val panY = if(selectedTab == 1) cropOffset.y else 0f
-                        
-                        val shapeTypeForSave = if (selectedTab == 2) selectedShapeType.name else null
-                        val (d1, d2, d3, d4) = if (selectedTab == 2) {
-                            when (selectedShapeType) {
-                                PlaylistShapeType.SmoothRect -> Quadruple(smoothRectCornerRadius, smoothRectSmoothness, 0f, 0f)
-                                PlaylistShapeType.Star -> Quadruple(starCurve.toFloat(), starRotation, starScale, starSides.toFloat())
-                                else -> Quadruple(0f, 0f, 0f, 0f)
-                            }
-                        } else Quadruple(null, null, null, null)
-
-                        onSave(
-                            playlistName,
-                            imageUriString,
-                            color,
-                            icon,
-                            scale,
-                            panX,
-                            panY,
-                            shapeTypeForSave,
-                            d1, d2, d3, d4
-                        )
-                    },
+                    onClick = onSaveFabClick,
                     expanded = true,
                     shape = CircleShape,
                     modifier = Modifier
@@ -1716,6 +1744,32 @@ fun ThickSlider(
 
 fun getThemeContentColor(colorArgb: Int, scheme: androidx.compose.material3.ColorScheme): Color {
     return resolvePlaylistCoverContentColor(colorArgb, scheme)
+}
+
+/**
+ * Liquid Glass mode's replacement for the editor's extended FAB: the action as its own lit glass
+ * pill at the FAB's size and inset. Its click is a stable wrapper, so typing the playlist name
+ * (which recomposes the whole Scaffold) never recomposes the pill.
+ */
+@Composable
+private fun CreatePlaylistGlassFab(
+    onClick: () -> Unit,
+    icon: ImageVector,
+    text: String,
+    enabled: Boolean = true,
+) {
+    val latestOnClick = rememberUpdatedState(onClick)
+    val stableOnClick = remember { { latestOnClick.value() } }
+    GlassPillButton(
+        onClick = stableOnClick,
+        enabled = enabled,
+        modifier = Modifier
+            .padding(bottom = 8.dp, end = 8.dp)
+            .height(56.dp)
+    ) {
+        Icon(icon, contentDescription = null)
+        Text(text, maxLines = 1)
+    }
 }
 
 // End of file

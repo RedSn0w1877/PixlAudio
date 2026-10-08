@@ -478,6 +478,18 @@ fun GenreDetailScreen(
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
                         )
                     }
+                } else if (com.theveloper.pixelplay.ui.glass.LocalGlassModeEnabled.current) {
+                    // Liquid Glass: the 64 dp accent-lit glass header orb instead of a tinted FAB.
+                    com.theveloper.pixelplay.presentation.components.GlassHeaderActionOrb(
+                        onClick = { showSortSheet = true },
+                        contentDescription = stringResource(R.string.common_options)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.MoreVert,
+                            contentDescription = null,
+                            modifier = Modifier.size(28.dp)
+                        )
+                    }
                 } else {
                      MediumFloatingActionButton(
                         onClick = { showSortSheet = true },
