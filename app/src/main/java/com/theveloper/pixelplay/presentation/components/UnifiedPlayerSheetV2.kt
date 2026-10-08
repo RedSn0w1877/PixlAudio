@@ -97,9 +97,6 @@ import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
-/** The queue scrim's alpha when the queue is fully open (SheetOverlayState: 0.45 × open fraction). */
-private const val QUEUE_SCRIM_FULL_ALPHA = 0.449f
-
 /** Subscribes to [positionFlow] (keeping its producer running) without reading the value. */
 @Composable
 private fun KeepPlaybackPositionPollAlive(positionFlow: kotlinx.coroutines.flow.StateFlow<Long>) {
@@ -558,11 +555,9 @@ fun UnifiedPlayerSheetV2(
         }
     }
     val isQueueTelemetryActive = showQueueSheet
-    // Glass mode: the queue's scrim is an opaque dimmed ambient once fully open, so the player
-    // underneath stops drawing (NexHome's "skip what an opaque sheet covers").
-    val glassQueueCoversPlayerProvider: () -> Boolean = remember(queueScrimAlphaState, glassModeForQueue) {
-        { glassModeForQueue && queueScrimAlphaState.value >= QUEUE_SCRIM_FULL_ALPHA }
-    }
+    // Glass mode no longer hides the player under the open queue: the queue is a ~92 % sheet over
+    // a see-through scrim, so the player shows above it. It is static there anyway (realtime
+    // updates stop once a sheet is 8 % open, FullPlayerRuntimePolicy).
 
     LaunchedEffect(showQueueSheet) {
         playerViewModel.updateQueueSheetVisibility(showQueueSheet)
@@ -857,7 +852,6 @@ fun UnifiedPlayerSheetV2(
                             onQueueDrag = sheetActionHandlers.dragQueueBy,
                             onQueueRelease = sheetActionHandlers.endQueueDrag,
                             onShowCastClicked = castSheetState.openCastSheet,
-                            isFullPlayerCoveredProvider = glassQueueCoversPlayerProvider
                         )
                     }
                     if (glassMode) {

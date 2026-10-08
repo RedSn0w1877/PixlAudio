@@ -98,6 +98,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
+import com.theveloper.pixelplay.ui.glass.GlassPillButton
+import com.theveloper.pixelplay.ui.glass.LocalGlassModeEnabled
 
 private fun formatReplayGainForInput(gainDb: Float?): String {
     return gainDb?.let { String.format(Locale.US, "%.2f", it) }.orEmpty()
@@ -722,6 +724,31 @@ private fun EditSongContent(
             }
         }
 
+            val saveEdits: () -> Unit = {
+                val resolvedTrackNumber = trackNumber.toIntOrNull() ?: song.trackNumber
+                val resolvedDiscNumber = discNumber.toIntOrNull()
+                onSave(
+                    title.trim(),
+                    artist.trim(),
+                    album.trim(),
+                    albumArtist.trim(),
+                    composer.trim(),
+                    genre.trim(),
+                    lyrics.takeIf { lyricsEdited },
+                    resolvedTrackNumber,
+                    resolvedDiscNumber,
+                    replayGainTrackGainDb.trim(),
+                    replayGainAlbumGainDb.trim(),
+                    editedCoverArt
+                )
+            }
+            // Glass pills get stable wrappers: every keystroke recomposes this screen, and the
+            // pills' click must not change with it.
+            val latestSaveEdits = rememberUpdatedState(saveEdits)
+            val latestOnDismiss = rememberUpdatedState(onDismiss)
+            val onSavePill = remember { { latestSaveEdits.value() } }
+            val onCancelPill = remember { { latestOnDismiss.value() } }
+
             AnimatedVisibility(
                 visible = !isKeyboardVisible,
                 enter = slideInVertically { it } + fadeIn(),
@@ -730,6 +757,28 @@ private fun EditSongContent(
                     .align(Alignment.BottomCenter)
                     .padding(bottom = innerPadding.calculateBottomPadding() + 24.dp)
             ) {
+                if (LocalGlassModeEnabled.current) {
+                    // Glass mode: no floating toolbar behind them; Cancel and Save are each their
+                    // own glass pill (Cancel neutral, Save lit with the accent), as on iOS.
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        GlassPillButton(
+                            onClick = onCancelPill,
+                            prominent = false,
+                            modifier = Modifier.height(56.dp)
+                        ) {
+                            Text(stringResource(R.string.common_cancel), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                        GlassPillButton(
+                            onClick = onSavePill,
+                            modifier = Modifier.height(56.dp)
+                        ) {
+                            Text(stringResource(R.string.common_save), maxLines = 1)
+                        }
+                    }
+                } else
                 HorizontalFloatingToolbar(
                     expandedShadowElevation = 0.dp,
                     colors = FloatingToolbarDefaults.standardFloatingToolbarColors(
@@ -752,24 +801,7 @@ private fun EditSongContent(
                             modifier = Modifier.width(8.dp)
                         )
                         Button(
-                            onClick = {
-                                val resolvedTrackNumber = trackNumber.toIntOrNull() ?: song.trackNumber
-                                val resolvedDiscNumber = discNumber.toIntOrNull()
-                                onSave(
-                                    title.trim(),
-                                    artist.trim(),
-                                    album.trim(),
-                                    albumArtist.trim(),
-                                    composer.trim(),
-                                    genre.trim(),
-                                    lyrics.takeIf { lyricsEdited },
-                                    resolvedTrackNumber,
-                                    resolvedDiscNumber,
-                                    replayGainTrackGainDb.trim(),
-                                    replayGainAlbumGainDb.trim(),
-                                    editedCoverArt
-                                )
-                            },
+                            onClick = saveEdits,
                             modifier = Modifier.height(48.dp)
                         ) {
                             Text(stringResource(R.string.common_save))

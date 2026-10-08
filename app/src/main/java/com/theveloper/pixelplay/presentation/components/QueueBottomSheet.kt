@@ -155,15 +155,11 @@ import com.theveloper.pixelplay.presentation.viewmodel.PlayerViewModel
 import com.theveloper.pixelplay.presentation.viewmodel.PlaylistViewModel
 import com.theveloper.pixelplay.presentation.utils.LocalAppHapticsConfig
 import com.theveloper.pixelplay.presentation.utils.performAppCompatHapticFeedback
-import com.theveloper.pixelplay.ui.glass.GlassCircleAction
+import com.theveloper.pixelplay.ui.glass.GlassPillButton
 import com.theveloper.pixelplay.ui.glass.LocalGlassModeEnabled
 import com.theveloper.pixelplay.ui.glass.components.GlassPanel
 import com.theveloper.pixelplay.ui.glass.glassLightSurface
 import com.theveloper.pixelplay.ui.glass.glassPressSwell
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.graphics.BlendMode
-import androidx.compose.ui.graphics.drawscope.Stroke
 import com.theveloper.pixelplay.ui.glass.theme.LocalGlassPalette
 import com.theveloper.pixelplay.ui.theme.GoogleSansRounded
 import com.theveloper.pixelplay.ui.theme.LocalShowScrollbar
@@ -750,10 +746,14 @@ fun QueueBottomSheet(
             }
         }
 
-    // Liquid Glass mode: the queue follows NexHome's sheet model. It has no container of its own:
-    // the content sits on the glass scrim (UnifiedPlayerQueueLayer), the header is one heavy
-    // panel, the now-playing row one light panel, the toolbar a capsule, rows stay flat.
+    // Liquid Glass mode (owner decision 2026-10-07): the queue is a ~92 % glass sheet over a
+    // see-through scrim (UnifiedPlayerQueueLayer sizes it), so the player shows above it. The
+    // sheet is one heavy NexHome panel at radius 32 (the in-window twin of a glass
+    // ModalBottomSheet's container), the header one heavy panel on it, the now-playing row one
+    // light panel, the toolbar separate glass circles, rows flat.
     val glassMode = LocalGlassModeEnabled.current
+    val sheetShape = if (glassMode) QueueGlassSheetShape else shape
+    val sheetCornerRadius = if (glassMode) QueueGlassSheetRadius else 28.dp
     Surface(
         modifier = modifier
             .graphicsLayer {
@@ -772,7 +772,7 @@ fun QueueBottomSheet(
                         pivotFractionY = 1.0f
                     )
                     
-                    val cornerRadius = androidx.compose.ui.unit.lerp(28.dp, 48.dp, p)
+                    val cornerRadius = androidx.compose.ui.unit.lerp(sheetCornerRadius, 48.dp, p)
                     clip = true
                     this.shape = RoundedCornerShape(topStart = cornerRadius, topEnd = cornerRadius)
                 } else if (y < 0) {
@@ -792,17 +792,36 @@ fun QueueBottomSheet(
                     translationY = 0f
                 }
             },
-        shape = shape,
+        shape = sheetShape,
         tonalElevation = if (glassMode) 0.dp else tonalElevation,
         color = if (glassMode) Color.Transparent else colors.surfaceContainer,
     ) {
         Box(
             modifier = Modifier.fillMaxSize()
         ) {
+            if (glassMode) {
+                // The sheet's glass: a SIBLING behind the content, never its parent, so scrolling
+                // the list never re-records the lens; skipped while the bloom is 0 (hidden queue).
+                GlassPanel(
+                    modifier = Modifier.matchParentSize(),
+                    shape = QueueGlassSheetShape,
+                    tint = LocalGlassPalette.current.tintStrong,
+                    heavy = true,
+                    refractionHeight = 24.dp,
+                    refractionAmount = 48.dp,
+                    enterProgress = com.theveloper.pixelplay.ui.glass.controls.LocalLensBloom.current,
+                )
+            }
             Column {
-                val headerTopPadding = WindowInsets.statusBars
-                    .asPaddingValues()
-                    .calculateTopPadding() + 10.dp
+                // Glass mode's sheet starts below the status bar (it's ~92 % tall); the
+                // full-height Material sheet pads past it.
+                val headerTopPadding = if (glassMode) {
+                    10.dp
+                } else {
+                    WindowInsets.statusBars
+                        .asPaddingValues()
+                        .calculateTopPadding() + 10.dp
+                }
 
                 QueueHeaderSection(
                     glass = glassMode,
@@ -839,7 +858,7 @@ fun QueueBottomSheet(
                     ) {
                         Text(
                             stringResource(R.string.queue_empty_label),
-                            color = colors.onSurface
+                            color = if (glassMode) LocalGlassPalette.current.secondary else colors.onSurface
                         )
                     }
                 } else {
@@ -998,7 +1017,71 @@ fun QueueBottomSheet(
                 )
 
                 val navigationBarHeight = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+                val isTimerActiveDerived = remember {
+                    derivedStateOf { activeTimerValueDisplay.value != null }
+                }
+                val canLocateCurrentSong = currentSongDisplayIndex >= 0 && currentSongDisplayIndex < displaySongCount
 
+                // The ⋯ menu's three actions, shared by the glass menu and the Material one.
+                val onLocateFromMenu: () -> Unit = {
+                    isFabExpanded = false
+                    queueCoroutineScope.launch {
+                        val firstVisible = listState.firstVisibleItemIndex
+                        if (Math.abs(currentSongDisplayIndex - firstVisible) > 20) {
+                            listState.scrollToItem(currentSongDisplayIndex)
+                        } else {
+                            listState.animateScrollToItem(currentSongDisplayIndex)
+                        }
+                    }
+                }
+                val onClearFromMenu: () -> Unit = {
+                    isFabExpanded = false
+                    showClearQueueDialog = true
+                }
+                val onSaveFromMenu: () -> Unit = {
+                    isFabExpanded = false
+                    val defaultName = if (currentQueueSourceName.isNotBlank()) {
+                        queueNamedSuffixTemplate.format(currentQueueSourceName)
+                    } else {
+                        queueCurrentLabel
+                    }
+                    onRequestSaveAsPlaylist(
+                        queue,
+                        defaultName
+                    ) { name, selectedIds ->
+                        val orderedSelection = queue
+                            .filter { selectedIds.contains(it.id) }
+                            .map { it.id }
+                        if (orderedSelection.isNotEmpty()) {
+                            playlistViewModel.createPlaylist(
+                                name = name,
+                                songIds = orderedSelection,
+                                isQueueGenerated = true
+                            )
+                        }
+                    }
+                }
+
+                if (glassMode) {
+                    // Separate glass circles, and the ⋯ circle that flows into the menu's
+                    // "Save as playlist" pill (QueueGlassControls.kt).
+                    GlassQueueControls(
+                        expanded = isFabExpanded,
+                        onExpandedChange = { isFabExpanded = it },
+                        bottomPadding = fabSpacing + navigationBarHeight,
+                        dragModifier = directSheetDragModifier,
+                        isShuffleOn = isShuffleOn,
+                        repeatMode = repeatMode,
+                        isTimerActive = isTimerActiveDerived,
+                        onToggleShuffle = onToggleShuffle,
+                        onToggleRepeat = onToggleRepeat,
+                        onTimerClick = { showTimerOptions = true },
+                        showLocate = canLocateCurrentSong,
+                        onLocate = onLocateFromMenu,
+                        onClear = onClearFromMenu,
+                        onSave = onSaveFromMenu,
+                    )
+                } else {
                 Row(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
@@ -1008,11 +1091,7 @@ fun QueueBottomSheet(
                     horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    val isTimerActiveDerived = remember {
-                        derivedStateOf { activeTimerValueDisplay.value != null }
-                    }
                     QueueControlsToolbar(
-                        glass = glassMode,
                         isShuffleOn = isShuffleOn,
                         repeatMode = repeatMode,
                         isTimerActive = isTimerActiveDerived,
@@ -1023,15 +1102,6 @@ fun QueueBottomSheet(
 
                     Spacer(modifier = Modifier.width(4.dp))
 
-                    if (glassMode) {
-                        GlassCircleAction(
-                            onClick = { isFabExpanded = !isFabExpanded },
-                            size = 64.dp,
-                            contentDescription = stringResource(R.string.queue_cd_more_action),
-                        ) {
-                            Icon(imageVector = Icons.Rounded.MoreHoriz, contentDescription = null)
-                        }
-                    } else
                     Box(
                         modifier = Modifier
                             .fillMaxHeight()
@@ -1102,23 +1172,13 @@ fun QueueBottomSheet(
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            if (currentSongDisplayIndex >= 0 && currentSongDisplayIndex < displaySongCount) {
+                            if (canLocateCurrentSong) {
                                 QueueToolbarMenuButton(
                                     text = stringResource(R.string.queue_action_locate_current_song),
                                     icon = Icons.Rounded.MyLocation,
                                     containerColor = MaterialTheme.colorScheme.tertiaryContainer,
                                     contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
-                                    onClick = {
-                                        isFabExpanded = false
-                                        queueCoroutineScope.launch {
-                                            val firstVisible = listState.firstVisibleItemIndex
-                                            if (Math.abs(currentSongDisplayIndex - firstVisible) > 20) {
-                                                listState.scrollToItem(currentSongDisplayIndex)
-                                            } else {
-                                                listState.animateScrollToItem(currentSongDisplayIndex)
-                                            }
-                                        }
-                                    }
+                                    onClick = onLocateFromMenu
                                 )
                             }
                             QueueToolbarMenuButton(
@@ -1126,42 +1186,18 @@ fun QueueBottomSheet(
                                 icon = Icons.Filled.ClearAll,
                                 containerColor = MaterialTheme.colorScheme.errorContainer,
                                 contentColor = MaterialTheme.colorScheme.onErrorContainer,
-                                onClick = {
-                                    isFabExpanded = false
-                                    showClearQueueDialog = true
-                                }
+                                onClick = onClearFromMenu
                             )
                             QueueToolbarMenuButton(
                                 text = stringResource(R.string.queue_action_save_as_playlist),
                                 icon = Icons.Filled.LibraryAdd,
                                 containerColor = MaterialTheme.colorScheme.primaryContainer,
                                 contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                                onClick = {
-                                    isFabExpanded = false
-                                    val defaultName = if (currentQueueSourceName.isNotBlank()) {
-                                        queueNamedSuffixTemplate.format(currentQueueSourceName)
-                                    } else {
-                                        queueCurrentLabel
-                                    }
-                                    onRequestSaveAsPlaylist(
-                                        queue,
-                                        defaultName
-                                    ) { name, selectedIds ->
-                                        val orderedSelection = queue
-                                            .filter { selectedIds.contains(it.id) }
-                                            .map { it.id }
-                                        if (orderedSelection.isNotEmpty()) {
-                                            playlistViewModel.createPlaylist(
-                                                name = name,
-                                                songIds = orderedSelection,
-                                                isQueueGenerated = true
-                                            )
-                                        }
-                                    }
-                                }
+                                onClick = onSaveFromMenu
                             )
                         }
                     }
+                }
                 }
             }
 
@@ -1181,6 +1217,50 @@ fun QueueBottomSheet(
                 enter = fadeIn() + slideInVertically(initialOffsetY = { it }),
                 exit = fadeOut() + slideOutVertically(targetOffsetY = { it })
             ) {
+                if (glassMode) {
+                    // Glass mode: a light glass capsule (no glint, like the kit's other wide
+                    // floating capsules) instead of the opaque inverse-surface snackbar. Undo is a
+                    // lit fill on it, so the text stays the palette's primary over glass.
+                    val palette = LocalGlassPalette.current
+                    GlassPanel(
+                        shape = QueueGlassCapsule,
+                        tint = palette.tintStrong,
+                        showHighlight = false,
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(start = 20.dp, top = 6.dp, bottom = 6.dp, end = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = queueUndoBarState.removedSongTitle,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = palette.primary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false)
+                            )
+                            Spacer(Modifier.width(4.dp))
+                            Text(
+                                text = stringResource(R.string.queue_song_removed),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = palette.secondary,
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            TextButton(
+                                onClick = { viewModel.undoRemoveSongFromQueue() },
+                                colors = androidx.compose.material3.ButtonDefaults.textButtonColors(
+                                    containerColor = palette.accent.copy(alpha = com.theveloper.pixelplay.ui.glass.GlassLitAlpha),
+                                    contentColor = palette.primary
+                                )
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.common_undo),
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+                } else
                 Surface(
                     shape = RoundedCornerShape(16.dp),
                     color = colors.inverseSurface,
@@ -1360,7 +1440,8 @@ private fun QueueHeaderSection(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(16.dp),
-                    onLocateCurrentSong = onLocateCurrentSong
+                    onLocateCurrentSong = onLocateCurrentSong,
+                    glass = true
                 )
             }
         } else
@@ -1385,7 +1466,8 @@ private fun QueueHeader(
     queueSourceName: String,
     queueCount: Int,
     modifier: Modifier = Modifier,
-    onLocateCurrentSong: () -> Unit = {}
+    onLocateCurrentSong: () -> Unit = {},
+    glass: Boolean = false
 ) {
     val view = LocalView.current
     val appHapticsConfig = LocalAppHapticsConfig.current
@@ -1433,7 +1515,8 @@ private fun QueueHeader(
         }
         QueueSourceBadge(
             queueSourceName = queueSourceName,
-            modifier = Modifier.padding(top = 6.dp)
+            modifier = Modifier.padding(top = 6.dp),
+            glass = glass
         )
     }
 }
@@ -1441,13 +1524,17 @@ private fun QueueHeader(
 @Composable
 private fun QueueSourceBadge(
     queueSourceName: String,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    glass: Boolean = false
 ) {
     val colors = MaterialTheme.colorScheme
+    // Glass mode: a subtle fill on the header's glass (no extra lens), palette text.
+    val palette = LocalGlassPalette.current
+    val badgeContentColor = if (glass) palette.secondary else colors.onSurfaceVariant
     Surface(
         modifier = modifier.widthIn(max = 190.dp),
         shape = CircleShape,
-        color = colors.surfaceContainerHighest.copy(alpha = 0.88f),
+        color = if (glass) palette.tintSubtle else colors.surfaceContainerHighest.copy(alpha = 0.88f),
         tonalElevation = 0.dp,
         shadowElevation = 0.dp
     ) {
@@ -1460,12 +1547,12 @@ private fun QueueSourceBadge(
                 imageVector = Icons.AutoMirrored.Rounded.QueueMusic,
                 contentDescription = null,
                 modifier = Modifier.size(18.dp),
-                tint = colors.onSurfaceVariant
+                tint = badgeContentColor
             )
             Text(
                 text = queueSourceName.ifBlank { stringResource(R.string.queue_source_fallback_label) },
                 style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Medium),
-                color = colors.onSurfaceVariant,
+                color = badgeContentColor,
                 overflow = TextOverflow.Ellipsis,
                 maxLines = 1
             )
@@ -1473,9 +1560,12 @@ private fun QueueSourceBadge(
     }
 }
 
+/**
+ * Material 3 mode's queue toolbar: tonal circles in one capsule. Glass mode draws separate glass
+ * circles instead ([GlassQueueControls]).
+ */
 @Composable
 private fun QueueControlsToolbar(
-    glass: Boolean = false,
     isShuffleOn: Boolean,
     repeatMode: Int,
     isTimerActive: androidx.compose.runtime.State<Boolean>,
@@ -1484,52 +1574,7 @@ private fun QueueControlsToolbar(
     onTimerClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val activeColors = IconButtonDefaults.filledIconButtonColors(
-        containerColor = MaterialTheme.colorScheme.primary,
-        contentColor = MaterialTheme.colorScheme.onPrimary
-    )
-    val inactiveColors = IconButtonDefaults.filledTonalIconButtonColors(
-        containerColor = MaterialTheme.colorScheme.surfaceContainer,
-        contentColor = MaterialTheme.colorScheme.onSurfaceVariant
-    )
-
-    val palette = LocalGlassPalette.current
-    // Glass: flat kit circles on the glass capsule (not extra lens layers), flooded with the album
-    // accent when on, swelling and glowing on press like the player's toggles.
-    val buttons: @Composable () -> Unit = if (glass) {
-        {
-            GlassQueueToolbarButton(
-                onClick = onToggleShuffle,
-                active = isShuffleOn,
-            ) {
-                Icon(
-                    imageVector = Icons.Rounded.Shuffle,
-                    contentDescription = stringResource(R.string.queue_cd_toggle_shuffle_action),
-                )
-            }
-            Spacer(modifier = Modifier.width(12.dp))
-            GlassQueueToolbarButton(
-                onClick = onToggleRepeat,
-                active = repeatMode != Player.REPEAT_MODE_OFF,
-            ) {
-                Icon(
-                    imageVector = if (repeatMode == Player.REPEAT_MODE_ONE) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat,
-                    contentDescription = stringResource(R.string.queue_cd_toggle_repeat_action),
-                )
-            }
-            Spacer(modifier = Modifier.width(12.dp))
-            GlassQueueToolbarButton(
-                onClick = onTimerClick,
-                active = isTimerActive.value,
-            ) {
-                Icon(
-                    imageVector = Icons.Rounded.Timer,
-                    contentDescription = stringResource(R.string.queue_cd_sleep_timer_action),
-                )
-            }
-        }
-    } else {
-      {
+    val buttons: @Composable () -> Unit = {
         QueueToolbarButton(
             onClick = onToggleShuffle,
             containerColor = if (isShuffleOn) {
@@ -1590,27 +1635,6 @@ private fun QueueControlsToolbar(
                 contentDescription = stringResource(R.string.queue_cd_sleep_timer_action),
             )
         }
-      }
-    }
-
-    if (glass) {
-        GlassPanel(
-            modifier = modifier.fillMaxHeight(),
-            shape = com.kyant.shapes.Capsule(),
-            tint = palette.tintStrong,
-            enterProgress = com.theveloper.pixelplay.ui.glass.controls.LocalLensBloom.current,
-        ) {
-            Row(
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Center
-            ) {
-                buttons()
-            }
-        }
-        return
     }
 
     val toolbarShape = RoundedCornerShape(percent = 50)
@@ -1632,53 +1656,14 @@ private fun QueueControlsToolbar(
 
 private val QueueGlassHeaderShape = com.kyant.shapes.RoundedRectangle(32.dp)
 
-/**
- * Glass mode's queue toolbar button: a flat 48 dp circle on the toolbar's glass capsule with
- * NexHome's chip recipe — White@0.06 base; when [active] the accent flood (Hue 0.9 + 0.42) and an
- * accent rim — swelling with the orb press scale and the dim white press glow instead of a ripple.
- * The on/off change animates in draw only.
- */
-@Composable
-private fun GlassQueueToolbarButton(
-    onClick: () -> Unit,
-    active: Boolean,
-    content: @Composable BoxScope.() -> Unit
-) {
-    val palette = LocalGlassPalette.current
-    val accent = palette.accent
-    val source = remember { MutableInteractionSource() }
-    val glow = remember { com.theveloper.pixelplay.ui.glass.GlassPressIndication(Color.White, swellScale = 1f) }
-    val lit by animateFloatAsState(
-        targetValue = if (active) 1f else 0f,
-        animationSpec = com.theveloper.pixelplay.ui.glass.motion.LiquidMotion.GlowSpring,
-        label = "queueToolbarLit"
-    )
-    CompositionLocalProvider(LocalContentColor provides palette.primary) {
-        Box(
-            modifier = Modifier
-                .size(48.dp)
-                .glassPressSwell(source, com.theveloper.pixelplay.ui.glass.motion.LiquidMotion.OrbPressScale)
-                .clip(CircleShape)
-                .clickable(interactionSource = source, indication = glow, role = Role.Button, onClick = onClick)
-                .drawBehind {
-                    drawRect(Color.White.copy(alpha = 0.06f))
-                    val l = lit.coerceIn(0f, 1f)
-                    if (l > 0.001f) {
-                        drawRect(accent.copy(alpha = 0.9f * l), blendMode = BlendMode.Hue)
-                        drawRect(accent.copy(alpha = 0.42f * l))
-                        val stroke = 1.dp.toPx()
-                        drawCircle(
-                            color = accent.copy(alpha = 0.8f * l),
-                            radius = size.minDimension / 2f - stroke / 2f,
-                            style = Stroke(width = stroke)
-                        )
-                    }
-                },
-            contentAlignment = Alignment.Center,
-            content = content
-        )
-    }
-}
+/** Glass mode's queue sheet corner: NexHome's sheet radius, as on the glass ModalBottomSheets. */
+private val QueueGlassSheetRadius = 32.dp
+
+/** Glass mode's queue sheet shape (top corners only; the sheet meets the screen's bottom edge). */
+private val QueueGlassSheetShape = RoundedCornerShape(topStart = QueueGlassSheetRadius, topEnd = QueueGlassSheetRadius)
+
+/** Glass mode's capsule (the undo bar). */
+private val QueueGlassCapsule = com.kyant.shapes.Capsule()
 
 /**
  * A circular toolbar button: a tonal [Surface] with a ripple. The Surface keeps its default
@@ -1752,6 +1737,21 @@ fun SaveQueueAsPlaylistSheet(
     val allSelected by remember {
         derivedStateOf { selectedSongIds.isNotEmpty() && selectedSongIds.all { it.value } }
     }
+    // One save action for both bars. The glass pill gets a stable wrapper, so typing a name or
+    // ticking songs never recomposes it (its lens is built once either way).
+    val saveSelection: () -> Unit = {
+        if (hasSelection) {
+            val finalName =
+                playlistName.text.ifBlank { defaultName }
+            val chosenIds = selectedSongIds
+                .filterValues { it }
+                .keys
+            onConfirm(finalName, chosenIds)
+            onDismiss()
+        }
+    }
+    val latestSaveSelection = rememberUpdatedState(saveSelection)
+    val onSavePill = remember { { latestSaveSelection.value() } }
 
     LaunchedEffect(Unit) {
         delay(250)
@@ -1921,6 +1921,73 @@ fun SaveQueueAsPlaylistSheet(
                     }
                 },
                 bottomBar = {
+                    if (LocalGlassModeEnabled.current) {
+                        // Glass mode: no glass button on a glass bar. The summary is its own
+                        // capsule and Save its own glass pill, both 56 dp, as on iOS.
+                        val palette = LocalGlassPalette.current
+                        val selectedCount = selectedSongIds.count { it.value }
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .windowInsetsPadding(WindowInsets.ime)
+                                .windowInsetsPadding(WindowInsets.navigationBars)
+                                .padding(16.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            GlassPanel(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(QueueMenuPillHeight),
+                                shape = QueueGlassCapsule,
+                                tint = palette.tintStrong,
+                                showHighlight = false,
+                            ) {
+                                Column(
+                                    modifier = Modifier
+                                        .align(Alignment.CenterStart)
+                                        .padding(horizontal = 20.dp)
+                                ) {
+                                    Text(
+                                        text = pluralStringResource(
+                                            R.plurals.queue_save_as_playlist_n_songs_selected,
+                                            selectedCount,
+                                            selectedCount
+                                        ),
+                                        style = MaterialTheme.typography.labelLarge,
+                                        maxLines = 1,
+                                        color = palette.primary
+                                    )
+                                    Text(
+                                        text = if (playlistName.text.isNotBlank()) {
+                                            stringResource(
+                                                R.string.queue_save_as_playlist_format,
+                                                playlistName.text
+                                            )
+                                        } else {
+                                            stringResource(R.string.queue_save_as_playlist_name_placeholder)
+                                        },
+                                        style = MaterialTheme.typography.bodySmall,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        color = palette.secondary
+                                    )
+                                }
+                            }
+                            GlassPillButton(
+                                onClick = onSavePill,
+                                enabled = hasSelection,
+                                modifier = Modifier.height(QueueMenuPillHeight)
+                            ) {
+                                Icon(
+                                    Icons.Rounded.Check,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Text(stringResource(R.string.common_save), maxLines = 1)
+                            }
+                        }
+                    } else
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -1975,17 +2042,7 @@ fun SaveQueueAsPlaylistSheet(
                                 }
 
                                 Button(
-                                    onClick = {
-                                        if (hasSelection) {
-                                            val finalName =
-                                                playlistName.text.ifBlank { defaultName }
-                                            val chosenIds = selectedSongIds
-                                                .filterValues { it }
-                                                .keys
-                                            onConfirm(finalName, chosenIds)
-                                            onDismiss()
-                                        }
-                                    },
+                                    onClick = saveSelection,
                                     enabled = hasSelection,
                                     modifier = Modifier.height(48.dp),
                                     shape = CircleShape,
