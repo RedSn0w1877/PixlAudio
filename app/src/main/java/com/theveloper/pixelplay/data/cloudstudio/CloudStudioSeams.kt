@@ -163,8 +163,8 @@ interface CloudStudioSettingsSource {
 
 /** WorkManager ([CloudStudioScheduler]): the background passes that make "process later" work. */
 interface CloudWorkScheduler {
-    /** A full pass soon, on any network. */
-    fun requestPass(delayMs: Long = 0)
+    /** A full pass soon, on any network (at most one waits behind a running one). */
+    fun requestPass()
     /** A full pass once an unmetered network is there (transfers waiting for Wi-Fi). */
     fun requestUnmeteredPass()
     /** The periodic background watch (every 15 minutes) while jobs are in flight. */

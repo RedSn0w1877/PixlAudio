@@ -476,7 +476,7 @@ class CloudStudioEngineTest {
         var passRequests = 0
         var unmeteredRequests = 0
         var watchCancels = 0
-        override fun requestPass(delayMs: Long) { passRequests++ }
+        override fun requestPass() { passRequests++ }
         override fun requestUnmeteredPass() { unmeteredRequests++ }
         override fun ensureWatch() = Unit
         override fun cancelWatch() { watchCancels++ }

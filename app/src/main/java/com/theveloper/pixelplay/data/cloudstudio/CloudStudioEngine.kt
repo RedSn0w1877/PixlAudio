@@ -173,7 +173,8 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
             var first = true
             while (isActive && visible) {
                 val outcome = foregroundPass()
-                if (first && requestWorker && outcome?.workBeforeSubmit == true) deps.scheduler.requestPass()
+                // Preparing and uploading are the worker's (they can take minutes); a light pass only asks for it.
+                if ((first && requestWorker || !first) && outcome?.workBeforeSubmit == true) deps.scheduler.requestPass()
                 first = false
                 if (!needsPolling()) break
                 delay(CloudTiming.STATUS_POLL_INTERVAL_MS)
@@ -200,13 +201,13 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
     /** The WorkManager worker's pass: everything due, until [deadlineMs]. Schedules what comes next. */
     suspend fun workerPass(deadlineMs: Long): CloudPassOutcome {
         val outcome = passLock.withLock { pass(PassMode.FULL, deadlineMs) }
-        schedule(outcome, deadlineReached = now >= deadlineMs)
+        schedule(outcome)
         // Submitted jobs answer within seconds to minutes: while the app is open, watch them every 15 s.
         if (outcome.pending) ensurePollLoop(requestWorker = false)
         return outcome
     }
 
-    private fun schedule(outcome: CloudPassOutcome, deadlineReached: Boolean) {
+    private fun schedule(outcome: CloudPassOutcome) {
         val scheduler = deps.scheduler
         if (!outcome.pending) {
             scheduler.cancelWatch()
@@ -215,13 +216,10 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
         scheduler.ensureWatch()
         // Blocked passes wait for the person (the periodic watch looks again); never loop on them.
         if (outcome.blocked) return
-        if (outcome.workBeforeSubmit) scheduler.requestPass(if (deadlineReached) 0 else 5_000)
+        // Work left when the pass ran out of time continues in the next one. Short waits (a batch gate, the first
+        // retry) are slept through by the worker itself; longer ones are the periodic watch's.
+        if (outcome.workBeforeSubmit) scheduler.requestPass()
         if (outcome.waitingForUnmetered) scheduler.requestUnmeteredPass()
-        outcome.nextWakeAtMs?.let { at ->
-            val wait = at - now
-            // The periodic watch covers anything later than its own interval.
-            if (wait < CloudTiming.BACKGROUND_WATCH_MS) scheduler.requestPass(wait.coerceAtLeast(1_000))
-        }
     }
 
     // ─── The person's actions ───────────────────────────────────────────────────────────────

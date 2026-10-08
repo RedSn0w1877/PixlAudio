@@ -94,6 +94,13 @@ class TaisInstrumentalIndex @Inject constructor(
         private const val TAG = "TaisInstrumentalIndex"
         private const val INSTRUMENTAL_SUFFIX = "_instrumental.wav"
         private const val ROFORMER_SUFFIX = "_hq_roformer_inst.wav"
+        /**
+         * Cloud Studio results ([com.theveloper.pixelplay.data.cloudstudio.CloudStudioEngine]): AAC 256k, or FLAC
+         * when a redo asked for it. Never stored under a `.wav` name (the players pick the decoder from the content,
+         * but [isCompleteStem]'s RIFF check must not judge them as broken WAVs).
+         */
+        const val CLOUD_M4A_SUFFIX = "_cloud_inst.m4a"
+        const val CLOUD_FLAC_SUFFIX = "_cloud_inst.flac"
         private const val SPOTIFY_ALIAS_PREFIX = "spotify_"
         private val aliasIndexes = ConcurrentHashMap<String, Map<String, Set<String>>>()
 
@@ -108,7 +115,8 @@ class TaisInstrumentalIndex @Inject constructor(
                 val aliases = aliasIndexes.getOrPut(directory.absolutePath) { buildAliasIndex(directory) }
                 compatibleIds.addAll(aliases[canonicalId].orEmpty())
             }
-            return sequenceOf(ROFORMER_SUFFIX, INSTRUMENTAL_SUFFIX)
+            // Same order as iOS: the hosted RoFormer render, then the cloud result, then the on-device MDX-Net one.
+            return sequenceOf(ROFORMER_SUFFIX, CLOUD_M4A_SUFFIX, CLOUD_FLAC_SUFFIX, INSTRUMENTAL_SUFFIX)
                 .flatMap { suffix -> directories.asSequence().flatMap { directory ->
                     compatibleIds.asSequence().map { File(directory, "$it$suffix") }
                 } }
@@ -124,6 +132,8 @@ class TaisInstrumentalIndex @Inject constructor(
         private fun stemSongId(file: File): String? = when {
             file.name.endsWith(INSTRUMENTAL_SUFFIX) -> file.name.removeSuffix(INSTRUMENTAL_SUFFIX)
             file.name.endsWith(ROFORMER_SUFFIX) -> file.name.removeSuffix(ROFORMER_SUFFIX)
+            file.name.endsWith(CLOUD_M4A_SUFFIX) -> file.name.removeSuffix(CLOUD_M4A_SUFFIX)
+            file.name.endsWith(CLOUD_FLAC_SUFFIX) -> file.name.removeSuffix(CLOUD_FLAC_SUFFIX)
             else -> null
         }
 
