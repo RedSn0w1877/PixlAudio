@@ -48,6 +48,10 @@ object CloudStudioModule {
         // A 100 MB FLAC on a slow uplink: the write timeout is per write, not for the whole upload.
         .writeTimeout(120, TimeUnit.SECONDS)
         .retryOnConnectionFailure(true)
+        // RunPod and R2 never redirect. Following one could carry a presigned query (signature, access key ID) to
+        // another host, or over plain http (the app's network config allows cleartext for local servers).
+        .followRedirects(false)
+        .followSslRedirects(false)
         .build()
 
     @Provides

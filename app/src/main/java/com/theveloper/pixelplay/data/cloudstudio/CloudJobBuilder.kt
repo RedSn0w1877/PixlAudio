@@ -72,9 +72,16 @@ object CloudJobBuilder {
 
     /**
      * The whole `/run` body for a prepared and uploaded job, or null when its input isn't known or a URL can't be
-     * signed. [lyrics] is required when the job has the lyrics task.
+     * signed. [lyrics] is required when the job has the lyrics task. [lastInBatch] marks the last job of a submit
+     * burst ([CloudSubmitBurst]; [CloudJobRequest.markingLastInBatch] sets it on a body built earlier).
      */
-    fun request(record: CloudJobRecord, build: String, lyrics: CloudLyricsRequest?, presign: CloudPresign): CloudJobRequest? {
+    fun request(
+        record: CloudJobRecord,
+        build: String,
+        lyrics: CloudLyricsRequest?,
+        lastInBatch: Boolean = false,
+        presign: CloudPresign,
+    ): CloudJobRequest? {
         if (!CloudKeys.isValidJobKey(record.jobKey)) return null
         val ext = record.inputExt ?: return null
         val inputKey = record.inputKey ?: return null
@@ -115,6 +122,7 @@ object CloudJobBuilder {
             guard = CloudJobGuard(manifestGet, attemptGet, attemptPut),
         )
         return CloudJobRequest(input, CloudJobPolicy(CloudTiming.TTL_MS, CloudTiming.EXECUTION_TIMEOUT_MS))
+            .markingLastInBatch(lastInBatch)
     }
 
     /**
@@ -137,3 +145,10 @@ object CloudJobBuilder {
         return keys
     }
 }
+
+/**
+ * The same body with `input.policy.last_in_batch` set (true) or left out (false: the worker's default, so the jobs
+ * before a burst's last send exactly what they sent before the flag existed).
+ */
+fun CloudJobRequest.markingLastInBatch(last: Boolean): CloudJobRequest =
+    copy(input = input.copy(policy = if (last) CloudJobInputPolicy(lastInBatch = true) else null))

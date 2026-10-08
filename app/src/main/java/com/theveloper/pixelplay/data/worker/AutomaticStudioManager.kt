@@ -55,7 +55,9 @@ class AutomaticStudioManager @Inject constructor(
     private val engagementDao: EngagementDao,
     private val lyricsAligner: TaisLyricsAligner,
     private val preferences: UserPreferencesRepository,
-    private val environment: AutomaticStudioEnvironment
+    private val environment: AutomaticStudioEnvironment,
+    /** Songs on their way to Cloud Studio are left to it (the iOS `skipsSong` hook). */
+    private val cloudStudio: dagger.Lazy<com.theveloper.pixelplay.data.cloudstudio.CloudStudioEngine>
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val requests = Channel<Unit>(Channel.CONFLATED)
@@ -251,6 +253,7 @@ class AutomaticStudioManager @Inject constructor(
         }
         for (song in candidates()) {
             if (!AutomaticStudioPolicy.canProcessDuration(song.duration)) continue
+            if (cloudStudio.get().hasPendingJob(song.id)) continue
             val localAudio = AutomaticStudioEnvironment.localAudio(song, audioCacheManager)
             for (kind in allowedKinds) {
                 val now = System.currentTimeMillis()

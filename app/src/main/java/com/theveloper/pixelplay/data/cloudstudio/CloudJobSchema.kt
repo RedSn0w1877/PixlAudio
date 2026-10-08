@@ -132,10 +132,34 @@ data class CloudJobInput(
     val guard: CloudJobGuard? = null,
     /** `op: "bench"` only. */
     val bench: CloudBenchOptions? = null,
+    /** The job's own instructions to the worker (`last_in_batch`); absent on every job but a burst's last. */
+    val policy: CloudJobInputPolicy? = null,
 ) {
     /** The typed tasks (unknown entries dropped). */
     val typedTasks: List<CloudTask> get() = tasks.orEmpty().mapNotNull(CloudTask::fromWire)
+
+    /** `policy.last_in_batch` as sent (false when absent). */
+    val isLastInBatch: Boolean get() = policy?.lastInBatch == true
+
+    /** The presigned URLs carry a signature and the access key ID: never printed (logs, crash reports). */
+    override fun toString(): String = "CloudJobInput(op=$op, jobKey=$jobKey, tasks=$tasks, lastInBatch=$isLastInBatch, urls=…)"
 }
+
+/**
+ * `input.policy`: the job's own instructions to the worker. Not RunPod's request policy ([CloudJobPolicy], the ttl and
+ * execution timeout next to `input` in the `/run` body). Added after v1 shipped; an older worker ignores it.
+ *
+ * Only ever built as `CloudJobInputPolicy(lastInBatch = true)`: the jobs before a burst's last send no `policy` at all
+ * (never `false` or `{}`), exactly as the iOS app does.
+ */
+@Serializable
+data class CloudJobInputPolicy(
+    /**
+     * The last job of one submit burst (a single song is a burst of one): the worker asks RunPod to stop it after this
+     * job, so no idle worker stays up and billed. The result is unchanged.
+     */
+    @SerialName("last_in_batch") val lastInBatch: Boolean? = null,
+)
 
 /** `input.client`. */
 @Serializable
@@ -156,7 +180,9 @@ data class CloudAudioInput(
     /** Lower-case hex. */
     val sha256: String,
     val durationMs: Long,
-)
+) {
+    override fun toString(): String = "CloudAudioInput(ext=$ext, bytes=$bytes, durationMs=$durationMs, urls=…)"
+}
 
 /** `input.separation`. */
 @Serializable
@@ -190,7 +216,9 @@ data class CloudOutputRequest(
     val codec: String,
     val kbps: Int? = null,
     val put: Map<String, String>? = null,
-)
+) {
+    override fun toString(): String = "CloudOutputRequest(codec=$codec, kbps=$kbps, slots=${put?.keys})"
+}
 
 /** `input.guard`: the duplicate / poison checks the worker runs before downloading anything. */
 @Serializable
@@ -198,7 +226,9 @@ data class CloudJobGuard(
     val manifestGet: String,
     val attemptGet: String,
     val attemptPut: String,
-)
+) {
+    override fun toString(): String = "CloudJobGuard(urls=…)"
+}
 
 /** `input.bench` (`op: "bench"`): a synthetic signal of `seconds` through `stages`; `crash` only on test builds. */
 @Serializable
@@ -476,7 +506,8 @@ data class CloudSelftestResult(
     val schema: String = CloudSchema.SELFTEST,
     val v: Int = CloudSchema.VERSION,
     val status: String,
-    val supported: List<Int> = emptyList(),
+    /** Required, as on iOS: a selftest without it is read as a job result instead (`CloudConnectionTest`). */
+    val supported: List<Int>,
     val ops: List<String>? = null,
     val worker: CloudWorkerInfo? = null,
     /** Model id → `true` / `false` / `"lazy"` (see [CloudModelAvailability]). */

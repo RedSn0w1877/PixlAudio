@@ -103,6 +103,11 @@ class CloudSchemaTest {
         assertEquals(256, input.output?.kbps)
         assertEquals(setOf("instrumental", "lyrics", "manifest"), input.output?.put?.keys)
         assertTrue(input.guard!!.attemptPut.contains("attempt.json"))
+        // input.policy (the worker's own switch), not RunPod's request policy.
+        assertEquals(CloudJobInputPolicy(lastInBatch = true), input.policy)
+        assertTrue(input.isLastInBatch)
+        // A selftest or bench input has no policy.
+        assertFalse(decode<CloudJobInput>(CloudFixtures.worker("job.input.selftest.json")).isLastInBatch)
     }
 
     @Test fun `volume, bench and transcribe inputs`() {

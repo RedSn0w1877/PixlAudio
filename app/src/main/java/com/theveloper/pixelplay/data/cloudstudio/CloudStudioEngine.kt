@@ -309,7 +309,7 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
         val clients = currentClients()
         val runpodId = record.runpodJobId
         if (record.state.isAtRunPod && runpodId != null && clients != null) {
-            runCatching { clients.runpod.cancel(runpodId) }
+            cancelQuietly(clients, runpodId)
         }
         cleanUpLocal(jobKey)
         clients?.let { deleteRemote(CloudJobBuilder.objectKeys(record), it) }
@@ -603,6 +603,10 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
             }
         }
         val order = jobs.withIndex().associate { (index, record) -> record.jobKey to index }
+        // The pass is one burst: its last job carries `policy.last_in_batch`, so the worker stops itself after it
+        // instead of staying up, idle and billed. Each job waits until the next one is ready (or the pass ends) to go
+        // out, since only then is it known whether it is the last ([CloudSubmitBurst], iOS d84f8f8).
+        val burst = CloudSubmitBurst<PendingSubmit>()
         for (jobKey in ready.sortedBy { order[it] ?: 0 }) {
             val record = job(jobKey) ?: continue
             if (record.state != CloudJobState.UPLOADED || !record.isDue(time)) continue
@@ -611,11 +615,13 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
                 continue
             }
             val price = settings.pricePerSecondMicroUsd
-            val committed = CloudBudget.committedMicroUsd(jobs, deps.monthStartMs(time), price)
+            // The held job isn't at RunPod yet, but it will be: count it.
+            val committed = CloudBudget.committedMicroUsd(jobs, deps.monthStartMs(time), price) +
+                (burst.holding?.estimateMicroUsd ?: 0)
             val estimate = CloudCost.estimatedSeconds(record.plan, record.quality) * price
             if (!CloudBudget.allows(estimate, settings.monthlyCapMicroUsd, committed)) {
                 setNotice(CloudNotice.CAP_REACHED)
-                return
+                break // the job held so far still goes out, as the burst's last
             }
             clearNotice(CloudNotice.CAP_REACHED)
             var lyrics: CloudLyricsRequest? = null
@@ -651,32 +657,54 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
                 }
                 if (job(jobKey)?.state != CloudJobState.UPLOADED) continue
             }
-            try {
-                val runpodJob = clients.runpod.run(request)
-                if (job(jobKey)?.state != CloudJobState.UPLOADED) {
-                    // Cancelled while the request was out: stop it at RunPod too.
-                    runCatching { clients.runpod.cancel(runpodJob.id) }
-                    continue
-                }
-                // The id is on disk before the next POST (design §7.4): update() saves.
-                update(jobKey) {
-                    it.copy(runpodJobId = runpodJob.id, lastError = null, lastErrorCode = null, nextAttemptAtMs = null)
-                        .on(CloudJobEvent.SUBMITTED, now)
-                }
-            } catch (error: CancellationException) {
-                throw error
-            } catch (error: RunPodError) {
-                when (error) {
-                    is RunPodError.Unauthorized -> { setNotice(CloudNotice.RUNPOD_KEY_REFUSED); return }
-                    is RunPodError.EndpointNotFound -> { setNotice(CloudNotice.ENDPOINT_NOT_FOUND); return }
-                    is RunPodError.RateLimited -> { setNotice(CloudNotice.RATE_LIMITED); return }
-                    is RunPodError.NotConfigured -> { setNotice(CloudNotice.NOT_CONFIGURED); return }
-                    // A lost response may still have queued the job; the worker's guard makes a repeat harmless.
-                    else -> fail(jobKey, error.message ?: "RunPod error", null, retryable = true)
-                }
-            } catch (error: Exception) {
-                fail(jobKey, CloudRedaction.redact(error.message ?: "Couldn't reach RunPod"), null, retryable = true)
+            val previous = burst.ready(PendingSubmit(jobKey, request, estimate))
+            if (previous != null && !submit(previous, lastInBatch = false, clients)) return
+        }
+        burst.end()?.let { submit(it, lastInBatch = true, clients) }
+    }
+
+    /** A job of the current submit pass that is ready to go out, held until the next one is ready. */
+    private class PendingSubmit(val jobKey: String, val request: CloudJobRequest, val estimateMicroUsd: Long)
+
+    /**
+     * Sends one job of a burst. False when the pass should stop (the key, the Endpoint ID, rate limiting, missing
+     * settings); a failure of this job alone carries on with the next. Cancellation propagates.
+     */
+    private suspend fun submit(pending: PendingSubmit, lastInBatch: Boolean, clients: Clients): Boolean {
+        val jobKey = pending.jobKey
+        // Cancelled while it waited for the next job to be ready.
+        if (job(jobKey)?.state != CloudJobState.UPLOADED) return true
+        try {
+            val runpodJob = clients.runpod.run(pending.request.markingLastInBatch(lastInBatch))
+            if (job(jobKey)?.state != CloudJobState.UPLOADED) {
+                // Cancelled while the request was out: stop it at RunPod too.
+                cancelQuietly(clients, runpodJob.id)
+                return true
             }
+            // The id is on disk before the next POST (design §7.4): update() saves.
+            update(jobKey) {
+                it.copy(runpodJobId = runpodJob.id, lastError = null, lastErrorCode = null, nextAttemptAtMs = null)
+                    .on(CloudJobEvent.SUBMITTED, now)
+            }
+            return true
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: RunPodError) {
+            when (error) {
+                is RunPodError.Unauthorized -> setNotice(CloudNotice.RUNPOD_KEY_REFUSED)
+                is RunPodError.EndpointNotFound -> setNotice(CloudNotice.ENDPOINT_NOT_FOUND)
+                is RunPodError.RateLimited -> setNotice(CloudNotice.RATE_LIMITED)
+                is RunPodError.NotConfigured -> setNotice(CloudNotice.NOT_CONFIGURED)
+                else -> {
+                    // A lost response may still have queued the job; the worker's guard makes a repeat harmless.
+                    fail(jobKey, CloudRedaction.redact(error.message ?: "RunPod error"), null, retryable = true)
+                    return true
+                }
+            }
+            return false
+        } catch (error: Exception) {
+            fail(jobKey, CloudRedaction.redact(error.message ?: "Couldn't reach RunPod"), null, retryable = true)
+            return true
         }
     }
 
@@ -1065,6 +1093,17 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
     private fun cleanUpLocal(jobKey: String) {
         deps.preparer.removeUpload(jobKey)
         deps.stagingDir.listFiles()?.filter { it.name.startsWith("$jobKey.") }?.forEach { it.delete() }
+    }
+
+    /** Best effort: stops a job at RunPod (cancellation of the caller still propagates). */
+    private suspend fun cancelQuietly(clients: Clients, runpodJobId: String) {
+        try {
+            clients.runpod.cancel(runpodJobId)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            // RunPod drops it at its ttl anyway; the worker's guard refuses a job whose manifest exists.
+        }
     }
 
     /** Best effort: the lifecycle rules remove anything left (7 d `in/`, 30 d `out/`). */

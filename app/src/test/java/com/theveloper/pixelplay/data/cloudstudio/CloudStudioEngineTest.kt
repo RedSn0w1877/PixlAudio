@@ -151,6 +151,64 @@ class CloudStudioEngineTest {
         assertEquals(1, job.attempts)
     }
 
+    // ─── Idle workers (last_in_batch) ───────────────────────────────────────────────────────
+
+    private val threeSongs = listOf("a", "b", "c").map { CloudSong(it, "Song $it", "Artist", "Album", 240_000, false, true) }
+
+    @Test fun `a single song is a burst of one and asks the worker to stop after it`() = runBlocking {
+        val engine = engine()
+        sendOne(engine)
+        runpod.finishImmediately = false
+        engine.workerPass(now + 60_000)
+        val run = runpod.runs.single()
+        assertEquals(CloudJobInputPolicy(lastInBatch = true), run.input.policy)
+        // RunPod's own request policy is untouched.
+        assertEquals(CloudJobPolicy(CloudTiming.TTL_MS, CloudTiming.EXECUTION_TIMEOUT_MS), run.policy)
+    }
+
+    @Test fun `only the last job of a burst asks the worker to stop`() = runBlocking {
+        host = FakeHost(threeSongs)
+        runpod.finishImmediately = false
+        val engine = engine()
+        assertEquals(3, engine.send(engine.preview(threeSongs, "Three")))
+        val keys = engine.state.value.jobs.map { it.jobKey }
+        engine.workerPass(now + 60_000)
+        assertEquals(keys, runpod.runs.map { it.input.jobKey }, "one burst, in queue order")
+        // The worker stays warm between the songs and stops itself after the last one; the others send no policy.
+        assertEquals(listOf(null, null, CloudJobInputPolicy(lastInBatch = true)), runpod.runs.map { it.input.policy })
+        assertTrue(engine.state.value.jobs.all { it.state == CloudJobState.SUBMITTED })
+    }
+
+    @Test fun `a job sent later is the last of its own burst`() = runBlocking {
+        host = FakeHost(threeSongs)
+        runpod.finishImmediately = false
+        val engine = engine()
+        sendOne(engine, threeSongs[0])
+        engine.workerPass(now + 60_000)
+        now += 1_000
+        sendOne(engine, threeSongs[1])
+        engine.workerPass(now + 60_000)
+        assertEquals(listOf(true, true), runpod.runs.map { it.input.isLastInBatch })
+    }
+
+    @Test fun `the cap ends a burst with the last job that went out`() = runBlocking {
+        host = FakeHost(threeSongs)
+        runpod.finishImmediately = false
+        val engine = engine()
+        assertEquals(3, engine.send(engine.preview(threeSongs, "Three")))
+        val keys = engine.state.value.jobs.map { it.jobKey }
+        // Room for two songs this month: the third waits, and the second is the burst's last.
+        val record = engine.job(keys[0])!!
+        val plan = record.plan.copy(durationMs = 240_000)
+        val estimate = CloudCost.estimatedSeconds(plan, record.quality) * settings.snapshot.pricePerSecondMicroUsd
+        settings.snapshot = settings.snapshot.copy(monthlyCapMicroUsd = 2 * estimate)
+        engine.workerPass(now + 60_000)
+        assertEquals(keys.take(2), runpod.runs.map { it.input.jobKey })
+        assertEquals(listOf(false, true), runpod.runs.map { it.input.isLastInBatch })
+        assertEquals(CloudNotice.CAP_REACHED, engine.state.value.notice)
+        assertEquals(CloudJobState.UPLOADED, engine.job(keys[2])!!.state)
+    }
+
     @Test fun `a streamed song is decoded, tied to its video, and refused if the match changed`() = runBlocking {
         host.videoIds[streamedSong.id] = "VIDEO_A"
         val engine = engine()

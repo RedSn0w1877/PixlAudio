@@ -29,7 +29,7 @@ class CloudJobBuilderTest {
         lines = listOf(CloudLyricsInputLine(0, 1000, "line")))
 
     @Test fun `a full request signs every worker URL at submission`() {
-        val request = CloudJobBuilder.request(prepared(), "0.7.6 (11)", lyrics, presign)!!
+        val request = CloudJobBuilder.request(prepared(), "0.7.6 (11)", lyrics, presign = presign)!!
         val input = request.input
         assertEquals(CloudJobPolicy(259_200_000, 900_000), request.policy)
         assertEquals("process", input.op)
@@ -46,9 +46,20 @@ class CloudJobBuilderTest {
         assertTrue(input.guard!!.manifestGet.contains("out/$JOB_KEY/manifest.json?X-Amz-Signature=GET"))
         assertEquals(lyrics, input.lyrics)
         assertTrue(signed.all { it.third == CloudTiming.WORKER_PRESIGN_SECONDS })
-        // The request validates against the golden run.request.json's shape: same top-level keys.
+        // Built alone, a job is not marked: no `policy` key at all inside `input` (never false, never {}).
+        assertNull(input.policy)
+        assertFalse(input.isLastInBatch)
+        val plain = CloudJson.encodeToString(CloudJobRequest.serializer(), request)
+        assertFalse(plain.contains("last_in_batch"))
+        assertFalse((CloudJson.parseToJsonElement(plain) as kotlinx.serialization.json.JsonObject)
+            .getValue("input").let { (it as kotlinx.serialization.json.JsonObject).containsKey("policy") })
+        // The request validates against the golden run.request.json's shape: same top-level keys. The golden is a
+        // burst's last job, so it carries input.policy.last_in_batch = true.
+        val last = request.markingLastInBatch(true)
+        assertTrue(last.input.isLastInBatch)
+        assertEquals(request.policy, last.policy, "RunPod's own policy (ttl, executionTimeout) is untouched")
         val golden = CloudFixtures.canonical(CloudFixtures.worker("run.request.json"))
-        val ours = CloudFixtures.canonical(CloudJson.encodeToString(CloudJobRequest.serializer(), request))
+        val ours = CloudFixtures.canonical(CloudJson.encodeToString(CloudJobRequest.serializer(), last))
         assertEquals(
             (golden as kotlinx.serialization.json.JsonObject).getValue("input").let { (it as kotlinx.serialization.json.JsonObject).keys },
             (ours as kotlinx.serialization.json.JsonObject).getValue("input").let { (it as kotlinx.serialization.json.JsonObject).keys },
@@ -57,16 +68,45 @@ class CloudJobBuilderTest {
 
     @Test fun `FLAC output has no bitrate, best falls back on long songs, lyrics are required for the lyrics task`() {
         val flac = CloudJobBuilder.request(prepared(listOf(CloudTask.INSTRUMENTAL), CloudOutputCodec.FLAC,
-            CloudSeparationQuality.BEST, durationMs = 500_000), "b", null, presign)!!
+            CloudSeparationQuality.BEST, durationMs = 500_000), "b", null, presign = presign)!!
         assertNull(flac.input.output!!.kbps)
         assertEquals("flac", flac.input.output!!.codec)
         assertTrue(flac.input.output!!.put!!.getValue("instrumental").contains("instrumental.flac"))
         assertEquals("standard", flac.input.separation!!.quality)
         assertNull(flac.input.lyrics)
-        assertNull(CloudJobBuilder.request(prepared(), "b", null, presign))
-        assertNull(CloudJobBuilder.request(prepared().copy(sha256 = null), "b", lyrics, presign))
-        assertNull(CloudJobBuilder.request(prepared().copy(jobKey = "nope"), "b", lyrics, presign))
+        assertNull(CloudJobBuilder.request(prepared(), "b", null, presign = presign))
+        assertNull(CloudJobBuilder.request(prepared().copy(sha256 = null), "b", lyrics, presign = presign))
+        assertNull(CloudJobBuilder.request(prepared().copy(jobKey = "nope"), "b", lyrics, presign = presign))
         assertNull(CloudJobBuilder.request(prepared(), "b", lyrics) { _, _, _ -> null })
+    }
+
+    @Test fun `last_in_batch is written exactly as the worker reads it`() {
+        val built = CloudJobBuilder.request(prepared(), "b", lyrics, lastInBatch = true, presign = presign)!!
+        assertEquals(CloudJobInputPolicy(lastInBatch = true), built.input.policy)
+        val json = CloudJson.parseToJsonElement(CloudJson.encodeToString(CloudJobRequest.serializer(), built))
+            as kotlinx.serialization.json.JsonObject
+        val policy = (json.getValue("input") as kotlinx.serialization.json.JsonObject).getValue("policy")
+        assertEquals(CloudJson.parseToJsonElement("""{"last_in_batch":true}"""), policy)
+        // Unmarking removes the key again.
+        val unmarked = built.markingLastInBatch(false)
+        assertNull(unmarked.input.policy)
+        assertFalse(CloudJson.encodeToString(CloudJobRequest.serializer(), unmarked).contains("last_in_batch"))
+    }
+
+    @Test fun `a submit burst holds each job until the next is ready and hands back the last at the end`() {
+        val burst = CloudSubmitBurst<String>()
+        assertNull(burst.end(), "an empty pass sends nothing")
+        assertNull(burst.ready("a"))
+        assertEquals("a", burst.holding)
+        assertEquals("a", burst.ready("b"), "a goes out, not the last")
+        assertEquals("b", burst.ready("c"))
+        assertEquals("c", burst.end(), "c is the burst's last")
+        assertNull(burst.holding)
+        assertNull(burst.end())
+        // A single song is a burst of one.
+        val single = CloudSubmitBurst<String>()
+        assertNull(single.ready("only"))
+        assertEquals("only", single.end())
     }
 
     @Test fun `lyrics requests`() {
