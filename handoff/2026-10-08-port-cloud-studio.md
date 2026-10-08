@@ -125,6 +125,8 @@ The automatic studio skips songs that have a cloud job waiting.
 | Key storage failure | Keychain | Adds a "Secure storage unavailable" notice (Keystore broken). "Keys missing" appears when keys were saved before but the store is now empty. |
 | Strings | English, verbatim | The same English, held in `CloudStudioCopy`, not in `strings.xml`. They aren't translated, like the other Experimental developer screens. |
 | Old job records | Dropped when stale | Decoded leniently: every new field has a default. |
+| Retry budget | 4 automatic tries over the whole job | Results that arrived reset the count, so a download or lyrics hiccup after several earlier ones can't throw a paid result away. |
+| Switching off | Stops new work | Also stops a running pass at its next step and cancels running transfers. A background pass doesn't start a transfer in its last 3 minutes, because a transfer cut off at WorkManager's 10-minute limit restarts from zero. |
 
 ## Phone checks for Hoa
 
@@ -157,6 +159,10 @@ You need an endpoint, a bucket and the keys, the same ones as on iOS.
 If anything fails, the row's text (or Home's active jobs sheet) names the step.
 
 ## Open risks
+
+- **Slow uplinks and big FLACs in the background.** A 100 MB upload that takes longer than a background pass, once
+  Android refused the foreground notification, never finishes there. It does finish while the app is open, or
+  under the notification after tapping Send.
 
 - **AAC passthrough frame count on real phones** (Pixel 10 Pro, Codec2 AAC decoder). If it's wrong, every
   local-AAC song does one extra FLAC run, which costs about twice the GPU time. To check, after step 5 with a local
