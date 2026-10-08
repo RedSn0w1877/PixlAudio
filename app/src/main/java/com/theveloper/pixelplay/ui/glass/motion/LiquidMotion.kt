@@ -40,6 +40,15 @@ object LiquidMotion {
     /** Non-bouncy press glow (never dips below zero). */
     val GlowSpring: SpringSpec<Float> = spring(dampingRatio = 0.9f, stiffness = 260f, visibilityThreshold = 0.001f)
 
+    /**
+     * A glass shape flowing into another (the queue's ⋯ circle stretching into its menu pill):
+     * quick, with a small liquid overshoot. [EnterSpring] (0.62 / 170) is too slow for a menu.
+     */
+    val MorphOpenSpring: SpringSpec<Float> = spring(dampingRatio = 0.72f, stiffness = 360f, visibilityThreshold = 0.001f)
+
+    /** The morph flowing back: no overshoot, so the pill never dips past the circle it returns to. */
+    val MorphCloseSpring: SpringSpec<Float> = spring(dampingRatio = 1f, stiffness = 520f, visibilityThreshold = 0.001f)
+
     /** Tile / panel press swell. */
     const val TilePressScale = 1.07f
 
