@@ -228,6 +228,10 @@ class PlayerViewModel @Inject constructor(
     val lyricsSyncEditor: LyricsSyncEditorStateHolder,
     /** Spotify Connect output (facade only; the session lives in the holder's controller). */
     val spotifyConnect: SpotifyConnectStateHolder,
+    /** The lyrics page's Translate button (on-device translation; its state lives in the holder). */
+    private val lyricsTranslation: LyricsTranslationStateHolder,
+    /** The lyrics page's Sing button and the studio-instrumental state it owns. */
+    private val lyricsSing: LyricsSingStateHolder,
     private val sessionToken: SessionToken,
     private val mediaControllerFactory: com.theveloper.pixelplay.data.media.MediaControllerFactory
 ) : ViewModel() {
@@ -255,12 +259,14 @@ class PlayerViewModel @Inject constructor(
     val showNoInternetDialog: SharedFlow<Unit> = _showNoInternetDialog.asSharedFlow()
 
     private var studioOverrideMediaId: String? = null
-    private val _studioInstrumentalActive = MutableStateFlow(false)
-    /** True while the current track's playback source is a swapped-in TAIS Studio instrumental render (vs. the original audio). Drives the toggle in the lyrics sheet. */
-    val studioInstrumentalActive: StateFlow<Boolean> = _studioInstrumentalActive.asStateFlow()
-    private val _studioInstrumentalAvailable = MutableStateFlow(false)
-    /** True when a rendered instrumental already exists on disk for the current song — controls whether the "Play instrumental" toggle shows at all. */
-    val studioInstrumentalAvailable: StateFlow<Boolean> = _studioInstrumentalAvailable.asStateFlow()
+    /** True while the current track's playback source is a swapped-in TAIS Studio instrumental render (vs. the original audio). Owned by [LyricsSingStateHolder]. */
+    val studioInstrumentalActive: StateFlow<Boolean> = lyricsSing.active
+    /** True when a rendered instrumental already exists on disk for the current song. Owned by [LyricsSingStateHolder]. */
+    val studioInstrumentalAvailable: StateFlow<Boolean> = lyricsSing.available
+    /** The lyrics toolbar's Sing button. */
+    val singUi: StateFlow<SingUi> = lyricsSing.ui
+    /** The lyrics toolbar's Translate button while an on-device translation runs. */
+    val lyricsTranslationState: StateFlow<LyricsTranslateUiState> = lyricsTranslation.state
 
     val stablePlayerState: StateFlow<StablePlayerState> = playbackStateHolder.stablePlayerState
     val albumArtPaletteStyle: StateFlow<AlbumArtPaletteStyle> = themePreferencesRepository
@@ -803,6 +809,8 @@ class PlayerViewModel @Inject constructor(
         listeningStatsTracker.initialize(viewModelScope)
         dailyMixStateHolder.initialize(viewModelScope)
         lyricsStateHolder.initialize(viewModelScope, lyricsLoadCallback, playbackStateHolder.stablePlayerState)
+        lyricsTranslation.initialize(viewModelScope)
+        lyricsSing.initialize(viewModelScope)
         viewModelScope.launch {
             // Opening the editor from outside the player (Edit song → Fix timing) shows the player.
             lyricsSyncEditor.expandPlayerRequests.collect { expandPlayerSheet() }
@@ -933,10 +941,30 @@ class PlayerViewModel @Inject constructor(
             .onEach { msg: String -> _toastEvents.emit(msg) }
             .launchIn(viewModelScope)
 
+        lyricsTranslation.messages
+            .onEach { msg: String -> _toastEvents.emit(msg) }
+            .launchIn(viewModelScope)
+
+        lyricsSing.messages
+            .onEach { msg: String -> _toastEvents.emit(msg) }
+            .launchIn(viewModelScope)
+
+        // Sing decides; the swap itself is a MusicService command sent through the controller.
+        lyricsSing.requests
+            .onEach { request: SingRequest ->
+                when (request) {
+                    is SingRequest.Instrumental -> switchToStudioInstrumental(request.path)
+                    SingRequest.Original -> switchToOriginalAudio()
+                }
+            }
+            .launchIn(viewModelScope)
+
+        // A new song plays its own audio: any instrumental swap belonged to the previous one
+        // (LyricsSingStateHolder resets its own active/available state on the same change).
         stablePlayerState
             .map { it.currentSong?.id }
             .distinctUntilChanged()
-            .onEach { songId -> refreshStudioInstrumentalAvailability(songId) }
+            .onEach { studioOverrideMediaId = null }
             .launchIn(viewModelScope)
 
         viewModelScope.launch {
@@ -1639,6 +1667,11 @@ class PlayerViewModel @Inject constructor(
 
         viewModelScope.launch {
             userPreferencesRepository.migrateTabOrder()
+        }
+
+        viewModelScope.launch {
+            // Settings that no longer exist (e.g. the lyrics "Keep screen on" switch).
+            userPreferencesRepository.removeRetiredPreferences()
         }
 
         viewModelScope.launch {
@@ -3072,8 +3105,7 @@ class PlayerViewModel @Inject constructor(
             args
         )
         studioOverrideMediaId = controller.currentMediaItem?.mediaId
-        _studioInstrumentalActive.value = true
-        _studioInstrumentalAvailable.value = true
+        lyricsSing.onInstrumentalPlaying()
     }
 
     /** Reverts a [switchToStudioInstrumental] swap back to the original (non-instrumental) audio for the same track. No-op if nothing was overridden. */
@@ -3084,7 +3116,7 @@ class PlayerViewModel @Inject constructor(
             SessionCommand(MusicNotificationProvider.CUSTOM_COMMAND_SET_STUDIO_AUDIO_OVERRIDE, Bundle()),
             Bundle()
         )
-        _studioInstrumentalActive.value = false
+        lyricsSing.onOriginalPlaying()
     }
 
     /**
@@ -3097,21 +3129,11 @@ class PlayerViewModel @Inject constructor(
         return com.theveloper.pixelplay.data.tais.TaisInstrumentalIndex.bestAvailableFile(context, songId)
     }
 
-    /** Checks whether a rendered instrumental already exists for [songId] and updates [studioInstrumentalAvailable]. Called whenever the current song changes. */
-    private fun refreshStudioInstrumentalAvailability(songId: String?) {
-        studioOverrideMediaId = null
-        _studioInstrumentalActive.value = false
-        if (songId == null) {
-            _studioInstrumentalAvailable.value = false
-            return
-        }
-        viewModelScope.launch(Dispatchers.IO) {
-            val available = bestAvailableInstrumentalPath(songId) != null
-            if (playbackStateHolder.stablePlayerState.value.currentSong?.id == songId) {
-                _studioInstrumentalAvailable.value = available
-            }
-        }
-    }
+    /** The lyrics toolbar's Sing: vocals off / on, rendering the instrumental first if needed. */
+    fun toggleSing() = lyricsSing.onSingTapped()
+
+    /** The lyrics toolbar's Translate when the lyrics have no translation yet: translate on this phone. */
+    fun translateLyricsOnDevice() = lyricsTranslation.translateCurrent()
 
     fun saveBatchMetadata(
         songs: List<Song>,
@@ -3158,7 +3180,14 @@ class PlayerViewModel @Inject constructor(
         metadataEditStateHolder.onWritePermissionResult(granted, metadataEditCallbacks())
 
     fun saveLyricsToFile(song: Song, lyrics: Lyrics, preferSynced: Boolean) =
-        metadataEditStateHolder.saveLyricsToFile(song, lyrics, preferSynced, metadataEditCallbacks())
+        metadataEditStateHolder.saveLyricsToFile(
+            song,
+            // The .lrc next to the song becomes its lyrics: the on-device translations (Translate's
+            // tap, memory only) stay out of it, as they stay out of every other save.
+            lyricsTranslation.withoutOnDeviceTranslations(song.id, lyrics) ?: lyrics,
+            preferSynced,
+            metadataEditCallbacks()
+        )
 
     suspend fun forceRegenerateAlbumPaletteForSong(song: Song): Boolean {
         val albumArtUri = song.albumArtUriString?.takeIf { it.isNotBlank() } ?: return false
@@ -3250,7 +3279,12 @@ class PlayerViewModel @Inject constructor(
         val currentSong = stablePlayerState.value.currentSong ?: return
         lyricsStateHolder.translateLyricsViaAi(
             currentSong = currentSong,
-            lyricsObj = stablePlayerState.value.lyrics,
+            // On-device translations (Translate's tap) don't count as "already translated": they
+            // only live in memory, and holding Translate for AI is how to get a better one.
+            lyricsObj = lyricsTranslation.withoutOnDeviceTranslations(
+                currentSong.id,
+                stablePlayerState.value.lyrics
+            ),
             cb = LyricsTranslationCallbacks(
                 translate = { rawLyrics -> aiStateHolder.translateLyrics(rawLyrics) },
                 getString = { resId -> context.getString(resId) },

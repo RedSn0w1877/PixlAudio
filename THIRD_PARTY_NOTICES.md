@@ -376,3 +376,14 @@ under the Apache License, Version 2.0:
 
 Modifications: renamed packages, the app's colour palette and motion tokens, lifecycle-aware sensor
 registration, coalesced gesture animation updates, cached brushes, and API-level tiers.
+
+## Google ML Kit: on-device Translation and Language Identification
+
+Copyright Google LLC.
+Used under the ML Kit Terms of Service: https://developers.google.com/ml-kit/terms
+Libraries: `com.google.mlkit:translate` 17.0.3 and `com.google.mlkit:language-id` 17.0.6.
+
+The lyrics page's Translate button identifies the language of a song's lyrics and translates them
+on the phone. Language identification is bundled with the app; each translation language model
+(about 30 MB) is downloaded from Google the first time that language is translated, then kept on
+the phone. Lyrics are translated on the device and are not sent to Google.

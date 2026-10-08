@@ -66,6 +66,7 @@ class LyricsSyncEditorStateHolderTest {
     private val draftStore: LyricsSyncDraftStore = mockk(relaxed = true)
     private val preferences: UserPreferencesRepository = mockk(relaxed = true)
     private val spotifyConnect: SpotifyConnectController = mockk(relaxed = true)
+    private val lyricsTranslation: LyricsTranslationStateHolder = mockk(relaxed = true)
 
     private lateinit var holder: LyricsSyncEditorStateHolder
     private val messages = mutableListOf<String>()
@@ -82,6 +83,7 @@ class LyricsSyncEditorStateHolderTest {
         every { castStateHolder.castSession } returns castSession
         every { spotifyConnect.isAttached } returns connectAttached
         every { spotifyConnect.uiState } returns connectUi
+        every { lyricsTranslation.withoutOnDeviceTranslations(any(), any()) } answers { secondArg() }
         coEvery { lyricsRepository.getStoredLyrics(any()) } returns null
         coEvery { draftStore.load(any()) } returns null
         every { preferences.lyricsTapOffsetBluetoothMsFlow } returns flowOf(0)
@@ -101,6 +103,7 @@ class LyricsSyncEditorStateHolderTest {
             draftStore = draftStore,
             preferences = preferences,
             spotifyConnect = spotifyConnect,
+            lyricsTranslation = lyricsTranslation,
         )
         testScope.launch { holder.messageEvents.collect { messages += it } }
         scheduler.runCurrent()

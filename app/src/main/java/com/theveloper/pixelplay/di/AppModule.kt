@@ -97,6 +97,20 @@ object AppModule {
         )
     }
 
+    /** The lyrics page's on-device translator; behind an interface so its state holder can be tested with a fake. */
+    @Provides
+    @Singleton
+    fun provideOnDeviceLyricsTranslator(
+        impl: com.theveloper.pixelplay.data.lyrics.translate.MlKitLyricsTranslator
+    ): com.theveloper.pixelplay.data.lyrics.translate.OnDeviceLyricsTranslator = impl
+
+    /** The lyrics page's Sing button reads its instrumental renders through this (WorkManager in the app). */
+    @Provides
+    @Singleton
+    fun provideInstrumentalRenderJobs(
+        impl: com.theveloper.pixelplay.data.worker.WorkManagerInstrumentalRenderJobs
+    ): com.theveloper.pixelplay.data.worker.InstrumentalRenderJobs = impl
+
     @Provides
     @Singleton
     fun providePreferencesDataStore(

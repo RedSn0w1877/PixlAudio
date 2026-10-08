@@ -129,8 +129,6 @@
     <!-- LyricsSheet -->
     <string name="lyrics_title">Paroles</string>
     <string name="lyrics_loading">Chargement des paroles…</string>
-    <string name="lyrics_mode_synced">Synchronisé</string>
-    <string name="lyrics_mode_static">Statique</string>
     <string name="lyrics_options">Options des paroles</string>
     <string name="lyrics_offset_minus_half">−.5</string>
     <string name="lyrics_offset_minus_point_one">−.1</string>
@@ -173,7 +171,6 @@
     <string name="lyrics_controls_show_romanization">Afficher la romanisation</string>
     <string name="lyrics_controls_show_translations">Afficher les traductions</string>
     <string name="lyrics_controls_disable_immersive_once">Désactiver l\'immersion (une fois)</string>
-    <string name="lyrics_controls_keep_screen_on">Garder l\'écran allumé</string>
 
     <!-- LyricsSheet save dialog -->
     <string name="lyrics_save_dialog_title">Enregistrer les paroles</string>

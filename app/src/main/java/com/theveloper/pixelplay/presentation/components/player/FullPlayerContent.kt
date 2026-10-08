@@ -891,20 +891,17 @@ fun FullPlayerContent(
             playbackPositionFlow = playerViewModel.currentPlaybackPosition,
             positionProvider = lyricsPositionSource,
             preparedLyricsFlow = playerViewModel.preparedLyrics,
-            studioInstrumentalAvailableFlow = playerViewModel.studioInstrumentalAvailable,
             studioInstrumentalActiveFlow = playerViewModel.studioInstrumentalActive,
             onPlayInstrumental = playerViewModel::switchToStudioInstrumental,
-            onToggleStudioInstrumental = {
-                if (playerViewModel.studioInstrumentalActive.value) {
-                    playerViewModel.switchToOriginalAudio()
-                } else {
-                    val songId = playerViewModel.stablePlayerState.value.currentSong?.id
-                    val path = songId?.let { playerViewModel.bestAvailableInstrumentalPath(it) }?.absolutePath
-                    if (path != null) {
-                        playerViewModel.switchToStudioInstrumental(path)
-                    }
-                }
-            },
+            // The no-lyrics card's "Play original" and the toolbar's Sing share one path.
+            onToggleStudioInstrumental = playerViewModel::toggleSing,
+            translationStateFlow = playerViewModel.lyricsTranslationState,
+            singUiFlow = playerViewModel.singUi,
+            onTranslateOnDevice = playerViewModel::translateLyricsOnDevice,
+            onSing = playerViewModel::toggleSing,
+            // The full player stays composed after it collapses: lyrics left open must not keep
+            // the screen on over the library.
+            screenAwake = currentSheetState == PlayerSheetState.EXPANDED,
             lyricsSearchUiState = lyricsSearchUiState,
             resetLyricsForCurrentSong = {
                 showLyricsSheet = false

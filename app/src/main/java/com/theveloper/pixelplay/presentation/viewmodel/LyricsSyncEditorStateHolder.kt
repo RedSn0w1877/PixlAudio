@@ -162,6 +162,8 @@ class LyricsSyncEditorStateHolder @Inject constructor(
     private val draftStore: LyricsSyncDraftStore,
     private val preferences: UserPreferencesRepository,
     private val spotifyConnect: SpotifyConnectController,
+    /** The lyrics page's on-device translations, which the editor's draft must never pick up. */
+    private val lyricsTranslation: LyricsTranslationStateHolder,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
@@ -412,7 +414,10 @@ class LyricsSyncEditorStateHolder @Inject constructor(
         if (defaultSpeed != playback.currentSpeed()) playback.setPlaybackSpeed(defaultSpeed)
 
         val state = playback.stablePlayerState.value
+        // The draft carries each line's translation into the saved lyrics, so the on-device ones
+        // (memory only, from the lyrics page's Translate) are taken off first.
         val lyrics = state.lyrics?.takeIf { state.currentSong?.id == song.id }
+            ?.let { lyricsTranslation.withoutOnDeviceTranslations(song.id, it) }
             ?: try {
                 lyricsRepository.getStoredLyrics(song)?.first
             } catch (e: CancellationException) {

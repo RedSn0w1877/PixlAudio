@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CornerBasedShape
@@ -222,6 +223,9 @@ fun RestoreMaterialColors(content: @Composable () -> Unit) {
 /** NexHome's sheet shape (the sheet header radius, 32). */
 private val GlassSheetShape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp)
 
+/** A floating glass sheet: the same radius on all four corners, inset from the screen edges. */
+private val GlassFloatingSheetShape = RoundedCornerShape(32.dp)
+
 /** Dialog panel radius (NexHome `GlassSection`, 28). */
 private val GlassDialogShape = RoundedCornerShape(28.dp)
 
@@ -285,6 +289,10 @@ private fun Shape.lensCompatible(): Shape = when (this) {
  * ambient aligned to the window, blooming in with the enter spring. The caller's container colour,
  * tonal elevation and shape are replaced; its drag handle is drawn inside the glass; the default
  * scrim becomes the palette's sheet scrim.
+ *
+ * [floating] (glass mode only; Material 3 ignores it): the glass panel is inset 8 dp from the
+ * sides and the bottom, above the navigation bar, rounded on all four corners, like iOS 26's
+ * partial-height sheets. The caller then leaves the navigation-bar padding to the sheet.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -302,6 +310,7 @@ fun AdaptiveModalBottomSheet(
     dragHandle: @Composable (() -> Unit)? = { BottomSheetDefaults.DragHandle() },
     contentWindowInsets: (@Composable () -> WindowInsets)? = null,
     properties: ModalBottomSheetProperties = ModalBottomSheetProperties(),
+    floating: Boolean = false,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val state = sheetState ?: rememberModalBottomSheetState()
@@ -346,13 +355,14 @@ fun AdaptiveModalBottomSheet(
     val palette = LocalGlassPalette.current
     val defaultScrim = BottomSheetDefaults.ScrimColor
     val insets: @Composable () -> WindowInsets = contentWindowInsets ?: { BottomSheetDefaults.modalWindowInsets }
+    val glassShape = if (floating) GlassFloatingSheetShape else GlassSheetShape
     ModalBottomSheet(
         onDismissRequest = onDismissRequest,
         modifier = modifier,
         sheetState = state,
         sheetMaxWidth = sheetMaxWidth,
         sheetGesturesEnabled = sheetGesturesEnabled,
-        shape = GlassSheetShape,
+        shape = glassShape,
         containerColor = Color.Transparent,
         contentColor = palette.primary,
         tonalElevation = 0.dp,
@@ -365,10 +375,18 @@ fun AdaptiveModalBottomSheet(
             val enter = rememberGlassEnter()
             val bloom = remember(enter) { { enter.value } }
             GlassContainer(
-                shape = GlassSheetShape,
+                shape = glassShape,
                 refraction = 24.dp,
                 bloom = bloom,
-                modifier = Modifier.fillMaxWidth(),
+                modifier = if (floating) {
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp)
+                        .navigationBarsPadding()
+                        .padding(bottom = 8.dp)
+                } else {
+                    Modifier.fillMaxWidth()
+                },
             ) {
                 Column(
                     Modifier

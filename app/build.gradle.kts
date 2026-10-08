@@ -351,6 +351,12 @@ dependencies {
     // fully offline via MediaPipe's GenAI runtime, no network/server required.
     implementation(libs.mediapipe.tasks.genai)
 
+    // On-device lyrics translation for the lyrics page's Translate button: Google ML Kit's
+    // translator (one ~30 MB model per language, downloaded on first use) and its language ID
+    // (bundled, works offline) to tell which language the lyrics are in.
+    implementation(libs.mlkit.translate)
+    implementation(libs.mlkit.language.id)
+
     // UI Utilities & Extra
     implementation(libs.timber)
     implementation(libs.generativeai)

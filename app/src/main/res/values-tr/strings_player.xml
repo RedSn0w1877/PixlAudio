@@ -129,8 +129,6 @@
     <!-- LyricsSheet -->
     <string name="lyrics_title">Şarkı Sözleri</string>
     <string name="lyrics_loading">Şarkı sözleri yükleniyor…</string>
-    <string name="lyrics_mode_synced">Senkronize</string>
-    <string name="lyrics_mode_static">Statik</string>
     <string name="lyrics_options">Şarkı sözü seçenekleri</string>
     <string name="lyrics_offset_minus_half">−.5</string>
     <string name="lyrics_offset_minus_point_one">−.1</string>
@@ -173,7 +171,6 @@
     <string name="lyrics_controls_show_romanization">Romanizasyonu göster</string>
     <string name="lyrics_controls_show_translations">Çevirileri göster</string>
     <string name="lyrics_controls_disable_immersive_once">Tam ekranı devre dışı bırak (bir kez)</string>
-    <string name="lyrics_controls_keep_screen_on">Ekranı açık tut</string>
 
     <!-- LyricsSheet save dialog -->
     <string name="lyrics_save_dialog_title">Şarkı Sözlerini Kaydet</string>
