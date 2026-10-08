@@ -1271,7 +1271,7 @@ class MusicService : MediaLibraryService() {
     // The current song plus the next MAX_DEPTH entries (Spotify id, or null for a local song).
     private var nextStreamWarmupKey: List<String?>? = null
     private var listeningCacheJob: Job? = null
-    private var listeningCacheId: String? = null
+    private val listeningCacheGate = com.theveloper.pixelplay.data.stream.ListeningCacheGate()
 
     private fun spotifyIdOf(item: MediaItem?): String? =
         item?.mediaMetadata?.extras?.getString(MediaItemBuilder.EXTERNAL_EXTRA_SPOTIFY_ID)
@@ -1370,23 +1370,28 @@ class MusicService : MediaLibraryService() {
      * neighbours on any network, competing with the first bytes.
      */
     private fun updateListeningCache(currentId: String?, nextId: String?, isPlaying: Boolean) {
-        if (currentId == null) {
-            // Paused or a local song: a pending (not yet started) cache request is dropped.
-            if (listeningCacheJob?.isActive == true) {
-                listeningCacheJob?.cancel()
-                listeningCacheId = null
-            }
-            return
+        // The gate drops a wait whose song is no longer the one playing (pause, local song, a
+        // skip even while the next song still buffers) and starts one once audio flows.
+        val decision = listeningCacheGate.update(currentId, isPlaying)
+        if (decision.cancelPending) {
+            listeningCacheJob?.cancel()
+            listeningCacheJob = null
         }
-        // Already requested (or waiting) for this song; wait for audio before counting.
-        if (currentId == listeningCacheId || !isPlaying) return
+        val songId = decision.startFor ?: return
         listeningCacheJob?.cancel()
-        listeningCacheId = currentId
         listeningCacheJob = serviceScope.launch {
             delay(com.theveloper.pixelplay.data.stream.StreamPrefetchPolicy.LISTENING_CACHE_DELAY_MS)
+            listeningCacheGate.waitFinished(songId)
+            // Belt and braces: still this phone's song, still meant to play.
+            val local = engine.masterPlayerIfAlive
+            if (local == null || !local.playWhenReady || connectSessionPlayer != null ||
+                spotifyIdOf(local.currentMediaItem) != songId
+            ) {
+                return@launch
+            }
             val conditions = withContext(Dispatchers.IO) { streamNetworkConditions.current() }
             if (!com.theveloper.pixelplay.data.stream.StreamPrefetchPolicy.allowsListeningCache(conditions)) return@launch
-            audioCacheManager.maybeAutoCache(currentId)
+            audioCacheManager.maybeAutoCache(songId)
             if (nextId != null &&
                 com.theveloper.pixelplay.data.stream.StreamPrefetchPolicy.allowsFullNextSongCache(conditions)
             ) {
@@ -1439,6 +1444,9 @@ class MusicService : MediaLibraryService() {
             // While a Spotify Connect device plays, the reported playWhenReady is the device's: the
             // local instrumental shadow must not start playing on the phone.
             instrumentalCrossfadeController.onPlayWhenReadyChanged(playWhenReady && connectSessionPlayer == null)
+            // A pause while the song still buffers changes neither isPlaying nor the state, so
+            // only this callback stops the preparation (and a pending listening-cache wait) then.
+            updateNextStreamPrefetch()
             when {
                 playWhenReady -> clearHeadsetReconnectResume()
                 !resumeOnHeadsetReconnectEnabled -> clearHeadsetReconnectResume()
@@ -1650,9 +1658,10 @@ class MusicService : MediaLibraryService() {
 
     override fun onDestroy() {
         endSpotifyConnectForUnload()
-        nextStreamWarmupJob?.cancel()
+        // Also switches the engine's next-item preload off: the engine is a singleton, so a stale
+        // "on" would carry over to the next service instance before anything plays.
+        stopStreamPreparation()
         listeningCacheJob?.cancel()
-        spotifyStreamProxy.prefetchStreamUrl(null)
         PlaybackActivityTracker.setPlaybackActive(false)
         listeningStatsTracker.finalizeCurrentSession(forceSynchronousPersistence = true)
         playbackSnapshotPersistJob?.cancel()
