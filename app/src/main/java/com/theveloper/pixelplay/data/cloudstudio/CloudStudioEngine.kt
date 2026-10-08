@@ -142,10 +142,15 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
         ).joinToString(", ")
     }
 
-    /** The month's committed spend (recorded costs plus estimates of jobs at RunPod). */
-    fun committedThisMonthMicroUsd(): Long = CloudBudget.committedMicroUsd(
-        jobs, deps.monthStartMs(now), deps.settings.snapshot().pricePerSecondMicroUsd
-    )
+    /**
+     * The month's committed spend (recorded costs plus estimates of jobs at RunPod, and what jobs since taken off the
+     * list spent this month).
+     */
+    fun committedThisMonthMicroUsd(): Long {
+        val monthStart = deps.monthStartMs(now)
+        return CloudBudget.committedMicroUsd(jobs, monthStart, deps.settings.snapshot().effectivePricePerSecondMicroUsd) +
+            deps.settings.removedSpendMicroUsd(monthStart)
+    }
 
     // ─── Lifecycle ──────────────────────────────────────────────────────────────────────────
 
@@ -267,8 +272,8 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
         }
         val settings = deps.settings.snapshot()
         val selection = CloudSelector.select(facts, settings.selectionOptions.copy(replaceUserSynced = replaceUserSynced))
-        val estimate = CloudBatchEstimate.make(selection.plans, settings.quality, settings.pricePerSecondMicroUsd,
-            committedThisMonthMicroUsd(), settings.monthlyCapMicroUsd)
+        val estimate = CloudBatchEstimate.make(selection.plans, settings.quality, settings.effectivePricePerSecondMicroUsd,
+            committedThisMonthMicroUsd(), settings.effectiveMonthlyCapMicroUsd)
         return CloudBatchPreview(
             id = deps.newJobKey(), title = title, songs = selection.plans.mapNotNull { byId[it.songId] },
             plans = selection.plans, skipped = selection.skipCounts, estimate = estimate,
@@ -320,7 +325,7 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
         // Clients from the current settings, even when no pass has run in this process yet: a job at RunPod must
         // be stopped there, or it keeps running and billing.
         val clients = currentClients() ?: runCatching {
-            buildClients(configInput(deps.settings.snapshot(), deps.settings.secrets().secrets))
+            buildClients(resolveConfig(deps.settings.snapshot()))
         }.getOrNull()
         val runpodId = record.runpodJobId
         if (record.state.isAtRunPod && runpodId != null && clients != null) {
@@ -346,19 +351,34 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
 
     /** Removes a finished job from the list. */
     suspend fun remove(jobKey: String) {
-        mutateJobs { list -> list.filterNot { it.jobKey == jobKey && it.state.isFinished } }
+        removeJobs { it.jobKey == jobKey && it.state.isFinished }
     }
 
     /** Removes every imported job. */
     suspend fun clearFinished() {
-        mutateJobs { list -> list.filterNot { it.state == CloudJobState.IMPORTED } }
+        removeJobs { it.state == CloudJobState.IMPORTED }
+    }
+
+    /**
+     * Takes jobs off the list. What they spent this month stays in the month's total
+     * ([CloudStudioSettingsSource.addRemovedSpend]), so clearing the list never makes room under the monthly cap.
+     */
+    private suspend fun removeJobs(matches: (CloudJobRecord) -> Boolean) {
+        mutateJobs { list ->
+            val (removed, kept) = list.partition(matches)
+            if (removed.isNotEmpty()) {
+                val monthStart = deps.monthStartMs(now)
+                deps.settings.addRemovedSpend(CloudBudget.spentMicroUsd(removed, monthStart), monthStart)
+            }
+            kept
+        }
     }
 
     // ─── Test connection ────────────────────────────────────────────────────────────────────
 
     /** RunPod's `/health` and the bucket probe, each on its own (design §7.2). */
     suspend fun testConnection(): CloudConnectionReport = coroutineScope {
-        val config = configInput(deps.settings.snapshot(), deps.settings.secrets().secrets)
+        val config = resolveConfig(deps.settings.snapshot())
         val runpod = async { CloudConnectionTest.checkRunPod(deps.makeRunPod(config)) }
         val storage = async { CloudConnectionTest.checkStorage(deps.makeObjects(config), deps.newJobKey()) }
         val report = CloudConnectionReport(runpod.await(), storage.await())
@@ -374,7 +394,7 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
 
     /** "Run selftest (~1¢)": one cold start through `/runsync`. Keeps the endpoint's limits it reports. */
     suspend fun runSelftest(): CloudSelftestReport {
-        val config = configInput(deps.settings.snapshot(), deps.settings.secrets().secrets)
+        val config = resolveConfig(deps.settings.snapshot())
         val report = CloudConnectionTest.selftestReport(deps.makeRunPod(config), deps.build)
         report.caps?.let(deps.settings::saveWorkerCaps)
         return report
@@ -390,18 +410,25 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
             setNotice(CloudNotice.OFF)
             return outcome(settings).copy(blocked = true)
         }
-        val secrets = deps.settings.secrets()
-        when {
-            secrets.storageUnavailable -> {
-                setNotice(CloudNotice.SECURE_STORAGE_UNAVAILABLE)
-                return outcome(settings).copy(blocked = true)
+        val config: CloudConfigInput
+        if (settings.usesBuiltInKeys) {
+            // PixlAudio's own keys: nothing in secure storage is needed (and it is never opened for them).
+            config = resolveConfig(settings)
+        } else {
+            val secrets = deps.settings.secrets()
+            when {
+                secrets.storageUnavailable -> {
+                    setNotice(CloudNotice.SECURE_STORAGE_UNAVAILABLE)
+                    return outcome(settings).copy(blocked = true)
+                }
+                secrets.keysMissing -> {
+                    setNotice(CloudNotice.KEYS_MISSING)
+                    return outcome(settings).copy(blocked = true)
+                }
             }
-            secrets.keysMissing -> {
-                setNotice(CloudNotice.KEYS_MISSING)
-                return outcome(settings).copy(blocked = true)
-            }
+            config = ownConfig(settings, secrets.secrets)
         }
-        val clients = clients(configInput(settings, secrets.secrets)) ?: run {
+        val clients = clients(config) ?: run {
             setNotice(CloudNotice.NOT_CONFIGURED)
             return outcome(settings).copy(blocked = true)
         }
@@ -662,12 +689,13 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
                 update(jobKey) { it.on(CloudJobEvent.REQUEUE, now) }
                 continue
             }
-            val price = settings.pricePerSecondMicroUsd
-            // The held job isn't at RunPod yet, but it will be: count it.
-            val committed = CloudBudget.committedMicroUsd(jobs, deps.monthStartMs(time), price) +
-                (burst.holding?.estimateMicroUsd ?: 0)
+            val price = settings.effectivePricePerSecondMicroUsd
+            // The held job isn't at RunPod yet, but it will be: count it. Jobs taken off the list still count.
+            val monthStart = deps.monthStartMs(time)
+            val committed = CloudBudget.committedMicroUsd(jobs, monthStart, price) +
+                deps.settings.removedSpendMicroUsd(monthStart) + (burst.holding?.estimateMicroUsd ?: 0)
             val estimate = CloudCost.estimatedSeconds(record.plan, record.quality) * price
-            if (!CloudBudget.allows(estimate, settings.monthlyCapMicroUsd, committed)) {
+            if (!CloudBudget.allows(estimate, settings.effectiveMonthlyCapMicroUsd, committed)) {
                 setNotice(CloudNotice.CAP_REACHED)
                 break // the job held so far still goes out, as the burst's last
             }
@@ -878,7 +906,7 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
     private suspend fun take(result: CloudJobResult, jobKey: String, clients: Clients) {
         val record = job(jobKey) ?: return
         if (!record.state.isAtRunPod && record.state != CloudJobState.UPLOADED) return
-        val price = deps.settings.snapshot().pricePerSecondMicroUsd
+        val price = deps.settings.snapshot().effectivePricePerSecondMicroUsd
         update(jobKey) { it.takingResult(result, price, now) }
         if (result.hasResults) {
             // The GPU work is done and paid for: importing it gets its own retry budget, so earlier hiccups (an upload,
@@ -1183,15 +1211,18 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
         }
     }
 
-    /** The person's fields, or the built-in configuration while theirs are incomplete ([CloudBuiltInConfig]). */
-    private fun configInput(settings: CloudSettingsSnapshot, secrets: CloudSecrets): CloudConfigInput {
-        val own = CloudConfigInput(
-            endpointId = settings.endpointId, runpodKey = secrets.runpodKey, endpoint = settings.r2Endpoint,
-            bucket = settings.bucket, accessKeyId = secrets.accessKeyId, secretAccessKey = secrets.secretAccessKey,
-        )
-        if (own.isComplete) return own
-        return deps.builtIn.defaults()?.takeIf { it.isComplete } ?: own
-    }
+    /**
+     * Whose keys the settings say are in use ([CloudKeyChoice]): PixlAudio's built-in ones (opened once, off this
+     * thread; empty if they can't be, so nothing is ever sent half-configured) or the person's own fields.
+     */
+    private suspend fun resolveConfig(settings: CloudSettingsSnapshot): CloudConfigInput =
+        if (settings.usesBuiltInKeys) deps.builtIn.load() ?: CloudConfigInput.EMPTY
+        else ownConfig(settings, deps.settings.secrets().secrets)
+
+    private fun ownConfig(settings: CloudSettingsSnapshot, secrets: CloudSecrets): CloudConfigInput = CloudConfigInput(
+        endpointId = settings.endpointId, runpodKey = secrets.runpodKey, endpoint = settings.r2Endpoint,
+        bucket = settings.bucket, accessKeyId = secrets.accessKeyId, secretAccessKey = secrets.secretAccessKey,
+    )
 
     private fun clients(config: CloudConfigInput): Clients? {
         clientsCache?.let { if (clientsKey == config) return it }
@@ -1261,7 +1292,7 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
 
     private suspend fun prune() {
         val time = now
-        mutateJobs { list -> list.filterNot { CloudRetention.shouldPrune(it, time) } }
+        removeJobs { CloudRetention.shouldPrune(it, time) }
     }
 
     private fun publish() {

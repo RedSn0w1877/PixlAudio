@@ -4,6 +4,12 @@ name: Android CI
 # request, so a broken build shows up as a red X on the commit instead of weeks later.
 # Docs-only pushes (handoff notes, docs, Markdown) are skipped.
 # The arm64 debug APK of each run is kept for 14 days under the run's "Artifacts".
+#
+# Built-in cloud keys: the Gradle steps get the CLOUD_DEFAULTS_KEY secret (the AES key that opens
+# app/src/main/assets/cloud_defaults.enc) and put it into BuildConfig. Pull requests from forks get no secrets, so
+# there it is empty and the build simply has no built-in keys (it still compiles, tests and builds).
+# Heads-up: the key therefore ends up inside the APK artifact below, which anyone who can see this repository's
+# Actions can download. That is the same exposure as any shipped APK (see handoff/2026-10-08-android-builtin-keys.md).
 
 on:
   push:
@@ -42,9 +48,13 @@ jobs:
         uses: gradle/actions/setup-gradle@v6
 
       - name: Compile app (debug)
+        env:
+          CLOUD_DEFAULTS_KEY: ${{ secrets.CLOUD_DEFAULTS_KEY }}
         run: ./gradlew :app:compileDebugKotlin
 
       - name: Unit tests
+        env:
+          CLOUD_DEFAULTS_KEY: ${{ secrets.CLOUD_DEFAULTS_KEY }}
         run: ./gradlew :app:testDebugUnitTest
 
       - name: Upload unit test reports
@@ -62,6 +72,8 @@ jobs:
         run: ./gradlew :wear:compileDebugKotlin
 
       - name: Build debug APKs
+        env:
+          CLOUD_DEFAULTS_KEY: ${{ secrets.CLOUD_DEFAULTS_KEY }}
         run: ./gradlew :app:assembleDebug -Ppixelplay.enableAbiSplits=true
 
       - name: Upload arm64 debug APK

@@ -39,6 +39,7 @@ annotation class CloudStudioHttpClient
 @Module
 @InstallIn(SingletonComponent::class)
 object CloudStudioModule {
+    private const val BUILT_IN_BLOB_ASSET = "cloud_defaults.enc"
 
     @Provides
     @Singleton
@@ -55,14 +56,24 @@ object CloudStudioModule {
         .followSslRedirects(false)
         .build()
 
-    /** The later "built-in keys" step plugs in here; until then there is none. */
+    /**
+     * PixlAudio's built-in cloud keys: the bundled blob opened with the key the build carries
+     * (`BuildConfig.CLOUD_DEFAULTS_KEY`, empty in forks and pull-request builds = no built-in keys). The blob is read
+     * and opened once, on an IO thread, when first asked for.
+     */
     @Provides
     @Singleton
-    fun provideCloudBuiltInConfig(): CloudBuiltInConfig = NoBuiltInCloudConfig
+    fun provideCloudBuiltInConfig(@ApplicationContext context: Context): CloudBuiltInConfig =
+        BuiltInCloudConfigProvider(BuildConfig.CLOUD_DEFAULTS_KEY, readBlob = {
+            context.assets.open(BUILT_IN_BLOB_ASSET).use { it.readBytes() }
+        })
 
     @Provides
     @Singleton
-    fun provideCloudStudioSettings(@ApplicationContext context: Context): CloudStudioSettings = CloudStudioSettings(context)
+    fun provideCloudStudioSettings(
+        @ApplicationContext context: Context,
+        builtIn: CloudBuiltInConfig,
+    ): CloudStudioSettings = CloudStudioSettings(context, builtIn)
 
     @Provides
     @Singleton

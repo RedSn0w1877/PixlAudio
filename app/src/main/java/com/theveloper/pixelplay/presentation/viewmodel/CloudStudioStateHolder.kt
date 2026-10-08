@@ -102,13 +102,19 @@ class CloudStudioStateHolder @Inject constructor(
 
     fun updateSettings(change: (CloudSettingsSnapshot) -> CloudSettingsSnapshot) {
         val wasEnabled = settings.snapshot().enabled
-        settings.update(change)
+        // "Use my own keys" is locked while songs are on their way: they were sent with the keys in use, and their
+        // results come back only through those (the screen disables the switch; this keeps it true for any caller).
+        val locked = hasJobsInFlight()
+        settings.update { before -> change(before).let { if (locked) it.copy(useOwnKeys = before.useOwnKeys) else it } }
         val enabled = settings.snapshot().enabled
         // Switching on while the app is open starts the foreground watch right away; switching off stops every
         // transfer at once (a running pass stops at its next step).
         if (!wasEnabled && enabled) scope.launch { engine.setAppVisible(true) }
         if (wasEnabled && !enabled) engine.stopTransfers()
     }
+
+    /** Jobs that aren't finished yet (waiting, uploading, at RunPod, or with results to collect). */
+    fun hasJobsInFlight(): Boolean = engine.state.value.jobs.any { it.state.isPending }
 
     /** The keys as typed; saved 600 ms after the last change (iOS's draft rule). */
     fun updateDraft(draft: CloudSecrets) {
