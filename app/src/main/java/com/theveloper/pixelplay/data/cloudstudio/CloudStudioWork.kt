@@ -50,7 +50,9 @@ class CloudStudioWorker @AssistedInject constructor(
         val budgetEnd = started + if (foreground) FOREGROUND_BUDGET_MS else BACKGROUND_BUDGET_MS
         return try {
             while (true) {
+                reportProgress()
                 val outcome = engine.workerPass(deadlineMs = budgetEnd)
+                reportProgress()
                 if (outcome.blocked || !outcome.pending) break
                 val now = System.currentTimeMillis()
                 val wake = outcome.nextWakeAtMs ?: break
@@ -75,6 +77,13 @@ class CloudStudioWorker @AssistedInject constructor(
         progress = 0,
         indeterminate = true,
     )
+
+    /** Home's active-jobs sheet shows "Cloud: 3 waiting, 1 processing" (iOS parity). */
+    private suspend fun reportProgress() {
+        val line = engine.summaryLine() ?: return
+        runCatching { setProgress(androidx.work.workDataOf("detail" to line)) }
+            .exceptionOrNull()?.let { if (it is CancellationException) throw it }
+    }
 
     private suspend fun promoteToForeground(): Boolean = try {
         setForeground(getForegroundInfo())
