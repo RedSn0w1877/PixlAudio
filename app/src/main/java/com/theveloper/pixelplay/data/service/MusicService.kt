@@ -66,6 +66,9 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import timber.log.Timber
@@ -78,6 +81,8 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import com.theveloper.pixelplay.data.preferences.ThemePreference
+import com.theveloper.pixelplay.data.preferences.AccentColor
+import com.theveloper.pixelplay.ui.theme.AccentColorSchemes
 import com.theveloper.pixelplay.data.service.auto.AutoMediaBrowseTree
 import com.theveloper.pixelplay.data.service.wear.buildWearThemePalette
 import com.theveloper.pixelplay.data.service.wear.WearStatePublisher
@@ -559,6 +564,20 @@ class MusicService : MediaLibraryService() {
             userPreferencesRepository.keepPlayingInBackgroundFlow.collect { enabled ->
                 keepPlayingInBackground = enabled
             }
+        }
+
+        // Widgets and the watch follow Player Theme and the app accent (Settings › Appearance ›
+        // Accent Color) right away instead of on the next track change. The first value is the
+        // one the service started with, so it doesn't trigger an update; the manager's diff skips
+        // the render when the colours didn't actually change.
+        serviceScope.launch {
+            combine(
+                themePreferencesRepository.playerThemePreferenceFlow,
+                themePreferencesRepository.accentColorFlow
+            ) { playerTheme, accent -> playerTheme to accent }
+                .distinctUntilChanged()
+                .drop(1)
+                .collect { widgetUpdateManager.requestFullUpdate(force = true) }
         }
 
         serviceScope.launch {
@@ -2159,15 +2178,24 @@ class MusicService : MediaLibraryService() {
         )
 
         // Merge theme preference reads into a single context switch
-        val (playerTheme, paletteStyle, colorAccuracyLevel) = withContext(Dispatchers.IO) {
-            Triple(
-                themePreferencesRepository.playerThemePreferenceFlow.first(),
-                AlbumArtPaletteStyle.fromStorageKey(themePreferencesRepository.albumArtPaletteStyleFlow.first().storageKey),
-                AlbumArtColorAccuracy.clamp(themePreferencesRepository.albumArtColorAccuracyFlow.first())
+        val themeInputs = withContext(Dispatchers.IO) {
+            WidgetThemeInputs(
+                playerTheme = themePreferencesRepository.playerThemePreferenceFlow.first(),
+                paletteStyle = AlbumArtPaletteStyle.fromStorageKey(themePreferencesRepository.albumArtPaletteStyleFlow.first().storageKey),
+                colorAccuracyLevel = AlbumArtColorAccuracy.clamp(themePreferencesRepository.albumArtColorAccuracyFlow.first()),
+                accentSeed = AccentColor.seedOrNull(themePreferencesRepository.accentColorFlow.first())
             )
         }
+        val playerTheme = themeInputs.playerTheme
+        val paletteStyle = themeInputs.paletteStyle
+        val colorAccuracyLevel = themeInputs.colorAccuracyLevel
+        val accentSeed = themeInputs.accentSeed
 
         val schemePair: ColorSchemePair? = when {
+            // Player Theme › Accent Color with a chosen accent: the app's accent scheme (memoised,
+            // and this runs off the main thread). With the default accent, Material You below.
+            playerTheme == ThemePreference.DYNAMIC && accentSeed != null ->
+                AccentColorSchemes.pairFor(accentSeed)
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && playerTheme == ThemePreference.DYNAMIC ->
                 // Only changes with the wallpaper colours (a configuration change, which clears it).
                 cachedDynamicSchemePair ?: ColorSchemePair(
@@ -2312,6 +2340,15 @@ class MusicService : MediaLibraryService() {
     private var cachedColorSchemePair: ColorSchemePair? = null
     @Volatile
     private var cachedDynamicSchemePair: ColorSchemePair? = null
+
+    /** The theme preferences [buildPlayerInfo] reads in one IO hop. */
+    private data class WidgetThemeInputs(
+        val playerTheme: String,
+        val paletteStyle: AlbumArtPaletteStyle,
+        val colorAccuracyLevel: Int,
+        val accentSeed: Int?
+    )
+
     private var cachedWidgetArtFromEmbedded = false
     private var cachedWidgetArtSourceKey: String? = null
     private var cachedWidgetArtResolvedUri: String? = null

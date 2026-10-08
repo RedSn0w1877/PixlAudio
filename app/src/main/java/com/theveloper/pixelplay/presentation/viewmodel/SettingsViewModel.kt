@@ -12,6 +12,7 @@ import com.theveloper.pixelplay.data.backup.model.BackupHistoryEntry
 import com.theveloper.pixelplay.data.backup.model.RestorePlan
 import com.theveloper.pixelplay.data.backup.model.RestoreResult
 import com.theveloper.pixelplay.data.backup.model.ValidationError
+import com.theveloper.pixelplay.data.preferences.AccentColor
 import com.theveloper.pixelplay.data.preferences.AppThemeMode
 import com.theveloper.pixelplay.data.preferences.CarouselStyle
 import com.theveloper.pixelplay.data.preferences.LibraryNavigationMode
@@ -941,6 +942,13 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    /** Settings › Appearance › Accent Color: `"#RRGGBB"`, or [AccentColor.DEFAULT] for Dynamic. */
+    fun setAccentColor(hex: String) {
+        viewModelScope.launch {
+            themePreferencesRepository.setAccentColor(hex)
+        }
+    }
+
     fun setAlbumArtPaletteStyle(style: AlbumArtPaletteStyle) {
         viewModelScope.launch {
             themePreferencesRepository.setAlbumArtPaletteStyle(style)
@@ -1429,6 +1437,10 @@ class SettingsViewModel @Inject constructor(
 
     val useSmoothCorners: StateFlow<Boolean> = userPreferencesRepository.useSmoothCornersFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
+
+    // Its own flow, not part of the positional Group1 combine. Only the accent row collects it.
+    val accentColor: StateFlow<String> = themePreferencesRepository.accentColorFlow
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), AccentColor.DEFAULT)
 
     val tapBackgroundClosesPlayer: StateFlow<Boolean> = userPreferencesRepository.tapBackgroundClosesPlayerFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)

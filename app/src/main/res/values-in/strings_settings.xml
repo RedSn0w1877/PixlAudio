@@ -185,7 +185,6 @@
     <string name="settings_player_theme_title">Tema Pemutar</string>
     <string name="settings_player_theme_subtitle">Pilih tampilan untuk pemutar melayang.</string>
     <string name="settings_player_theme_album_art">Sampul Album</string>
-    <string name="settings_player_theme_dynamic">Dinamis Sistem</string>
     <string name="settings_show_player_file_info_title">Tampilkan info file pemutar</string>
     <string name="settings_show_player_file_info_subtitle">Tampilkan codec, bitrate, dan sample rate di bagian progres pemutar.</string>
     <string name="settings_album_art_palette_title">Gaya Palet Sampul Album</string>

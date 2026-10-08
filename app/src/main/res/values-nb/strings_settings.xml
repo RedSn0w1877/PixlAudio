@@ -189,7 +189,6 @@
     <string name="settings_player_theme_title">Spiller-tema</string>
     <string name="settings_player_theme_subtitle">Velg utseende for den flytende spilleren.</string>
     <string name="settings_player_theme_album_art">Albumkunst</string>
-    <string name="settings_player_theme_dynamic">Systemdynamisk</string>
     <string name="settings_show_player_file_info_title">Vis filinfo i spiller</string>
     <string name="settings_show_player_file_info_subtitle">Vis kodek, bitrate og samplingsfrekvens i spillerens fremdriftsfelt.</string>
     <string name="settings_album_art_palette_title">Palettstil for albumkunst</string>

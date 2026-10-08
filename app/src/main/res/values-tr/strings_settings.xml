@@ -189,7 +189,6 @@
     <string name="settings_player_theme_title">Oynatıcı Teması</string>
     <string name="settings_player_theme_subtitle">Yüzen oynatıcının görünümünü seçin.</string>
     <string name="settings_player_theme_album_art">Albüm Kapağı</string>
-    <string name="settings_player_theme_dynamic">Sistem Dinamik</string>
     <string name="settings_show_player_file_info_title">Oynatıcı dosya bilgisini göster</string>
     <string name="settings_show_player_file_info_subtitle">Oynatıcı ilerleme bölümünde kodek, bit hızı (bitrate) ve örnekleme hızını gösterir.</string>
     <string name="settings_album_art_palette_title">Albüm Kapağı Palet Stili</string>

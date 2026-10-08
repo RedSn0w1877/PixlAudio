@@ -36,6 +36,11 @@ val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "se
 
 object ThemePreference {
     const val DEFAULT = "default"
+    /**
+     * Player Theme › Accent Color (shown as "System Dynamic" before the 2026-10-07 accent setting):
+     * the player uses the app scheme, i.e. Settings › Appearance › Accent Color, which is Material
+     * You while the accent is Dynamic. The stored value stays "dynamic" so old backups keep it.
+     */
     const val DYNAMIC = "dynamic"
     const val ALBUM_ART = "album_art"
     const val GLOBAL = "global"

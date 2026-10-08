@@ -130,6 +130,7 @@ import com.theveloper.pixelplay.presentation.components.PlayStoreAnnouncementDef
 import com.theveloper.pixelplay.presentation.components.PlayStoreAnnouncementDialog
 import com.theveloper.pixelplay.presentation.components.PlayStoreAnnouncementUiModel
 import com.theveloper.pixelplay.presentation.components.UnifiedPlayerSheetV2
+import com.theveloper.pixelplay.presentation.components.ProvidePlayerGlassPalette
 import com.theveloper.pixelplay.presentation.components.calculatePlayerSheetCollapsedTargetY
 import com.theveloper.pixelplay.presentation.components.resolveGlassNavBarOccupiedHeight
 import com.theveloper.pixelplay.presentation.components.resolveNavBarOccupiedHeight
@@ -140,6 +141,8 @@ import com.theveloper.pixelplay.presentation.navigation.Screen
 import com.theveloper.pixelplay.presentation.screens.SetupScreen
 import com.theveloper.pixelplay.presentation.viewmodel.MainViewModel
 import com.theveloper.pixelplay.presentation.viewmodel.PlayerViewModel
+import com.theveloper.pixelplay.presentation.viewmodel.ThemeStateHolder
+import com.theveloper.pixelplay.ui.glass.theme.GlassPalette
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.theveloper.pixelplay.ui.theme.LocalHighContrastText
 import com.theveloper.pixelplay.ui.theme.LocalPixelPlayDarkTheme
@@ -198,6 +201,9 @@ class MainActivity : ComponentActivity() {
     lateinit var userPreferencesRepository: UserPreferencesRepository // Inject here
     @Inject
     lateinit var themePreferencesRepository: ThemePreferencesRepository
+    // The same singleton PlayerViewModel holds; read here for the accent before the VM exists.
+    @Inject
+    lateinit var themeStateHolder: ThemeStateHolder
     @Inject
     lateinit var syncManager: SyncManager
     @Inject
@@ -238,10 +244,14 @@ class MainActivity : ComponentActivity() {
         // Keep the splash only until the startup snapshot (theme, setup gate, start tab) is read,
         // so the first frame the user sees is the real one at full opacity, never a blank or a
         // wrong-theme frame. The deadline makes sure a slow disk can never hold the splash.
+        // The accent scheme too: a chosen accent is built off the main thread (a few ms, more on
+        // the very first build), and without the wait the first frames would be Material You.
         val startupPrefs = mainViewModel.startupPrefs
+        val accentScheme = themeStateHolder.accentScheme
         val splashDeadline = SystemClock.uptimeMillis() + SPLASH_MAX_HOLD_MS
         splashScreen.setKeepOnScreenCondition {
-            startupPrefs.value == null && SystemClock.uptimeMillis() < splashDeadline
+            (startupPrefs.value == null || accentScheme.value == null) &&
+                SystemClock.uptimeMillis() < splashDeadline
         }
 
         // LEER SEÑAL DE BENCHMARK
@@ -273,6 +283,9 @@ class MainActivity : ComponentActivity() {
             val showScrollbar by userPreferencesRepository.showScrollbarFlow.collectAsStateWithLifecycle(
                 initialValue = startupSnapshot?.showScrollbar ?: true
             )
+            // Settings › Appearance › Accent Color; null (still loading, or the default Dynamic)
+            // leaves Material You in place.
+            val appAccent by accentScheme.collectAsStateWithLifecycle()
             val useDarkTheme = when (appThemeMode) {
                 AppThemeMode.DARK -> true
                 AppThemeMode.LIGHT -> false
@@ -329,7 +342,8 @@ class MainActivity : ComponentActivity() {
                 LocalShowScrollbar provides showScrollbar
             ) {
                 PixelPlayTheme(
-                    darkTheme = useDarkTheme
+                    darkTheme = useDarkTheme,
+                    accentSchemePair = appAccent?.pair
                 ) {
                     // No launch fade: the splash stays up until the startup snapshot is ready,
                     // then the app draws at full opacity. (The old 100 ms blank + 600 ms fade
@@ -1171,15 +1185,18 @@ class MainActivity : ComponentActivity() {
                             )
                         }
 
-                        UnifiedPlayerSheetV2(
-                            playerViewModel = playerViewModel,
-                            sheetCollapsedTargetYProvider = sheetCollapsedTargetYProvider,
-                            collapsedStateHorizontalPadding = horizontalPadding,
-                            hideMiniPlayer = shouldHideMiniPlayer,
-                            containerHeight = containerHeight,
-                            navController = navController,
-                            isNavBarHidden = isNavBarEffectivelyHidden
-                        )
+                        // Glass mode: the player keeps its album colours whatever the app accent is.
+                        ProvidePlayerGlassPalette(playerViewModel) {
+                            UnifiedPlayerSheetV2(
+                                playerViewModel = playerViewModel,
+                                sheetCollapsedTargetYProvider = sheetCollapsedTargetYProvider,
+                                collapsedStateHorizontalPadding = horizontalPadding,
+                                hideMiniPlayer = shouldHideMiniPlayer,
+                                containerHeight = containerHeight,
+                                navController = navController,
+                                isNavBarHidden = isNavBarEffectivelyHidden
+                            )
+                        }
 
                         val dismissUndoBarSlice by remember {
                             playerViewModel.playerUiState
@@ -1357,9 +1374,16 @@ private fun GlassRoot(
     if (enabled) {
         val albumPair by playerViewModel.currentAlbumArtColorSchemePair.collectAsStateWithLifecycle()
         val themedArtUri by playerViewModel.currentThemedAlbumArtUri.collectAsStateWithLifecycle()
+        val appAccent by playerViewModel.themeStateHolder.accentScheme.collectAsStateWithLifecycle()
         val powerSaveState = rememberPowerSaveMode()
         val albumScheme = albumPair?.let { if (isDark) it.dark else it.light }
-        accent = albumScheme?.primary ?: appScheme.primary
+        // A chosen accent colours the app's glass; the default (Dynamic) keeps following the album.
+        // The ambient bake and blobs below stay art-driven either way (owner decision).
+        accent = GlassPalette.rootAccent(
+            accentChosen = appAccent?.pair != null,
+            albumPrimary = albumScheme?.primary,
+            appPrimary = appScheme.primary
+        )
         artUri = themedArtUri
         blobs = remember(albumScheme, appScheme, isDark) {
             val source = albumScheme ?: appScheme.takeUnless { isDark }
