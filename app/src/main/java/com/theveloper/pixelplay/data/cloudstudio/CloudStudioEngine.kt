@@ -156,6 +156,7 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
      * The app came to the foreground or went away. While visible and switched on, a light pass runs at once and
      * every 15 s while something can change; nothing at all runs (no file read) while the feature is off.
      */
+    @Synchronized
     fun setAppVisible(isVisible: Boolean) {
         visible = isVisible
         if (!isVisible) {
@@ -167,6 +168,7 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
     }
 
     /** Starts the foreground poll loop while the app is visible and the feature is on (one loop at a time). */
+    @Synchronized
     private fun ensurePollLoop(requestWorker: Boolean) {
         if (!visible || !deps.settings.snapshot().enabled || pollLoop?.isActive == true) return
         pollLoop = deps.scope.launch {

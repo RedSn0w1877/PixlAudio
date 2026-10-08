@@ -47,6 +47,7 @@ import androidx.compose.material.icons.outlined.PlayCircle
 import androidx.compose.material.icons.outlined.Style
 import androidx.compose.material.icons.rounded.LinearScale
 import androidx.compose.material.icons.rounded.Key
+import androidx.compose.material.icons.rounded.CloudUpload
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Rectangle
 import androidx.compose.material.icons.rounded.Title
@@ -1103,6 +1104,37 @@ fun ExperimentalSettingsScreen(
                                    }
                                }
                            }
+                        }
+                    }
+                }
+            }
+
+            item(key = "cloud_processing") {
+                // Cloud Studio: the owner's RunPod GPU for instrumentals and word-timed lyrics (iOS parity).
+                val cloud: com.theveloper.pixelplay.presentation.viewmodel.CloudStudioViewModel = hiltViewModel()
+                val cloudSettings by cloud.settings.collectAsStateWithLifecycle()
+                val cloudState by cloud.engineState.collectAsStateWithLifecycle()
+                val cloudSummary = remember(cloudState.jobs) { cloud.summaryLine() }
+                AdaptivePressSurface(
+                    onClick = { navController.navigate(com.theveloper.pixelplay.presentation.navigation.Screen.CloudProcessing.route) },
+                    shape = RoundedCornerShape(24.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainer,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(14.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(androidx.compose.material.icons.Icons.Rounded.CloudUpload, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Cloud processing", style = MaterialTheme.typography.titleMedium)
+                            Text(
+                                if (cloudSettings.enabled) cloudSummary ?: "On — instrumentals and word-timed lyrics on your RunPod GPU."
+                                else "Instrumentals and word-timed lyrics on your own RunPod GPU. Off until you set it up.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
                     }
                 }

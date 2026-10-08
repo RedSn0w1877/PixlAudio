@@ -17,6 +17,9 @@ sealed class Screen(val route: String) {
     }
     object PaletteStyle : Screen("palette_style_settings")
     object Experimental : Screen("experimental_settings")
+    /** Settings › Experimental › Cloud processing (Cloud Studio) and its queue. */
+    object CloudProcessing : Screen("cloud_processing")
+    object CloudQueue : Screen("cloud_queue")
     object NavBarCrRad : Screen("nav_bar_corner_radius")
     object PlaylistDetail : Screen("playlist_detail/{playlistId}") {
         fun createRoute(playlistId: String) = "playlist_detail/$playlistId"

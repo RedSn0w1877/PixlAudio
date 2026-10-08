@@ -145,6 +145,9 @@ fun TaisStudioProgressCard(
                     }
                 )
             }
+
+            // Cloud Studio: once Cloud processing is on, the song can go to the RunPod GPU from here (iOS parity).
+            com.theveloper.pixelplay.presentation.screens.cloudstudio.CloudSongRow(song = song)
         }
     }
 }

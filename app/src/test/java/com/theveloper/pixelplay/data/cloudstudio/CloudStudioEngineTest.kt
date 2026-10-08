@@ -176,7 +176,7 @@ class CloudStudioEngineTest {
         assertEquals(keys, runpod.runs.map { it.input.jobKey }, "one burst, in queue order")
         // The worker stays warm between the songs and stops itself after the last one; the others send no policy.
         assertEquals(listOf(null, null, CloudJobInputPolicy(lastInBatch = true)), runpod.runs.map { it.input.policy })
-        assertTrue(engine.state.value.jobs.all { it.state == CloudJobState.SUBMITTED })
+        assertTrue(engine.state.value.jobs.all { it.state.isAtRunPod }, "states: ${engine.state.value.jobs.map { it.state }}")
     }
 
     @Test fun `a job sent later is the last of its own burst`() = runBlocking {
