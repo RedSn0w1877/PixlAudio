@@ -30,7 +30,8 @@ only build.
 - `ConnectivityStateHolder` now unregisters its audio-device callback in `onCleared()`. Before, each ViewModel
   recreation added another one.
 - The heart: Android has no stale-heart bug (Room Flow → StateFlow → provider), and the lock-screen Like is already
-  wired. Nothing changed there.
+  wired. One lag is fixed (review, below): unliking a track that only came in from "More on Spotify" now empties the
+  heart at once instead of after the library clean-up.
 
 ### 2. Volume buttons on a Spotify Connect speaker (`7128280`)
 - **Each press moves the speaker exactly 5 %.** The session's remote volume is now a 0–20 scale, so Android's volume
@@ -118,6 +119,19 @@ The Media3 and material3 facts the plans relied on were re-checked in bytecode a
 VolumeProvider only on a DeviceInfo change or a player swap. `MediaSession.getPlatformToken()` is public. TopAppBar
 still measures its actions at the full bar width, hence the 72 dp leading reserve.
 
+## Review fixes (adversarial review, same branch)
+- **A press after a long 429 could step from the speaker's old volume.** The poll hold is 3 s, but a Retry-After can
+  be longer. When the gate opened, a poll could land before the waiting `PUT`, put the old value back on screen and in
+  the system panel, and the next press then stepped from it (70 % set, 40 % polled, press → 45 %). Polls and device
+  lists now also keep the local volume while the lane still has a value waiting or on its way
+  (`SpotifyConnectReducer.apply(volumeSending = …)`). Test: `a volume still waiting to go out outlasts the hold`.
+- **The volume lane had no crash guard.** Volume requests left `enqueue`, and with it its catch-all: an exception from
+  the auth layer (the encrypted prefs) would escape the handler-less scope and crash the app. It is now a failed
+  request like any other. A stray `CancellationException` no longer strands a newer value in the lane either.
+- **Unliking an Explore-only Spotify track** writes the favourite first, then runs `removeFromExploredCatalog` (the
+  `player-controls.json` step that was skipped). The clean-up never touches the favorites table, so the end state is
+  the same; the heart just doesn't wait seconds for the mirror rebuild. Test in `PlayerViewModelTest`.
+
 ## Not verified
 Nothing here ran on a phone. The system volume panel's look and the Output Switcher callbacks in particular can only
 be checked on the device.
@@ -174,9 +188,6 @@ Notification:
 - Optional: delete the now-unused `player_now_playing` / `player_cd_cloud_stream` strings from `values` and the 10
   locales. The baseline-profile pattern still lists "Now Playing", which is harmless: it also matches
   "Collapse player".
-- Optional (`player-controls.json`): unliking an Explore-only Spotify track keeps the heart filled during the mirror
-  rebuild. Write the favourite before `removeFromExploredCatalog`. Not done, because the item scope was "the heart bug
-  doesn't exist".
 - Watch volume controls still change the phone's volume during Connect (`connect-volume.json` owner decision 3,
   suggested follow-up).
 - New strings are English only (`values/strings.xml`).

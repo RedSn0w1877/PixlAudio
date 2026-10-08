@@ -65,6 +65,7 @@ class PlayerViewModelTest {
 
     private lateinit var playerViewModel: PlayerViewModel
     private val mockMusicRepository: MusicRepository = mockk()
+    private val mockSpotifyRepository: com.theveloper.pixelplay.data.spotify.SpotifyRepository = mockk(relaxed = true)
     private val mockUserPreferencesRepository: UserPreferencesRepository = mockk(relaxed = true)
     private val mockAiPreferencesRepository: AiPreferencesRepository = mockk(relaxed = true)
     private val mockThemePreferencesRepository: ThemePreferencesRepository = mockk(relaxed = true)
@@ -282,7 +283,7 @@ class PlayerViewModelTest {
         playerViewModel = PlayerViewModel(
             context = mockContext,
             musicRepository = mockMusicRepository,
-            spotifyRepository = mockk(relaxed = true),
+            spotifyRepository = mockSpotifyRepository,
             userPreferencesRepository = mockUserPreferencesRepository,
             aiPreferencesRepository = mockAiPreferencesRepository,
             themePreferencesRepository = mockThemePreferencesRepository,
@@ -497,6 +498,37 @@ class PlayerViewModelTest {
         advanceUntilIdle()
 
         coVerify { mockMusicRepository.setFavoriteStatus("42", true) }
+    }
+
+    @Test
+    fun `unliking an Explore-only Spotify track writes the favourite before the library clean-up`() = runTest {
+        // The clean-up rebuilds the whole Spotify mirror; the heart must not wait for it.
+        coEvery { mockSpotifyRepository.removeFromExploredCatalog("sp42") } returns true
+        val exploredSong = Song(
+            id = "42",
+            title = "Explored Song",
+            artist = "Artist",
+            artistId = -1L,
+            album = "Album",
+            albumId = -1L,
+            path = "",
+            contentUriString = "spotify:track:sp42",
+            albumArtUriString = null,
+            duration = 180000L,
+            mimeType = null,
+            bitrate = null,
+            sampleRate = null,
+            spotifyId = "sp42"
+        )
+
+        playerViewModel.toggleFavoriteSpecificSong(exploredSong, removing = true)
+        advanceUntilIdle()
+
+        coVerifyOrder {
+            mockMusicRepository.setFavoriteStatus("42", false)
+            mockSpotifyRepository.removeFromExploredCatalog("sp42")
+        }
+        coVerify(exactly = 1) { mockMusicRepository.setFavoriteStatus("42", false) }
     }
 
     @Test

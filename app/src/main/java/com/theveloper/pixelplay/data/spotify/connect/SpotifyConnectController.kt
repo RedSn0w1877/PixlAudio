@@ -209,8 +209,9 @@ class SpotifyConnectController @Inject constructor(
                     _uiState.update { ui ->
                         val active = ui.active?.let { active ->
                             list.firstOrNull { it.deviceId == active.deviceId }?.let { device ->
-                                // Not over a value PixlAudio just set (the list may predate the last `PUT`).
-                                val held = nowMs() < (state?.volumeHoldUntilMs ?: 0L)
+                                // Not over a value PixlAudio just set or still has to send (the list
+                                // may predate the last `PUT`, or a 429 may still hold the next one).
+                                val held = !volumeLane.isIdle || nowMs() < (state?.volumeHoldUntilMs ?: 0L)
                                 active.copy(
                                     name = device.name,
                                     type = device.type,
@@ -539,7 +540,7 @@ class SpotifyConnectController @Inject constructor(
             }
         }
         val current = state ?: return
-        val reduction = SpotifyConnectReducer.apply(polled, current, nowMs())
+        val reduction = SpotifyConnectReducer.apply(polled, current, nowMs(), volumeSending = !volumeLane.isIdle)
         state = reduction.state
         when (val change = reduction.outcome.change) {
             SpotifyConnectPollOutcome.Change.None -> Unit
@@ -905,14 +906,19 @@ class SpotifyConnectController @Inject constructor(
                     SpotifyConnectVolumeLane.Action.Idle -> return@launch
                     is SpotifyConnectVolumeLane.Action.Wait -> delay(action.ms)
                     is SpotifyConnectVolumeLane.Action.Send -> {
-                        val result = try {
+                        val result: ConnectResult<Unit> = try {
                             client.setVolume(deviceId, action.percent)
                         } catch (e: CancellationException) {
                             // Not this job's own cancellation (stopTasks resets the lane for that):
-                            // free the lane, or every later change would wait for a request that ended.
+                            // that value is dropped like any failed request, and a newer one still
+                            // goes. Returning here instead left the newer one stranded in the lane.
                             if (!isActive) throw e
-                            volumeLane = volumeLane.failed()
-                            return@launch
+                            ConnectResult.Err(SpotifyConnectError.Network(e.message))
+                        } catch (e: Exception) {
+                            // enqueue's guard, kept for volume: an exception out of the auth layer (the
+                            // encrypted prefs) must not escape this handler-less scope and crash the app.
+                            Timber.tag(TAG).w(e, "Volume request failed")
+                            ConnectResult.Err(SpotifyConnectError.Network(e.message))
                         }
                         if (generation != sessionGeneration) return@launch
                         onVolumeResult(result)

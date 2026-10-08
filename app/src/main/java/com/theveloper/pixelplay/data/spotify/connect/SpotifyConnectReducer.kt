@@ -108,8 +108,18 @@ object SpotifyConnectReducer {
     /** Grace after starting a session (the device may have to wake up and buffer). */
     const val START_GRACE_MS = 6_000L
 
-    /** Folds a poll (`null` = 204, nothing playing) into [state]. */
-    fun apply(poll: SpotifyPlaybackSnapshot?, state: SpotifyConnectSessionState, nowMs: Long): SpotifyConnectReduction {
+    /**
+     * Folds a poll (`null` = 204, nothing playing) into [state]. [volumeSending]: a volume change is
+     * still waiting to go out or on its way, so the poll's volume is older than the one shown; it is
+     * held however long that takes (a 429 can outlast [SpotifyConnectVolume.HOLD_MS], and a press
+     * after it would otherwise step from the device's old value).
+     */
+    fun apply(
+        poll: SpotifyPlaybackSnapshot?,
+        state: SpotifyConnectSessionState,
+        nowMs: Long,
+        volumeSending: Boolean = false
+    ): SpotifyConnectReduction {
         val inGrace = nowMs < state.graceUntilMs
         fun result(change: SpotifyConnectPollOutcome.Change, s: SpotifyConnectSessionState = state, next: Boolean = false) =
             SpotifyConnectReduction(s, SpotifyConnectPollOutcome(change, next))
@@ -153,8 +163,8 @@ object SpotifyConnectReducer {
             if (change == SpotifyConnectPollOutcome.Change.None) change = SpotifyConnectPollOutcome.Change.Updated
         }
         val volume = poll.device?.volumePercent
-        // Not over a value PixlAudio just set (the poll may predate the last `PUT`).
-        if (volume != null && volume != s.volumePercent && nowMs >= s.volumeHoldUntilMs) {
+        // Not over a value PixlAudio just set (the poll may predate the last `PUT`) or still has to send.
+        if (volume != null && volume != s.volumePercent && nowMs >= s.volumeHoldUntilMs && !volumeSending) {
             s = s.copy(volumePercent = volume)
             if (change == SpotifyConnectPollOutcome.Change.None) change = SpotifyConnectPollOutcome.Change.Updated
         }

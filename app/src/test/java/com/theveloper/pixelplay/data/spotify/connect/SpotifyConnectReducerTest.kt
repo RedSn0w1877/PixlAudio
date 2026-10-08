@@ -214,6 +214,19 @@ class SpotifyConnectReducerTest {
         assertEquals(0, state().volumeHoldUntilMs)
     }
 
+    @Test fun `a volume still waiting to go out outlasts the hold`() {
+        // A 429 longer than the hold: the press at 100 s is still waiting at 110 s. The poll there
+        // predates it, so it must not put the old value back (the next press would step from it).
+        val s = SpotifyConnectReducer.setVolume(70, state(), nowMs = 100_000)
+        val waiting = SpotifyConnectReducer.apply(
+            poll("spotify:track:a", progress = 20_000, volume = 40), s, 110_000, volumeSending = true
+        )
+        assertEquals(70, waiting.state.volumePercent)
+        // Once it went out (and the hold after it ran out), the device's value applies again.
+        val sent = SpotifyConnectReducer.apply(poll("spotify:track:a", progress = 20_000, volume = 40), s, 110_000)
+        assertEquals(40, sent.state.volumePercent)
+    }
+
     @Test fun `a refused volume stays off whatever polls and device lists say`() {
         // Without a refusal, a poll reporting supports_volume turns volume control on.
         val off = state().copy(supportsVolume = false)

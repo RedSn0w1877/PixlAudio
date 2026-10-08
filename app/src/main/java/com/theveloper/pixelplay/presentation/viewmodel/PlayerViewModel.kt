@@ -2408,22 +2408,22 @@ class PlayerViewModel @Inject constructor(
             val currentlyFavorite = favoriteSongIds.value.contains(favoriteSongId)
             val targetFavoriteState = if (removing) false else !currentlyFavorite
 
+            // The heart first (player-controls plan, 2026-10-07): the clean-up below rebuilds
+            // the whole Spotify mirror (seconds on a big library), and the heart only changes
+            // once Room has the new favourite. Both orders end the same way: the clean-up never
+            // touches the favorites table.
+            setFavoriteStatusEverywhere(favoriteSongId, targetFavoriteState)
+
             // Unliking a track that only exists because the user pulled it in from "More on
             // Spotify" removes it from the library outright, instead of leaving an
             // unfavorited orphan that still has to be found and deleted from a playlist by
             // hand. A song from an actual synced playlist or Liked Songs is untouched here —
             // removeFromExploredCatalog only acts when the browse import is its sole
-            // membership, and returns false otherwise so the plain unfavorite below runs.
+            // membership, and leaves it as a plain unfavourite otherwise.
             val spotifyId = song.spotifyId
             if (!targetFavoriteState && spotifyId != null) {
-                val removedFromLibrary = spotifyRepository.removeFromExploredCatalog(spotifyId)
-                if (removedFromLibrary) {
-                    setFavoriteStatusEverywhere(favoriteSongId, false)
-                    return@launch
-                }
+                spotifyRepository.removeFromExploredCatalog(spotifyId)
             }
-
-            setFavoriteStatusEverywhere(favoriteSongId, targetFavoriteState)
         }
     }
 
