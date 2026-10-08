@@ -176,6 +176,40 @@ and `2026-10-07-local-model.md` in PixlAudio-iOS.
 - The arm64 debug APK artifact is about 1.3 MB bigger than main's (zipped): ML Kit GenAI plus
   LiteRT-LM, minus MediaPipe.
 
+## Review fixes (adversarial review, 2026-10-08, commit `39db7e4`)
+
+A second agent reviewed `git diff origin/main...HEAD` and fixed what it found. [Android CI run
+37782518283](https://github.com/RedSn0w1877/PixlAudio/actions/runs/37782518283) on `39db7e4` is green
+(compile, unit tests, Wear compile, arm64 debug APK).
+
+- **Delete left the model row stuck on "Checking the download…".** WorkManager keeps the finished
+  download's SUCCEEDED record for about a day, and "succeeded, no file" mapped to Verifying, which
+  has no button. So after Delete the row spun with no way to download again. `DownloadedModelManager`
+  now remembers which finished download it has re-read the file for, and the mapper reads
+  "succeeded, re-read, no file" as Not downloaded. `ModelFileDownloaderTest` covers it.
+- **Gemini Nano answered from a stale status.** `generate()` trusted any cached status but
+  Unknown. A "needs download" or failed-download status therefore stuck until Settings was opened,
+  and Taizo and Translate via AI (which have no Get ready gate) said "try again in a few minutes"
+  without ever asking Android for the model.
+  - Now every non-ready status is re-asked from AICore.
+  - "Needs download" starts the download.
+  - Get ready runs on the app scope, so leaving Settings doesn't stop it.
+  - `AiAvailabilityStateHolder.current()` (home greeting) re-asks as well, and it checks the
+    downloaded model on disk instead of the not-yet-loaded observed state.
+- **Downloaded model fails to load.**
+  - If Gemini Nano can't stand in either, the error is now "the downloaded model couldn't load", not
+    "not available on this phone".
+  - After both backends fail on a file, it isn't retried for 5 minutes (or until the switch goes
+    off, or the app is hidden), so each request doesn't wait through another 10-20 s failed load.
+  - The JNI engine is now built inside the try, so a missing `.so` can't escape as an Error.
+- **Performance.**
+  - LibraryScreen collected the whole `AiAvailability`, which changes on every Nano download
+    progress tick. It now collects only the reason and the key flag.
+  - `GenreFamilies.familyOf` rebuilt, sorted and regex-normalised ~80 words on every call (several
+    calls per library song). The table is now precomputed and the result cached per genre.
+  - Artist matching normalises once per song.
+  - `LibraryLookupCore` compiled its regex on every call; it is now compiled once.
+
 ## Not verified (needs the phone)
 
 Nothing here has run on a device. Gemini Nano, AICore, LiteRT-LM, the GPU backend and the 2.6 GB
@@ -188,7 +222,8 @@ verify and failure paths.
 
 Settings › AI features first:
 - [ ] The Gemini Nano row says "In use" (or "Android needs to download it first": tap **Get ready**,
-      watch the bar, then "In use").
+      watch the bar, then "In use"). If it needed downloading, leave Settings right after Get ready
+      and come back later: it should still finish.
 - [ ] "Use a cloud assistant" is off. If you had Gemini picked without a key, it's off too. If you had a
       key, it's on with Gemini.
 - [ ] Advanced shows only Temperature.
@@ -217,7 +252,8 @@ The downloaded model (Wi-Fi, about 3 GB free):
 - [ ] Play music for 10+ minutes after using it. Playback must not stop, since the model unloads when
       the app is hidden.
 - [ ] Delete: the confirmation, the space comes back, the switch turns off, and AI works on Gemini Nano
-      again.
+      again. Turn the switch back on: the row says "Not downloaded · 2.6 GB" with **Download** (not
+      "Checking the download…"), and the download dialog opens.
 - [ ] Make a backup and restore it: "Use downloaded AI model" keeps its value.
 
 Both themes:
@@ -236,4 +272,12 @@ If Gemini Nano turns out slow or weak for playlists on the phone, the cheapest l
 `OnDevicePrompts` (budgets) and `PlaylistPlanFiller` (scoring), not the engines. Known leftovers:
 - "Generate with AI" in PlaylistBottomSheet only sets `showAiPlaylistSheet`, and the sheet is
   rendered only on Daily Mix (a latent bug from before, noted in the plan);
-- the Gemma engine isn't serialized with TAIS Studio's GPU/NPU work yet.
+- the Gemma engine isn't serialized with TAIS Studio's GPU/NPU work yet;
+- the ML Kit docs disagree on Gemini Nano's output cap. Older reference pages say `maxOutputTokens`
+  is 1-256; the current one says 1-4096. Translation asks for up to 1,024 and Taizo for 320. If
+  beta4 caps at 256 on the phone, long translation chunks come back cut short: the missing lines
+  keep only the original. Then lower `OnDevicePrompts.TRANSLATION_CHUNK_TOKENS`;
+- plain (unsynced) lyrics can't be stored as a translation on either route, because the importer
+  needs timestamps. The on-device route returns them unchanged and the importer says so;
+- if the app is hidden between two steps of a Gemma playlist (plan, then order), the engine is
+  released and the next step reloads it in the background. That is slow but correct.
