@@ -329,6 +329,8 @@ class CloudStudioEngineTest {
         assertEquals(CloudJobState.FAILED, job.state)
         assertEquals("flac", runpod.runs.last().input.output?.codec)
         assertTrue(host.installed.isEmpty())
+        // The redo went up decoded (never an AAC passthrough again), so the phone's count is exact.
+        assertEquals(listOf(false, true), preparer.forceDecodes)
     }
 
     @Test fun `cancel stops the job at RunPod and clears the bucket, and retry starts over`() = runBlocking {

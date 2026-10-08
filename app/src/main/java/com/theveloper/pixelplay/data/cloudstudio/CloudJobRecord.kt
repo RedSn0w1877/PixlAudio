@@ -43,6 +43,8 @@ data class CloudJobRecord(
     /** The phone's own decoded sample frames of the uploaded audio, and their rate (the import's length check). */
     val decodedFrames: Long? = null,
     val sampleRate: Int? = null,
+    /** The source was HE-AAC, below 32 kHz, or muxed video (only a low-bitrate stream was on offer). */
+    val lowQualitySource: Boolean = false,
     /** Worker progress while running (`stage`, percent). */
     val progressStage: String? = null,
     val progressPercent: Int? = null,

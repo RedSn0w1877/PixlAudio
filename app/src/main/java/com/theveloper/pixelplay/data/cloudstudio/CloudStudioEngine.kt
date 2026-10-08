@@ -492,8 +492,9 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
             val source = deps.host.audioSource(song)
             val identity = if (record.isStreamed) deps.host.streamIdentity(song) else null
             // A streamed song's download always goes up decoded as FLAC (design §7.3): the worker then sees exactly
-            // the samples this phone plays. Android decodes every upload anyway; the flag keeps the intent explicit.
-            val prepared = deps.preparer.prepare(source, jobKey, forceDecode = record.isStreamed)
+            // the samples this phone plays, whatever priming the download's container declares. So does the FLAC
+            // redo of a result that didn't line up: decoded samples leave nothing to disagree about.
+            val prepared = deps.preparer.prepare(source, jobKey, forceDecode = record.isStreamed || record.flacRedone)
             if (job(jobKey)?.state != CloudJobState.PREPARING) {
                 deps.preparer.removeUpload(jobKey)
                 return
@@ -515,6 +516,7 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
                 r.copy(
                     inputExt = prepared.ext, sha256 = prepared.sha256.lowercase(), bytes = prepared.bytes,
                     durationMs = prepared.durationMs, decodedFrames = prepared.frames, sampleRate = prepared.sampleRate,
+                    lowQualitySource = prepared.lowQualitySource,
                     videoId = identity ?: r.videoId,
                     // The worker's AAC encoder stops at 96 kHz; a hi-res upload asks for FLAC back.
                     outputCodec = if (prepared.sampleRate > CloudLimits.MAX_AAC_SAMPLE_RATE) CloudOutputCodec.FLAC else r.outputCodec,
@@ -1119,10 +1121,15 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
         }
     }
 
-    private fun configInput(settings: CloudSettingsSnapshot, secrets: CloudSecrets) = CloudConfigInput(
-        endpointId = settings.endpointId, runpodKey = secrets.runpodKey, endpoint = settings.r2Endpoint,
-        bucket = settings.bucket, accessKeyId = secrets.accessKeyId, secretAccessKey = secrets.secretAccessKey,
-    )
+    /** The person's fields, or the built-in configuration while theirs are incomplete ([CloudBuiltInConfig]). */
+    private fun configInput(settings: CloudSettingsSnapshot, secrets: CloudSecrets): CloudConfigInput {
+        val own = CloudConfigInput(
+            endpointId = settings.endpointId, runpodKey = secrets.runpodKey, endpoint = settings.r2Endpoint,
+            bucket = settings.bucket, accessKeyId = secrets.accessKeyId, secretAccessKey = secrets.secretAccessKey,
+        )
+        if (own.isComplete) return own
+        return deps.builtIn.defaults()?.takeIf { it.isComplete } ?: own
+    }
 
     private fun clients(config: CloudConfigInput): Clients? {
         clientsCache?.let { if (clientsKey == config) return it }

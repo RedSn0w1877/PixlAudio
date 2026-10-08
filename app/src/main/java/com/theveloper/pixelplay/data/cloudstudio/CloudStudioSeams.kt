@@ -80,6 +80,8 @@ data class CloudPreparedAudio(
     /** Decoded sample frames per channel, as written. */
     val frames: Long,
     val sampleRate: Int,
+    /** The source was HE-AAC, below 32 kHz, or muxed video (a low-bitrate stream): shown on the queue row. */
+    val lowQualitySource: Boolean = false,
 )
 
 /** Preparing failed; [isDecodeFailure] means trying again won't help. */
@@ -88,8 +90,8 @@ class CloudPrepareException(message: String, val isDecodeFailure: Boolean = fals
 /** Prepares a song's audio for upload ([LiveCloudAudioPreparer]). */
 interface CloudAudioPreparing {
     /**
-     * Decodes [source] and writes the upload. [forceDecode] is the iOS seam for streamed songs; on Android every
-     * upload is FLAC of the decoded samples anyway, so it only documents intent (and lets tests check it).
+     * Writes the upload of [source]: an AAC-LC MP4 as it is, everything else decoded to FLAC. [forceDecode] decodes
+     * even an AAC-LC source (a streamed song's download, a FLAC redo), so the worker sees the samples this phone plays.
      */
     suspend fun prepare(source: String, jobKey: String, forceDecode: Boolean): CloudPreparedAudio
     /** The prepared file of a job, if it is still on disk (an upload restarted after the app was stopped). */
@@ -161,6 +163,21 @@ interface CloudStudioSettingsSource {
     fun saveWorkerCaps(caps: CloudWorkerCaps?)
 }
 
+/**
+ * The seam for a later "built-in keys" step: a configuration the app itself could ship (its own endpoint, bucket and
+ * keys), used only while the person's own fields are incomplete. Nothing provides one yet ([NoBuiltInCloudConfig]),
+ * and the consent switch still gates everything either way.
+ */
+fun interface CloudBuiltInConfig {
+    /** The shipped configuration, or null when there is none (today, always null). */
+    fun defaults(): CloudConfigInput?
+}
+
+/** No built-in configuration: every field comes from the person. */
+object NoBuiltInCloudConfig : CloudBuiltInConfig {
+    override fun defaults(): CloudConfigInput? = null
+}
+
 /** WorkManager ([CloudStudioScheduler]): the background passes that make "process later" work. */
 interface CloudWorkScheduler {
     /** A full pass soon, on any network (at most one waits behind a running one). */
@@ -194,6 +211,8 @@ class CloudStudioDependencies(
     /** Start of the month containing a time (the phone's own calendar in the app). */
     val monthStartMs: (Long) -> Long = { CloudBudget.monthStartMs(it, java.time.ZoneId.systemDefault()) },
     val newJobKey: () -> String = { java.util.UUID.randomUUID().toString().lowercase() },
+    /** A shipped configuration to fall back on (none yet). */
+    val builtIn: CloudBuiltInConfig = NoBuiltInCloudConfig,
 )
 
 /** SHA-256 and size of files and buffers (the import checks, design §7.5 step 1). */

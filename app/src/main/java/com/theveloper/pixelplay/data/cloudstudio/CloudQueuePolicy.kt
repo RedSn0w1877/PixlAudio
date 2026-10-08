@@ -573,8 +573,9 @@ data class CloudBatchEstimate(
 }
 
 /**
- * The size of an upload before it is prepared (§1 step 1). Android always uploads 16-bit stereo FLAC of the decoded
- * samples (see [CloudAudioPreparing]), about 60 % of PCM: 25–35 MB for 4 minutes at 44.1 kHz.
+ * The size of an upload before it is prepared (§1 step 1): 16-bit stereo FLAC of the decoded samples, about 60 % of
+ * PCM (25–35 MB for 4 minutes at 44.1 kHz). An AAC-LC song that goes up as it is will be smaller, so the confirm
+ * sheet's figure is an upper bound.
  */
 object CloudUploadEstimate {
     const val FLAC_FRACTION = 0.6

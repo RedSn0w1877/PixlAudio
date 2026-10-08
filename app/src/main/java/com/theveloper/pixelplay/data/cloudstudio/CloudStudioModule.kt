@@ -54,6 +54,11 @@ object CloudStudioModule {
         .followSslRedirects(false)
         .build()
 
+    /** The later "built-in keys" step plugs in here; until then there is none. */
+    @Provides
+    @Singleton
+    fun provideCloudBuiltInConfig(): CloudBuiltInConfig = NoBuiltInCloudConfig
+
     @Provides
     @Singleton
     fun provideCloudStudioSettings(@ApplicationContext context: Context): CloudStudioSettings = CloudStudioSettings(context)
@@ -72,6 +77,7 @@ object CloudStudioModule {
         instrumentalIndex: TaisInstrumentalIndex,
         automaticStudioManager: Lazy<AutomaticStudioManager>,
         workManager: WorkManager,
+        builtIn: CloudBuiltInConfig,
     ): CloudStudioEngine {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         val http = OkHttpCloudHttp(client)
@@ -107,6 +113,7 @@ object CloudStudioModule {
                 scope = scope,
                 build = "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
                 stagingDir = File(root, "staging"),
+                builtIn = builtIn,
                 isUnmetered = {
                     val connectivity = context.getSystemService(ConnectivityManager::class.java)
                     connectivity != null && !connectivity.isActiveNetworkMetered
