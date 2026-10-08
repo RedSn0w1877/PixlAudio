@@ -1,9 +1,9 @@
 [versions]
 accompanistDrawablepainter = "0.37.3"
 aboutLibraries = "15.2.0"
-agp = "9.5.0-alpha07"
+agp = "9.5.0-alpha08"
 app = "1.7.0"
-googleGenai = "1.73.0"
+googleGenai = "1.75.0"
 # On-device AI (Settings > AI features). Gemini Nano through AICore, and the optional
 # downloaded Gemma model through LiteRT-LM (MediaPipe LLM Inference is maintenance-only).
 mlkitGenaiPrompt = "1.0.0-beta4"
@@ -63,7 +63,7 @@ roomCompiler = "2.8.5"
 roomKtx = "2.8.5"
 roomRuntime = "2.8.5"
 accompanist = "0.37.3"
-checkerframework = "4.2.3" # O la versión más reciente que encuentres
+checkerframework = "4.3.0" # O la versión más reciente que encuentres
 taglib = "1.0.6"
 jaudiotagger = "3.0.1"
 vorbisjava = "0.8"
