@@ -16,7 +16,9 @@ import javax.inject.Singleton
 data class ResolvedStream(
     val url: String,
     val userAgent: String,
-    val strategyName: String? = null
+    val strategyName: String? = null,
+    /** How long the `n` transform took (pre-signed clients only), for the stream-start timings. */
+    val nTransformMs: Long? = null
 )
 
 /**
@@ -58,7 +60,17 @@ class PreSignedStreamResolver(
     override var lastDetail: String? = null
         private set
 
+    /**
+     * Time the last `n` transform took, or null when the URL had no `n`. Diagnostics only
+     * (R12 asks whether VISIONOS URLs carry `n`, i.e. whether base.js is on the start path);
+     * like [lastDetail], two resolves at once may overwrite each other.
+     */
+    @Volatile
+    var lastNTransformMs: Long? = null
+        private set
+
     override suspend fun resolve(videoId: String): String? {
+        lastNTransformMs = null
         val response = innerTubeClient.fetchPlayer(videoId, profile)
         if (response == null) {
             lastDetail = innerTubeClient.lastFailureReason ?: "no response"
@@ -83,7 +95,11 @@ class PreSignedStreamResolver(
         // transformarlo, googlevideo deja pasar una petición minúscula (por eso la validación
         // de 2 bytes salía verde) pero responde 403 a la descarga real. Hay que descifrarlo
         // ejecutando base.js, igual que en la estrategia con cifrado.
+        val nStartedAtNs = System.nanoTime()
         val transformed = cipherSolver.applyNTransform(best.url)
+        if (best.url.contains("&n=") || best.url.contains("?n=")) {
+            lastNTransformMs = (System.nanoTime() - nStartedAtNs) / 1_000_000L
+        }
         val nWasTransformed = transformed != best.url
         lastDetail = "itag ${best.itag}, ${best.bitrate / 1000} kbps" +
             if (nWasTransformed) ", n descifrado" else ", n sin cambiar"
@@ -278,7 +294,12 @@ class ChainedYouTubeStreamResolver @Inject constructor(
                 lastAttempts = attempts
                 lastSuccessfulStrategy = strategy.strategyName
                 Timber.d("Stream resuelto por ${strategy.strategyName} (sin validación previa)")
-                return ResolvedStream(url = url, userAgent = userAgent, strategyName = strategy.strategyName)
+                return ResolvedStream(
+                    url = url,
+                    userAgent = userAgent,
+                    strategyName = strategy.strategyName,
+                    nTransformMs = (strategy as? PreSignedStreamResolver)?.lastNTransformMs
+                )
             }
 
             // Tener una URL no basta. Sin la atestación que YouTube exige a algunos

@@ -2,6 +2,7 @@ package com.theveloper.pixelplay.data.youtube
 
 import com.theveloper.pixelplay.data.database.SpotifyDao
 import com.theveloper.pixelplay.data.database.SpotifyMatchState
+import com.theveloper.pixelplay.data.diagnostics.StreamStartTimings
 import com.theveloper.pixelplay.data.spotify.SpotifyStreamProxy
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -16,7 +17,13 @@ import javax.inject.Singleton
  */
 data class PlaybackDiagnosticsReport(
     val steps: List<Step>,
-    val succeeded: Boolean
+    val succeeded: Boolean,
+    /**
+     * The last streamed-song starts, newest first ([StreamStartTimings]): where the time went
+     * between pressing play and hearing the song. Read from memory, no network; `succeeded`
+     * does not depend on it.
+     */
+    val streamStarts: List<String> = emptyList()
 ) {
     data class Step(
         val title: String,
@@ -31,6 +38,10 @@ data class PlaybackDiagnosticsReport(
             append(step.title)
             append(" — ")
             appendLine(step.detail)
+        }
+        if (streamStarts.isNotEmpty()) {
+            appendLine("Recent stream starts (ms, newest first):")
+            streamStarts.forEach { appendLine("  $it") }
         }
     }
 }
@@ -48,7 +59,13 @@ class PlaybackDiagnostics @Inject constructor(
     private val validator: StreamUrlValidator
 ) {
 
-    suspend fun run(): PlaybackDiagnosticsReport = withContext(Dispatchers.IO) {
+    /** The chain test, plus the recorded stream-start timings (in memory, read first). */
+    suspend fun run(): PlaybackDiagnosticsReport {
+        val streamStarts = StreamStartTimings.recentLines()
+        return runChain().copy(streamStarts = streamStarts)
+    }
+
+    private suspend fun runChain(): PlaybackDiagnosticsReport = withContext(Dispatchers.IO) {
         val steps = mutableListOf<PlaybackDiagnosticsReport.Step>()
 
         // 1. ¿Hay algo importado?

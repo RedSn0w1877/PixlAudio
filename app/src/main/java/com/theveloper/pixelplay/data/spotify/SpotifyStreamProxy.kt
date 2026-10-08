@@ -1,6 +1,8 @@
 package com.theveloper.pixelplay.data.spotify
 
+import android.os.SystemClock
 import com.theveloper.pixelplay.data.database.SpotifyDao
+import com.theveloper.pixelplay.data.diagnostics.StreamStartTimings
 import com.theveloper.pixelplay.data.database.SpotifyMatchState
 import com.theveloper.pixelplay.data.youtube.TrackMatcher
 import kotlinx.coroutines.CancellationException
@@ -114,13 +116,18 @@ class SpotifyStreamProxy @Inject constructor(
     }
 
     override suspend fun resolveStreamUrl(id: String): String? {
+        // R12: how long matching (only when it happens on the spot) and resolving took.
+        var matchMs: Long? = null
         // Playback and offline rendering may start before WorkManager runs. Repair the
         // missing match here, coalescing concurrent requests for the same track.
         val videoId = spotifyDao.getMatchedVideoId(id) ?: matchLocks[(id.hashCode() and Int.MAX_VALUE) % matchLocks.size].withLock {
             spotifyDao.getMatchedVideoId(id) ?: run {
                 val song = spotifyDao.getSongBySpotifyId(id) ?: return@withLock null
                 if (song.matchState == SpotifyMatchState.MANUAL) return@withLock null
-                val match = withTimeoutOrNull(25_000L) { trackMatcher.findMatch(song) } ?: return@withLock null
+                val matchStartedAtMs = SystemClock.elapsedRealtime()
+                val match = withTimeoutOrNull(25_000L) { trackMatcher.findMatch(song) }
+                matchMs = SystemClock.elapsedRealtime() - matchStartedAtMs
+                if (match == null) return@withLock null
                 spotifyDao.updateAutomaticMatch(id, match.videoId, match.score, SpotifyMatchState.MATCHED)
                 spotifyDao.getMatchedVideoId(id)
             }
@@ -142,10 +149,22 @@ class SpotifyStreamProxy @Inject constructor(
         // validate = false: que la única descarga sea la del propio proxy. Comprobar la URL
         // aquí la gastaría (googlevideo la da por usada) y la reproducción real moriría con
         // un 403 justo después.
+        val resolveStartedAtMs = SystemClock.elapsedRealtime()
+        fun reportResolved(url: String, strategy: String?, nTransformMs: Long?) {
+            StreamStartTimings.urlResolved(
+                id = id,
+                matchMs = matchMs,
+                resolveMs = SystemClock.elapsedRealtime() - resolveStartedAtMs,
+                strategy = strategy,
+                nParam = android.net.Uri.parse(url).getQueryParameter("n") != null,
+                nTransformMs = nTransformMs
+            )
+        }
         val excluded = excludedStrategies(id)
         val resolved = streamResolver.resolveStream(videoId, validate = false, excludedStrategies = excluded)
         if (resolved != null) {
             rememberUserAgent(resolved.url, resolved.userAgent, resolved.strategyName)
+            reportResolved(resolved.url, resolved.strategyName, resolved.nTransformMs)
             return resolved.url
         }
         Timber.d("Resolver propio no resolvió $videoId (${streamResolver.lastDetail}); probando Piped")
@@ -153,6 +172,7 @@ class SpotifyStreamProxy @Inject constructor(
         val pipedResolved = if ("Piped" in excluded) null else withTimeoutOrNull(15_000L) { pipedStreamResolver.resolve(videoId) }
         if (pipedResolved != null) {
             rememberUserAgent(pipedResolved.url, pipedResolved.userAgent, "Piped")
+            reportResolved(pipedResolved.url, "Piped", null)
             return pipedResolved.url
         }
         Timber.d("Piped no resolvió $videoId (${pipedStreamResolver.lastDetail}); probando NewPipeExtractor")
@@ -160,6 +180,7 @@ class SpotifyStreamProxy @Inject constructor(
         val newPipeResolved = if ("NewPipe" in excluded) null else withTimeoutOrNull(20_000L) { newPipeStreamResolver.resolve(videoId) }
         if (newPipeResolved != null) {
             rememberUserAgent(newPipeResolved.url, newPipeResolved.userAgent, "NewPipe")
+            reportResolved(newPipeResolved.url, "NewPipe", null)
             return newPipeResolved.url
         }
         Timber.d("NewPipeExtractor no resolvió $videoId (${newPipeStreamResolver.lastDetail})")

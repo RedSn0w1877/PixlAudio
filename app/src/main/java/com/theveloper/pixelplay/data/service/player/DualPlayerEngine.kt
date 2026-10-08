@@ -19,10 +19,12 @@ import androidx.media3.common.Player
 import androidx.media3.common.Timeline
 import androidx.media3.common.TrackSelectionParameters
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.ResolvingDataSource
+import androidx.media3.datasource.TransferListener
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
@@ -37,6 +39,7 @@ import androidx.media3.extractor.DefaultExtractorsFactory
 import androidx.media3.extractor.mp3.Mp3Extractor
 import androidx.media3.extractor.flac.FlacExtractor
 import com.theveloper.pixelplay.data.diagnostics.PerformanceMetrics
+import com.theveloper.pixelplay.data.diagnostics.StreamStartTimings
 import com.theveloper.pixelplay.data.model.TransitionSettings
 import com.theveloper.pixelplay.utils.envelope
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -234,6 +237,8 @@ class DualPlayerEngine @Inject constructor(
         // Margen para resolver un stream desde el hilo de carga: consultar YouTube,
         // comprobar el enlace y levantar el proxy si aún no estaba en marcha.
         private const val CLOUD_RESOLVE_TIMEOUT_MS = 25_000L
+        // SpotifyStreamProxy's route prefix as seen in the resolved loopback URL.
+        private const val PROXY_SPOTIFY_PATH = "/spotify/"
     }
 
     data class TransitionTarget(
@@ -386,6 +391,7 @@ class DualPlayerEngine @Inject constructor(
         override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
             if (playWhenReady) {
                 lastPlayWhenReadyAtMs = SystemClock.elapsedRealtime()
+                StreamStartTimings.playRequested()
                 requestAudioFocus()
                 scheduleAudioOffloadFallbackIfNeeded(playerA)
             } else {
@@ -401,6 +407,7 @@ class DualPlayerEngine @Inject constructor(
             if (isPlaying) {
                 lastPlayingAtMs = SystemClock.elapsedRealtime()
                 cancelAudioOffloadFallback()
+                StreamStartTimings.playing()
             }
         }
 
@@ -522,6 +529,21 @@ class DualPlayerEngine @Inject constructor(
                 )
             }
             
+            // R12: time this start when the song is streamed. A seamless hand-over (gapless,
+            // or a preloaded item that is already audible) finishes the start right away.
+            val streamedId = mediaItem?.localConfiguration?.uri
+                ?.takeIf { it.scheme in CLOUD_PROXY_SCHEMES }
+                ?.let { spotifyIdOf(it) }
+            if (streamedId != null) {
+                StreamStartTimings.begin(
+                    id = streamedId,
+                    kind = streamStartKindFor(reason),
+                    alreadyPlaying = playerA.isPlaying && playerA.playbackState == Player.STATE_READY
+                )
+            } else {
+                StreamStartTimings.cancel()
+            }
+
             // If the transition was not automatic (e.g. user skip or playlist change),
             // immediately cancel any background crossfade logic to ensure responsiveness.
             if (reason != Player.MEDIA_ITEM_TRANSITION_REASON_AUTO) {
@@ -581,6 +603,7 @@ class DualPlayerEngine @Inject constructor(
                         timeSinceTransitionMs < POST_TRANSITION_OFFLOAD_GUARD_MS
                     val isPostMediaItemTransition = lastMediaItemTransitionAtMs > 0L &&
                         timeSinceMediaItemTransitionMs < 2_000L
+                    StreamStartTimings.buffering(postSeek = isPostSeekBuffering)
                     if (shouldDisableAudioOffloadOnEarlyBuffering(
                             audioOffloadEnabled = audioOffloadEnabled,
                             transitionRunning = transitionRunning,
@@ -599,6 +622,7 @@ class DualPlayerEngine @Inject constructor(
                     }
                 }
                 Player.STATE_READY -> {
+                    StreamStartTimings.ready()
                     if (bufferingStartedAtMs > 0L) {
                         val prepareDurationMs = SystemClock.elapsedRealtime() - bufferingStartedAtMs
                         PerformanceMetrics.recordTiming(
@@ -1120,8 +1144,16 @@ class DualPlayerEngine @Inject constructor(
                 // Bloquear es correcto: resolveDataSpec corre en el hilo de carga de
                 // ExoPlayer, no en el principal, y ocurre antes de abrir la conexión, así
                 // que no consume el timeout HTTP.
+                val resolveStartedAtMs = SystemClock.elapsedRealtime()
                 val resolved = runBlocking {
                     withTimeoutOrNull(CLOUD_RESOLVE_TIMEOUT_MS) { resolveCloudUri(uri) }
+                }
+                spotifyIdOf(uri)?.let { id ->
+                    StreamStartTimings.dataSpecResolved(
+                        id = id,
+                        durationMs = SystemClock.elapsedRealtime() - resolveStartedAtMs,
+                        localCopy = resolved?.scheme == "file"
+                    )
                 }
 
                 if (resolved == null || resolved == uri) {
@@ -1143,6 +1175,7 @@ class DualPlayerEngine @Inject constructor(
         val httpDataSourceFactory = DefaultHttpDataSource.Factory()
             .setConnectTimeoutMs(30_000)
             .setReadTimeoutMs(30_000)
+            .setTransferListener(streamTransferListener)
         val dataSourceFactory = DefaultDataSource.Factory(context, httpDataSourceFactory)
         val resolvingFactory = ResolvingDataSource.Factory(dataSourceFactory, resolver)
         val extractorsFactory = DefaultExtractorsFactory()
@@ -1276,6 +1309,43 @@ class DualPlayerEngine @Inject constructor(
      */
     fun setVocalAttenuation(amount: Float) {
         vocalAttenuation = amount.coerceIn(0f, 1f)
+    }
+
+    /** R12: the bytes ExoPlayer reads from the local proxy, per song (first byte, preloads). */
+    private val streamTransferListener = object : TransferListener {
+        override fun onTransferInitializing(source: DataSource, dataSpec: DataSpec, isNetwork: Boolean) = Unit
+        override fun onTransferStart(source: DataSource, dataSpec: DataSpec, isNetwork: Boolean) = Unit
+        override fun onTransferEnd(source: DataSource, dataSpec: DataSpec, isNetwork: Boolean) = Unit
+
+        // Loader thread, once per read. Everything that isn't a loopback /spotify/ request
+        // returns at the first check; the rest is one short lock in StreamStartTimings.
+        override fun onBytesTransferred(
+            source: DataSource,
+            dataSpec: DataSpec,
+            isNetwork: Boolean,
+            bytesTransferred: Int
+        ) {
+            val uri = dataSpec.uri
+            if (uri.host != "127.0.0.1") return
+            val path = uri.path ?: return
+            if (!path.startsWith(PROXY_SPOTIFY_PATH)) return
+            val id = path.substring(PROXY_SPOTIFY_PATH.length).substringBefore('/')
+            if (id.isNotEmpty()) StreamStartTimings.playerBytes(id, bytesTransferred)
+        }
+    }
+
+    private fun streamStartKindFor(reason: Int): StreamStartTimings.Kind = when (reason) {
+        Player.MEDIA_ITEM_TRANSITION_REASON_SEEK -> StreamStartTimings.Kind.SKIP
+        Player.MEDIA_ITEM_TRANSITION_REASON_AUTO -> StreamStartTimings.Kind.AUTO
+        Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT -> StreamStartTimings.Kind.REPEAT
+        else -> StreamStartTimings.Kind.TAP
+    }
+
+    /** `spotify://<id>` → `<id>` (case-sensitive base62, so not via Uri.host). */
+    private fun spotifyIdOf(uri: Uri): String? {
+        if (uri.scheme != "spotify") return null
+        return uri.toString().removePrefix("spotify://").substringBefore('/').substringBefore('?')
+            .takeIf { it.isNotBlank() }
     }
 
     suspend fun resolveCloudUri(uri: Uri): Uri = withContext(Dispatchers.IO) {

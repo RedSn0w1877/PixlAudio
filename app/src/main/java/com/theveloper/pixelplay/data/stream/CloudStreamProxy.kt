@@ -1,6 +1,8 @@
 package com.theveloper.pixelplay.data.stream
 
 import android.net.Uri
+import android.os.SystemClock
+import com.theveloper.pixelplay.data.diagnostics.StreamStartTimings
 import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.call
@@ -32,6 +34,13 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import timber.log.Timber
 import java.net.ServerSocket
+
+/**
+ * Request header that marks a proxy request that is not the player (the offline/auto-cache
+ * download), so the stream-start timings can tell them apart. Never sent upstream.
+ */
+internal const val PROXY_PURPOSE_HEADER = "X-PixelPlay-Purpose"
+internal const val PROXY_PURPOSE_DOWNLOAD = "download"
 
 /**
  * Abstract base class for local HTTP proxy servers that stream cloud music audio.
@@ -234,9 +243,22 @@ abstract class CloudStreamProxy<K : Any>(
                     }
                     var headersSent = false
                     var initialResponse: okhttp3.Response? = null
+                    // R12: only the player's first request for the song being started records
+                    // step marks; downloads, preloads and probes are just counted.
+                    val idText = formatIdForUrl(id)
+                    val tracked = StreamStartTimings.proxyRequest(
+                        idText,
+                        isDownload = call.request.headers[PROXY_PURPOSE_HEADER] == PROXY_PURPOSE_DOWNLOAD
+                    )
                     try {
+                        val urlWasCached = tracked && urlCache.peek(id) != null
+                        val urlStartedAtMs = SystemClock.elapsedRealtime()
                         var activeUrl = getOrFetchStreamUrl(id)
+                        if (tracked) {
+                            StreamStartTimings.proxyUrlReady(idText, SystemClock.elapsedRealtime() - urlStartedAtMs, urlWasCached)
+                        }
                         if (activeUrl.isNullOrBlank()) {
+                            if (tracked) StreamStartTimings.proxyFailed(idText, "no stream URL")
                             call.respond(HttpStatusCode.ServiceUnavailable, "Audio is not available yet; try again")
                             return@get
                         }
@@ -261,6 +283,7 @@ abstract class CloudStreamProxy<K : Any>(
                                 if (!retryable || attempt == MAX_UPSTREAM_ATTEMPTS - 1) return response
                                 val status = response.code
                                 response.close()
+                                if (tracked) StreamStartTimings.proxyRetry(idText)
                                 // A new client can use another codec. Never splice its bytes
                                 // into an existing file; only switch strategies before delivery.
                                 // Refresh once with the same client first: the user's IP
@@ -313,7 +336,11 @@ abstract class CloudStreamProxy<K : Any>(
                         }
                         val requestedEnd = if (range.isSuffixRange) null else range.endInclusive
                         val firstEnd = minOf(start + UPSTREAM_CHUNK_SIZE - 1, requestedEnd ?: Long.MAX_VALUE)
+                        val upstreamStartedAtMs = SystemClock.elapsedRealtime()
                         val first = fetch(start, firstEnd)
+                        if (tracked) {
+                            StreamStartTimings.proxyUpstreamAnswered(idText, SystemClock.elapsedRealtime() - upstreamStartedAtMs)
+                        }
                         initialResponse = first
                         if (first.code == 416) {
                             first.header("Content-Range")?.let { call.response.header("Content-Range", it) }
@@ -363,6 +390,7 @@ abstract class CloudStreamProxy<K : Any>(
                                                     chunkLimit?.minus(written) ?: buffer.size.toLong()).toInt())
                                                 if (count < 0) break
                                                 channel.writeFully(buffer, 0, count)
+                                                if (tracked && !deliveredAnyBytes) StreamStartTimings.proxyFirstBodyByte(idText)
                                                 written += count
                                                 deliveredAnyBytes = true
                                             }
@@ -383,6 +411,7 @@ abstract class CloudStreamProxy<K : Any>(
                         throw e
                     } catch (e: Exception) {
                         Timber.w(e, "$proxyTag stream failed")
+                        if (tracked) StreamStartTimings.proxyFailed(idText, e.message ?: e.javaClass.simpleName)
                         if (!headersSent) call.respond(HttpStatusCode.BadGateway, "Unable to load audio; please retry")
                         else throw e // An incomplete body must fail, never appear to be a finished song.
                     } finally {
