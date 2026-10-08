@@ -70,6 +70,7 @@ class EqualizerViewModel @Inject constructor(
     private val equalizerManager: EqualizerManager,
     private val equalizerPreferencesRepository: EqualizerPreferencesRepository,
     private val dualPlayerEngine: DualPlayerEngine,
+    private val spotifyConnect: SpotifyConnectStateHolder,
     @param:dagger.hilt.android.qualifiers.ApplicationContext private val context: android.content.Context
 ) : ViewModel() {
     
@@ -90,6 +91,15 @@ class EqualizerViewModel @Inject constructor(
 
     private val _systemVolume = MutableStateFlow(0f)
     val systemVolume: StateFlow<Float> = _systemVolume.asStateFlow()
+
+    /**
+     * While Spotify Connect plays, the volume card shows and sets the device's volume instead of
+     * the phone's (owner decision 2026-10-07); null the rest of the time.
+     */
+    val connectVolume: StateFlow<SpotifyConnectDeviceVolume?> = spotifyConnect.deviceVolume
+
+    /** The card's slider during Connect; the controller's volume lane coalesces the drag's values. */
+    fun setConnectVolume(fraction: Float) = spotifyConnect.setVolume((fraction * 100).roundToInt())
 
     private var persistBandLevelsJob: Job? = null
     private var persistBassBoostJob: Job? = null

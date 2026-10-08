@@ -21,6 +21,10 @@
     <string name="player_cd_output_this_phone">Playing on this phone</string>
     <string name="player_cd_output_connecting_to">Connecting to %1$s</string>
 
+    <!-- Equalizer volume card while Spotify Connect plays -->
+    <string name="equalizer_volume_device">%1$s volume</string>
+    <string name="equalizer_volume_device_fixed">This device sets its own volume</string>
+
     <!-- External Player -->
     <string name="external_queue_label">Quick play</string>
     <string name="external_playback_error">Unable to open that audio file.</string>

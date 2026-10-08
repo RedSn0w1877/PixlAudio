@@ -1,10 +1,13 @@
 package com.theveloper.pixelplay.presentation.viewmodel
 
 import android.content.Context
+import android.media.session.MediaSession
+import com.theveloper.pixelplay.data.service.MediaSessionTokenHolder
 import com.theveloper.pixelplay.data.spotify.SpotifyRepository
 import com.theveloper.pixelplay.data.spotify.connect.SpotifyConnectController
 import com.theveloper.pixelplay.data.spotify.connect.SpotifyConnectDevice
 import com.theveloper.pixelplay.data.spotify.connect.SpotifyConnectUiState
+import com.theveloper.pixelplay.data.spotify.connect.SpotifyConnectVolume
 import com.theveloper.pixelplay.data.spotify.connect.SpotifyDeviceKind
 import com.theveloper.pixelplay.presentation.spotify.auth.SpotifyLoginActivity
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -17,10 +20,15 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+
+/** The Equalizer's volume card while Spotify Connect plays: the device's volume instead of the phone's. */
+@Immutable
+data class SpotifyConnectDeviceVolume(val name: String, val percent: Int?, val supportsVolume: Boolean)
 
 /** The full player's output pill during Spotify Connect: the device's name and kind. */
 @Immutable
@@ -38,7 +46,8 @@ class SpotifyConnectStateHolder @Inject constructor(
     @ApplicationContext private val context: Context,
     private val controller: SpotifyConnectController,
     private val castStateHolder: CastStateHolder,
-    private val spotifyRepository: SpotifyRepository
+    private val spotifyRepository: SpotifyRepository,
+    private val mediaSessionTokenHolder: MediaSessionTokenHolder
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
@@ -59,6 +68,28 @@ class SpotifyConnectStateHolder @Inject constructor(
      */
     val topBarDevice: StateFlow<SpotifyConnectChip?> = controller.uiState
         .map { state -> topBarChipOf(state) }
+        .distinctUntilChanged()
+        .stateIn(scope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /**
+     * The MediaSession token MainActivity hands to `Activity.setMediaController` while a Connect
+     * device that takes the volume keys plays (supports_volume, not a phone or tablet); else null.
+     * With it the focused window's volume keys go straight to the session, which the platform
+     * otherwise does only while the session is playing (so the keys also work with the speaker
+     * paused while PixlAudio is open).
+     */
+    val volumeKeySessionToken: StateFlow<MediaSession.Token?> = combine(
+        mediaSessionTokenHolder.platformToken,
+        controller.uiState
+            .map { ui -> ui.active?.let { SpotifyConnectVolume.keysControlDevice(it.type, it.supportsVolume) } == true }
+            .distinctUntilChanged()
+    ) { token, eligible -> token.takeIf { eligible } }
+        .distinctUntilChanged()
+        .stateIn(scope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** The Connect device's volume for the Equalizer card, or null while this phone plays. */
+    val deviceVolume: StateFlow<SpotifyConnectDeviceVolume?> = controller.uiState
+        .map { ui -> ui.active?.let { SpotifyConnectDeviceVolume(it.name, it.volumePercent, it.supportsVolume) } }
         .distinctUntilChanged()
         .stateIn(scope, SharingStarted.WhileSubscribed(5_000), null)
 

@@ -192,4 +192,48 @@ class SpotifyConnectReducerTest {
             SpotifyConnectReducer.apply(snapshot, state(), 200_000).outcome.change
         )
     }
+
+    @Test fun `polls keep a volume set here for the hold, then follow the device`() {
+        var s = SpotifyConnectReducer.setVolume(130, state(), nowMs = 100_000)
+        assertEquals(100, s.volumePercent)
+        assertEquals(100_000 + SpotifyConnectVolume.HOLD_MS, s.volumeHoldUntilMs)
+        // A poll from before the PUT landed, inside the hold: nothing changes.
+        val held = SpotifyConnectReducer.apply(poll("spotify:track:a", progress = 10_100, volume = 40), s, 100_100)
+        assertEquals(none, held.outcome.change)
+        assertEquals(100, held.state.volumePercent)
+        // The device accepted it: the hold is extended, never shortened.
+        s = SpotifyConnectReducer.volumeSent(s, nowMs = 102_000)
+        assertEquals(102_000 + SpotifyConnectVolume.HOLD_AFTER_SEND_MS, s.volumeHoldUntilMs)
+        s = SpotifyConnectReducer.volumeSent(s, nowMs = 100_200)
+        assertEquals(102_000 + SpotifyConnectVolume.HOLD_AFTER_SEND_MS, s.volumeHoldUntilMs)
+        // After the hold the device's own value applies.
+        val after = SpotifyConnectReducer.apply(poll("spotify:track:a", progress = 13_600, volume = 40), s, 103_600)
+        assertEquals(updated, after.outcome.change)
+        assertEquals(40, after.state.volumePercent)
+        // States built without a hold follow polls at once.
+        assertEquals(0, state().volumeHoldUntilMs)
+    }
+
+    @Test fun `a refused volume stays off whatever polls and device lists say`() {
+        // Without a refusal, a poll reporting supports_volume turns volume control on.
+        val off = state().copy(supportsVolume = false)
+        val on = SpotifyConnectReducer.apply(poll("spotify:track:a", progress = 10_000), off, 100_000)
+        assertEquals(updated, on.outcome.change)
+        assertTrue(on.state.supportsVolume)
+        // The device refused a volume command (VOLUME_CONTROL_DISALLOW): off for the rest of the
+        // session, so polls don't offer it again and every press doesn't fail (and toast) again.
+        val refused = SpotifyConnectReducer.refuseVolume(state())
+        assertFalse(refused.supportsVolume)
+        assertTrue(refused.volumeRefused)
+        val polled = SpotifyConnectReducer.apply(poll("spotify:track:a", progress = 10_000), refused, 100_000)
+        assertEquals(none, polled.outcome.change)
+        assertFalse(polled.state.supportsVolume)
+        // The device list says the same: refused stays refused; nothing refused yet follows the device.
+        assertFalse(SpotifyConnectReducer.supportsVolume(true, refused))
+        assertTrue(SpotifyConnectReducer.supportsVolume(true, state()))
+        assertTrue(SpotifyConnectReducer.supportsVolume(true, null))
+        assertFalse(SpotifyConnectReducer.supportsVolume(false, state()))
+        // A new session starts without the refusal.
+        assertFalse(state().volumeRefused)
+    }
 }
