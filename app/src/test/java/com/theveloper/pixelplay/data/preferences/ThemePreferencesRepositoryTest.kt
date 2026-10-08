@@ -35,6 +35,7 @@ class ThemePreferencesRepositoryTest {
 
     private fun handler(store: DataStore<Preferences>) = GlobalSettingsModuleHandler(
         userPreferencesRepository = UserPreferencesRepository(dataStore = store, json = Json),
+        aiPreferencesRepository = AiPreferencesRepository(store),
         gson = GsonBuilder().create()
     )
 
