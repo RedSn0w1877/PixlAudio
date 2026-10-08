@@ -182,6 +182,48 @@ class LyricsSingStateHolderTest {
     }
 
     @Test
+    fun `a render that failed before the tap does not answer it`() = runTest {
+        val jobs = FakeJobs()
+        val old = job("old", RenderJobState.FAILED, failure = "yesterday")
+        jobs.flowFor("1").value = listOf(old)
+        val h = harness(jobs)
+
+        h.holder.onSingTapped()
+        runCurrent()
+        assertEquals(listOf("1"), jobs.enqueued)
+        // WorkManager reports the old job again (another table change) before the new one shows.
+        h.holder.onJobs("1", listOf(old))
+        assertEquals(listOf("s${R.string.lyrics_sing_queued}"), h.messages)
+
+        jobs.flowFor("1").value = listOf(old, job("new", RenderJobState.SUCCEEDED, path = "/stems/1.wav", createdAt = 2L))
+        runCurrent()
+        assertEquals(listOf<SingRequest>(SingRequest.Instrumental("/stems/1.wav")), h.requests)
+    }
+
+    @Test
+    fun `an old render whose file is gone neither switches nor hides the new render's progress`() = runTest {
+        val jobs = FakeJobs()
+        val old = job("old", RenderJobState.SUCCEEDED, path = "/stems/gone.wav")
+        jobs.flowFor("1").value = listOf(old)
+        val h = harness(jobs)
+
+        h.holder.onSingTapped()
+        runCurrent()
+        assertEquals(listOf("1"), jobs.enqueued)
+        h.holder.onJobs("1", listOf(old))
+        assertTrue(h.requests.isEmpty())
+        assertFalse(h.holder.available.value)
+
+        jobs.flowFor("1").value = listOf(old, job("new", RenderJobState.RUNNING, createdAt = 2L))
+        runCurrent()
+        assertTrue(h.holder.ui.value.rendering)
+
+        jobs.flowFor("1").value = listOf(old, job("new", RenderJobState.SUCCEEDED, path = "/stems/1.wav", createdAt = 2L))
+        runCurrent()
+        assertEquals(listOf<SingRequest>(SingRequest.Instrumental("/stems/1.wav")), h.requests)
+    }
+
+    @Test
     fun `a tap while a Connect speaker plays never renders or switches`() = runTest {
         val jobs = FakeJobs().apply { onDisk["1"] = "/stems/1.wav" }
         val h = harness(jobs)

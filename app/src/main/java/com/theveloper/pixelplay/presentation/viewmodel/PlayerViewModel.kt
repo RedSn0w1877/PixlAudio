@@ -3190,7 +3190,14 @@ class PlayerViewModel @Inject constructor(
         metadataEditStateHolder.onWritePermissionResult(granted, metadataEditCallbacks())
 
     fun saveLyricsToFile(song: Song, lyrics: Lyrics, preferSynced: Boolean) =
-        metadataEditStateHolder.saveLyricsToFile(song, lyrics, preferSynced, metadataEditCallbacks())
+        metadataEditStateHolder.saveLyricsToFile(
+            song,
+            // The .lrc next to the song becomes its lyrics: the on-device translations (Translate's
+            // tap, memory only) stay out of it, as they stay out of every other save.
+            lyricsTranslation.withoutOnDeviceTranslations(song.id, lyrics) ?: lyrics,
+            preferSynced,
+            metadataEditCallbacks()
+        )
 
     suspend fun forceRegenerateAlbumPaletteForSong(song: Song): Boolean {
         val albumArtUri = song.albumArtUriString?.takeIf { it.isNotBlank() } ?: return false
@@ -3282,7 +3289,12 @@ class PlayerViewModel @Inject constructor(
         val currentSong = stablePlayerState.value.currentSong ?: return
         lyricsStateHolder.translateLyricsViaAi(
             currentSong = currentSong,
-            lyricsObj = stablePlayerState.value.lyrics,
+            // On-device translations (Translate's tap) don't count as "already translated": they
+            // only live in memory, and holding Translate for AI is how to get a better one.
+            lyricsObj = lyricsTranslation.withoutOnDeviceTranslations(
+                currentSong.id,
+                stablePlayerState.value.lyrics
+            ),
             cb = LyricsTranslationCallbacks(
                 translate = { rawLyrics -> aiStateHolder.translateLyrics(rawLyrics) },
                 getString = { resId -> context.getString(resId) },

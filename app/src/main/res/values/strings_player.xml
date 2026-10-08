@@ -186,6 +186,10 @@
     <string name="lyrics_appearance_align_left">Align lyrics left</string>
     <string name="lyrics_appearance_align_center">Align lyrics center</string>
     <string name="lyrics_appearance_align_right">Align lyrics right</string>
+    <!-- Liquid Glass alignment picker: it prints its labels under the icons, one line each -->
+    <string name="lyrics_appearance_align_left_short">Left</string>
+    <string name="lyrics_appearance_align_center_short">Center</string>
+    <string name="lyrics_appearance_align_right_short">Right</string>
     <string name="lyrics_controls_section">Controls</string>
     <string name="lyrics_show_plain_text">Show as plain text</string>
     <string name="lyrics_controls_adjust_sync">Adjust sync</string>

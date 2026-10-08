@@ -430,20 +430,22 @@ fun LyricsMoreBottomSheet(
                     )
 
                     if (glass) {
-                        // The liquid lens picker, on the sheet's own window backdrop.
+                        // The liquid lens picker, on the sheet's own window backdrop. It prints each
+                        // label under its icon on one line, so the short "Left / Center / Right"
+                        // (the long "Align lyrics center" would be cut off in a third of the sheet).
                         val alignments = remember { listOf("left", "center", "right") }
                         LiquidSegmented(
                             options = listOf(
                                 SegmentOption(
-                                    stringResource(R.string.lyrics_appearance_align_left),
+                                    stringResource(R.string.lyrics_appearance_align_left_short),
                                     Icons.AutoMirrored.Rounded.FormatAlignLeft
                                 ),
                                 SegmentOption(
-                                    stringResource(R.string.lyrics_appearance_align_center),
+                                    stringResource(R.string.lyrics_appearance_align_center_short),
                                     Icons.Rounded.FormatAlignCenter
                                 ),
                                 SegmentOption(
-                                    stringResource(R.string.lyrics_appearance_align_right),
+                                    stringResource(R.string.lyrics_appearance_align_right_short),
                                     Icons.AutoMirrored.Rounded.FormatAlignRight
                                 ),
                             ),

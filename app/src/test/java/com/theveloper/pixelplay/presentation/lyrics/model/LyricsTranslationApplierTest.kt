@@ -101,6 +101,22 @@ class LyricsTranslationApplierTest {
     }
 
     @Test
+    fun `withoutTranslationsFrom takes back only the translations it was given`() {
+        val onDevice = mapOf("Hola amigo" to "Hello friend")
+        val translated = synced.withTranslations(onDevice)
+
+        val result = translated.withoutTranslationsFrom(onDevice)
+
+        val lines = result.synced!!
+        assertNull(lines[0].translation)
+        assertNull(lines[3].translation)
+        // The lyrics' own translation stays.
+        assertEquals("Already translated", lines[2].translation)
+        assertEquals(listOf("Hola amigo", "Buenos días", "Ya traducida\nAlready translated", "Hola amigo"), result.plain)
+        assertSame(synced, synced.withoutTranslationsFrom(onDevice))
+    }
+
+    @Test
     fun `lacksTranslationsFrom is true only while a cached translation is missing`() {
         val cached = mapOf("Hola amigo" to "Hello friend")
 

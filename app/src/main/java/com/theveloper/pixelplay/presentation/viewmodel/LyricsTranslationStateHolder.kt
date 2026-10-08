@@ -13,6 +13,7 @@ import com.theveloper.pixelplay.data.model.Lyrics
 import com.theveloper.pixelplay.presentation.lyrics.model.lacksTranslationsFrom
 import com.theveloper.pixelplay.presentation.lyrics.model.untranslatedLines
 import com.theveloper.pixelplay.presentation.lyrics.model.withTranslations
+import com.theveloper.pixelplay.presentation.lyrics.model.withoutTranslationsFrom
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.util.Locale
 import javax.inject.Inject
@@ -55,9 +56,11 @@ data class LyricsTranslateUiState(
  * shows them under each line.
  *
  * The translations live only in memory: they are applied to `stablePlayerState.lyrics` (so the
- * karaoke view, the plain view and the Save dialog all see them) and kept in a small per-session
- * cache, so a reload of the same song's lyrics gets them back. Nothing is written to the song or
- * the lyrics cache; "Translate via AI" (the long-press menu) is the path that persists.
+ * karaoke view and the plain view both show them) and kept in a small per-session cache, so a
+ * reload of the same song's lyrics gets them back. Nothing is written to the song, its .lrc or the
+ * lyrics cache; "Translate via AI" (the long-press menu) is the path that persists. Whatever saves
+ * the lyrics or translates them another way (the Save dialog, the sync editor's draft, Translate
+ * via AI) starts from [withoutOnDeviceTranslations].
  *
  * A result that lands after a song change is dropped, and a song change cancels the running job.
  */
@@ -87,7 +90,10 @@ class LyricsTranslationStateHolder @Inject constructor(
     private var runJob: Job? = null
     private var runToken = 0L
 
-    /** Song id → its on-device translations (source line → translation), most recent songs kept. */
+    /**
+     * Song id → its on-device translations (source line → translation), most recent songs kept.
+     * An access-ordered map (a read reorders it), so every use holds its lock.
+     */
     private val cache = object : LinkedHashMap<String, Map<String, String>>(16, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Map<String, String>>?): Boolean =
             size > CACHE_SONGS
@@ -109,7 +115,7 @@ class LyricsTranslationStateHolder @Inject constructor(
                     }
                     // The same song's lyrics reloaded (a metadata edit, a resync) without the
                     // translations made earlier in this session: put them back.
-                    val cached = songId?.let { cache[it] } ?: return@collect
+                    val cached = songId?.let { cachedFor(it) } ?: return@collect
                     if (lyrics != null && lyrics.lacksTranslationsFrom(cached)) applyTo(songId, cached)
                 }
         }
@@ -140,6 +146,21 @@ class LyricsTranslationStateHolder @Inject constructor(
             }
         }
     }
+
+    /**
+     * [lyrics] without the translations this session made on the phone for [songId] (the lyrics'
+     * own translations stay). Paths that persist the lyrics or translate them another way start
+     * from this: the Save dialog's .lrc and the sync editor's draft (either would otherwise write
+     * the machine translations into the user's lyrics) and Translate via AI (which would otherwise
+     * answer "already translated" for the rest of the session, since the cache puts them back on
+     * every reload).
+     */
+    fun withoutOnDeviceTranslations(songId: String, lyrics: Lyrics?): Lyrics? {
+        val byLine = cachedFor(songId) ?: return lyrics
+        return lyrics?.withoutTranslationsFrom(byLine)
+    }
+
+    private fun cachedFor(songId: String): Map<String, String>? = synchronized(cache) { cache[songId] }
 
     private suspend fun translate(songId: String, lyrics: Lyrics) {
         if (lyrics.synced.isNullOrEmpty()) {
@@ -205,7 +226,7 @@ class LyricsTranslationStateHolder @Inject constructor(
             emit(context.getString(R.string.lyrics_translate_already_in_target_language))
             return
         }
-        cache[songId] = cache[songId].orEmpty() + byLine
+        synchronized(cache) { cache[songId] = cache[songId].orEmpty() + byLine }
         applyTo(songId, byLine)
         showTranslations()
     }

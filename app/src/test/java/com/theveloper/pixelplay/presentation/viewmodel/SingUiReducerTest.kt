@@ -10,10 +10,21 @@ import org.junit.jupiter.api.Test
 
 class SingUiReducerTest {
 
-    private fun job(state: RenderJobState, percent: Int = 0) = InstrumentalRenderJob(
+    private fun job(state: RenderJobState, percent: Int = 0, automatic: Boolean = false) = InstrumentalRenderJob(
         id = "job", state = state, percent = percent, instrumentalPath = null,
-        failureReason = null, automatic = false, createdAtMs = 1L
+        failureReason = null, automatic = automatic, createdAtMs = 1L
     )
+
+    @Test
+    fun `quiet automatic work shows only while it runs`() {
+        val queued = singUi(false, false, job(RenderJobState.QUEUED, automatic = true), false)
+        assertFalse(queued.rendering)
+        assertNull(queued.progress)
+
+        val running = singUi(false, false, job(RenderJobState.RUNNING, 30, automatic = true), false)
+        assertTrue(running.rendering)
+        assertEquals(0.30f, running.progress!!, 0.0001f)
+    }
 
     @Test
     fun `nothing rendered and nothing running is a plain Sing`() {

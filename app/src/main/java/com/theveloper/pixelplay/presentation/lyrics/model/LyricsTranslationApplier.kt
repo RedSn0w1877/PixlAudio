@@ -1,6 +1,7 @@
 package com.theveloper.pixelplay.presentation.lyrics.model
 
 import com.theveloper.pixelplay.data.model.Lyrics
+import com.theveloper.pixelplay.data.model.SyncedLine
 
 /** What the lyrics screen shows: the karaoke (synced) view, the plain list, or the empty state. */
 enum class LyricsDisplay { SYNCED, PLAIN, NONE }
@@ -66,15 +67,44 @@ fun Lyrics.withTranslations(byLine: Map<String, String>): Lyrics {
         }
     }
     if (!changed) return this
-    val plain = updated.map { line ->
+    return copy(synced = updated, plain = plainFromSynced(updated))
+}
+
+/**
+ * The inverse of [withTranslations]: these lyrics with the translations that came from [byLine]
+ * taken off again (a line whose translation is anything else keeps it). Paths that save the lyrics
+ * or translate them another way start from this, so on-device translations, which live only in
+ * memory, are never written into the user's lyrics and never pass for a translation they already
+ * have.
+ *
+ * Returns this same instance when no line carried one of [byLine]'s translations.
+ */
+fun Lyrics.withoutTranslationsFrom(byLine: Map<String, String>): Lyrics {
+    val lines = synced
+    if (lines.isNullOrEmpty() || byLine.isEmpty()) return this
+    var changed = false
+    val updated = lines.map { line ->
+        val translation = line.translation
+        if (translation != null && translation == byLine[line.line]) {
+            changed = true
+            line.copy(translation = null)
+        } else {
+            line
+        }
+    }
+    if (!changed) return this
+    return copy(synced = updated, plain = plainFromSynced(updated))
+}
+
+/** Plain lines built from synced ones exactly as LyricsUtils builds them: line, romanization, translation. */
+private fun plainFromSynced(lines: List<SyncedLine>): List<String> =
+    lines.map { line ->
         buildString {
             append(line.line)
             if (!line.romanization.isNullOrEmpty()) append("\n").append(line.romanization)
             if (!line.translation.isNullOrEmpty()) append("\n").append(line.translation)
         }
     }
-    return copy(synced = updated, plain = plain)
-}
 
 /** True when [byLine] would add a translation to at least one of these lyrics' synced lines. */
 fun Lyrics.lacksTranslationsFrom(byLine: Map<String, String>): Boolean =

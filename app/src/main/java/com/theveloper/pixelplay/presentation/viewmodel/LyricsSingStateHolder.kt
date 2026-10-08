@@ -32,7 +32,7 @@ data class SingUi(
     val active: Boolean = false,
     /** False while Cast or a Spotify Connect speaker plays: the instrumental swap is local only. */
     val enabled: Boolean = true,
-    /** The instrumental is being rendered (the person's job or quiet automatic work). */
+    /** The instrumental is being rendered (the person's job, or quiet automatic work while it runs). */
     val rendering: Boolean = false,
     /** 0..1 while the render runs; null while it is queued (or not rendering). */
     val progress: Float? = null,
@@ -45,7 +45,11 @@ fun singUi(
     job: InstrumentalRenderJob?,
     remoteActive: Boolean,
 ): SingUi {
-    val rendering = job != null && !job.state.isFinished && !active && !available
+    // Quiet automatic work only counts once it actually runs: Automatic Studio queues songs that
+    // wait for idle playback and a charged battery, and "Removing vocals…" on every queued song
+    // would claim work that isn't happening (a tap starts the person's own render instead).
+    val rendering = job != null && !job.state.isFinished && !active && !available &&
+        (!job.automatic || job.state == RenderJobState.RUNNING)
     return SingUi(
         active = active,
         enabled = !remoteActive,
@@ -114,6 +118,8 @@ class LyricsSingStateHolder @Inject constructor(
     private var pendingSongId: String? = null
     /** Render jobs already answered (switched to, or reported failed), so each answers once. */
     private val answeredJobIds = HashSet<String>()
+    /** The current song's jobs as WorkManager last reported them. */
+    private var lastJobs: List<InstrumentalRenderJob> = emptyList()
 
     fun initialize(coroutineScope: CoroutineScope) {
         scope = coroutineScope
@@ -149,6 +155,7 @@ class LyricsSingStateHolder @Inject constructor(
         _available.value = false
         currentJob.value = null
         answeredJobIds.clear()
+        lastJobs = emptyList()
         if (pendingSongId != songId) pendingSongId = null
         if (songId == null) return
         _available.value = renderJobs.bestAvailablePath(songId) != null
@@ -156,14 +163,19 @@ class LyricsSingStateHolder @Inject constructor(
     }
 
     internal fun onJobs(songId: String, list: List<InstrumentalRenderJob>) {
+        lastJobs = list
         val job = pickJob(list)
         currentJob.value = job
         if (job == null) return
         val path = job.instrumentalPath
         when {
             job.state == RenderJobState.SUCCEEDED && path != null -> {
+                // Already switched to, or finished before the latest tap (which found its file
+                // gone from disk): nothing new.
+                if (job.id in answeredJobIds) return
                 _available.value = true
-                if (pendingSongId == songId && answeredJobIds.add(job.id)) {
+                if (pendingSongId == songId) {
+                    answeredJobIds += job.id
                     pendingSongId = null
                     // A render landing while a Cast or Connect speaker plays doesn't touch this phone's player.
                     if (!remoteActive.value) _requests.tryEmit(SingRequest.Instrumental(path))
@@ -203,6 +215,14 @@ class LyricsSingStateHolder @Inject constructor(
                 _requests.tryEmit(SingRequest.Instrumental(path))
                 return@launch
             }
+            // Nothing on disk, whatever an old finished job says (its file can be gone), so the
+            // new render shows its progress.
+            _available.value = false
+            // Jobs that finished before this tap (yesterday's failure, a render whose file was
+            // since deleted) belong to earlier taps: WorkManager can report them again before the
+            // new job shows up, and they must not answer this one with a stale failure or a
+            // switch to a missing file.
+            lastJobs.forEach { if (it.state.isFinished) answeredJobIds += it.id }
             pendingSongId = song.id
             val running = currentJob.value
             // The person's render is already on its way (started here or from Song info): the

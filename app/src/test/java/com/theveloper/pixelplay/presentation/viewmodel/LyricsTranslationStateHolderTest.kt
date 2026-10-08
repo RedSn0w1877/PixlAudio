@@ -223,6 +223,26 @@ class LyricsTranslationStateHolderTest {
     }
 
     @Test
+    fun `saving paths get the lyrics without the on-device translations`() = runTest {
+        val own = Lyrics(
+            synced = listOf(SyncedLine(0, "Hola amigo"), SyncedLine(1_000, "Ya traducida", translation = "Mine"))
+        )
+        val translator = FakeTranslator()
+        val h = harness(translator, StablePlayerState(currentSong = song("1"), lyrics = own))
+        h.holder.translateCurrent()
+        runCurrent()
+        val shown = h.player.value.lyrics!!
+        assertEquals("[en] Hola amigo", shown.synced!![0].translation)
+
+        val saved = h.holder.withoutOnDeviceTranslations("1", shown)!!
+
+        assertNull(saved.synced!![0].translation)
+        assertEquals("Mine", saved.synced!![1].translation)
+        // Another song has no on-device translations to take off.
+        assertTrue(h.holder.withoutOnDeviceTranslations("2", shown) === shown)
+    }
+
+    @Test
     fun `lines already in the phone's language stay as they are`() = runTest {
         val mixed = Lyrics(synced = listOf(SyncedLine(0, "Te quiero"), SyncedLine(1_000, "I love you")))
         val translator = FakeTranslator().apply { lineLanguages = mapOf("I love you" to "en") }
