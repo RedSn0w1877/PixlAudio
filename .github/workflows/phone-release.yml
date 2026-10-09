@@ -52,6 +52,8 @@ jobs:
           echo "keyPassword=994273" >> keystore.properties
 
       - name: Build Phone release APK
+        env:
+          CLOUD_DEFAULTS_KEY: ${{ secrets.CLOUD_DEFAULTS_KEY }}
         run: gradle :app:assembleRelease -Ppixelplay.enableAbiSplits=true
 
       - name: Verify Phone split APKs
