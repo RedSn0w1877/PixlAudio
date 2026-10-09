@@ -88,13 +88,7 @@ object MediaItemBuilder {
     const val EXTERNAL_EXTRA_DURATION = EXTERNAL_EXTRA_PREFIX + "DURATION"
     const val EXTERNAL_EXTRA_CONTENT_URI = EXTERNAL_EXTRA_PREFIX + "CONTENT_URI"
     const val EXTERNAL_EXTRA_ALBUM_ART = EXTERNAL_EXTRA_PREFIX + "ALBUM_ART"
-    const val EXTERNAL_EXTRA_GENRE = EXTERNAL_EXTRA_PREFIX + "GENRE"
-    const val EXTERNAL_EXTRA_TRACK = EXTERNAL_EXTRA_PREFIX + "TRACK"
-    const val EXTERNAL_EXTRA_YEAR = EXTERNAL_EXTRA_PREFIX + "YEAR"
     const val EXTERNAL_EXTRA_DATE_ADDED = EXTERNAL_EXTRA_PREFIX + "DATE_ADDED"
-    const val EXTERNAL_EXTRA_MIME_TYPE = EXTERNAL_EXTRA_PREFIX + "MIME_TYPE"
-    const val EXTERNAL_EXTRA_BITRATE = EXTERNAL_EXTRA_PREFIX + "BITRATE"
-    const val EXTERNAL_EXTRA_SAMPLE_RATE = EXTERNAL_EXTRA_PREFIX + "SAMPLE_RATE"
     const val EXTERNAL_EXTRA_FILE_PATH = EXTERNAL_EXTRA_PREFIX + "FILE_PATH"
     const val EXTERNAL_EXTRA_SPOTIFY_ID = EXTERNAL_EXTRA_PREFIX + "SPOTIFY_ID"
 
@@ -291,13 +285,7 @@ object MediaItemBuilder {
             (exposedArtworkUri?.toString() ?: song.albumArtUriString)?.let {
                 putString(EXTERNAL_EXTRA_ALBUM_ART, it)
             }
-            song.genre?.let { putString(EXTERNAL_EXTRA_GENRE, it) }
-            putInt(EXTERNAL_EXTRA_TRACK, song.trackNumber)
-            putInt(EXTERNAL_EXTRA_YEAR, song.year)
             putLong(EXTERNAL_EXTRA_DATE_ADDED, song.dateAdded)
-            putString(EXTERNAL_EXTRA_MIME_TYPE, song.mimeType)
-            putInt(EXTERNAL_EXTRA_BITRATE, song.bitrate ?: 0)
-            putInt(EXTERNAL_EXTRA_SAMPLE_RATE, song.sampleRate ?: 0)
             putString(EXTERNAL_EXTRA_FILE_PATH, song.path)
             song.spotifyId?.let { putString(EXTERNAL_EXTRA_SPOTIFY_ID, it) }
         }

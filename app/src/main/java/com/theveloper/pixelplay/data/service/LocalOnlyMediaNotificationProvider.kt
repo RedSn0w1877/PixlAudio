@@ -1,8 +1,8 @@
 package com.theveloper.pixelplay.data.service
 
-import android.app.Notification
 import android.content.Context
 import android.os.Bundle
+import androidx.core.app.NotificationCompat
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.CommandButton
 import androidx.media3.session.DefaultMediaNotificationProvider
@@ -13,12 +13,15 @@ import com.google.common.collect.ImmutableList
 /**
  * Wraps Media3's default provider and marks playback notifications as local-only
  * so they don't get bridged to Wear OS as generic remote media controls.
+ *
+ * The flag is set on the builder Media3 is already filling in (see [LocalOnlyDefaultProvider]),
+ * instead of rebuilding the finished notification with `Notification.Builder.recoverBuilder`,
+ * which re-parsed and rebuilt the whole notification on every update. The result is identical.
  */
 @UnstableApi
 class LocalOnlyMediaNotificationProvider(
-    private val context: Context,
-    private val delegate: DefaultMediaNotificationProvider =
-        DefaultMediaNotificationProvider.Builder(context).build(),
+    context: Context,
+    private val delegate: DefaultMediaNotificationProvider = LocalOnlyDefaultProvider(context),
 ) : MediaNotification.Provider {
 
     fun setSmallIcon(iconResId: Int) {
@@ -31,20 +34,12 @@ class LocalOnlyMediaNotificationProvider(
         actionFactory: MediaNotification.ActionFactory,
         callback: MediaNotification.Provider.Callback,
     ): MediaNotification {
-        val notification = delegate.createNotification(
+        return delegate.createNotification(
             mediaSession,
             customLayout,
             actionFactory,
             callback
         )
-        val localOnlyNotification = runCatching {
-            Notification.Builder.recoverBuilder(context, notification.notification)
-                .setLocalOnly(true)
-                .build()
-        }.getOrElse {
-            notification.notification
-        }
-        return MediaNotification(notification.notificationId, localOnlyNotification)
     }
 
     override fun handleCustomCommand(
@@ -57,3 +52,19 @@ class LocalOnlyMediaNotificationProvider(
         delegate.getNotificationChannelInfo()
 }
 
+/**
+ * Media3's default provider with `setLocalOnly(true)` applied while the notification is being
+ * built (the builder is handed to [addNotificationActions] before `build()`).
+ */
+@UnstableApi
+private class LocalOnlyDefaultProvider(context: Context) : DefaultMediaNotificationProvider(context) {
+    override fun addNotificationActions(
+        mediaSession: MediaSession,
+        mediaButtons: ImmutableList<CommandButton>,
+        builder: NotificationCompat.Builder,
+        actionFactory: MediaNotification.ActionFactory,
+    ): IntArray {
+        builder.setLocalOnly(true)
+        return super.addNotificationActions(mediaSession, mediaButtons, builder, actionFactory)
+    }
+}
