@@ -138,6 +138,15 @@ class ColorSchemeProcessor @Inject constructor(
         }
     }
 
+    /** Memory LRU only (synchronous, safe on the main thread); never touches Room or generates. */
+    fun peekMemory(
+        albumArtUri: String,
+        paletteStyle: AlbumArtPaletteStyle,
+        colorAccuracyLevel: Int = AlbumArtColorAccuracy.DEFAULT
+    ): ColorSchemePair? = memoryCache.get(
+        buildCacheKey(albumArtUri, paletteStyle, AlbumArtColorAccuracy.clamp(colorAccuracyLevel))
+    )
+
     /** Memory LRU, then Room; returns null instead of generating when neither has it. */
     suspend fun peekCachedColorScheme(
         albumArtUri: String,
