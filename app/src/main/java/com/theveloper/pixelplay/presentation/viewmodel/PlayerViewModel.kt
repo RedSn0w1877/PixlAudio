@@ -970,7 +970,16 @@ class PlayerViewModel @Inject constructor(
                     }
 
                     val hydratedSong = currentSong.withRepositoryHydration(repositorySong)
-                    val persistedLyrics = parsePersistedLyrics(hydratedSong.lyrics)
+                    // Only needed while no lyrics are loaded; parsing off the main thread (it used to
+                    // run on every Room emission for the current song, e.g. each track change).
+                    val persistedLyrics = if (currentState.lyrics == null) {
+                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+                            parsePersistedLyrics(hydratedSong.lyrics)
+                        }
+                    } else null
+                    if (playbackStateHolder.stablePlayerState.value.currentSong?.id != currentSong.id) {
+                        return@collect
+                    }
                     val shouldApplyPersistedLyrics = currentState.lyrics == null && persistedLyrics != null
                     val shouldRefreshSong = hydratedSong != currentSong
                     val shouldReloadLyrics =
