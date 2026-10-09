@@ -40,8 +40,11 @@ fun AutoScrollingTextOnDemand(
     modifier: Modifier = Modifier,
     canScroll: Boolean = true
 ) {
-    var overflow by remember(text, style) { mutableStateOf(false) }
-    val canStart by remember(text, style) { derivedStateOf { expansionFractionProvider() > 0.99f && overflow } }
+    // Key on the layout-affecting style only: the colour fades for ~0.3 s after every skip, and a new
+    // style instance every frame reset this to the measuring Text and back each time.
+    val layoutStyle = style.copy(color = Color.Unspecified)
+    var overflow by remember(text, layoutStyle) { mutableStateOf(false) }
+    val canStart by remember(text, layoutStyle) { derivedStateOf { expansionFractionProvider() > 0.99f && overflow } }
 
 
 // Usamos un Text "medidor" sólo la primera composición para detectar overflow.
