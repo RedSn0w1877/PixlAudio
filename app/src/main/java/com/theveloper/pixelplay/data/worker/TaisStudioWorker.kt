@@ -330,7 +330,7 @@ class TaisStudioWorker @AssistedInject constructor(
                         addTag(AUTO_STUDIO_WORK_TAG)
                         addTag(AUTO_LYRICS_TAG)
                         addTag(AUTO_SONG_TAG_PREFIX + songId)
-                        setConstraints(Constraints.Builder().setRequiresBatteryNotLow(true).setRequiresStorageNotLow(true).build())
+                        setConstraints(automaticStudioConstraints())
                     }
                 }
                 .addTag(REQUEST_CREATED_TAG + System.currentTimeMillis())

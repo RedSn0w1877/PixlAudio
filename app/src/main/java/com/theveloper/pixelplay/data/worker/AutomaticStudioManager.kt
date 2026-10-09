@@ -4,6 +4,7 @@ import android.content.Context
 import android.os.SystemClock
 import androidx.work.ExistingWorkPolicy
 import androidx.work.Constraints
+import androidx.work.PeriodicWorkRequest
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.WorkInfo
@@ -40,6 +41,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -69,13 +71,27 @@ class AutomaticStudioManager @Inject constructor(
     @Volatile private var currentSongId: String? = null
     @Volatile private var lyricsEnabled = false
     @Volatile private var instrumentalsEnabled = false
-    private val jobsThisVisit = AtomicInteger(0)
     @Volatile private var readyAfterMs = 0L
     private var graceJob: Job? = null
     private var nextKind = AutomaticStudioKind.LYRICS
-    private var budgetWindowStartedMs = System.currentTimeMillis()
     private val observedWork = LinkedHashSet<UUID>()
     private val completedWork = LinkedHashSet<UUID>()
+    // True while an automatic job may exist in WorkManager. Starts true (a job from an earlier process
+    // could be running) and is corrected by the first scan that actually reads the job list.
+    @Volatile private var automaticMayBeRunning = true
+    private val idleWalk = IdleWalkMemo()
+    private val anyEnabled = MutableStateFlow(false)
+    // The job budget survives the process: each WorkManager sweep may start in a fresh one.
+    private val budget by lazy {
+        val prefs = context.getSharedPreferences("automatic_studio_budget_v1", Context.MODE_PRIVATE)
+        AutomaticStudioBudget(object : AutomaticStudioBudget.Store {
+            override fun load(): Pair<Long, Int>? =
+                if (prefs.contains(BUDGET_WINDOW_KEY)) prefs.getLong(BUDGET_WINDOW_KEY, 0L) to prefs.getInt(BUDGET_JOBS_KEY, 0) else null
+            override fun save(windowStartedMs: Long, jobs: Int) {
+                prefs.edit().putLong(BUDGET_WINDOW_KEY, windowStartedMs).putInt(BUDGET_JOBS_KEY, jobs).apply()
+            }
+        })
+    }
     private val ledgerPreferences by lazy { context.getSharedPreferences("automatic_studio_cooldowns_v1", Context.MODE_PRIVATE) }
     private val cooldowns by lazy {
         AutomaticStudioCooldowns(ledgerPreferences.all.mapNotNull { (key, value) ->
@@ -91,6 +107,8 @@ class AutomaticStudioManager @Inject constructor(
             }.collect { (lyrics, stems) ->
                 lyricsEnabled = lyrics
                 instrumentalsEnabled = stems
+                anyEnabled.value = lyrics || stems
+                idleWalk.invalidate()
                 environment.setEnabled(lyrics, stems)
                 if (!lyrics) workManager.cancelAllWorkByTag(AUTO_LYRICS_TAG)
                 if (!stems) workManager.cancelAllWorkByTag(AUTO_INSTRUMENTAL_TAG)
@@ -99,16 +117,25 @@ class AutomaticStudioManager @Inject constructor(
                 } else {
                     scheduleBackgroundSweep()
                 }
-                scanNow()
+                requestScan()
             }
         }
         scope.launch {
-            workManager.getWorkInfosByTagFlow(PIXELPLAY_JOB_TAG).collect { scanNow() }
+            // Watching WorkManager's job rows is only useful while a feature is on; every row change of
+            // any PixelPlay job (one per downloaded song too) used to wake a scan, switches off or not.
+            anyEnabled.collectLatest { enabled ->
+                if (enabled) workManager.getWorkInfosByTagFlow(PIXELPLAY_JOB_TAG).collect { requestScan() }
+            }
         }
         scope.launch {
             while (isActive) {
                 delay(30_000)
-                scanNow() // Recheck battery/thermal/cache availability while the process is alive.
+                // Recheck battery/thermal/cache availability while the process is alive, but only when
+                // a scan could actually start something (not while music plays, the app is on screen or
+                // both switches are off).
+                if (AutomaticStudioPolicy.shouldPoll(anyEnabled.value, PlaybackActivityTracker.isPlaybackActive, visible)) {
+                    requestScan()
+                }
             }
         }
         scope.launch {
@@ -135,9 +162,9 @@ class AutomaticStudioManager @Inject constructor(
     @Synchronized
     fun setAppVisible(isVisible: Boolean) {
         if (isVisible && !visible) {
-            jobsThisVisit.set(0)
             allowPlaybackToSettle()
         }
+        if (isVisible != visible) idleWalk.invalidate()
         visible = isVisible
         environment.setAppVisible(isVisible)
         if (!isVisible) {
@@ -152,8 +179,9 @@ class AutomaticStudioManager @Inject constructor(
         val canonical = songId?.takeIf(String::isNotBlank)?.let(TaisInstrumentalIndex::canonicalSongId)
         if (canonical == currentSongId) return
         currentSongId = canonical
+        idleWalk.invalidate()
         if (visible) allowPlaybackToSettle()
-        scanNow()
+        requestScan()
     }
 
     private fun allowPlaybackToSettle() {
@@ -163,7 +191,12 @@ class AutomaticStudioManager @Inject constructor(
     }
 
     /** A Settings action: re-evaluate eligibility; never bypass battery, cooldowns, or user preferences. */
-    fun scanNow() { requests.trySend(Unit) }
+    fun scanNow() {
+        idleWalk.invalidate()
+        requestScan()
+    }
+
+    private fun requestScan() { requests.trySend(Unit) }
 
     /** Entry point for the WorkManager sweep. It refreshes persisted settings because this may be
      * the first object created in a newly started background process. */
@@ -171,22 +204,21 @@ class AutomaticStudioManager @Inject constructor(
         lyricsEnabled = preferences.automaticLyricsEnabledFlow.first()
         instrumentalsEnabled = preferences.automaticInstrumentalsEnabledFlow.first()
         environment.setEnabled(lyricsEnabled, instrumentalsEnabled)
+        anyEnabled.value = lyricsEnabled || instrumentalsEnabled
+        idleWalk.invalidate()
+        automaticMayBeRunning = true // a fresh process: read the job list at least once
         scan()
     }
 
     private fun scheduleBackgroundSweep() {
-        val constraints = Constraints.Builder()
-            .setRequiresBatteryNotLow(true)
-            .setRequiresStorageNotLow(true)
-            .build()
-        val request = PeriodicWorkRequestBuilder<AutomaticStudioSweepWorker>(15, TimeUnit.MINUTES)
-            .setConstraints(constraints)
-            .build()
+        val request = buildSweepRequest()
         scope.launch(Dispatchers.IO) {
             runCatching {
+                // UPDATE (not KEEP) so installs that already have the old 15-minute, any-power sweep
+                // pick up the charger-only, few-hours one.
                 workManager.enqueueUniquePeriodicWork(
                     BACKGROUND_SWEEP_NAME,
-                    ExistingPeriodicWorkPolicy.KEEP,
+                    ExistingPeriodicWorkPolicy.UPDATE,
                     request
                 )
             }.onFailure { Timber.d(it, "Unable to schedule automatic background sweep") }
@@ -194,9 +226,21 @@ class AutomaticStudioManager @Inject constructor(
     }
 
     private suspend fun scan() {
+        val enabled = lyricsEnabled || instrumentalsEnabled
+        val playbackActive = PlaybackActivityTracker.isPlaybackActive
+        if (!AutomaticStudioPolicy.scanNeedsWorkQuery(enabled, playbackActive, visible, automaticMayBeRunning)) {
+            // Nothing to schedule and no automatic job to clean up: don't touch WorkManager at all.
+            _status.value = when {
+                !enabled -> "Automatic processing is off"
+                playbackActive -> "Waiting until playback is idle"
+                else -> "Automatic processing waits until you leave the app"
+            }
+            return
+        }
         // All blocking WorkManager operations run on this IO coordinator, never the UI thread.
         val infos = workManager.getWorkInfosByTag(PIXELPLAY_JOB_TAG).get(5, TimeUnit.SECONDS)
         val automatic = infos.filter { AUTO_STUDIO_WORK_TAG in it.tags }
+        automaticMayBeRunning = automatic.any { !it.state.isFinished }
         observedWork.addAll(automatic.filterNot { it.state.isFinished }.map { it.id })
         automatic.filter { it.state.isFinished && it.id in observedWork && completedWork.add(it.id) }
             .forEach { recordCompletion(it) }
@@ -215,12 +259,12 @@ class AutomaticStudioManager @Inject constructor(
             )
         }
         if (manual) {
-            workManager.cancelAllWorkByTag(AUTO_STUDIO_WORK_TAG)
+            if (automaticMayBeRunning) workManager.cancelAllWorkByTag(AUTO_STUDIO_WORK_TAG)
             _status.value = "Waiting for your manually started processing"
             return
         }
-        if (PlaybackActivityTracker.isPlaybackActive) {
-            workManager.cancelAllWorkByTag(AUTO_STUDIO_WORK_TAG)
+        if (playbackActive) {
+            if (automaticMayBeRunning) workManager.cancelAllWorkByTag(AUTO_STUDIO_WORK_TAG)
             _status.value = "Waiting until playback is idle"
             return
         }
@@ -229,18 +273,20 @@ class AutomaticStudioManager @Inject constructor(
                 ?: "Preparing the next song quietly"
             return
         }
+        if (visible) {
+            // Unattended DSP keeps several cores and tens of MB busy for minutes and is thrown away when
+            // the user presses play: it waits until the app is off screen (leaving it triggers a scan).
+            _status.value = "Automatic processing waits until you leave the app"
+            return
+        }
         if (SystemClock.elapsedRealtime() < readyAfterMs) {
             _status.value = "Letting playback settle before automatic processing"
             return
         }
         val now = System.currentTimeMillis()
-        if (now - budgetWindowStartedMs >= AutomaticStudioPolicy.BACKGROUND_WINDOW_MS) {
-            budgetWindowStartedMs = now
-            jobsThisVisit.set(0)
-        }
         val entitlement = PlusLicenseManager(context).activeEntitlement()
         val jobLimit = PremiumFeatureLimits.backgroundJobsPerWindow(entitlement, now)
-        if (jobsThisVisit.get() >= jobLimit) {
+        if (budget.jobsInWindow(now) >= jobLimit) {
             _status.value = "Automatic processing is paced to protect battery and playback"
             return
         }
@@ -258,6 +304,11 @@ class AutomaticStudioManager @Inject constructor(
             throw error
         } catch (error: Exception) {
             Timber.d("Cloud Studio jobs unreadable: %s", error.javaClass.simpleName)
+        }
+        if (idleWalk.shouldSkipWalk(now)) {
+            // The last full walk found nothing to schedule and nothing relevant changed since.
+            _status.value = "Up to date for your recent songs; instrumentals use audio already on this phone"
+            return
         }
         for (song in candidates()) {
             if (!AutomaticStudioPolicy.canProcessDuration(song.duration)) continue
@@ -286,7 +337,8 @@ class AutomaticStudioManager @Inject constructor(
                 // KEEP may retain an older process's active request. Only count requests actually inserted.
                 if (workManager.getWorkInfoById(request.id).get(5, TimeUnit.SECONDS) != null) {
                     observedWork += request.id
-                    jobsThisVisit.incrementAndGet()
+                    automaticMayBeRunning = true
+                    budget.recordJob(now)
                     recordCooldown(key, now + 15 * 60_000L) // Avoid a crash/restart retry loop.
                     nextKind = if (kind == AutomaticStudioKind.LYRICS) AutomaticStudioKind.INSTRUMENTAL else AutomaticStudioKind.LYRICS
                     _status.value = if (kind == AutomaticStudioKind.LYRICS) "Finding synced lyrics for ${song.title}" else "Preparing an instrumental for ${song.title}"
@@ -294,6 +346,7 @@ class AutomaticStudioManager @Inject constructor(
                 return
             }
         }
+        idleWalk.markNothingToDo(System.currentTimeMillis())
         _status.value = "Up to date for your recent songs; instrumentals use audio already on this phone"
     }
 
@@ -324,14 +377,17 @@ class AutomaticStudioManager @Inject constructor(
         val kind = if (AUTO_LYRICS_TAG in info.tags) AutomaticStudioKind.LYRICS else AutomaticStudioKind.INSTRUMENTAL
         val songId = info.tags.firstOrNull { it.startsWith(AUTO_SONG_TAG_PREFIX) }?.removePrefix(AUTO_SONG_TAG_PREFIX) ?: return
         val deferred = info.state == WorkInfo.State.CANCELLED || info.outputData.getBoolean(OUTPUT_AUTOMATIC_DEFERRED, false)
+        val timedOut = info.outputData.getBoolean(OUTPUT_AUTOMATIC_TIMED_OUT, false)
         val failed = info.state == WorkInfo.State.FAILED || info.outputData.getString(TaisStudioWorker.OUTPUT_OUTCOME) == TaisStudioWorker.OUTCOME_FAILED
         val delay = when {
+            timedOut -> AutomaticStudioPolicy.TIMEOUT_COOLDOWN_MS
             deferred -> AutomaticStudioPolicy.DEFERRED_COOLDOWN_MS
             failed -> AutomaticStudioPolicy.FAILURE_COOLDOWN_MS
             kind == AutomaticStudioKind.LYRICS && !info.outputData.getBoolean(TaisStudioWorker.OUTPUT_WORD_SYNC_PRODUCED, false) -> AutomaticStudioPolicy.CATALOG_COOLDOWN_MS
             else -> 7 * 24 * 60 * 60_000L // Complete artifacts are also checked before any future scheduling.
         }
         recordCooldown(ledgerKey(kind, songId), System.currentTimeMillis() + delay)
+        idleWalk.invalidate()
         if (kind == AutomaticStudioKind.LYRICS && info.state == WorkInfo.State.SUCCEEDED &&
             info.outputData.getBoolean(TaisStudioWorker.OUTPUT_LYRICS_UPDATED, false)) _lyricsUpdated.emit(songId)
     }
@@ -344,8 +400,16 @@ class AutomaticStudioManager @Inject constructor(
     }
 
     private fun ledgerKey(kind: AutomaticStudioKind, songId: String) = "${kind.name}:$songId"
-    private companion object {
+    internal companion object {
         const val UNIQUE_WORK_NAME = "automatic_studio_one_at_a_time"
         const val BACKGROUND_SWEEP_NAME = "automatic_studio_background_sweep"
+        private const val BUDGET_WINDOW_KEY = "window_started_ms"
+        private const val BUDGET_JOBS_KEY = "jobs"
+
+        /** The wake-up that finds the next song: on a charger only, every few hours. */
+        fun buildSweepRequest(): PeriodicWorkRequest =
+            PeriodicWorkRequestBuilder<AutomaticStudioSweepWorker>(AutomaticStudioPolicy.SWEEP_INTERVAL_HOURS, TimeUnit.HOURS)
+                .setConstraints(automaticStudioConstraints())
+                .build()
     }
 }
