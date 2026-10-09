@@ -35,7 +35,12 @@ class YouTubeAuthManager @Inject constructor(
     private val oauthService: GoogleOAuthService
 ) {
 
-    private val prefs: SharedPreferences = try {
+    // Lazy: Keystore + Tink setup is one of the costliest things at a cold start and this class is
+    // constructed on the main thread through the player graph. The first read happens where the
+    // session is first needed; PixelPlayApplication warms it on a background thread.
+    private val prefs: SharedPreferences by lazy { createPrefs() }
+
+    private fun createPrefs(): SharedPreferences = try {
         val masterKey = MasterKey.Builder(context)
             .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
             .build()
@@ -53,10 +58,12 @@ class YouTubeAuthManager @Inject constructor(
 
     private val refreshMutex = Mutex()
 
-    private val _isSignedIn = MutableStateFlow(
-        prefs.getString(KEY_REFRESH_TOKEN, null) != null || prefs.getString(KEY_COOKIE, null) != null
-    )
-    val isSignedIn: StateFlow<Boolean> = _isSignedIn.asStateFlow()
+    private val _isSignedIn by lazy {
+        MutableStateFlow(
+            prefs.getString(KEY_REFRESH_TOKEN, null) != null || prefs.getString(KEY_COOKIE, null) != null
+        )
+    }
+    val isSignedIn: StateFlow<Boolean> by lazy { _isSignedIn.asStateFlow() }
 
     // ─── Sesión por cookie (flujo real de inicio de sesión) ────────────
     //
@@ -69,7 +76,7 @@ class YouTubeAuthManager @Inject constructor(
     // producto de Google en el navegador) — y con ANDROID_MUSIC/IOS el vídeo llega con
     // URL ya firmada, sin cipher que descifrar. Confirmado contra una app de código
     // abierto que autentica así y sí reproduce.
-    private val _cookie = MutableStateFlow(prefs.getString(KEY_COOKIE, null))
+    private val _cookie by lazy { MutableStateFlow(prefs.getString(KEY_COOKIE, null)) }
     val cookie: String? get() = _cookie.value
 
     // InnerTube espera este dato atado a la sesión del navegador que puso la cookie —

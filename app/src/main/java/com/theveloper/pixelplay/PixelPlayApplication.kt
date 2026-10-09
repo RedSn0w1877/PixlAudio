@@ -78,6 +78,9 @@ class PixelPlayApplication : Application(), ImageLoaderFactory, Configuration.Pr
     lateinit var gemmaEngine: dagger.Lazy<com.theveloper.pixelplay.data.ai.local.GemmaLiteRtEngine>
 
     @Inject
+    lateinit var youTubeAuthManager: dagger.Lazy<com.theveloper.pixelplay.data.youtube.auth.YouTubeAuthManager>
+
+    @Inject
     lateinit var wav2Vec2Aligner: dagger.Lazy<com.theveloper.pixelplay.data.tais.lyrics.TaisWav2Vec2Aligner>
 
     private val startupScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -152,6 +155,10 @@ class PixelPlayApplication : Application(), ImageLoaderFactory, Configuration.Pr
         // isLoggedIn here warms it before any screen asks.
         startupScope.launch {
             spotifyRepository.get().isLoggedIn
+        }
+        // Same for the YouTube session (cookie + visitorData live in EncryptedSharedPreferences).
+        startupScope.launch {
+            runCatching { youTubeAuthManager.get().cookie }
         }
 
         // On-device AI became the default: move setups that could never answer (a cloud
