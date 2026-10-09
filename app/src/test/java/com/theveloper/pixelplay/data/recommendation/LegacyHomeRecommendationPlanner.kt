@@ -1,3 +1,9 @@
+// FROZEN REFERENCE: a verbatim copy of HomeRecommendationPlanner as it was BEFORE the Home recommendation speed-up
+// (new Regex + Unicode fold on every comparison, select() re-normalising per candidate per slot).
+// RecommendationGoldenEqualityTest runs it next to the optimised code and requires identical output.
+// Do not "improve" this file: its only job is to stay slow and identical to the old behaviour.
+@file:Suppress("unused")
+
 package com.theveloper.pixelplay.data.recommendation
 
 import com.theveloper.pixelplay.data.model.Song
@@ -9,50 +15,26 @@ import kotlinx.collections.immutable.persistentMapOf
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.collections.immutable.toImmutableMap
 
-data class HomeMusicSection(
-    val id: String,
-    val title: String,
-    val subtitle: String,
-    val songs: ImmutableList<Song>,
-    /**
-     * Por qué el ranking eligió cada canción, indexado por [Song.id]. El motivo ya se calculaba
-     * en [MusicRecommendationEngine] y en [Muselle] y se tiraba aquí al quedarnos solo con la
-     * canción: era visible únicamente en la vista previa de Ajustes, nunca en la propia
-     * recomendación.
-     */
-    val reasons: ImmutableMap<String, String> = persistentMapOf()
-)
-
-data class HomeRecommendations(
-    val mixes: ImmutableList<HomeMusicSection>,
-    val shelves: ImmutableList<HomeMusicSection>
-)
-
 /** Deterministic daily choices using the same completion, skip and artist signals as Your Mix. */
-object HomeRecommendationPlanner {
+object LegacyHomeRecommendationPlanner {
     fun plan(
         library: List<Song>,
         favorites: Set<String>,
-        signals: Map<String, MusicRecommendationEngine.Signal>,
-        history: Map<String, MusicRecommendationEngine.History>,
+        signals: Map<String, LegacyRecommendationEngine.Signal>,
+        history: Map<String, LegacyRecommendationEngine.History>,
         discoveries: List<Song> = emptyList(),
         releases: List<Song> = emptyList(),
         nowMs: Long,
         seed: Long,
         variant: MuselleVariant = MuselleVariant.BASIC
     ): HomeRecommendations {
-        val rank = Muselle.rank(variant, library + discoveries + releases, favorites, signals, history, nowMs, seed)
-        // recordingKey normalises the artist and title (Unicode fold + regex), and the shelves below
-        // test every ranked song against it several times: compute it once per Song instance.
-        val keyCache = java.util.IdentityHashMap<Song, String>()
-        fun keyOf(song: Song): String = keyCache.getOrPut(song) { MusicRecommendationEngine.recordingKey(song) }
-        val rankKeys = rank.map { keyOf(it.song) }
-        val localKeys = library.mapTo(hashSetOf(), MusicRecommendationEngine::recordingKey)
-        val local = rank.filterIndexed { index, _ -> rankKeys[index] in localKeys }
+        val rank = LegacyRecommendationEngine.rank(library + discoveries + releases, favorites, signals, history, nowMs, seed)
+        val localKeys = library.mapTo(hashSetOf(), LegacyRecommendationEngine::recordingKey)
+        val local = rank.filter { LegacyRecommendationEngine.recordingKey(it.song) in localKeys }
         fun isFavorite(song: Song) = song.isFavorite || song.id in favorites || "spotify_${song.spotifyId}" in favorites
         fun lastPlayed(song: Song) = maxOf(history[song.id]?.lastPlayedMs ?: 0, signals[song.id]?.lastPlayedMs ?: 0)
-        fun section(id: String, title: String, subtitle: String, picks: List<MusicRecommendationEngine.Pick>, limit: Int = 24): HomeMusicSection {
-            val selected = MusicRecommendationEngine.select(picks, limit)
+        fun section(id: String, title: String, subtitle: String, picks: List<LegacyRecommendationEngine.Pick>, limit: Int = 24): HomeMusicSection {
+            val selected = LegacyRecommendationEngine.select(picks, limit)
             return HomeMusicSection(
                 id = id,
                 title = title,
@@ -61,7 +43,7 @@ object HomeRecommendationPlanner {
                 // Un motivo negativo ("se salta mucho") explica por qué una canción sale MENOS,
                 // así que enseñarlo justo en la tarjeta que la está recomendando se contradice.
                 reasons = selected
-                    .filterNot { it.reason.startsWith(MusicRecommendationEngine.REASON_PREFIX_DEMOTED) }
+                    .filterNot { it.reason.startsWith(LegacyRecommendationEngine.REASON_PREFIX_DEMOTED) }
                     .associate { it.song.id to it.reason }
                     .toImmutableMap()
             )
@@ -90,22 +72,22 @@ object HomeRecommendationPlanner {
             if (size < 3 && local.size >= 4) {
                 add(section("rotation", "Open rotation", "A little familiar, a little unexpected", local))
             }
-        }.distinctBy { it.songs.map(MusicRecommendationEngine::recordingKey).toSet() }.take(3)
+        }.distinctBy { it.songs.map(LegacyRecommendationEngine::recordingKey).toSet() }.take(3)
 
         // A recording only appears on one song shelf, even when catalog IDs differ.
         val used = hashSetOf<String>()
         val shelves = buildList {
             fun addShelf(id: String, title: String, subtitle: String, songs: List<Song>, limit: Int = 12) {
-                val keys = songs.mapTo(hashSetOf(), ::keyOf)
-                val picks = rank.filterIndexed { index, _ -> rankKeys[index] in keys && rankKeys[index] !in used }
+                val keys = songs.mapTo(hashSetOf(), LegacyRecommendationEngine::recordingKey)
+                val picks = rank.filter { LegacyRecommendationEngine.recordingKey(it.song) in keys && LegacyRecommendationEngine.recordingKey(it.song) !in used }
                 val next = section(id, title, subtitle, picks, limit)
                 if (next.songs.isNotEmpty()) {
                     add(next)
-                    next.songs.forEach { used += keyOf(it) }
+                    next.songs.forEach { used += LegacyRecommendationEngine.recordingKey(it) }
                 }
             }
             addShelf("recent_releases", "New from artists you enjoy", "Released in the past six months", releases)
-            addShelf("discovery", "Beyond your library", "New finds shaped by what you play", discoveries.filter { MusicRecommendationEngine.recordingKey(it) !in localKeys })
+            addShelf("discovery", "Beyond your library", "New finds shaped by what you play", discoveries.filter { LegacyRecommendationEngine.recordingKey(it) !in localKeys })
             // Estas tres estanterías se filtran de verdad, no solo se ordenan. `addShelf` marca
             // como usada cada canción que coloca, así que una estantería que recibe la biblioteca
             // entera se lleva por delante a todas las de abajo (favoritos, "Back in rotation",
@@ -131,12 +113,12 @@ object HomeRecommendationPlanner {
                 (past?.plays ?: 0) * 1.0 + (signal?.completions ?: 0) * 1.5 + (signal?.voluntaryPlays ?: 0) * 0.4
             }.map { it.song })
 
-            val favoriteArtist = local.groupBy { MusicRecommendationEngine.artistKey(it.song) }
+            val favoriteArtist = local.groupBy { LegacyRecommendationEngine.artistKey(it.song) }
                 .filterValues { it.size >= MIN_ARTIST_RADIO_SONGS } // una sola canción no es una "radio"
                 .maxByOrNull { (_, picks) -> picks.sumOf { it.score } }
             favoriteArtist?.let { (artistKey, _) ->
                 addShelf("artist_radio_$artistKey", "Artist radio", "A focused run around an artist you enjoy", local.filter {
-                    MusicRecommendationEngine.artistKey(it.song) == artistKey
+                    LegacyRecommendationEngine.artistKey(it.song) == artistKey
                 }.map { it.song })
             }
             addShelf("favorites", "Always a good choice", "Your favorites, ready for another listen", local.filter { isFavorite(it.song) }.map { it.song })
