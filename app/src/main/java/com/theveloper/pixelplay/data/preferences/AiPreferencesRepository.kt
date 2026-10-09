@@ -74,18 +74,18 @@ class AiPreferencesRepository @Inject constructor(
 
     // Generic accessors for AiHandler
     fun getApiKey(provider: AiProvider): Flow<String> =
-        dataStore.data.map { preferences -> preferences[Keys.getApiKey(provider)]?.trim() ?: "" }
+        dataStore.prefFlow { preferences -> preferences[Keys.getApiKey(provider)]?.trim() ?: "" }
 
     fun getModel(provider: AiProvider): Flow<String> =
-        dataStore.data.map { preferences -> preferences[Keys.getModel(provider)] ?: "" }
+        dataStore.prefFlow { preferences -> preferences[Keys.getModel(provider)] ?: "" }
 
     fun getSystemPrompt(provider: AiProvider): Flow<String> =
-        dataStore.data.map { preferences ->
+        dataStore.prefFlow { preferences ->
             preferences[Keys.getSystemPrompt(provider)] ?: DEFAULT_SYSTEM_PROMPT
         }
 
     fun getBaseUrl(provider: AiProvider): Flow<String> =
-        dataStore.data.map { preferences -> preferences[Keys.getBaseUrl(provider)] ?: "" }
+        dataStore.prefFlow { preferences -> preferences[Keys.getBaseUrl(provider)] ?: "" }
 
     suspend fun setApiKey(provider: AiProvider, apiKey: String) {
         dataStore.edit { preferences -> preferences[Keys.getApiKey(provider)] = apiKey.trim() }
@@ -158,16 +158,16 @@ class AiPreferencesRepository @Inject constructor(
     // On-device is the default for every AI feature (owner decision, 2026-10-07). A cloud
     // provider is only ever used when the user turns on "Use a cloud assistant".
     val aiProvider: Flow<String> =
-        dataStore.data.map { preferences -> preferences[Keys.AI_PROVIDER] ?: AiProvider.ON_DEVICE.name }
+        dataStore.prefFlow { preferences -> preferences[Keys.AI_PROVIDER] ?: AiProvider.ON_DEVICE.name }
             .distinctUntilChanged()
 
     /** The last cloud assistant chosen, restored when "Use a cloud assistant" is switched back on. */
     val aiCloudProvider: Flow<String> =
-        dataStore.data.map { preferences -> validCloudProvider(preferences[Keys.AI_CLOUD_PROVIDER]) }
+        dataStore.prefFlow { preferences -> validCloudProvider(preferences[Keys.AI_CLOUD_PROVIDER]) }
             .distinctUntilChanged()
 
     val aiDownloadedModelEnabled: Flow<Boolean> =
-        dataStore.data.map { preferences -> preferences[Keys.AI_DOWNLOADED_MODEL_ENABLED] ?: false }
+        dataStore.prefFlow { preferences -> preferences[Keys.AI_DOWNLOADED_MODEL_ENABLED] ?: false }
             .distinctUntilChanged()
 
     private fun validCloudProvider(stored: String?): String =
@@ -175,34 +175,34 @@ class AiPreferencesRepository @Inject constructor(
             ?: AiProvider.GEMINI.name
 
     val isSafeTokenLimitEnabled: Flow<Boolean> =
-        dataStore.data.map { preferences -> preferences[Keys.SAFE_TOKEN_LIMIT] ?: true }
+        dataStore.prefFlow { preferences -> preferences[Keys.SAFE_TOKEN_LIMIT] ?: true }
 
     val aiTemperature: Flow<Float> =
-        dataStore.data.map { preferences -> preferences[Keys.AI_TEMPERATURE] ?: 0.7f }
+        dataStore.prefFlow { preferences -> preferences[Keys.AI_TEMPERATURE] ?: 0.7f }
 
     val aiTopP: Flow<Float> =
-        dataStore.data.map { preferences -> preferences[Keys.AI_TOP_P] ?: 0.95f }
+        dataStore.prefFlow { preferences -> preferences[Keys.AI_TOP_P] ?: 0.95f }
 
     val aiTopK: Flow<Int> =
-        dataStore.data.map { preferences -> preferences[Keys.AI_TOP_K] ?: 64 }
+        dataStore.prefFlow { preferences -> preferences[Keys.AI_TOP_K] ?: 64 }
 
     val aiMaxTokens: Flow<Int> =
-        dataStore.data.map { preferences -> preferences[Keys.AI_MAX_TOKENS] ?: 4096 }
+        dataStore.prefFlow { preferences -> preferences[Keys.AI_MAX_TOKENS] ?: 4096 }
 
     val aiPresencePenalty: Flow<Float> =
-        dataStore.data.map { preferences -> preferences[Keys.AI_PRESENCE_PENALTY] ?: 0.0f }
+        dataStore.prefFlow { preferences -> preferences[Keys.AI_PRESENCE_PENALTY] ?: 0.0f }
 
     val aiFrequencyPenalty: Flow<Float> =
-        dataStore.data.map { preferences -> preferences[Keys.AI_FREQUENCY_PENALTY] ?: 0.0f }
+        dataStore.prefFlow { preferences -> preferences[Keys.AI_FREQUENCY_PENALTY] ?: 0.0f }
 
     val aiSampleSize: Flow<Int> =
-        dataStore.data.map { preferences -> preferences[Keys.AI_SAMPLE_SIZE] ?: 40 }
+        dataStore.prefFlow { preferences -> preferences[Keys.AI_SAMPLE_SIZE] ?: 40 }
 
     val aiDigestMode: Flow<String> =
-        dataStore.data.map { preferences -> preferences[Keys.AI_DIGEST_MODE] ?: "safe" }
+        dataStore.prefFlow { preferences -> preferences[Keys.AI_DIGEST_MODE] ?: "safe" }
 
     val aiIncludeExtendedFields: Flow<Boolean> =
-        dataStore.data.map { preferences -> preferences[Keys.AI_INCLUDE_EXTENDED_FIELDS] ?: false }
+        dataStore.prefFlow { preferences -> preferences[Keys.AI_INCLUDE_EXTENDED_FIELDS] ?: false }
 
     suspend fun setAiProvider(provider: String) {
         dataStore.edit { preferences -> preferences[Keys.AI_PROVIDER] = provider }

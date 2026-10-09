@@ -322,7 +322,7 @@ class UserPreferencesRepository @Inject constructor(
 
     /** Shorthand to map a single value out of the DataStore. */
     private fun <T> pref(transform: (Preferences) -> T): Flow<T> =
-        dataStore.data.map(transform)
+        dataStore.prefFlow(transform)
 
     /** Decode a JSON string preference, returning [default] on missing or malformed data. */
     private inline fun <reified T> decodeJsonPref(
@@ -791,7 +791,7 @@ suspend fun markDirectoryRulesVersionApplied(version: Int) {
     }
 
     val dailyMixSongIdsFlow: Flow<List<String>> =
-            dataStore.data.map { preferences ->
+            dataStore.prefFlow { preferences ->
                 val jsonString = preferences[PreferencesKeys.DAILY_MIX_SONG_IDS]
                 if (jsonString != null) {
                     try {
@@ -811,7 +811,7 @@ suspend fun markDirectoryRulesVersionApplied(version: Int) {
     }
 
     val yourMixSongIdsFlow: Flow<List<String>> =
-            dataStore.data.map { preferences ->
+            dataStore.prefFlow { preferences ->
                 val jsonString = preferences[PreferencesKeys.YOUR_MIX_SONG_IDS]
                 if (jsonString != null) {
                     try {
@@ -831,7 +831,7 @@ suspend fun markDirectoryRulesVersionApplied(version: Int) {
     }
 
     val isGenreGridViewFlow: Flow<Boolean> =
-        dataStore.data.map { preferences ->
+        dataStore.prefFlow { preferences ->
             preferences[PreferencesKeys.IS_GENRE_GRID_VIEW] ?: true
         }
 
@@ -842,7 +842,7 @@ suspend fun markDirectoryRulesVersionApplied(version: Int) {
     }
 
     val isAlbumsListViewFlow: Flow<Boolean> =
-        dataStore.data.map { preferences ->
+        dataStore.prefFlow { preferences ->
             preferences[PreferencesKeys.IS_ALBUMS_LIST_VIEW] ?: false
         }
 
@@ -853,7 +853,7 @@ suspend fun markDirectoryRulesVersionApplied(version: Int) {
     }
 
     val lastDailyMixUpdateFlow: Flow<Long> =
-            dataStore.data.map { preferences ->
+            dataStore.prefFlow { preferences ->
                 preferences[PreferencesKeys.LAST_DAILY_MIX_UPDATE] ?: 0L
             }
 
@@ -864,7 +864,7 @@ suspend fun markDirectoryRulesVersionApplied(version: Int) {
     }
 
     val minSongDurationFlow: Flow<Int> =
-        dataStore.data.map { preferences ->
+        dataStore.prefFlow { preferences ->
             (preferences[PreferencesKeys.MIN_SONG_DURATION] ?: 10000).coerceIn(0, 120000)
         }
 
@@ -879,7 +879,7 @@ suspend fun markDirectoryRulesVersionApplied(version: Int) {
     }
 
     val minTracksPerAlbumFlow: Flow<Int> =
-        dataStore.data.map { preferences ->
+        dataStore.prefFlow { preferences ->
             preferences[PreferencesKeys.MIN_TRACKS_PER_ALBUM] ?: 1
         }
 
@@ -890,12 +890,12 @@ suspend fun markDirectoryRulesVersionApplied(version: Int) {
     }
 
     val replayGainEnabledFlow: Flow<Boolean> =
-        dataStore.data.map { preferences ->
+        dataStore.prefFlow { preferences ->
             preferences[PreferencesKeys.REPLAYGAIN_ENABLED] ?: false
         }
 
     val replayGainUseAlbumGainFlow: Flow<Boolean> =
-        dataStore.data.map { preferences ->
+        dataStore.prefFlow { preferences ->
             preferences[PreferencesKeys.REPLAYGAIN_USE_ALBUM_GAIN] ?: false
         }
 
@@ -914,7 +914,7 @@ suspend fun markDirectoryRulesVersionApplied(version: Int) {
     // ─── Pause on volume zero ─────────────────────────────────────────────────
 
     val pauseOnVolumeZeroFlow: Flow<Boolean> =
-        dataStore.data.map { preferences ->
+        dataStore.prefFlow { preferences ->
             preferences[PreferencesKeys.PAUSE_ON_VOLUME_ZERO] ?: false
         }
 
@@ -925,7 +925,7 @@ suspend fun markDirectoryRulesVersionApplied(version: Int) {
     }
 
     val showScrollbarFlow: Flow<Boolean> =
-        dataStore.data.map { preferences ->
+        dataStore.prefFlow { preferences ->
             preferences[PreferencesKeys.SHOW_SCROLLBAR] ?: true
         }
 
@@ -1367,8 +1367,7 @@ suspend fun markDirectoryRulesVersionApplied(version: Int) {
         }
     }
 
-    val disableBlurAllOverFlow: Flow<Boolean> = dataStore.data
-        .map { preferences ->
+    val disableBlurAllOverFlow: Flow<Boolean> = dataStore.prefFlow { preferences ->
             preferences[PreferencesKeys.DISABLE_BLUR_ALL_OVER] ?: false
         }
 

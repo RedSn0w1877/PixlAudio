@@ -24,11 +24,11 @@ class ThemePreferencesRepository @Inject constructor(
         val ACCENT_COLOR = stringPreferencesKey("accent_color_v1")
     }
 
-    val appThemeModeFlow: Flow<String> = dataStore.data.map { preferences ->
+    val appThemeModeFlow: Flow<String> = dataStore.prefFlow { preferences ->
         preferences[Keys.APP_THEME_MODE] ?: AppThemeMode.FOLLOW_SYSTEM
     }
 
-    val playerThemePreferenceFlow: Flow<String> = dataStore.data.map { preferences ->
+    val playerThemePreferenceFlow: Flow<String> = dataStore.prefFlow { preferences ->
         preferences[Keys.PLAYER_THEME_PREFERENCE] ?: ThemePreference.ALBUM_ART
     }
 
@@ -37,15 +37,14 @@ class ThemePreferencesRepository @Inject constructor(
      * from a hand-edited or foreign backup reads as the default. Distinct, so an unrelated settings write
      * doesn't rebuild the app's scheme.
      */
-    val accentColorFlow: Flow<String> = dataStore.data
-        .map { preferences -> AccentColor.normalize(preferences[Keys.ACCENT_COLOR]) }
-        .distinctUntilChanged()
+    val accentColorFlow: Flow<String> =
+        dataStore.prefFlow { preferences -> AccentColor.normalize(preferences[Keys.ACCENT_COLOR]) }
 
-    val albumArtPaletteStyleFlow: Flow<AlbumArtPaletteStyle> = dataStore.data.map { preferences ->
+    val albumArtPaletteStyleFlow: Flow<AlbumArtPaletteStyle> = dataStore.prefFlow { preferences ->
         AlbumArtPaletteStyle.fromStorageKey(preferences[Keys.ALBUM_ART_PALETTE_STYLE])
     }
 
-    val albumArtColorAccuracyFlow: Flow<Int> = dataStore.data.map { preferences ->
+    val albumArtColorAccuracyFlow: Flow<Int> = dataStore.prefFlow { preferences ->
         AlbumArtColorAccuracy.clamp(preferences[Keys.ALBUM_ART_COLOR_ACCURACY] ?: AlbumArtColorAccuracy.DEFAULT)
     }
 
