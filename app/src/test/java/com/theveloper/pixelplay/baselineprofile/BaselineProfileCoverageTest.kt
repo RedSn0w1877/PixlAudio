@@ -49,6 +49,29 @@ class BaselineProfileCoverageTest {
     }
 
     @Test
+    fun `home, search, detail, settings and streaming classes are covered by a rule`() {
+        val rules = profileLines()
+        val app = "Lcom/theveloper/pixelplay"
+        val mustBeCovered = listOf(
+            "$app/presentation/components/YourMixShelfSectionKt;",
+            "$app/presentation/components/RecentlyPlayedSectionKt;",
+            "$app/presentation/components/ShimmerBoxKt;",
+            "$app/presentation/components/subcomps/EnhancedSongListItemKt;",
+            "$app/presentation/screens/search/GenreCategoriesGridKt;",
+            "$app/presentation/screens/AlbumDetailScreenKt;",
+            "$app/presentation/screens/SettingsCategoryScreenKt;",
+            "$app/data/recommendation/MusicRecommendationEngine;",
+            "$app/data/stream/CloudStreamProxy;",
+            "$app/data/youtube/InnerTubeClient;",
+            "$app/data/database/MusicDao_Impl;",
+            "Landroidx/paging/PagingDataKt;",
+            "Lio/ktor/server/cio/CIO;",
+        )
+        val uncovered = mustBeCovered.filter { descriptor -> rules.none { matches(it, descriptor) } }
+        assertTrue(uncovered.isEmpty(), "no baseline-profile rule matches: $uncovered")
+    }
+
+    @Test
     fun `the rule matcher itself understands the profile syntax`() {
         assertTrue(matches("HSPLcom/a/B**->**(**)**", "Lcom/a/BKt;"))
         assertTrue(matches("Lcom/a/**;", "Lcom/a/b/CKt;"))

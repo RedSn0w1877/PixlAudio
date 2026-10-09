@@ -1434,6 +1434,12 @@ interface MusicDao {
     @Query("UPDATE artists SET image_url = :imageUrl WHERE id = :artistId")
     suspend fun updateArtistImageUrl(artistId: Long, imageUrl: String)
 
+    /** One transaction (one table invalidation) for a whole batch of artist images. */
+    @Transaction
+    suspend fun updateArtistImageUrls(updates: List<ArtistImageUpdate>) {
+        updates.forEach { updateArtistImageUrl(it.artistId, it.imageUrl) }
+    }
+
     @Query("SELECT id FROM artists WHERE name = :name LIMIT 1")
     suspend fun getArtistIdByName(name: String): Long?
 
@@ -1862,3 +1868,5 @@ interface MusicDao {
         const val SONG_BATCH_SIZE = 500
     }
 }
+
+data class ArtistImageUpdate(val artistId: Long, val imageUrl: String)

@@ -13,6 +13,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import timber.log.Timber
 import java.io.File
 import kotlin.math.abs
@@ -52,7 +53,13 @@ class InstrumentalCrossfadeController(
     val hasInstrumentalReady: Boolean
         get() = shadowPlayer != null
 
-    /** Call from the main player's `onMediaItemTransition`. Tears down the old shadow player and prepares a new one if the incoming song already has a render on disk. */
+    /**
+     * Call from the main player's `onMediaItemTransition`. Tears down the old shadow player. The
+     * new one is built lazily by [crossfadeToInstrumental]: keeping a silent second ExoPlayer
+     * (extra PCM AudioTrack + wake lock) running for the whole song only to make a rarely used
+     * toggle instant cost battery on every song that has a render, and its file checks ran on the
+     * main thread at each skip.
+     */
     fun onSongChanged(songId: String?, mainPlayer: Player) {
         if (songId == currentSongId) return
         val wasCrossfaded = isCrossfadedToInstrumental
@@ -63,9 +70,6 @@ class InstrumentalCrossfadeController(
             mainPlayer.volume = 1f
         }
         currentSongId = songId
-        if (songId == null) return
-
-        resolveInstrumentalFile(songId)?.let { file -> preparePlayer(file, mainPlayer) }
     }
 
     /**
@@ -148,6 +152,13 @@ class InstrumentalCrossfadeController(
         if (isSuspended) return false
         if (!ensurePrepared(mainPlayer)) return false
         val shadow = shadowPlayer ?: return false
+        if (shadow.playbackState != Player.STATE_READY) {
+            // Freshly built: let it decode its first frames so the ramp is not a dip to silence.
+            withTimeoutOrNull(READY_TIMEOUT_MS) {
+                while (shadow.playbackState != Player.STATE_READY && shadowPlayer === shadow) delay(READY_POLL_MS)
+            }
+        }
+        if (shadowPlayer !== shadow) return false
         shadow.seekTo(mainPlayer.currentPosition)
         shadow.playWhenReady = mainPlayer.playWhenReady
         runCrossfade(from = mainPlayer, to = shadow, durationMs = durationMs)
@@ -159,6 +170,8 @@ class InstrumentalCrossfadeController(
         val shadow = shadowPlayer ?: return false
         runCrossfade(from = shadow, to = mainPlayer, durationMs = durationMs)
         isCrossfadedToInstrumental = false
+        // The original is audible again; free the silent second player until the next toggle.
+        teardown()
         return true
     }
 
@@ -232,5 +245,7 @@ class InstrumentalCrossfadeController(
         private const val DRIFT_TOLERANCE_MS = 200L
         private const val CROSSFADE_STEP_MS = 16L
         private const val DEFAULT_CROSSFADE_MS = 700L
+        private const val READY_TIMEOUT_MS = 600L
+        private const val READY_POLL_MS = 10L
     }
 }

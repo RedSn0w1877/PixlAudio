@@ -6,6 +6,7 @@ import android.graphics.BitmapFactory
 import android.net.Uri
 import android.util.Log
 import android.util.LruCache
+import com.theveloper.pixelplay.data.database.ArtistImageUpdate
 import com.theveloper.pixelplay.data.database.MusicDao
 import com.theveloper.pixelplay.data.diagnostics.AdvancedPerformanceDiagnostics
 import com.theveloper.pixelplay.data.network.deezer.DeezerApiService
@@ -13,6 +14,7 @@ import com.theveloper.pixelplay.utils.NetworkRetryUtils
 import com.theveloper.pixelplay.utils.isRetryableNetworkError
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.sync.Mutex
@@ -42,6 +44,7 @@ class ArtistImageRepository @Inject constructor(
         private const val TAG = "ArtistImageRepository"
         private const val CACHE_SIZE = 100 // Number of artist images to cache in memory
         private const val PREFETCH_CONCURRENCY = 3 // Limit parallel API calls
+        private const val FLUSH_EVERY_CHUNKS = 2 // ~24 artists per database commit
         private val deezerSizeRegex = Regex("/\\d{2,4}x\\d{2,4}([\\-.])")
         private const val NETWORK_RETRY_ATTEMPTS = 3
         private const val NETWORK_RETRY_INITIAL_DELAY_MS = 500L
@@ -83,7 +86,18 @@ class ArtistImageRepository @Inject constructor(
      * @param artistId Room database ID of the artist (for caching)
      * @return Image URL or null if not found
      */
-    suspend fun getArtistImageUrl(artistName: String, artistId: Long): String? {
+    suspend fun getArtistImageUrl(artistName: String, artistId: Long): String? =
+        getArtistImageUrl(artistName, artistId, writes = null)
+
+    /**
+     * [writes] non-null (prefetch): database writes are queued and committed in one transaction
+     * per batch instead of one commit per artist; each commit re-runs every artists query.
+     */
+    private suspend fun getArtistImageUrl(
+        artistName: String,
+        artistId: Long,
+        writes: PendingImageWrites?
+    ): String? {
         if (artistName.isBlank()) return null
 
         val normalizedName = artistName.trim().lowercase()
@@ -109,15 +123,19 @@ class ArtistImageRepository @Inject constructor(
             val upgradedDbUrl = upgradeToHighResDeezerUrl(dbCachedUrl)
             memoryCache.put(normalizedName, upgradedDbUrl)
             if (upgradedDbUrl != dbCachedUrl) {
-                withContext(Dispatchers.IO) {
-                    musicDao.updateArtistImageUrl(resolvedArtistId, upgradedDbUrl)
+                if (writes != null) {
+                    writes.add(resolvedArtistId, upgradedDbUrl)
+                } else {
+                    withContext(Dispatchers.IO) {
+                        musicDao.updateArtistImageUrl(resolvedArtistId, upgradedDbUrl)
+                    }
                 }
             }
             return upgradedDbUrl
         }
 
         // Fetch from Deezer API
-        return fetchAndCacheArtistImage(artistName, resolvedArtistId, normalizedName)
+        return fetchAndCacheArtistImage(artistName, resolvedArtistId, normalizedName, writes)
     }
 
     /**
@@ -135,15 +153,16 @@ class ArtistImageRepository @Inject constructor(
         // Process in small chunks to avoid creating hundreds of coroutines simultaneously.
         // Without this, a library with 500 artists creates 500 coroutine objects at once, all
         // suspended at the semaphore, exhausting the heap and triggering OOM in coroutine machinery.
+        val writes = PendingImageWrites()
         try {
-            artists.chunked(PREFETCH_CONCURRENCY * 4).forEach { chunk ->
+            artists.chunked(PREFETCH_CONCURRENCY * 4).forEachIndexed { chunkIndex, chunk ->
                 chunk.map { (artistId, artistName) ->
                     async {
                         try {
                             val normalizedName = artistName.trim().lowercase()
                             if (memoryCache.get(normalizedName) == null && !failedFetches.contains(normalizedName)) {
                                 prefetchSemaphore.withPermit {
-                                    getArtistImageUrl(artistName, artistId)
+                                    getArtistImageUrl(artistName, artistId, writes)
                                 }
                             } else {
                                 Timber.tag(TAG).d("Skipping prefetch for $artistName") //check
@@ -155,8 +174,10 @@ class ArtistImageRepository @Inject constructor(
                         }
                     }
                 }.awaitAll()
+                if ((chunkIndex + 1) % FLUSH_EVERY_CHUNKS == 0) flushWrites(writes)
             }
         } finally {
+            withContext(NonCancellable) { flushWrites(writes) }
             AdvancedPerformanceDiagnostics.recordEventIfEnabled(
                 type = AdvancedPerformanceDiagnostics.EventTypes.WORKER,
                 name = "artist_image_prefetch_end"
@@ -169,12 +190,34 @@ class ArtistImageRepository @Inject constructor(
         }
     }
     
-    // ... fetchAndCacheArtistImage method ...
+    private suspend fun flushWrites(writes: PendingImageWrites) {
+        val batch = writes.drain()
+        if (batch.isEmpty()) return
+        try {
+            musicDao.updateArtistImageUrls(batch)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Timber.tag(TAG).w("Failed to save %d artist images: %s", batch.size, e.message)
+        }
+    }
+
+    /** Thread-safe queue of (artistId, imageUrl) writes collected during one prefetch run. */
+    private class PendingImageWrites {
+        private val items = java.util.concurrent.ConcurrentLinkedQueue<ArtistImageUpdate>()
+        fun add(artistId: Long, imageUrl: String) { items.add(ArtistImageUpdate(artistId, imageUrl)) }
+        fun drain(): List<ArtistImageUpdate> {
+            val out = ArrayList<ArtistImageUpdate>()
+            while (true) out.add(items.poll() ?: break)
+            return out
+        }
+    }
     
     private suspend fun fetchAndCacheArtistImage(
         artistName: String,
         artistId: Long,
-        normalizedName: String
+        normalizedName: String,
+        writes: PendingImageWrites?
     ): String? {
         // Prevent duplicate fetches for the same artist
         fetchMutex.withLock {
@@ -204,7 +247,8 @@ class ArtistImageRepository @Inject constructor(
                         memoryCache.put(normalizedName, imageUrl)
                         
                         // Cache in database
-                        musicDao.updateArtistImageUrl(artistId, imageUrl)
+                        if (writes != null) writes.add(artistId, imageUrl)
+                        else musicDao.updateArtistImageUrl(artistId, imageUrl)
 
                         Timber.tag(TAG).d("Fetched and cached image for $artistName: $imageUrl")
                         imageUrl
@@ -258,6 +302,14 @@ class ArtistImageRepository @Inject constructor(
     fun clearCache() {
         memoryCache.evictAll()
         failedFetches.clear()
+    }
+
+    /**
+     * Memory pressure / UI hidden: drop the in-memory URLs but keep the "Deezer has no such artist"
+     * set, otherwise every unresolved artist is searched again each time the app is hidden.
+     */
+    fun trimMemory() {
+        memoryCache.evictAll()
     }
 
     /**

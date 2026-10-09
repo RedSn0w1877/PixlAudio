@@ -122,11 +122,21 @@ class MusicRepositoryImpl @Inject constructor(
     )
     // Tracks the active prefetch job so a new flow emission cancels the previous one.
     @Volatile private var prefetchJob: Job? = null
+    @Volatile private var prefetchCandidateIds: Set<Long> = emptySet()
     @Volatile private var currentSongArtistPrefetchJob: Job? = null
     @Volatile private var currentSongArtistPrefetchSongId: Long? = null
 
-    private fun normalizePath(path: String): String =
-        runCatching { File(path).canonicalPath }.getOrElse { File(path).absolutePath }
+    // canonicalPath is a filesystem call; the directory filter normalises every song folder on every
+    // flow subscription and search, so each distinct path is resolved once.
+    private val normalizedPaths = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+    private fun normalizePath(path: String): String {
+        normalizedPaths[path]?.let { return it }
+        val resolved = runCatching { File(path).canonicalPath }.getOrElse { File(path).absolutePath }
+        if (normalizedPaths.size > 4_096) normalizedPaths.clear()
+        normalizedPaths[path] = resolved
+        return resolved
+    }
 
     /** Cached directory filter — recomputed when allowed/blocked dirs preferences change or when the set of song folders changes. */
     data class CachedDirFilter(val allowedParentDirs: List<String> = emptyList(), val applyFilter: Boolean = false)
@@ -437,9 +447,16 @@ class MusicRepositoryImpl @Inject constructor(
                         // Cancel any in-flight prefetch before starting a new one — the flow
                         // can emit multiple times during sync, and concurrent launches would
                         // create N × artist-count coroutines simultaneously.
-                        prefetchJob?.cancel()
-                        prefetchJob = repositoryScope.launch {
-                            artistImageRepository.prefetchArtistImages(missingImages)
+                        val candidateIds = missingImages.mapTo(HashSet()) { it.first }
+                        val running = prefetchJob?.takeIf { it.isActive }
+                        // Each image that lands re-emits this list; restarting the run for a
+                        // subset of what is already in flight aborted its requests for nothing.
+                        if (running == null || !prefetchCandidateIds.containsAll(candidateIds)) {
+                            running?.cancel()
+                            prefetchCandidateIds = candidateIds
+                            prefetchJob = repositoryScope.launch {
+                                artistImageRepository.prefetchArtistImages(missingImages)
+                            }
                         }
                     }
                     artists

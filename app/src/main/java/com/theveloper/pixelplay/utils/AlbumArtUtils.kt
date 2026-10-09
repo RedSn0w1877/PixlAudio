@@ -183,20 +183,29 @@ object AlbumArtUtils {
             noArtFile.delete()
         }
 
-        val resolvedPath = filePath ?: resolveSongMediaStoreInfo(appContext, songId)?.path ?: return null
-        if (!File(resolvedPath).exists()) {
+        // One extraction per song at a time: a row and the palette request for the same cover used
+        // to both extract it and write the same file concurrently.
+        synchronized(extractionLocks.getOrPut(songId) { Any() }) {
+            if (!forceRefresh && cachedFile.exists() && cachedFile.length() > 0) {
+                return cachedFile
+            }
+            val resolvedPath = filePath ?: resolveSongMediaStoreInfo(appContext, songId)?.path ?: return null
+            if (!File(resolvedPath).exists()) {
+                return null
+            }
+
+            extractEmbeddedAlbumArtBytes(resolvedPath)?.let { bytes ->
+                cacheAlbumArtBytes(appContext, bytes, songId)
+                return cachedFile.takeIf { it.exists() && it.length() > 0 }
+            }
+
+            cachedFile.delete()
+            noArtFile.createNewFile()
             return null
         }
-
-        extractEmbeddedAlbumArtBytes(resolvedPath)?.let { bytes ->
-            cacheAlbumArtBytes(appContext, bytes, songId)
-            return cachedFile.takeIf { it.exists() && it.length() > 0 }
-        }
-
-        cachedFile.delete()
-        noArtFile.createNewFile()
-        return null
     }
+
+    private val extractionLocks = java.util.concurrent.ConcurrentHashMap<Long, Any>()
 
     fun openArtworkInputStream(
         appContext: Context,
@@ -206,11 +215,12 @@ object AlbumArtUtils {
         return when {
             LocalArtworkUri.isLocalArtworkUri(uriString) -> {
                 val songId = LocalArtworkUri.parseSongId(uriString) ?: return null
-                val resolvedPath = resolveSongMediaStoreInfo(appContext, songId)?.path
+                // The path is only needed on a cache miss, and ensureAlbumArtCachedFile resolves
+                // it itself then; resolving it here queried MediaStore on every cache hit too.
                 ensureAlbumArtCachedFile(
                     appContext = appContext,
                     songId = songId,
-                    filePath = resolvedPath
+                    filePath = null
                 )?.inputStream()
             }
             uri.scheme.isNullOrBlank() && uri.toString().startsWith("/") -> File(uri.toString()).inputStream()
@@ -384,8 +394,14 @@ object AlbumArtUtils {
         val file = getCachedAlbumArtFile(appContext, songId)
 
         val boundedBytes = boundArtworkForCache(bytes)
-        file.outputStream().use { outputStream ->
+        // Write beside, then rename: a reader never sees a half-written cover.
+        val tmp = File(file.parentFile, "${file.name}.tmp")
+        tmp.outputStream().use { outputStream ->
             outputStream.write(boundedBytes)
+        }
+        if (!tmp.renameTo(file)) {
+            file.outputStream().use { it.write(boundedBytes) }
+            tmp.delete()
         }
         noArtMarkerFile(appContext, songId).delete()
 

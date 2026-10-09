@@ -334,7 +334,7 @@ class ThemeStateHolder @Inject constructor(
         if (uriString.isBlank()) return emptyAlbumColorScheme
 
         val flow = synchronized(individualAlbumColorSchemes) {
-            individualAlbumColorSchemes.getOrPut(uriString) { MutableStateFlow(null) }
+            individualAlbumColorSchemes.getOrPut(uriString) { MutableStateFlow(peekMemoryScheme(uriString)) }
         }
         if (eager && flow.value == null) {
             requestAlbumColorSchemeGeneration(uriString, flow, droppable)
@@ -342,11 +342,23 @@ class ThemeStateHolder @Inject constructor(
         return flow.asStateFlow()
     }
 
+    /**
+     * A scheme already in the processor's memory cache, read synchronously. Seeding a new tile flow
+     * with it lets the tile compose once with its final colours instead of default colours first
+     * and a recomposition (or a 280 ms colour animation) a frame later.
+     */
+    private fun peekMemoryScheme(uriString: String): ColorSchemePair? =
+        colorSchemeProcessor.peekMemory(
+            albumArtUri = uriString,
+            paletteStyle = currentPaletteStyle,
+            colorAccuracyLevel = currentPaletteAccuracy
+        )
+
     fun ensureAlbumColorScheme(uriString: String) {
         if (uriString.isBlank()) return
 
         val targetFlow = synchronized(individualAlbumColorSchemes) {
-            individualAlbumColorSchemes.getOrPut(uriString) { MutableStateFlow(null) }
+            individualAlbumColorSchemes.getOrPut(uriString) { MutableStateFlow(peekMemoryScheme(uriString)) }
         }
 
         if (targetFlow.value != null) return

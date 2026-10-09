@@ -27,7 +27,12 @@ import com.theveloper.pixelplay.ui.theme.clearExtractedColorCache
 import com.theveloper.pixelplay.ui.theme.extractSeedColor
 import com.theveloper.pixelplay.ui.theme.generateColorSchemeFromSeed
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -60,6 +65,8 @@ class ColorSchemeProcessor @Inject constructor(
     // fling doesn't start dozens of parallel jobs competing with Coil's decodes and the UI
     // thread. Cache and Room lookups stay unthrottled, and the current song never waits here.
     private val tileGenerationPermits = Semaphore(2)
+    private val generationScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val inFlight = java.util.concurrent.ConcurrentHashMap<String, Deferred<ColorSchemePair?>>()
     private val processingMutex = Mutex()
     private val inProgressUris = mutableSetOf<String>()
 
@@ -131,6 +138,15 @@ class ColorSchemeProcessor @Inject constructor(
         }
     }
 
+    /** Memory LRU only (synchronous, safe on the main thread); never touches Room or generates. */
+    fun peekMemory(
+        albumArtUri: String,
+        paletteStyle: AlbumArtPaletteStyle,
+        colorAccuracyLevel: Int = AlbumArtColorAccuracy.DEFAULT
+    ): ColorSchemePair? = memoryCache.get(
+        buildCacheKey(albumArtUri, paletteStyle, AlbumArtColorAccuracy.clamp(colorAccuracyLevel))
+    )
+
     /** Memory LRU, then Room; returns null instead of generating when neither has it. */
     suspend fun peekCachedColorScheme(
         albumArtUri: String,
@@ -170,6 +186,30 @@ class ColorSchemeProcessor @Inject constructor(
         colorAccuracyLevel: Int,
         persistToDatabase: Boolean = true,
         forceRefresh: Boolean = false
+    ): ColorSchemePair? {
+        if (!persistToDatabase || forceRefresh) {
+            return generateNow(albumArtUri, paletteStyle, colorAccuracyLevel, persistToDatabase, forceRefresh)
+        }
+        // The player, a tile and the widget can all ask for the same cover at once; they now share
+        // one decode + quantization. The shared job lives in its own scope, so one caller being
+        // cancelled (a tile scrolled away) does not fail the others.
+        val key = buildCacheKey(albumArtUri, paletteStyle, colorAccuracyLevel)
+        var created: Deferred<ColorSchemePair?>? = null
+        val shared = inFlight.computeIfAbsent(key) {
+            generationScope.async(start = CoroutineStart.LAZY) {
+                generateNow(albumArtUri, paletteStyle, colorAccuracyLevel, persistToDatabase = true, forceRefresh = false)
+            }.also { created = it }
+        }
+        created?.let { mine -> mine.invokeOnCompletion { inFlight.remove(key, mine) } }
+        return shared.await()
+    }
+
+    private suspend fun generateNow(
+        albumArtUri: String,
+        paletteStyle: AlbumArtPaletteStyle,
+        colorAccuracyLevel: Int,
+        persistToDatabase: Boolean,
+        forceRefresh: Boolean
     ): ColorSchemePair? {
         Trace.beginSection("ColorSchemeProcessor.generate")
         try {
