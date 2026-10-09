@@ -42,8 +42,11 @@ class PlaybackStatsRepository @Inject constructor(
     private val gson = Gson()
     private val historyFile = File(context.filesDir, "playback_history.json")
     private val atomicHistoryFile = AtomicFile(historyFile)
+    // One line per play (about 130 B) appended here; folded into [historyFile] by compaction.
+    private val logFile = File(context.filesDir, "playback_history.log")
     private val fileLock = Any()
     private var cachedEvents: List<PlaybackEvent>? = null  // guarded by fileLock
+    private var logLineCount = 0  // guarded by fileLock
     private val eventsType = object : TypeToken<MutableList<PlaybackEvent>>() {}.type
     private val _refreshVersion = MutableStateFlow(0L)
     val refreshFlow: StateFlow<Long> = _refreshVersion.asStateFlow()
@@ -178,14 +181,7 @@ class PlaybackStatsRepository @Inject constructor(
             startTimestamp = start,
             endTimestamp = coercedTimestamp
         )
-        val writeSucceeded = updateEventsAtomically { events ->
-            val cutoff = sanitizedEvent.endMillis() - MAX_HISTORY_AGE_MS
-            if (cutoff > 0) {
-                events.removeAll { it.endMillis() < cutoff }
-            }
-            events += sanitizedEvent
-            events
-        }
+        val writeSucceeded = appendEvent(sanitizedEvent)
         if (writeSucceeded) {
             notifyStatsChanged()
         }
@@ -505,12 +501,46 @@ class PlaybackStatsRepository @Inject constructor(
         notifyStatsChanged()
     }
 
-    private fun readEvents(): List<PlaybackEvent> {
-        synchronized(fileLock) { cachedEvents }?.let { return it }
-        val raw = synchronized(fileLock) { readRawHistoryLocked() }
-        return parseEvents(raw).also { parsed ->
-            synchronized(fileLock) { if (cachedEvents == null) cachedEvents = parsed }
+    private fun readEvents(): List<PlaybackEvent> = synchronized(fileLock) { loadEventsLocked() }
+
+    /** Loads base file + append log once; afterwards memory is the source of truth (this process is the only writer). Caller holds [fileLock]. */
+    private fun loadEventsLocked(): List<PlaybackEvent> {
+        cachedEvents?.let { return it }
+        val base = parseEvents(readRawHistoryLocked())
+        val logged = PlaybackHistoryLog.readLog(logFile, gson).map { sanitizeEvent(it) }
+        logLineCount = logged.size
+        val merged = PlaybackHistoryLog.merge(base, logged)
+        cachedEvents = merged
+        return merged
+    }
+
+    /**
+     * Records one play: prunes in memory, appends one line to the log (no full-file rewrite).
+     * The base file is rewritten only when old events were pruned or the log grew past
+     * [LOG_COMPACT_LINES].
+     */
+    private fun appendEvent(event: PlaybackEvent): Boolean = synchronized(fileLock) {
+        val current = loadEventsLocked()
+        val cutoff = event.endMillis() - MAX_HISTORY_AGE_MS
+        val pruned = cutoff > 0 && current.any { it.endMillis() < cutoff }
+        val next = ArrayList<PlaybackEvent>(current.size + 1)
+        if (pruned) current.filterTo(next) { it.endMillis() >= cutoff } else next.addAll(current)
+        next += event
+        if (pruned || logLineCount + 1 >= LOG_COMPACT_LINES) {
+            val ok = writePayloadLocked(serializeEvents(next))
+            if (ok) {
+                logFile.delete()
+                logLineCount = 0
+                cachedEvents = next
+            }
+            return@synchronized ok
         }
+        val ok = PlaybackHistoryLog.appendLine(logFile, gson, event)
+        if (ok) {
+            logLineCount++
+            cachedEvents = next
+        }
+        ok
     }
 
     private fun readRawHistoryLocked(): String? {
@@ -816,33 +846,15 @@ class PlaybackStatsRepository @Inject constructor(
 
     private fun updateEventsAtomically(
         transform: (MutableList<PlaybackEvent>) -> MutableList<PlaybackEvent>
-    ): Boolean {
-        repeat(MAX_FILE_UPDATE_RETRIES) {
-            val rawSnapshot = synchronized(fileLock) { readRawHistoryLocked() }
-            val updatedEvents = transform(parseEvents(rawSnapshot))
-            val payload = serializeEvents(updatedEvents)
-
-            val writeSucceeded = synchronized(fileLock) {
-                val latestRaw = readRawHistoryLocked()
-                if (latestRaw != rawSnapshot) {
-                    return@synchronized false
-                }
-                val result = writePayloadLocked(payload)
-                if (result) cachedEvents = null
-                result
-            }
-            if (writeSucceeded) {
-                return true
-            }
+    ): Boolean = synchronized(fileLock) {
+        val updatedEvents = transform(ArrayList(loadEventsLocked()))
+        val result = writePayloadLocked(serializeEvents(updatedEvents))
+        if (result) {
+            logFile.delete()
+            logLineCount = 0
+            cachedEvents = updatedEvents
         }
-
-        val fallbackRawSnapshot = synchronized(fileLock) { readRawHistoryLocked() }
-        val payload = serializeEvents(transform(parseEvents(fallbackRawSnapshot)))
-        return synchronized(fileLock) {
-            val result = writePayloadLocked(payload)
-            if (result) cachedEvents = null
-            result
-        }
+        result
     }
 
     private fun serializeEvents(events: List<PlaybackEvent>): ByteArray {
@@ -1094,7 +1106,7 @@ class PlaybackStatsRepository @Inject constructor(
     companion object {
         private const val DEFAULT_PLAYBACK_HISTORY_LIMIT = 500
         private const val MAX_PLAYBACK_HISTORY_LIMIT = 5_000
-        private const val MAX_FILE_UPDATE_RETRIES = 3
+        private const val LOG_COMPACT_LINES = 200
         private const val UNKNOWN_ARTIST = "Unknown Artist"
         private val MAX_HISTORY_AGE_MS = TimeUnit.DAYS.toMillis(730) // Keep roughly two years of history
         private const val SEGMENT_JOIN_TOLERANCE_MS = 0L
@@ -1117,4 +1129,53 @@ enum class StatsTimeRange(val displayName: String) {
     MONTH("Month to Date"),
     YEAR("Year to Date"),
     ALL("All Time")
+}
+
+/** Append-only newline-delimited log used between full rewrites of the play history. */
+internal object PlaybackHistoryLog {
+    private val LINE_BREAK: String = 10.toChar().toString()
+
+    fun appendLine(file: File, gson: Gson, event: PlaybackStatsRepository.PlaybackEvent): Boolean =
+        runCatching {
+            file.parentFile?.mkdirs()
+            FileOutputStream(file, true).use { out ->
+                out.write((gson.toJson(event) + LINE_BREAK).toByteArray(Charsets.UTF_8))
+                out.fd.sync()
+            }
+            true
+        }.onFailure { Timber.e(it, "Failed to append playback history") }.getOrDefault(false)
+
+    /** Unparseable lines (a torn last write after a crash) are skipped. */
+    fun readLog(file: File, gson: Gson): List<PlaybackStatsRepository.PlaybackEvent> {
+        if (!file.isFile) return emptyList()
+        val out = ArrayList<PlaybackStatsRepository.PlaybackEvent>()
+        runCatching {
+            file.bufferedReader(Charsets.UTF_8).useLines { lines ->
+                for (line in lines) {
+                    if (line.isBlank()) continue
+                    runCatching { gson.fromJson(line, PlaybackStatsRepository.PlaybackEvent::class.java) }
+                        .getOrNull()?.let(out::add)
+                }
+            }
+        }.onFailure { Timber.e(it, "Failed reading playback history log") }
+        return out
+    }
+
+    /**
+     * Base + logged events. If compaction wrote the base but crashed before deleting the log,
+     * logged events already in the base are dropped (compared only against the base's tail).
+     */
+    fun merge(
+        base: List<PlaybackStatsRepository.PlaybackEvent>,
+        logged: List<PlaybackStatsRepository.PlaybackEvent>
+    ): List<PlaybackStatsRepository.PlaybackEvent> {
+        if (logged.isEmpty()) return base
+        val minLogged = logged.minOf { it.timestamp }
+        val known = HashSet<PlaybackStatsRepository.PlaybackEvent>()
+        for (e in base) if (e.timestamp >= minLogged) known.add(e)
+        val result = ArrayList<PlaybackStatsRepository.PlaybackEvent>(base.size + logged.size)
+        result.addAll(base)
+        for (e in logged) if (known.add(e)) result.add(e)
+        return result
+    }
 }
