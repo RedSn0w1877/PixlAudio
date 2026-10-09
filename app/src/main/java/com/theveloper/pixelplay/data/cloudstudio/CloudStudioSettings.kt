@@ -4,13 +4,18 @@ import android.content.Context
 import android.content.SharedPreferences
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlin.math.max
+import kotlin.math.min
 
 /**
  * Settings › Developer options › Experimental › Cloud processing (design §3.5 E, §7.2, §8).
@@ -24,17 +29,55 @@ import kotlinx.coroutines.withContext
  *   read and the screen says so. The keys never reach code, tests, logs or backups.
  * - If keys were saved once and the store later comes back empty (app data cleared, a restored device), the screen
  *   says "Cloud keys missing — paste them again" instead of failing silently (the iOS behaviour).
+ * - Built-in keys (2026-10-08): a build that carries PixlAudio's own keys ([CloudBuiltInConfig]) uses them unless the
+ *   person chose "Use my own keys" ([CloudKeyChoice]: own keys always win), and has the feature on until the person
+ *   switches it off. A build without them, or whose blob doesn't open, behaves exactly as before. The built-in keys are
+ *   opened once on a background thread when this object is created and are never read from or written to storage.
  */
-class CloudStudioSettings(context: Context) : CloudStudioSettingsSource {
+class CloudStudioSettings(
+    context: Context,
+    private val builtIn: CloudBuiltInConfig = NoBuiltInCloudConfig,
+) : CloudStudioSettingsSource {
     private val appContext = context.applicationContext
     private val prefs: SharedPreferences = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     private val secretsLock = Mutex()
     @Volatile private var secretPrefs: SharedPreferences? = null
     @Volatile private var secretStoreFailed = false
+    /** Built-in keys exist in this build (a key is there) and have not turned out unusable (counts as available while opening). */
+    @Volatile private var builtInAvailable = builtIn.isBundled
 
     private val _settings = MutableStateFlow(readSnapshot())
     /** The non-secret values, for the screens. */
     val settings: StateFlow<CloudSettingsSnapshot> = _settings.asStateFlow()
+
+    init {
+        // Open the blob once, off the main thread; if it doesn't open (another key, damaged) the build is treated as
+        // having no built-in keys, like a fork's.
+        if (builtIn.isBundled) {
+            CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+                val config = try {
+                    builtIn.load()
+                } catch (error: kotlin.coroutines.cancellation.CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    null
+                }
+                if (config == null) markBuiltInUnavailable()
+            }
+        }
+    }
+
+    @Synchronized
+    private fun markBuiltInUnavailable() {
+        builtInAvailable = false
+        _settings.value = _settings.value.let {
+            it.copy(
+                builtInAvailable = false,
+                // The untouched default of the consent switch follows availability.
+                enabled = if (prefs.contains(Keys.ENABLED)) it.enabled else CloudKeyChoice.defaultEnabled(false),
+            )
+        }
+    }
 
     override fun snapshot(): CloudSettingsSnapshot = _settings.value
 
@@ -42,9 +85,14 @@ class CloudStudioSettings(context: Context) : CloudStudioSettingsSource {
         val caps = prefs.getString(Keys.WORKER_CAPS, null)?.let {
             runCatching { CloudJson.decodeFromString(CloudWorkerCaps.serializer(), it) }.getOrNull()
         }
+        val endpointId = prefs.getString(Keys.ENDPOINT_ID, "").orEmpty()
         return CloudSettingsSnapshot(
-            enabled = prefs.getBoolean(Keys.ENABLED, false),
-            endpointId = prefs.getString(Keys.ENDPOINT_ID, "").orEmpty(),
+            enabled = if (prefs.contains(Keys.ENABLED)) prefs.getBoolean(Keys.ENABLED, false)
+            else CloudKeyChoice.defaultEnabled(builtInAvailable),
+            useOwnKeys = if (prefs.contains(Keys.USE_OWN_KEYS)) prefs.getBoolean(Keys.USE_OWN_KEYS, false)
+            else CloudKeyChoice.defaultUseOwnKeys(prefs.getBoolean(Keys.KEYS_SAVED, false), endpointId),
+            builtInAvailable = builtInAvailable,
+            endpointId = endpointId,
             r2Endpoint = prefs.getString(Keys.R2_ENDPOINT, "").orEmpty(),
             bucket = prefs.getString(Keys.BUCKET, CloudConfig.DEFAULT_BUCKET) ?: CloudConfig.DEFAULT_BUCKET,
             wantsInstrumental = prefs.getBoolean(Keys.INSTRUMENTAL, true),
@@ -62,11 +110,17 @@ class CloudStudioSettings(context: Context) : CloudStudioSettingsSource {
     @Synchronized
     fun update(change: (CloudSettingsSnapshot) -> CloudSettingsSnapshot) {
         val before = _settings.value
-        var after = change(before)
-        if (after.endpointId.trim() != before.endpointId.trim() && after.workerCaps != null) after = after.copy(workerCaps = null)
+        // Availability is the build's, not a setting.
+        var after = change(before).copy(builtInAvailable = before.builtInAvailable)
+        // Another endpoint (typed in, or the other kind of keys): the old one's limits are unknown until a selftest.
+        if ((after.endpointId.trim() != before.endpointId.trim() || after.useOwnKeys != before.useOwnKeys) &&
+            after.workerCaps != null && after.workerCaps == before.workerCaps
+        ) after = after.copy(workerCaps = null)
         if (after == before) return
         prefs.edit().apply {
-            putBoolean(Keys.ENABLED, after.enabled)
+            // The consent switch and the key choice stay "untouched" (their defaults follow the build) until changed.
+            if (after.enabled != before.enabled || prefs.contains(Keys.ENABLED)) putBoolean(Keys.ENABLED, after.enabled)
+            if (after.useOwnKeys != before.useOwnKeys || prefs.contains(Keys.USE_OWN_KEYS)) putBoolean(Keys.USE_OWN_KEYS, after.useOwnKeys)
             putString(Keys.ENDPOINT_ID, after.endpointId)
             putString(Keys.R2_ENDPOINT, after.r2Endpoint)
             putString(Keys.BUCKET, after.bucket)
@@ -85,6 +139,19 @@ class CloudStudioSettings(context: Context) : CloudStudioSettingsSource {
     }
 
     override fun saveWorkerCaps(caps: CloudWorkerCaps?) = update { it.copy(workerCaps = caps) }
+
+    // ─── Spend of removed jobs ──────────────────────────────────────────────────────────────
+
+    override fun removedSpendMicroUsd(monthStartMs: Long): Long =
+        if (prefs.getLong(Keys.REMOVED_SPEND_MONTH, 0L) == monthStartMs) max(prefs.getLong(Keys.REMOVED_SPEND_TOTAL, 0L), 0L) else 0L
+
+    /** Remembers what removed jobs spent this month: the monthly cap counts the month, not what the list still shows. */
+    @Synchronized
+    override fun addRemovedSpend(microUsd: Long, monthStartMs: Long) {
+        if (microUsd <= 0) return
+        val total = min(removedSpendMicroUsd(monthStartMs) + microUsd, 1_000_000_000_000L)
+        prefs.edit().putLong(Keys.REMOVED_SPEND_MONTH, monthStartMs).putLong(Keys.REMOVED_SPEND_TOTAL, total).apply()
+    }
 
     // ─── Keys ───────────────────────────────────────────────────────────────────────────────
 
@@ -161,6 +228,11 @@ class CloudStudioSettings(context: Context) : CloudStudioSettingsSource {
         const val WORKER_CAPS = "worker_caps"
         /** Set once keys were saved, so an empty store later reads as "keys missing". */
         const val KEYS_SAVED = "keys_saved"
+        /** "Use my own keys"; unset until the person first chooses. */
+        const val USE_OWN_KEYS = "use_own_keys"
+        /** What jobs taken off the list spent this month (the month's start and the total), so clearing the list frees no cap room. */
+        const val REMOVED_SPEND_MONTH = "removed_spend_month_ms"
+        const val REMOVED_SPEND_TOTAL = "removed_spend_micro_usd"
 
         const val RUNPOD_KEY = "runpod_restricted"
         const val ACCESS_KEY_ID = "r2_access_key_id"

@@ -1130,8 +1130,12 @@ fun ExperimentalSettingsScreen(
                         Column(modifier = Modifier.weight(1f)) {
                             Text("Cloud processing", style = MaterialTheme.typography.titleMedium)
                             Text(
-                                if (cloudSettings.enabled) cloudSummary ?: "On — instrumentals and word-timed lyrics on your RunPod GPU."
-                                else "Instrumentals and word-timed lyrics on your own RunPod GPU. Off until you set it up.",
+                                if (cloudSettings.enabled) {
+                                    cloudSummary ?: if (cloudSettings.usesBuiltInKeys) "On — instrumentals and word-timed lyrics in the cloud."
+                                    else "On — instrumentals and word-timed lyrics on your RunPod GPU."
+                                } else if (cloudSettings.usesBuiltInKeys) {
+                                    "Instrumentals and word-timed lyrics in the cloud, nothing to set up. Off."
+                                } else "Instrumentals and word-timed lyrics on your own RunPod GPU. Off until you set it up.",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )

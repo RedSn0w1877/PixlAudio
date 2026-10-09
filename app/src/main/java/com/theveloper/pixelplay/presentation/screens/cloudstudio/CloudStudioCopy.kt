@@ -4,6 +4,7 @@ import com.theveloper.pixelplay.data.cloudstudio.CloudBatchKind
 import com.theveloper.pixelplay.data.cloudstudio.CloudCost
 import com.theveloper.pixelplay.data.cloudstudio.CloudEndpointWatch
 import com.theveloper.pixelplay.data.cloudstudio.CloudJobRecord
+import com.theveloper.pixelplay.data.cloudstudio.CloudKeyChoice
 import com.theveloper.pixelplay.data.cloudstudio.CloudJobState
 import com.theveloper.pixelplay.data.cloudstudio.CloudLyricsMode
 import com.theveloper.pixelplay.data.cloudstudio.CloudNotice
@@ -17,10 +18,25 @@ import kotlin.math.max
  * developer screens under Experimental. Pure functions: rows build their text once per change, never in a loop.
  */
 object CloudStudioCopy {
-    /** What the UI promises about the app being closed (design §7.4), in Android's terms. */
+    /** What the UI promises about the app being closed (design §7.4), in Android's terms, with the person's own RunPod account. */
     const val PROMISE = "Songs are processed on your RunPod account even when PixlAudio is closed. Results come back " +
         "the next time PixlAudio runs in the background or on screen, and are kept for 30 days. Uploads continue in " +
         "the background; force-stopping PixlAudio pauses them until it runs again."
+
+    /** The same promise with PixlAudio's built-in keys (the GPU is PixlAudio's, not the person's). */
+    const val BUILT_IN_PROMISE = "Songs are processed in the cloud even when PixlAudio is closed. Results come back " +
+        "the next time PixlAudio runs in the background or on screen, and are kept for 30 days. Uploads continue in " +
+        "the background; force-stopping PixlAudio pauses them until it runs again."
+
+    fun promise(builtIn: Boolean): String = if (builtIn) BUILT_IN_PROMISE else PROMISE
+
+    /** The Keys panel with the built-in keys in use. */
+    val BUILT_IN_KEYS_DETAIL: String = "Nothing to fill in. Songs you send go to PixlAudio's own RunPod endpoint and R2 " +
+        "bucket, up to ${CloudCost.format(CloudKeyChoice.BUILT_IN_MONTHLY_CAP_MICRO_USD)} a month from this phone."
+
+    /** The confirm sheet's line about where the songs go with the built-in keys. */
+    const val BUILT_IN_DESTINATION = "Songs go to PixlAudio's own RunPod GPU and Cloudflare R2 bucket, and are deleted " +
+        "from the bucket after import."
 
     fun notice(notice: CloudNotice): String = when (notice) {
         CloudNotice.OFF -> "Cloud processing is off. Nothing leaves this phone until you switch it on."

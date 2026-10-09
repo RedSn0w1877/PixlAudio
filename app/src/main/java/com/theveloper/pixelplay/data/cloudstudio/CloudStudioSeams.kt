@@ -124,9 +124,24 @@ data class CloudSettingsSnapshot(
     val monthlyCapMicroUsd: Long = CloudCost.DEFAULT_MONTHLY_CAP_MICRO_USD,
     /** The endpoint's own limits from its last selftest (null until one ran). */
     val workerCaps: CloudWorkerCaps? = null,
+    /** "Use my own keys": the fields instead of PixlAudio's built-in keys (only matters while [builtInAvailable]). */
+    val useOwnKeys: Boolean = false,
+    /** This build carries built-in keys that open (or haven't been opened yet). Set by [CloudStudioSettings], never saved. */
+    val builtInAvailable: Boolean = false,
 ) {
     val selectionOptions: CloudSelectionOptions
         get() = CloudSelectionOptions(wantsInstrumental, wantsLyrics, transcribeWhenMissing)
+
+    /** Whose keys jobs go out with now. */
+    val keySource: CloudKeySource get() = CloudKeyChoice.source(useOwnKeys, builtInAvailable)
+
+    val usesBuiltInKeys: Boolean get() = keySource == CloudKeySource.BUILT_IN
+
+    /** The cap the money guards use: the field's, but never above $3 a month with the built-in keys. */
+    val effectiveMonthlyCapMicroUsd: Long get() = CloudKeyChoice.effectiveMonthlyCap(monthlyCapMicroUsd, keySource)
+
+    /** The GPU price the estimates and the cap use: the field's, but never below the endpoint's own with the built-in keys. */
+    val effectivePricePerSecondMicroUsd: Long get() = CloudKeyChoice.effectivePricePerSecond(pricePerSecondMicroUsd, keySource)
 }
 
 /** The three keys. `toString` never prints them. */
@@ -161,21 +176,12 @@ interface CloudStudioSettingsSource {
     suspend fun secrets(): CloudSecretsState
     /** Keeps the endpoint's limits from a selftest (forgotten when the Endpoint ID changes). */
     fun saveWorkerCaps(caps: CloudWorkerCaps?)
-}
-
-/**
- * The seam for a later "built-in keys" step: a configuration the app itself could ship (its own endpoint, bucket and
- * keys), used only while the person's own fields are incomplete. Nothing provides one yet ([NoBuiltInCloudConfig]),
- * and the consent switch still gates everything either way.
- */
-fun interface CloudBuiltInConfig {
-    /** The shipped configuration, or null when there is none (today, always null). */
-    fun defaults(): CloudConfigInput?
-}
-
-/** No built-in configuration: every field comes from the person. */
-object NoBuiltInCloudConfig : CloudBuiltInConfig {
-    override fun defaults(): CloudConfigInput? = null
+    /**
+     * What jobs taken off the list spent in the month starting at [monthStartMs] (0 for any other month), so Remove
+     * and Clear finished don't free room under the monthly cap.
+     */
+    fun removedSpendMicroUsd(monthStartMs: Long): Long = 0L
+    fun addRemovedSpend(microUsd: Long, monthStartMs: Long) {}
 }
 
 /** WorkManager ([CloudStudioScheduler]): the background passes that make "process later" work. */
@@ -211,7 +217,7 @@ class CloudStudioDependencies(
     /** Start of the month containing a time (the phone's own calendar in the app). */
     val monthStartMs: (Long) -> Long = { CloudBudget.monthStartMs(it, java.time.ZoneId.systemDefault()) },
     val newJobKey: () -> String = { java.util.UUID.randomUUID().toString().lowercase() },
-    /** A shipped configuration to fall back on (none yet). */
+    /** The app's own keys, used while the person hasn't chosen their own ([CloudKeyChoice]). */
     val builtIn: CloudBuiltInConfig = NoBuiltInCloudConfig,
 )
 

@@ -45,6 +45,11 @@ class CloudConfigInput(
     override fun hashCode(): Int = identity.hashCode()
 
     override fun toString(): String = "CloudConfigInput(endpointId=$trimmedEndpointId, bucket=$trimmedBucket, keys=…)"
+
+    companion object {
+        /** No fields at all (built-in keys chosen but not opened, or unusable): never complete, so nothing is sent. */
+        val EMPTY = CloudConfigInput("", "", "", "", "", "")
+    }
 }
 
 object CloudConfig {

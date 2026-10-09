@@ -118,7 +118,9 @@ private fun CloudConfirmSheet(
                 } else {
                     Line(
                         "Over this month's cap: ${CloudCost.format(estimate.remainingMicroUsd)} left of " +
-                            "${CloudCost.format(estimate.capMicroUsd)}. Raise it in Cloud processing, or send fewer songs.",
+                            "${CloudCost.format(estimate.capMicroUsd)}. " +
+                            if (settings.usesBuiltInKeys) "Send fewer songs, or use your own keys in Cloud processing."
+                            else "Raise it in Cloud processing, or send fewer songs.",
                         Icons.Rounded.Warning, emphasis = true,
                     )
                 }
@@ -134,7 +136,8 @@ private fun CloudConfirmSheet(
                     Line("$count skipped — ${reason.label}", Icons.Rounded.RemoveCircleOutline)
                 }
                 if (!settings.enabled) Line(CloudStudioCopy.notice(CloudNotice.OFF), Icons.Rounded.Lock, emphasis = true)
-                CloudCaption(CloudStudioCopy.PROMISE, modifier = Modifier.padding(top = 4.dp))
+                if (settings.usesBuiltInKeys) Line(CloudStudioCopy.BUILT_IN_DESTINATION, Icons.Rounded.CloudUpload)
+                CloudCaption(CloudStudioCopy.promise(settings.usesBuiltInKeys), modifier = Modifier.padding(top = 4.dp))
             }
             Row(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 16.dp),

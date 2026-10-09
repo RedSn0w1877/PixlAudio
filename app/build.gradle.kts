@@ -54,6 +54,16 @@ val localProperties = Properties().apply {
     }
 }
 
+// Built-in cloud keys (handoff/2026-10-08-android-builtin-keys.md): the base64 AES-256 key that opens
+// app/src/main/assets/cloud_defaults.enc. From the CLOUD_DEFAULTS_KEY environment variable (the CI secret), else
+// local.properties, else empty: no key just means no built-in keys (forks, pull requests), never a failed build.
+// Anything that is not base64 text (a trailing newline, a stray quote) is dropped so it can't break the generated
+// BuildConfig, and the value is never printed.
+val cloudDefaultsKey: String = (providers.environmentVariable("CLOUD_DEFAULTS_KEY").orNull?.takeIf { it.isNotBlank() }
+    ?: localProperties.getProperty("CLOUD_DEFAULTS_KEY"))
+    .orEmpty()
+    .filter { it in 'A'..'Z' || it in 'a'..'z' || it in '0'..'9' || it == '+' || it == '/' || it == '=' }
+
 val enableAbiSplits = providers.gradleProperty("pixelplay.enableAbiSplits")
     .getOrElse("true")
     .toBoolean()
@@ -124,6 +134,7 @@ android {
         // versionarlo; si falta queda vacío y el usuario debe pegar el suyo en Ajustes.
         val spotifyClientId = localProperties.getProperty("SPOTIFY_CLIENT_ID")?.ifEmpty { null } ?: ""
         buildConfigField("String", "SPOTIFY_CLIENT_ID", "\"$spotifyClientId\"")
+        buildConfigField("String", "CLOUD_DEFAULTS_KEY", "\"$cloudDefaultsKey\"")
         buildConfigField("String", "PLUS_CHECKOUT_URL", "\"${plusCheckoutUrl.replace("\\", "\\\\").replace("\"", "\\\"")}\"")
     }
 

@@ -36,6 +36,9 @@ class CloudStudioEngineTest {
     private lateinit var runpod: FakeRunPod
     private lateinit var scheduler: FakeScheduler
     private var unmetered = true
+    private var builtIn: CloudBuiltInConfig = NoBuiltInCloudConfig
+    /** Every configuration the engine built RunPod clients from, in order. */
+    private val configsSeen = mutableListOf<CloudConfigInput>()
     /** Bucket deletes and RunPod runs, in the order they happened. */
     private val events = mutableListOf<String>()
 
@@ -55,7 +58,8 @@ class CloudStudioEngineTest {
     private fun engine(): CloudStudioEngine = CloudStudioEngine(
         CloudStudioDependencies(
             settings = settings, store = store, host = host, preparer = preparer, transfers = bucket,
-            makeRunPod = { if (it.hasRunPod) runpod else null }, makeObjects = { if (it.hasStorage) bucket else null },
+            makeRunPod = { configsSeen += it; if (it.hasRunPod) runpod else null },
+            makeObjects = { if (it.hasStorage) bucket else null }, builtIn = builtIn,
             scheduler = scheduler, scope = CoroutineScope(Dispatchers.Unconfined), build = "test (1)",
             stagingDir = directory.resolve("staging").toFile(), isUnmetered = { unmetered },
             nowMs = { now }, monthStartMs = { 0L }, newJobKey = { keys.removeFirst() },
@@ -419,9 +423,99 @@ class CloudStudioEngineTest {
         assertEquals("Cloud: 1 waiting", run { sendOne(engine, streamedSong); engine.summaryLine() })
     }
 
+    // ─── Built-in keys ──────────────────────────────────────────────────────────────────────
+
+    private val builtInConfig = CloudConfigInput(
+        "builtinendpoint1", "rpa_builtin_dummy", "https://fedcba9876543210fedcba9876543210.r2.cloudflarestorage.com",
+        "pixl-cloud-studio", "BUILTINAKID", "builtin-secret",
+    )
+
+    private class FixedBuiltIn(private val config: CloudConfigInput?) : CloudBuiltInConfig {
+        override val isBundled = config != null
+        override suspend fun load() = config
+    }
+
+    @Test fun `built-in keys carry the job without touching secure storage`() = runBlocking {
+        builtIn = FixedBuiltIn(builtInConfig)
+        // Nothing of the person's own: secure storage is even unavailable, which must not matter for built-in keys.
+        settings.snapshot = CloudSettingsSnapshot(enabled = true, builtInAvailable = true, useOwnKeys = false)
+        settings.secretsState = CloudSecretsState(CloudSecrets.EMPTY, storageUnavailable = true)
+        val engine = engine()
+        val record = sendOne(engine)
+        engine.workerPass(now + PASS_MS)
+        assertEquals(CloudJobState.IMPORTED, engine.job(record.jobKey)!!.state, "last error: ${engine.job(record.jobKey)!!.lastError}")
+        assertEquals(setOf("builtinendpoint1"), configsSeen.map { it.trimmedEndpointId }.toSet())
+    }
+
+    @Test fun `the person's own keys override the built-in ones`() = runBlocking {
+        builtIn = FixedBuiltIn(builtInConfig)
+        settings.snapshot = settings.snapshot.copy(builtInAvailable = true, useOwnKeys = true)
+        val engine = engine()
+        val record = sendOne(engine)
+        engine.workerPass(now + PASS_MS)
+        assertEquals(CloudJobState.IMPORTED, engine.job(record.jobKey)!!.state)
+        assertEquals(setOf("ep1"), configsSeen.map { it.trimmedEndpointId }.toSet())
+    }
+
+    @Test fun `built-in keys that did not open send nothing`() = runBlocking {
+        builtIn = FixedBuiltIn(null)
+        settings.snapshot = CloudSettingsSnapshot(enabled = true, builtInAvailable = true, useOwnKeys = false)
+        val engine = engine()
+        val record = sendOne(engine)
+        val outcome = engine.workerPass(now + PASS_MS)
+        assertTrue(outcome.blocked)
+        assertEquals(CloudNotice.NOT_CONFIGURED, engine.state.value.notice)
+        assertTrue(runpod.runs.isEmpty())
+        assertEquals(CloudJobState.QUEUED, engine.job(record.jobKey)!!.state)
+    }
+
+    @Test fun `with built-in keys the cap is clamped to 3 dollars and the price has a floor`() = runBlocking {
+        builtIn = FixedBuiltIn(builtInConfig)
+        val engine = engine()
+        settings.snapshot = settings.snapshot.copy(builtInAvailable = true, useOwnKeys = false,
+            monthlyCapMicroUsd = 100_000_000, pricePerSecondMicroUsd = 1)
+        val withBuiltIn = engine.preview(listOf(localSong), "x").estimate
+        assertEquals(CloudKeyChoice.BUILT_IN_MONTHLY_CAP_MICRO_USD, withBuiltIn.capMicroUsd)
+        // The same song at the endpoint's own price: a typed-in 1 µ$/s changes nothing.
+        settings.snapshot = settings.snapshot.copy(useOwnKeys = true, pricePerSecondMicroUsd = CloudCost.DEFAULT_PRICE_PER_SECOND_MICRO_USD)
+        val atFloor = engine.preview(listOf(localSong), "x").estimate
+        assertEquals(atFloor.costMicroUsd, withBuiltIn.costMicroUsd)
+        // Own keys keep the person's own cap.
+        assertEquals(100_000_000, atFloor.capMicroUsd)
+    }
+
+    @Test fun `jobs taken off the list still count against the month`() = runBlocking {
+        val spent = CloudJobRecord(jobKey = keys.removeFirst(), songId = "x", state = CloudJobState.IMPORTED, createdAtMs = now - 2,
+            importedAtMs = now - 1, completedAtMs = now - 1, costMicroUsd = 2_500_000)
+        store.saved = listOf(spent)
+        settings.snapshot = settings.snapshot.copy(monthlyCapMicroUsd = 3_000_000)
+        val engine = engine()
+        engine.loadForDisplay()
+        assertEquals(2_500_000, engine.committedThisMonthMicroUsd())
+        engine.clearFinished()
+        assertTrue(engine.state.value.jobs.isEmpty())
+        // Clearing the list freed no room: still $2.50 used, so a batch that costs more than the 50 cents left is refused.
+        assertEquals(2_500_000, engine.committedThisMonthMicroUsd())
+        val preview = engine.preview(listOf(localSong), "x")
+        assertEquals(500_000, preview.estimate.remainingMicroUsd)
+        // Removing one finished job by hand is remembered the same way.
+        val another = spent.copy(jobKey = keys.removeFirst(), songId = "y")
+        store.saved = listOf(another)
+        val second = engine()
+        second.loadForDisplay()
+        second.remove(another.jobKey)
+        assertEquals(5_000_000, second.committedThisMonthMicroUsd())
+    }
+
     // ─── Fakes ──────────────────────────────────────────────────────────────────────────────
 
     private class FakeSettings : CloudStudioSettingsSource {
+        val removedSpend = HashMap<Long, Long>()
+        override fun removedSpendMicroUsd(monthStartMs: Long) = removedSpend[monthStartMs] ?: 0L
+        override fun addRemovedSpend(microUsd: Long, monthStartMs: Long) {
+            if (microUsd > 0) removedSpend[monthStartMs] = (removedSpend[monthStartMs] ?: 0L) + microUsd
+        }
+
         var snapshot = CloudSettingsSnapshot(enabled = true, endpointId = "ep1", r2Endpoint = "0123456789abcdef0123456789abcdef")
         var secretsState = CloudSecretsState(CloudSecrets("rpa_key", "AKID", "SECRET"))
         var caps: CloudWorkerCaps? = null

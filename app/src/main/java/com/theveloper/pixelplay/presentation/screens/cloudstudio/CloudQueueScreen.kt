@@ -75,7 +75,7 @@ fun CloudQueueScreen(
     val active = remember(state.jobs) { state.activeJobs }
     val attention = remember(state.jobs) { state.attentionJobs }
     val finished = remember(state.jobs) { state.finishedJobs }
-    val committed = remember(state.jobs, settings.pricePerSecondMicroUsd) { viewModel.committedThisMonthMicroUsd() }
+    val committed = remember(state.jobs, settings.effectivePricePerSecondMicroUsd) { viewModel.committedThisMonthMicroUsd() }
     val progress = state.transferProgress
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -147,11 +147,11 @@ fun CloudQueueScreen(
                 Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
                     CloudPanel {
                         Text(
-                            CloudStudioCopy.monthLine(committed, settings.monthlyCapMicroUsd),
+                            CloudStudioCopy.monthLine(committed, settings.effectiveMonthlyCapMicroUsd),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurface,
                         )
-                        CloudCaption(CloudStudioCopy.PROMISE)
+                        CloudCaption(CloudStudioCopy.promise(settings.usesBuiltInKeys))
                     }
                 }
             }

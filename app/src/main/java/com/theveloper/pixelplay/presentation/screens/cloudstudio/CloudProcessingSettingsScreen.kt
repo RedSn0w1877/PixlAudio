@@ -46,6 +46,8 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.theveloper.pixelplay.data.cloudstudio.CloudConfig
 import com.theveloper.pixelplay.data.cloudstudio.CloudConfigInput
+import com.theveloper.pixelplay.data.cloudstudio.CloudCost
+import com.theveloper.pixelplay.data.cloudstudio.CloudKeyChoice
 import com.theveloper.pixelplay.data.cloudstudio.CloudSecrets
 import com.theveloper.pixelplay.data.cloudstudio.CloudSeparationQuality
 import com.theveloper.pixelplay.presentation.screens.SettingsItem
@@ -80,16 +82,20 @@ fun CloudProcessingSettingsScreen(
         CloudConfigInput(settings.endpointId, draft.runpodKey, settings.r2Endpoint, settings.bucket,
             draft.accessKeyId, draft.secretAccessKey)
     }
-    val problems = remember(input) { CloudConfig.problems(input) }
+    val builtIn = settings.usesBuiltInKeys
+    // Nothing to fill in with the built-in keys, so nothing to complain about either.
+    val problems = remember(input, builtIn) { if (builtIn) emptyList() else CloudConfig.problems(input) }
+    // Switching keys is locked while songs are on their way: they went out with the keys in use.
+    val keysLocked = remember(engine.jobs) { engine.jobs.any { it.state.isPending } }
     val account = remember(settings.r2Endpoint) { CloudConfig.r2AccountId(settings.r2Endpoint) }
     val summary = remember(engine.jobs) { viewModel.summaryLine() }
-    val committed = remember(engine.jobs, settings.pricePerSecondMicroUsd) { viewModel.committedThisMonthMicroUsd() }
+    val committed = remember(engine.jobs, settings.effectivePricePerSecondMicroUsd) { viewModel.committedThisMonthMicroUsd() }
 
     CloudScreenScaffold(title = "Cloud processing", onBack = onBack) {
         item(key = "consent") {
             CloudSection("Consent") {
                 SwitchSettingItem(
-                    title = "Send songs to my RunPod account",
+                    title = if (builtIn) "Process songs in the cloud" else "Send songs to my RunPod account",
                     subtitle = "Nothing leaves this phone until this is on, and only songs you send yourself go.",
                     checked = settings.enabled,
                     onCheckedChange = { on -> viewModel.updateSettings { it.copy(enabled = on) } },
@@ -97,15 +103,20 @@ fun CloudProcessingSettingsScreen(
                 )
                 CloudPanel {
                     Text(
-                        "Separates vocals with BS-RoFormer and times lyrics word by word on your own RunPod GPU. " +
-                            "Songs go to your Cloudflare R2 bucket and are deleted after import.",
+                        if (builtIn) {
+                            "Separates vocals with BS-RoFormer and times lyrics word by word on PixlAudio's RunPod GPU. " +
+                                "Songs go to PixlAudio's Cloudflare R2 bucket and are deleted after import."
+                        } else {
+                            "Separates vocals with BS-RoFormer and times lyrics word by word on your own RunPod GPU. " +
+                                "Songs go to your Cloudflare R2 bucket and are deleted after import."
+                        },
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
         }
-        if (ui.keysMissing || ui.secureStorageUnavailable) {
+        if (!builtIn && (ui.keysMissing || ui.secureStorageUnavailable)) {
             item(key = "keys_missing") {
                 Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
                     CloudPanel(color = MaterialTheme.colorScheme.errorContainer) {
@@ -132,7 +143,35 @@ fun CloudProcessingSettingsScreen(
                 }
             }
         }
-        item(key = "runpod") {
+        if (settings.builtInAvailable) {
+            item(key = "keys") {
+                CloudSection("Keys") {
+                    if (builtIn) {
+                        CloudPanel {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Icon(Icons.Rounded.Key, null, tint = MaterialTheme.colorScheme.secondary)
+                                Text(
+                                    "Using PixlAudio's built-in cloud keys",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                )
+                            }
+                            CloudCaption(CloudStudioCopy.BUILT_IN_KEYS_DETAIL)
+                        }
+                    }
+                    SwitchSettingItem(
+                        title = "Use my own keys",
+                        subtitle = if (keysLocked) "Wait for the songs in the cloud queue to finish, or cancel them, to switch keys."
+                        else "Your own RunPod endpoint and Cloudflare R2 bucket instead.",
+                        checked = settings.useOwnKeys,
+                        onCheckedChange = { on -> viewModel.updateSettings { it.copy(useOwnKeys = on) } },
+                        leadingIcon = { Icon(Icons.Rounded.Key, null, tint = MaterialTheme.colorScheme.secondary) },
+                        enabled = !keysLocked,
+                    )
+                }
+            }
+        }
+        if (!builtIn) item(key = "runpod") {
             CloudSection("RunPod") {
                 CloudPanel {
                     CloudTextField(
@@ -152,7 +191,7 @@ fun CloudProcessingSettingsScreen(
                 }
             }
         }
-        item(key = "storage") {
+        if (!builtIn) item(key = "storage") {
             CloudSection("Storage (Cloudflare R2)") {
                 CloudPanel {
                     CloudTextField(
@@ -305,10 +344,16 @@ fun CloudProcessingSettingsScreen(
                         keyboardType = KeyboardType.Decimal,
                     )
                     Text(
-                        CloudStudioCopy.monthLine(committed, settings.monthlyCapMicroUsd),
+                        CloudStudioCopy.monthLine(committed, settings.effectiveMonthlyCapMicroUsd),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurface,
                     )
+                    if (builtIn) {
+                        CloudCaption(
+                            "With the built-in keys the cap is at most ${CloudCost.format(CloudKeyChoice.BUILT_IN_MONTHLY_CAP_MICRO_USD)} " +
+                                "a month and the price never goes below the endpoint's own. Use your own keys to set both yourself."
+                        )
+                    }
                     CloudCaption(
                         "Estimates: about $0.004 a song once a GPU is awake, plus about $0.007 to wake one. " +
                             "The RunPod balance itself is the hard limit."
@@ -333,8 +378,8 @@ fun CloudProcessingSettingsScreen(
         item(key = "promise") {
             Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
                 CloudPanel {
-                    CloudCaption(CloudStudioCopy.PROMISE)
-                    Button(
+                    CloudCaption(CloudStudioCopy.promise(builtIn))
+                    if (!builtIn) Button(
                         onClick = viewModel::forgetKeys,
                         enabled = !draft.isEmpty,
                         colors = ButtonDefaults.buttonColors(
