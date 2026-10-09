@@ -17,7 +17,8 @@ class BaselineProfileCoverageTest {
         return file.readLines().map { it.trim() }.filter { it.isNotEmpty() && !it.startsWith("#") }
     }
 
-    /** `HSPLfoo/Bar**->**(**)**`, `Lfoo/Bar**;` and `Lfoo/**;` all match a class descriptor by prefix. */
+    // A rule (an "HSPL...->" method rule or an "L...;" class rule) matches a class descriptor by the text
+    // in front of its first double asterisk. (Written as a line comment: slash-asterisk would nest here.)
     private fun matches(rule: String, descriptor: String): Boolean {
         val body = rule.removePrefix("HSP").removePrefix("SP").removePrefix("P").removePrefix("H").removePrefix("S")
         if (!body.startsWith("L")) return false
