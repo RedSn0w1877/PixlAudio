@@ -77,6 +77,9 @@ class PixelPlayApplication : Application(), ImageLoaderFactory, Configuration.Pr
     @Inject
     lateinit var gemmaEngine: dagger.Lazy<com.theveloper.pixelplay.data.ai.local.GemmaLiteRtEngine>
 
+    @Inject
+    lateinit var wav2Vec2Aligner: dagger.Lazy<com.theveloper.pixelplay.data.tais.lyrics.TaisWav2Vec2Aligner>
+
     private val startupScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
@@ -213,6 +216,11 @@ class PixelPlayApplication : Application(), ImageLoaderFactory, Configuration.Pr
         // The downloaded AI model holds ~1 GB while loaded; it reloads on the next request.
         if (level >= ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN) {
             gemmaEngine.get().release()
+        }
+
+        // The 378 MB lyric-alignment model reloads on the next job; never closed while one runs.
+        if (level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) {
+            startupScope.launch { wav2Vec2Aligner.get().releaseSession() }
         }
 
         if (

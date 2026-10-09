@@ -16,7 +16,12 @@ import java.security.MessageDigest
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -69,7 +74,29 @@ class TaisAiEngine @Inject constructor(
     private val _runtimeStatus = MutableStateFlow(TaisRuntimeStatus())
     val runtimeStatus = _runtimeStatus.asStateFlow()
 
-    suspend fun <T> runExclusive(block: suspend () -> T): T = executionLock.withLock { block() }
+    private val idleScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    @Volatile private var idleReleaseJob: Job? = null
+
+    suspend fun <T> runExclusive(block: suspend () -> T): T {
+        idleReleaseJob?.cancel()
+        try {
+            return executionLock.withLock { block() }
+        } finally {
+            scheduleIdleRelease()
+        }
+    }
+
+    /**
+     * The stem model (67 MB) plus its XNNPACK/NNAPI buffers would otherwise stay resident for the
+     * whole process life. Release them [IDLE_RELEASE_MS] after the last job; the next job reloads.
+     */
+    private fun scheduleIdleRelease() {
+        idleReleaseJob?.cancel()
+        idleReleaseJob = idleScope.launch {
+            delay(IDLE_RELEASE_MS)
+            releaseAll()
+        }
+    }
 
     /** Metadata can be read without keeping a second CPU model resident beside the TPU. */
     suspend fun prepareModel(assetPath: String): TaisModelInfo = withContext(Dispatchers.IO) {
@@ -343,6 +370,7 @@ class TaisAiEngine @Inject constructor(
 
     private companion object {
         const val TAG = "TaisAiEngine"
+        const val IDLE_RELEASE_MS = 90_000L
         const val STEM_ASSET = "tais/stem_separation.tflite"
         const val NPU_ASSET_NAME = "stem_separation_tensor_g5.tflite"
         const val NPU_MANIFEST_NAME = "stem_separation_tensor_g5.json"

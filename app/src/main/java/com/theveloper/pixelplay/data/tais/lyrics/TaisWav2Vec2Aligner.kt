@@ -13,7 +13,13 @@ import kotlin.math.ln
 import kotlin.math.sqrt
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -34,6 +40,9 @@ class TaisWav2Vec2Aligner @Inject constructor(
     private val env: OrtEnvironment by lazy { OrtEnvironment.getEnvironment() }
     private val sessionLock = Mutex()
     private var cachedSession: OrtSession? = null
+    private val activeRuns = AtomicInteger(0)
+    private val idleScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    @Volatile private var idleReleaseJob: Job? = null
 
     private val vocab: Map<Char, Int> by lazy { loadVocab() }
     private val blankId = 0 // "<pad>" doubles as the CTC blank token, per the model's config (pad_token_id = 0).
@@ -43,6 +52,41 @@ class TaisWav2Vec2Aligner @Inject constructor(
         samples: FloatArray,
         words: List<String>,
         onWindowProgress: suspend (Int, Int) -> Unit = { _, _ -> }
+    ): List<WordTiming> {
+        idleReleaseJob?.cancel()
+        activeRuns.incrementAndGet()
+        try {
+            return alignInternal(samples, words, onWindowProgress)
+        } finally {
+            if (activeRuns.decrementAndGet() == 0) scheduleIdleRelease()
+        }
+    }
+
+    /**
+     * The 378 MB model session would otherwise stay resident for the whole process life. It is
+     * closed [IDLE_RELEASE_MS] after the last alignment (never while one runs); the next
+     * alignment reloads it.
+     */
+    private fun scheduleIdleRelease() {
+        idleReleaseJob?.cancel()
+        idleReleaseJob = idleScope.launch {
+            delay(IDLE_RELEASE_MS)
+            releaseSession()
+        }
+    }
+
+    /** Closes the cached session unless an alignment is running. Safe to call from onTrimMemory. */
+    suspend fun releaseSession() = sessionLock.withLock {
+        if (activeRuns.get() != 0) return@withLock
+        val session = cachedSession ?: return@withLock
+        cachedSession = null
+        runCatching { session.close() }.onFailure { Timber.tag(TAG).w(it, "wav2vec2 session close failed") }
+    }
+
+    private suspend fun alignInternal(
+        samples: FloatArray,
+        words: List<String>,
+        onWindowProgress: suspend (Int, Int) -> Unit
     ): List<WordTiming> = withContext(Dispatchers.Default) {
         if (words.isEmpty()) return@withContext emptyList()
         val target = buildExtendedTarget(words)
@@ -244,6 +288,7 @@ class TaisWav2Vec2Aligner @Inject constructor(
 
     private companion object {
         private const val TAG = "TaisWav2Vec2Aligner"
+        private const val IDLE_RELEASE_MS = 90_000L
         private const val MODEL_ASSET = "tais/wav2vec2_base_960h_fp32.onnx"
         private const val MODEL_FILE_NAME = "wav2vec2_base_960h_fp32.onnx"
         private const val VOCAB_ASSET = "tais/wav2vec2_vocab.json"
