@@ -731,8 +731,11 @@ class SpotifyRepository @Inject constructor(
             )
         )
 
-        syncUnifiedLibrarySongsFromSpotify()
-        mirrorPlaylistsIntoApp()
+        // Importing adds rows to the browse playlist only: write just these songs (and the albums /
+        // artists they touch, with counts over the whole mirror) and mirror just that playlist,
+        // instead of rewriting every mirrored song and playlist on a single tap.
+        syncUnifiedLibrarySongsFromSpotify(onlySpotifyIds = entities.mapTo(HashSet()) { it.spotifyId })
+        mirrorPlaylistsIntoApp(onlyPlaylistId = SpotifyPlaylistEntity.BROWSE_ID)
 
         entities.count { it.spotifyId !in alreadyKnown }
     }
@@ -863,7 +866,9 @@ class SpotifyRepository @Inject constructor(
      * aparezcan junto a la música local. Los ids son negativos y con un desplazamiento
      * propio, de modo que nunca chocan con los de MediaStore.
      */
-    suspend fun syncUnifiedLibrarySongsFromSpotify() = withContext(Dispatchers.IO) {
+    suspend fun syncUnifiedLibrarySongsFromSpotify(
+        onlySpotifyIds: Set<String>? = null
+    ) = withContext(Dispatchers.IO) {
         val sourceSongs = spotifyDao.getDistinctSpotifySongsList()
         val existingUnifiedIds = musicDao.getAllSpotifySongIds()
 
@@ -939,6 +944,23 @@ class SpotifyRepository @Inject constructor(
             artist.copy(trackCount = tracksPerArtist[artist.id] ?: 0)
         }
 
+        if (onlySpotifyIds != null) {
+            // Partial write: nothing is deleted here (removals use the full path).
+            val touchedSongIds = onlySpotifyIds.mapTo(HashSet()) { unifiedId(SONG_ID_OFFSET, it) }
+            val touchedSongs = songs.filter { it.id in touchedSongIds }
+            val touchedRefs = crossRefs.filter { it.songId in touchedSongIds }
+            val touchedAlbumIds = touchedSongs.mapTo(HashSet()) { it.albumId }
+            val touchedArtistIds = touchedRefs.mapTo(HashSet()) { it.artistId }
+            musicDao.incrementalSyncMusicData(
+                songs = touchedSongs,
+                albums = albumsWithCounts.filter { it.id in touchedAlbumIds },
+                artists = artistsWithCounts.filter { it.id in touchedArtistIds },
+                crossRefs = touchedRefs,
+                deletedSongIds = emptyList()
+            )
+            return@withContext
+        }
+
         val currentIds = songs.map { it.id }.toSet()
         val deletedUnifiedSongIds = existingUnifiedIds.filter { it !in currentIds }
 
@@ -952,11 +974,13 @@ class SpotifyRepository @Inject constructor(
     }
 
     /** Refleja cada playlist de Spotify como una playlist normal de la app. */
-    private suspend fun mirrorPlaylistsIntoApp() {
+    private suspend fun mirrorPlaylistsIntoApp(onlyPlaylistId: String? = null) {
         // Una sola lectura de la tabla; agrupar en memoria evita una consulta por lista.
         val songsByPlaylist = spotifyDao.getAllSpotifySongsList().groupBy { it.playlistId }
 
-        spotifyDao.getAllPlaylistsList().forEach { playlist ->
+        spotifyDao.getAllPlaylistsList()
+            .filter { onlyPlaylistId == null || it.id == onlyPlaylistId }
+            .forEach { playlist ->
             val songIds = songsByPlaylist[playlist.id]
                 ?.map { unifiedId(SONG_ID_OFFSET, it.spotifyId).toString() }
                 .orEmpty()
