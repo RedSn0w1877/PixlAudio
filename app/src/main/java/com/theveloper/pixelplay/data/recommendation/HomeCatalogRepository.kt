@@ -59,11 +59,23 @@ class HomeCatalogRepository @Inject constructor(
     // Playback must not queue behind an in-flight network refresh of the same catalog.
     suspend fun cached(): HomeCatalogSnapshot = memory ?: lock.withLock { readCache() }
 
+    /**
+     * Whether [refresh] would go to the network right now (every condition it checks except "no seeds").
+     * The caller asks this first so it does not rank the whole library for seeds that [refresh] would
+     * only throw away because the six-hour cache is still fresh, the phone is offline or a retry is
+     * still backing off.
+     */
+    suspend fun isRefreshDue(force: Boolean): Boolean = lock.withLock {
+        networkRefreshDue(
+            online = isOnline(), force = force, nowMs = System.currentTimeMillis(),
+            updatedAtMs = readCache().updatedAt, lastAttemptMs = lastAttemptMs
+        )
+    }
+
     suspend fun refresh(seeds: List<Song>, library: List<Song>, force: Boolean): HomeCatalogSnapshot = lock.withLock {
         val old = readCache()
         val now = System.currentTimeMillis()
-        if (!isOnline() || seeds.isEmpty() || (!force && now - old.updatedAt in 0 until CACHE_MS) ||
-            now - lastAttemptMs in 0 until RETRY_MS) return@withLock old
+        if (seeds.isEmpty() || !networkRefreshDue(isOnline(), force, now, old.updatedAt, lastAttemptMs)) return@withLock old
         lastAttemptMs = now
         val artists = seeds.map { it.artist.trim() }.filter {
             it.isNotBlank() && !it.equals("Unknown Artist", true)
@@ -196,10 +208,17 @@ class HomeCatalogRepository @Inject constructor(
     } catch (e: CancellationException) { throw e }
     catch (e: Exception) { Timber.d(e, "Home catalog request unavailable"); null }
 
-    private companion object {
+    internal companion object {
         const val CACHE_MS = 6 * 60 * 60_000L
         const val RETRY_MS = 5 * 60_000L
         const val MAX_CACHE_BYTES = 2 * 1024 * 1024L
         val UNSUITABLE = Regex("\\b(podcast|interview|reaction|tutorial|full album|full concert|karaoke)\\b", RegexOption.IGNORE_CASE)
+
+        /**
+         * The network-refresh gate: online, and (forced or the cache is older than [CACHE_MS]), and not
+         * within [RETRY_MS] of the previous attempt. Same predicate [refresh] always used.
+         */
+        fun networkRefreshDue(online: Boolean, force: Boolean, nowMs: Long, updatedAtMs: Long, lastAttemptMs: Long): Boolean =
+            online && (force || nowMs - updatedAtMs !in 0 until CACHE_MS) && nowMs - lastAttemptMs !in 0 until RETRY_MS
     }
 }
