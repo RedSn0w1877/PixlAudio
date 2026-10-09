@@ -67,8 +67,16 @@ class MusicTasteRepository @Inject constructor(@ApplicationContext context: Cont
             signals[songId] = MusicRecommendationEngine.record(
                 signals[songId] ?: MusicRecommendationEngine.Signal(), listenedMs, durationMs, voluntary, changedTrack, timestamp
             )
-            prefs[SIGNALS] = gson.toJson(signals.entries.sortedByDescending { it.value.lastPlayedMs }
-                .take(5_000).associate { it.key to it.value })
+            // Only a full table needs the recency sort; below the cap nothing is dropped.
+            val kept = if (signals.size <= MAX_SIGNALS) signals else {
+                signals.entries.sortedByDescending { it.value.lastPlayedMs }
+                    .take(MAX_SIGNALS).associate { it.key to it.value }
+            }
+            val encoded = gson.toJson(kept)
+            prefs[SIGNALS] = encoded
+            // This process just wrote it: the next read (every track change, every Home refresh)
+            // reuses the decoded map instead of parsing up to 5,000 entries again.
+            decodedCache = encoded to kept
         }
     }
 
@@ -78,12 +86,20 @@ class MusicTasteRepository @Inject constructor(@ApplicationContext context: Cont
     suspend fun saveReport(report: String) { store.edit { it[REPORT] = report.take(12_000) } }
     suspend fun resetLearning() { store.edit { it.remove(SIGNALS); it[REPORT] = "Learning reset. Your library and play history are unchanged." } }
 
-    private fun decode(raw: String?): Map<String, MusicRecommendationEngine.Signal> =
-        if (raw.isNullOrBlank()) emptyMap() else runCatching {
+    @Volatile private var decodedCache: Pair<String, Map<String, MusicRecommendationEngine.Signal>>? = null
+
+    private fun decode(raw: String?): Map<String, MusicRecommendationEngine.Signal> {
+        if (raw.isNullOrBlank()) return emptyMap()
+        decodedCache?.let { (cachedRaw, cachedMap) -> if (cachedRaw == raw) return cachedMap }
+        val parsed = runCatching {
             gson.fromJson<Map<String, MusicRecommendationEngine.Signal>>(raw, signalType).orEmpty()
         }.getOrDefault(emptyMap())
+        decodedCache = raw to parsed
+        return parsed
+    }
 
     private companion object {
+        const val MAX_SIGNALS = 5_000
         val SIGNALS = stringPreferencesKey("feedback_v1")
         val LEARNING = booleanPreferencesKey("learning_enabled")
         val DISCOVERY = booleanPreferencesKey("discovery_enabled")
