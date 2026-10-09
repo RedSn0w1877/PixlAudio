@@ -132,7 +132,9 @@ class UserPreferencesRepository @Inject constructor(
         PreferencesKeys.INITIAL_SETUP_DONE.name,
         // Device-local: the downloaded AI model itself is in noBackupFilesDir, so a restored
         // switch would point at a file that isn't there (and a restore must not clear it either).
-        AiPreferencesRepository.DOWNLOADED_MODEL_ENABLED_KEY
+        AiPreferencesRepository.DOWNLOADED_MODEL_ENABLED_KEY,
+        // Derived data (the generated accent scheme): rebuilt on demand, never worth exporting.
+        ThemePreferencesRepository.ACCENT_SCHEME_CACHE_KEY
     )
 
     // ─── Preference keys ────────────────────────────────────────────────────

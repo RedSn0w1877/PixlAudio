@@ -60,3 +60,8 @@ Lcom/theveloper/pixelplay/presentation/navigation/**;
 Lcom/theveloper/pixelplay/presentation/viewmodel/**;
 Lcom/theveloper/pixelplay/ui/theme/**;
 Lcom/theveloper/pixelplay/ui/glass/**;
+
+# material-color-utilities: the accent scheme and the album-art palette are built through it, and
+# it ships in no baseline profile of its own, so its many small classes start interpreted.
+HSPLcom/google/android/material/color/utilities/**->**(**)**
+Lcom/google/android/material/color/utilities/**;

@@ -12,8 +12,11 @@ import com.theveloper.pixelplay.data.preferences.AlbumArtPaletteStyle
 import com.theveloper.pixelplay.data.preferences.ThemePreferencesRepository
 import com.theveloper.pixelplay.di.AppScope
 import com.theveloper.pixelplay.ui.theme.AccentColorSchemes
+import com.theveloper.pixelplay.ui.theme.AccentSchemeCodec
+import com.theveloper.pixelplay.ui.theme.LightColorScheme
 import com.theveloper.pixelplay.ui.theme.DarkColorScheme
 import com.theveloper.pixelplay.ui.theme.clearExtractedColorCache
+import com.theveloper.pixelplay.ui.theme.hasSameColorsAs
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
@@ -49,7 +52,7 @@ data class AccentScheme(val hex: String, val pair: ColorSchemePair?) {
 class ThemeStateHolder @Inject constructor(
     private val colorSchemeProcessor: ColorSchemeProcessor,
     private val themePreferencesRepository: ThemePreferencesRepository,
-    @AppScope appScope: CoroutineScope
+    @AppScope private val appScope: CoroutineScope
 ) {
 
     /**
@@ -63,11 +66,33 @@ class ThemeStateHolder @Inject constructor(
     val accentScheme: StateFlow<AccentScheme?> = themePreferencesRepository.accentColorFlow
         .map { hex ->
             val seed = AccentColor.seedOrNull(hex)
-            if (seed == null) AccentScheme.Default else AccentScheme(hex, AccentColorSchemes.pairFor(seed))
+            if (seed == null) AccentScheme.Default else AccentScheme(hex, accentPairFor(hex, seed))
         }
         .flowOn(Dispatchers.Default)
         .catch { emit(AccentScheme.Default) }
         .stateIn(appScope, SharingStarted.Eagerly, null)
+
+    /**
+     * The pair for a chosen accent. A cold start used to rebuild it through material-color-utilities
+     * every time (~100 ms with the splash waiting); now the pair saved the first time is decoded
+     * with the plain ColorScheme constructor. Order: the in-process memo, then the saved copy, then
+     * generate (and save, off the splash's critical path, for the next launch).
+     */
+    private suspend fun accentPairFor(hex: String, seed: Int): ColorSchemePair {
+        val saved = runCatching {
+            AccentSchemeCodec.decode(themePreferencesRepository.accentSchemeCache(), hex)
+        }.getOrNull()
+        val pair = AccentColorSchemes.memoized(seed)
+            ?: saved?.let { AccentColorSchemes.prime(seed, it) }
+            ?: AccentColorSchemes.pairFor(seed)
+        // generateAccentColorSchemePair swallows failures into the static scheme: never save that one.
+        if (saved == null && pair.light !== LightColorScheme) {
+            appScope.launch(Dispatchers.Default) {
+                runCatching { themePreferencesRepository.setAccentSchemeCache(AccentSchemeCodec.encode(hex, pair)) }
+            }
+        }
+        return pair
+    }
 
     private var scope: CoroutineScope? = null
     @Volatile
@@ -153,7 +178,14 @@ class ThemeStateHolder @Inject constructor(
             )
 
             if (!isPreload && currentSongUriString == uriString) {
-                _currentAlbumArtColorSchemePair.value = schemePair
+                // Consecutive tracks of one album give a new ColorSchemePair with exactly the same
+                // colours (ColorScheme has no equals, so it looks "new"). Handing that out would
+                // restart the player's colour fade and recompose every themed widget for ~40 frames
+                // without changing a pixel: keep the instance already published, move only the URI.
+                val published = _currentAlbumArtColorSchemePair.value
+                if (published == null || schemePair == null || !published.hasSameColorsAs(schemePair)) {
+                    _currentAlbumArtColorSchemePair.value = schemePair
+                }
                 _currentAlbumArtUri.value = uriString
             }
         } catch (e: Exception) {

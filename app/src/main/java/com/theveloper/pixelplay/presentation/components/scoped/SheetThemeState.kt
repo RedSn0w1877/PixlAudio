@@ -20,6 +20,7 @@ import androidx.compose.ui.graphics.lerp
 import com.theveloper.pixelplay.data.model.Song
 import com.theveloper.pixelplay.data.preferences.ThemePreference
 import com.theveloper.pixelplay.presentation.viewmodel.ColorSchemePair
+import com.theveloper.pixelplay.ui.theme.hasSameColorsAs
 
 /**
  * Theme state for the player sheet.
@@ -184,7 +185,9 @@ private fun rememberBatchAnimatedColorScheme(target: ColorScheme): BatchAnimated
     val toSchemeState = remember { mutableStateOf(target) }
 
     LaunchedEffect(target) {
-        if (toSchemeState.value == target) return@LaunchedEffect
+        // ColorScheme has no equals, so `==` is identity. A new instance with the very same colours
+        // would otherwise run a full fade that changes no pixel (and recompose every reader of it).
+        if (toSchemeState.value.hasSameColorsAs(target)) return@LaunchedEffect
         // Snapshot current interpolated state as the new "from"
         fromSchemeState.value = lerpColorScheme(fromSchemeState.value, toSchemeState.value, progress.value)
         toSchemeState.value = target
