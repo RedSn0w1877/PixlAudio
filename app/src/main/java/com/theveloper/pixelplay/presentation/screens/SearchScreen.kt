@@ -96,6 +96,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
@@ -185,7 +186,19 @@ fun SearchScreen(
     navController: NavHostController,
     onSearchBarActiveChange: (Boolean) -> Unit = {}
 ) {
-    var searchQuery by rememberSaveable { mutableStateOf(playerViewModel.searchQuery) }
+    val searchQueryState = rememberSaveable { mutableStateOf(playerViewModel.searchQuery) }
+    var searchQuery by searchQueryState
+    // The result list only needs the query when a row is tapped, so it gets a stable reader instead
+    // of the String: typing no longer changes anything the list (and its rows) are passed.
+    val searchQueryProvider: () -> String = remember(searchQueryState) { { searchQueryState.value } }
+    val onSearchResultSelected: () -> Unit = remember(playerViewModel, searchQueryState) {
+        {
+            val query = searchQueryState.value
+            if (query.isNotBlank()) {
+                playerViewModel.onSearchQuerySubmitted(query)
+            }
+        }
+    }
     val statusBarTopInset = WindowInsets.systemBars.asPaddingValues().calculateTopPadding()
     val systemNavBarInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     val navBarCompactMode by playerViewModel.navBarCompactMode.collectAsStateWithLifecycle()
@@ -669,13 +682,9 @@ fun SearchScreen(
                                 } else {
                                     SearchResultsList(
                                         results = searchResults,
-                                        searchQuery = searchQuery,
+                                        searchQuery = searchQueryProvider,
                                         playerViewModel = playerViewModel,
-                                        onItemSelected = {
-                                            if (searchQuery.isNotBlank()) {
-                                                playerViewModel.onSearchQuerySubmitted(searchQuery)
-                                            }
-                                        },
+                                        onItemSelected = onSearchResultSelected,
                                         playback = playbackRowState,
                                         onSongMoreOptionsClick = handleSongMoreOptionsClick,
                                         navController = navController,
@@ -1315,11 +1324,23 @@ fun EmptySearchResults(searchQuery: String, colorScheme: ColorScheme) {
 }
 
 
+/** Section order of the result list. A constant, so the LazyColumn content lambda is not rebuilt on every pass. */
+private val SEARCH_SECTION_ORDER = listOf(
+    SearchFilterType.SONGS,
+    SearchFilterType.ALBUMS,
+    SearchFilterType.ARTISTS,
+    SearchFilterType.PLAYLISTS,
+    // Siempre las últimas: lo que el usuario ya tiene va antes que lo que tendría que
+    // importar.
+    SearchFilterType.CATALOG,
+    SearchFilterType.YOUTUBE_MUSIC
+)
+
 @androidx.annotation.OptIn(UnstableApi::class)
 @Composable
 fun SearchResultsList(
     results: List<SearchResultItem>,
-    searchQuery: String,
+    searchQuery: () -> String,
     playerViewModel: PlayerViewModel,
     onItemSelected: () -> Unit,
     playback: State<PlaybackRowState>,
@@ -1375,34 +1396,28 @@ fun SearchResultsList(
                 }
         }
     }
-    val searchQueueName = remember(searchQuery) {
-        searchQuery.trim()
-            .takeIf { it.isNotEmpty() }
-            ?.let { "Search: $it" }
-            ?: "Search Results"
-    }
-    val onSongResultClick = remember(playerViewModel, onItemSelected, songResultsQueue, searchQueueName) {
+    // One click handler for the lifetime of the list: it reads the newest queue / query / callback when a
+    // row is tapped (the same values the old per-keystroke lambda had captured), so a keystroke or a
+    // late result batch no longer gives every visible row a new onClick to recompose with.
+    val latestSongResultsQueue by rememberUpdatedState(songResultsQueue)
+    val latestOnItemSelected by rememberUpdatedState(onItemSelected)
+    val latestSearchQuery by rememberUpdatedState(searchQuery)
+    val onSongResultClick = remember(playerViewModel) {
         { song: Song ->
-            val playbackQueue = if (songResultsQueue.any { it.id == song.id }) {
-                songResultsQueue
+            val queue = latestSongResultsQueue
+            val playbackQueue = if (queue.any { it.id == song.id }) {
+                queue
             } else {
                 listOf(song)
             }
+            val searchQueueName = latestSearchQuery().trim()
+                .takeIf { it.isNotEmpty() }
+                ?.let { "Search: $it" }
+                ?: "Search Results"
             playerViewModel.showAndPlaySong(song, playbackQueue, searchQueueName)
-            onItemSelected()
+            latestOnItemSelected()
         }
     }
-
-    val sectionOrder = listOf(
-        SearchFilterType.SONGS,
-        SearchFilterType.ALBUMS,
-        SearchFilterType.ARTISTS,
-        SearchFilterType.PLAYLISTS,
-        // Siempre las últimas: lo que el usuario ya tiene va antes que lo que tendría que
-        // importar.
-        SearchFilterType.CATALOG,
-        SearchFilterType.YOUTUBE_MUSIC
-    )
 
     val imePadding = WindowInsets.ime.getBottom(localDensity).dp
     val systemBarPaddingBottom = WindowInsets.systemBars.asPaddingValues().calculateBottomPadding() + 94.dp
@@ -1422,7 +1437,7 @@ fun SearchResultsList(
             bottom = if (imePadding <= 8.dp) (MiniPlayerHeight + systemBarPaddingBottom) else imePadding
         )
     ) {
-        sectionOrder.forEach { filterType ->
+        SEARCH_SECTION_ORDER.forEach { filterType ->
             val itemsForSection = groupedResults[filterType] ?: emptyList()
 
             if (itemsForSection.isNotEmpty()) {
