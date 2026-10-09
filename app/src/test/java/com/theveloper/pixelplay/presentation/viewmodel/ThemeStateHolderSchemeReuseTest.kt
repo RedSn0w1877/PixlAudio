@@ -24,7 +24,11 @@ import java.nio.file.Files
 
 class ThemeStateHolderSchemeReuseTest {
 
-    private fun uri(value: String): Uri = mockk { every { toString() } returns value }
+    private fun uri(value: String): Uri {
+        val uri = mockk<Uri>()
+        every { uri.toString() } returns value
+        return uri
+    }
 
     private fun pairOf(primary: Color) = ColorSchemePair(
         light = lightColorScheme(primary = primary),
@@ -127,6 +131,8 @@ class ThemeStateHolderSchemeReuseTest {
             var saved: String? = null
             val deadline = System.nanoTime() + 5_000_000_000L
             while (saved == null && System.nanoTime() < deadline) {
+                // DataStore's writer runs on the test scheduler: let it work between polls.
+                testScheduler.advanceUntilIdle()
                 saved = themes.accentSchemeCache()
                 if (saved == null) Thread.sleep(20)
             }
