@@ -78,4 +78,39 @@ class ArtistImageRepositoryTest {
         assertEquals(2, searchAttempts.get())
         coVerify(exactly = 1) { musicDao.updateArtistImageUrl(42L, upgradedUrl) }
     }
+
+    @Test
+    fun `prefetch saves images in batches and keeps misses across trimMemory`() = runTest {
+        val deezerApiService = mockk<DeezerApiService>()
+        val musicDao = mockk<MusicDao>()
+        val repository = ArtistImageRepository(deezerApiService, musicDao)
+        val saved = mutableListOf<List<com.theveloper.pixelplay.data.database.ArtistImageUpdate>>()
+        val url = "https://cdn-images.dzcdn.net/images/artist/1000x1000-000000-80-0-0.jpg"
+        val artists = (1L..48L).map { it to "Artist $it" }
+        artists.forEach { (id, name) ->
+            coEvery { musicDao.getArtistIdByNormalizedName(name) } returns id
+            coEvery { musicDao.getArtistImageUrl(id) } returns null
+            coEvery { musicDao.getArtistImageUrlByNormalizedName(name) } returns null
+        }
+        coEvery { musicDao.updateArtistImageUrls(any()) } coAnswers { saved += firstArg<List<com.theveloper.pixelplay.data.database.ArtistImageUpdate>>() }
+        val searches = AtomicInteger(0)
+        coEvery { deezerApiService.searchArtist(any(), 1) } coAnswers {
+            searches.incrementAndGet()
+            val name = firstArg<String>()
+            // Odd artists exist on Deezer, even ones do not.
+            if (name.removePrefix("Artist ").toInt() % 2 == 1) {
+                DeezerSearchResponse(data = listOf(DeezerArtist(id = 1L, name = name, pictureXl = url)))
+            } else DeezerSearchResponse(data = emptyList())
+        }
+
+        repository.prefetchArtistImages(artists)
+        assertEquals(24, saved.sumOf { it.size })
+        assertTrue(saved.size <= 3, "one commit per ~24 artists, not per artist")
+        coVerify(exactly = 0) { musicDao.updateArtistImageUrl(any(), any()) }
+
+        repository.trimMemory()
+        val before = searches.get()
+        repository.prefetchArtistImages(artists.filter { it.first % 2 == 0L })
+        assertEquals(before, searches.get(), "misses are not searched again after the UI is hidden")
+    }
 }

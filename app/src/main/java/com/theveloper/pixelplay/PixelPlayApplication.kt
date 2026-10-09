@@ -207,7 +207,7 @@ class PixelPlayApplication : Application(), ImageLoaderFactory, Configuration.Pr
             level >= ComponentCallbacks2.TRIM_MEMORY_BACKGROUND ||
             level == ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN
         ) {
-            artistImageRepository.get().clearCache()
+            artistImageRepository.get().trimMemory()
             MediaMetadataRetrieverPool.clear()
         }
 

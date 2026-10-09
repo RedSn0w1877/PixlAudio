@@ -122,6 +122,7 @@ class MusicRepositoryImpl @Inject constructor(
     )
     // Tracks the active prefetch job so a new flow emission cancels the previous one.
     @Volatile private var prefetchJob: Job? = null
+    @Volatile private var prefetchCandidateIds: Set<Long> = emptySet()
     @Volatile private var currentSongArtistPrefetchJob: Job? = null
     @Volatile private var currentSongArtistPrefetchSongId: Long? = null
 
@@ -437,9 +438,16 @@ class MusicRepositoryImpl @Inject constructor(
                         // Cancel any in-flight prefetch before starting a new one — the flow
                         // can emit multiple times during sync, and concurrent launches would
                         // create N × artist-count coroutines simultaneously.
-                        prefetchJob?.cancel()
-                        prefetchJob = repositoryScope.launch {
-                            artistImageRepository.prefetchArtistImages(missingImages)
+                        val candidateIds = missingImages.mapTo(HashSet()) { it.first }
+                        val running = prefetchJob?.takeIf { it.isActive }
+                        // Each image that lands re-emits this list; restarting the run for a
+                        // subset of what is already in flight aborted its requests for nothing.
+                        if (running == null || !prefetchCandidateIds.containsAll(candidateIds)) {
+                            running?.cancel()
+                            prefetchCandidateIds = candidateIds
+                            prefetchJob = repositoryScope.launch {
+                                artistImageRepository.prefetchArtistImages(missingImages)
+                            }
                         }
                     }
                     artists
