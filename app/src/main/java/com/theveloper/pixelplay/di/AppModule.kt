@@ -31,7 +31,9 @@ import com.theveloper.pixelplay.data.database.SearchHistoryDao
 import com.theveloper.pixelplay.data.database.TransitionDao
 import com.theveloper.pixelplay.data.preferences.UserPreferencesRepository
 import com.theveloper.pixelplay.data.preferences.PlaylistPreferencesRepository
+import com.theveloper.pixelplay.data.preferences.PlaybackQueueDataStore
 import com.theveloper.pixelplay.data.preferences.dataStore
+import com.theveloper.pixelplay.data.preferences.playbackQueueDataStore
 import com.theveloper.pixelplay.data.media.SongMetadataEditor
 import com.theveloper.pixelplay.data.network.deezer.DeezerApiService
 import com.theveloper.pixelplay.data.network.lyrics.LrcLibApiService
@@ -116,6 +118,14 @@ object AppModule {
     fun providePreferencesDataStore(
         @ApplicationContext context: Context
     ): DataStore<Preferences> = context.dataStore
+
+    /** The saved playback queue: its own file, so a big queue is not rewritten with every settings edit. */
+    @Provides
+    @Singleton
+    @PlaybackQueueDataStore
+    fun providePlaybackQueueDataStore(
+        @ApplicationContext context: Context
+    ): DataStore<Preferences> = context.playbackQueueDataStore
 
     @Singleton
     @Provides

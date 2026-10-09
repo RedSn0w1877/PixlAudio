@@ -12,6 +12,7 @@ import androidx.media3.session.MediaController
 import com.google.android.gms.cast.framework.media.RemoteMediaClient
 import com.theveloper.pixelplay.R
 import com.theveloper.pixelplay.data.service.cast.CastRemotePlaybackState
+import com.theveloper.pixelplay.data.diagnostics.PerformanceMetrics
 import com.theveloper.pixelplay.data.diagnostics.StreamStartTimings
 import com.theveloper.pixelplay.data.model.Song
 import com.theveloper.pixelplay.data.preferences.UserPreferencesRepository
@@ -34,7 +35,6 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
-import kotlinx.coroutines.yield
 import timber.log.Timber
 
 private const val CAST_LOG_TAG = "PlayerCastTransfer"
@@ -749,33 +749,15 @@ class PlaybackDispatchStateHolder @Inject constructor(
         startSongId: String,
         preparedSegments: PreparedPlaybackQueueSegments
     ) {
-        if (player.currentMediaItem?.mediaId != startSongId) return
-        if (player.mediaItemCount != 1) return
-        if (player.getMediaItemAt(0).mediaId != startSongId) return
-
-        val batchSize = 200
-
-        if (preparedSegments.beforeCurrent.isNotEmpty()) {
-            var insertedCount = 0
-            while (insertedCount < preparedSegments.beforeCurrent.size) {
-                val end = (insertedCount + batchSize).coerceAtMost(preparedSegments.beforeCurrent.size)
-                val batch = preparedSegments.beforeCurrent.subList(insertedCount, end)
-                player.addMediaItems(insertedCount, batch)
-                insertedCount = end
-                yield()
-            }
-        }
-
-        if (preparedSegments.afterCurrent.isNotEmpty()) {
-            var insertedCount = 0
-            while (insertedCount < preparedSegments.afterCurrent.size) {
-                val end = (insertedCount + batchSize).coerceAtMost(preparedSegments.afterCurrent.size)
-                val batch = preparedSegments.afterCurrent.subList(insertedCount, end)
-                player.addMediaItems(preparedSegments.beforeCurrent.size + 1 + insertedCount, batch)
-                insertedCount = end
-                yield()
-            }
-        }
+        val attachStart = System.nanoTime()
+        val attached = attachQueueSegmentsIfCurrent(
+            player = player,
+            startSongId = startSongId,
+            beforeCurrent = preparedSegments.beforeCurrent,
+            afterCurrent = preparedSegments.afterCurrent
+        )
+        if (!attached) return
+        PerformanceMetrics.recordTiming("queue_attach", (System.nanoTime() - attachStart) / 1_000_000)
 
         playbackStateHolder.updateStablePlayerState {
             it.copy(currentMediaItemIndex = preparedSegments.currentIndex)

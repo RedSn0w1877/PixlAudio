@@ -118,13 +118,18 @@ class HomeDiscoveryStateHolder @Inject constructor(
                 }
                 // Local shelves and cached metadata render before any network request begins.
                 publish(cache)
-                if (enabled && library.isNotEmpty()) {
+                // Ask first: with the catalog cached (under six hours), offline or backing off, refresh()
+                // hands back the snapshot we already planned, so ranking the library for seeds and
+                // planning the same Home a second time was pure waste.
+                if (enabled && library.isNotEmpty() && catalog.isRefreshDue(force)) {
                     val seeds = withContext(planningDispatcher) {
                         MusicRecommendationEngine.select(
                             MusicRecommendationEngine.rank(library, favorites, signals, history, now, LocalDate.now().toEpochDay()), 20
                         ).map { it.song }
                     }
-                    publish(catalog.refresh(seeds, library, force))
+                    val refreshed = catalog.refresh(seeds, library, force)
+                    // An unchanged snapshot plans to exactly what is already published.
+                    if (refreshed != cache) publish(refreshed)
                 }
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) {

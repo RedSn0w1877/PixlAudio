@@ -27,6 +27,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
@@ -133,9 +134,18 @@ class ArtistDetailViewModel @Inject constructor(
     private var currentLoadJob: Job? = null
     private var artistImageResolveJob: Job? = null
 
+    // What the background work below was last started for. Room re-emits the artist and their songs on
+    // ANY write to those tables (the first visit's own image-url write, a heart tap, importing a
+    // "More from" track...), and none of those may restart the image/palette job or search YouTube
+    // Music again (which also reset "More from" to empty).
+    private var lastImageResolveKey: Triple<Long, String, String?>? = null
+    private var lastMoreFromArtistName: String? = null
+
     private fun loadArtistData(id: Long) {
         currentLoadJob?.cancel()
         artistImageResolveJob?.cancel()
+        lastImageResolveKey = null
+        lastMoreFromArtistName = null
         currentLoadJob = viewModelScope.launch {
             Log.d("ArtistDebug", "loadArtistData: id=$id")
             _uiState.update { it.copy(isLoading = true, error = null) }
@@ -147,6 +157,7 @@ class ArtistDetailViewModel @Inject constructor(
                     Log.d("ArtistDebug", "loadArtistData: id=$id found=${artist != null} songs=${songs.size}")
                     artist to songs
                 }
+                    .distinctUntilChanged { old, new -> isSameArtistScreenInput(old.first, old.second, new.first, new.second) }
                     .catch { e ->
                         _uiState.update {
                             it.copy(
@@ -163,7 +174,8 @@ class ArtistDetailViewModel @Inject constructor(
                             return@collect
                         }
 
-                        val albumSections = buildAlbumSections(songs)
+                        // The sort/group over the whole catalogue of this artist is CPU work: off Main.
+                        val albumSections = withContext(Dispatchers.Default) { buildAlbumSections(songs) }
                         val orderedSongs = albumSections.flatMap { it.songs }
                         val topSongs = loadTopSongs(orderedSongs)
 
@@ -186,7 +198,9 @@ class ArtistDetailViewModel @Inject constructor(
                         if (cachedScheme != null) {
                             _artistColorScheme.value = cachedScheme
                         }
-                        _uiState.value = ArtistDetailUiState(
+                        // Same artist re-emitting (a song changed): keep "More from" instead of blanking it.
+                        val base = if (previousState.artist?.id == artist.id) previousState else ArtistDetailUiState()
+                        _uiState.value = base.copy(
                             artist = artist.copy(
                                 imageUrl = if (artist.customImageUri.isNullOrBlank()) knownImageUrl else artist.imageUrl
                             ),
@@ -194,51 +208,59 @@ class ArtistDetailViewModel @Inject constructor(
                             albumSections = albumSections,
                             topSongs = topSongs,
                             effectiveImageUrl = knownImageUrl,
-                            isLoading = false
+                            isLoading = false,
+                            error = null
                         )
 
                         // 2) Resolve the effective image URL (custom > Deezer, may hit the network)
                         //    and its palette in the background; the screen crossfades to it.
-                        artistImageResolveJob?.cancel()
-                        artistImageResolveJob = launch {
-                            val effectiveUrl = try {
-                                artistImageRepository.getEffectiveArtistImageUrl(
-                                    artistId = artist.id,
-                                    artistName = artist.name
-                                )
-                            } catch (e: CancellationException) {
-                                throw e
-                            } catch (e: Exception) {
-                                Log.w("ArtistDebug", "Failed to resolve effective artist image: ${e.message}")
-                                artist.effectiveImageUrl
-                            }
-                            if (effectiveUrl != knownImageUrl) {
-                                _uiState.update { state ->
-                                    val shownArtist = state.artist
-                                    if (shownArtist == null || shownArtist.id != artist.id) return@update state
-                                    state.copy(
-                                        artist = shownArtist.copy(
-                                            imageUrl = if (artist.customImageUri.isNullOrBlank()) effectiveUrl else artist.imageUrl
-                                        ),
-                                        effectiveImageUrl = effectiveUrl
+                        val imageResolveKey = Triple(artist.id, artist.name, artist.customImageUri)
+                        if (imageResolveKey != lastImageResolveKey) {
+                            lastImageResolveKey = imageResolveKey
+                            artistImageResolveJob?.cancel()
+                            artistImageResolveJob = launch {
+                                val effectiveUrl = try {
+                                    artistImageRepository.getEffectiveArtistImageUrl(
+                                        artistId = artist.id,
+                                        artistName = artist.name
                                     )
-                                }
-                            }
-                            val resolvedScheme = if (!effectiveUrl.isNullOrBlank()) {
-                                try {
-                                    themeStateHolder.getOrGenerateColorScheme(effectiveUrl)
                                 } catch (e: CancellationException) {
                                     throw e
                                 } catch (e: Exception) {
-                                    Log.w("ArtistDebug", "Color scheme generation failed: ${e.message}")
-                                    null
+                                    Log.w("ArtistDebug", "Failed to resolve effective artist image: ${e.message}")
+                                    artist.effectiveImageUrl
                                 }
-                            } else null
-                            if (resolvedScheme != null || effectiveUrl != knownImageUrl) {
-                                _artistColorScheme.value = resolvedScheme
+                                if (effectiveUrl != knownImageUrl) {
+                                    _uiState.update { state ->
+                                        val shownArtist = state.artist
+                                        if (shownArtist == null || shownArtist.id != artist.id) return@update state
+                                        state.copy(
+                                            artist = shownArtist.copy(
+                                                imageUrl = if (artist.customImageUri.isNullOrBlank()) effectiveUrl else artist.imageUrl
+                                            ),
+                                            effectiveImageUrl = effectiveUrl
+                                        )
+                                    }
+                                }
+                                val resolvedScheme = if (!effectiveUrl.isNullOrBlank()) {
+                                    try {
+                                        themeStateHolder.getOrGenerateColorScheme(effectiveUrl)
+                                    } catch (e: CancellationException) {
+                                        throw e
+                                    } catch (e: Exception) {
+                                        Log.w("ArtistDebug", "Color scheme generation failed: ${e.message}")
+                                        null
+                                    }
+                                } else null
+                                if (resolvedScheme != null || effectiveUrl != knownImageUrl) {
+                                    _artistColorScheme.value = resolvedScheme
+                                }
                             }
                         }
-                        loadMoreFromArtist(artist.name, orderedSongs)
+                        if (artist.name != lastMoreFromArtistName) {
+                            lastMoreFromArtistName = artist.name
+                            loadMoreFromArtist(artist.name, orderedSongs)
+                        }
                     }
 
             } catch (e: Exception) {
@@ -451,6 +473,20 @@ class ArtistDetailViewModel @Inject constructor(
             )
         }
     }
+}
+
+/**
+ * True when a new `(artist, songs)` pair would build exactly the same screen as the previous one, so the
+ * reload can be skipped. The artist's stored image URL is ignored while no custom image is set: the
+ * screen shows the URL it resolves itself, and the first visit writes that column right away.
+ */
+internal fun isSameArtistScreenInput(
+    oldArtist: Artist?, oldSongs: List<Song>,
+    newArtist: Artist?, newSongs: List<Song>
+): Boolean {
+    if (oldArtist == null || newArtist == null) return oldArtist == null && newArtist == null && oldSongs == newSongs
+    fun Artist.shown() = if (customImageUri.isNullOrBlank()) copy(imageUrl = null) else this
+    return oldArtist.shown() == newArtist.shown() && oldSongs == newSongs
 }
 
 private val songDisplayComparator = compareBy<Song> { it.discNumber ?: 1 }

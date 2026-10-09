@@ -3,7 +3,8 @@
 # generator's journeys, so without these their per-tap and per-frame paths start out interpreted
 # after every install.
 
-# Karaoke lyrics view (lyrics sheet and the editor's Preview): engine, line nodes, background.
+# Karaoke lyrics view (the editor's Preview and the sheet's renderer): engine, line nodes, background.
+# The sheet itself and its toolbars live in presentation/components, see the player-sheet rules below.
 HSPLcom/theveloper/pixelplay/presentation/lyrics/**->**(**)**
 Lcom/theveloper/pixelplay/presentation/lyrics/**;
 
@@ -60,3 +61,31 @@ Lcom/theveloper/pixelplay/presentation/navigation/**;
 Lcom/theveloper/pixelplay/presentation/viewmodel/**;
 Lcom/theveloper/pixelplay/ui/theme/**;
 Lcom/theveloper/pixelplay/ui/glass/**;
+
+# material-color-utilities: the accent scheme and the album-art palette are built through it, and
+# it ships in no baseline profile of its own, so its many small classes start interpreted.
+HSPLcom/google/android/material/color/utilities/**->**(**)**
+Lcom/google/android/material/color/utilities/**;
+
+# Player sheet pieces outside components/player/**: the queue sheet (composed on the first expand and
+# scrolled on every queue open), the lyrics page and its toolbar/sync controls, the cast sheet, the seek
+# bar, the scroll bar and SmartImage (every list row and the mini player art). They were in no profile,
+# so after each install or update they ran interpreted until the JIT warmed up.
+HSPLcom/theveloper/pixelplay/presentation/components/QueueBottomSheet**->**(**)**
+HSPLcom/theveloper/pixelplay/presentation/components/QueueGlassControls**->**(**)**
+HSPLcom/theveloper/pixelplay/presentation/components/LyricsSheet**->**(**)**
+HSPLcom/theveloper/pixelplay/presentation/components/LyricsFloatingToolbar**->**(**)**
+HSPLcom/theveloper/pixelplay/presentation/components/LyricsSyncControls**->**(**)**
+HSPLcom/theveloper/pixelplay/presentation/components/CastBottomSheet**->**(**)**
+HSPLcom/theveloper/pixelplay/presentation/components/SmartImage**->**(**)**
+HSPLcom/theveloper/pixelplay/presentation/components/ExpressiveScrollBar**->**(**)**
+HSPLcom/theveloper/pixelplay/presentation/components/subcomps/PlayerSeekBar**->**(**)**
+Lcom/theveloper/pixelplay/presentation/components/QueueBottomSheet**;
+Lcom/theveloper/pixelplay/presentation/components/QueueGlassControls**;
+Lcom/theveloper/pixelplay/presentation/components/LyricsSheet**;
+Lcom/theveloper/pixelplay/presentation/components/LyricsFloatingToolbar**;
+Lcom/theveloper/pixelplay/presentation/components/LyricsSyncControls**;
+Lcom/theveloper/pixelplay/presentation/components/CastBottomSheet**;
+Lcom/theveloper/pixelplay/presentation/components/SmartImage**;
+Lcom/theveloper/pixelplay/presentation/components/ExpressiveScrollBar**;
+Lcom/theveloper/pixelplay/presentation/components/subcomps/PlayerSeekBar**;

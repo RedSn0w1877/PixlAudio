@@ -1,3 +1,9 @@
+// FROZEN REFERENCE: a verbatim copy of MusicRecommendationEngine as it was BEFORE the Home recommendation speed-up
+// (new Regex + Unicode fold on every comparison, select() re-normalising per candidate per slot).
+// RecommendationGoldenEqualityTest runs it next to the optimised code and requires identical output.
+// Do not "improve" this file: its only job is to stay slow and identical to the old behaviour.
+@file:Suppress("unused")
+
 package com.theveloper.pixelplay.data.recommendation
 
 import com.theveloper.pixelplay.data.model.Song
@@ -7,7 +13,7 @@ import kotlin.math.ln
 import kotlin.math.sqrt
 
 /** Small, explainable on-device learner. No network or model inference is needed to rank. */
-object MusicRecommendationEngine {
+object LegacyRecommendationEngine {
     data class Signal(
         val sessions: Int = 0,
         val completions: Int = 0,
@@ -49,18 +55,12 @@ object MusicRecommendationEngine {
         history: Map<String, History>, nowMs: Long, seed: Long
     ): List<Pick> {
         val candidates = songs.filter { it.title.isNotBlank() }.distinctBy { it.id }
-            .groupBy(::recordingKey).entries.map { (recordingKey, versions) ->
-                val first = versions.first()
+            .groupBy(::recordingKey).values.map { versions ->
                 RecordingCandidate(
-                    song = first,
+                    song = versions.first(),
                     favorite = versions.any { it.id in favorites || it.isFavorite },
                     signal = mergeSignals(versions.mapNotNull { signals[it.id] }.distinctInstances()),
-                    history = mergeHistory(versions.mapNotNull { history[it.id] }.distinctInstances()),
-                    // The group key IS recordingKey(first): every version shares it. Kept so the
-                    // artist/genre/recording strings are normalised once per song, not 4-5 times.
-                    recordingKey = recordingKey,
-                    artistKey = artistKey(first),
-                    genreKey = genreKey(first)
+                    history = mergeHistory(versions.mapNotNull { history[it.id] }.distinctInstances())
                 )
             }
         val artistWeights = mutableMapOf<String, Double>()
@@ -76,8 +76,8 @@ object MusicRecommendationEngine {
                 ln(1.0 + past.plays.coerceAtLeast(0)) * 0.3 +
                 signal.completions * 0.8 + signal.voluntaryPlays * 0.2 -
                 signal.earlySkips * 1.1).coerceIn(-4.0, 6.0) * decay
-            artistWeights.merge(candidate.artistKey, weight, Double::plus)
-            candidate.genreKey?.let { genreWeights.merge(it, weight, Double::plus) }
+            artistWeights.merge(artistKey(song), weight, Double::plus)
+            genreKey(song)?.let { genreWeights.merge(it, weight, Double::plus) }
         }
         val artistScale = artistWeights.values.maxOfOrNull { kotlin.math.abs(it) }?.coerceAtLeast(1.0) ?: 1.0
         val genreScale = genreWeights.values.maxOfOrNull { kotlin.math.abs(it) }?.coerceAtLeast(1.0) ?: 1.0
@@ -87,8 +87,8 @@ object MusicRecommendationEngine {
             val signal = candidate.signal
             val past = candidate.history
             val favorite = candidate.favorite
-            val artist = (artistWeights[candidate.artistKey] ?: 0.0) / artistScale
-            val genre = (genreWeights[candidate.genreKey] ?: 0.0) / genreScale
+            val artist = (artistWeights[artistKey(song)] ?: 0.0) / artistScale
+            val genre = (genreWeights[genreKey(song)] ?: 0.0) / genreScale
             val taste = artist * 0.75 + genre * 0.25
             val satisfaction = (signal.completions + 2.0) / (signal.sessions + 4.0)
             val skipRate = signal.earlySkips.toDouble() / (signal.sessions + 2.0)
@@ -98,7 +98,7 @@ object MusicRecommendationEngine {
             val fatigue = (1.0 - hoursAgo / 24.0).coerceIn(0.0, 1.0)
             val unheard = past.plays == 0 && signal.sessions == 0
             val exploration = 1.0 / sqrt(1.0 + past.plays.coerceAtLeast(0) + signal.sessions)
-            val jitter = java.util.Random(seed xor candidate.recordingKey.hashCode().toLong()).nextDouble() * 0.025
+            val jitter = java.util.Random(seed xor recordingKey(song).hashCode().toLong()).nextDouble() * 0.025
             val score = taste * 0.32 + satisfaction * 0.2 + familiarity * 0.12 +
                 (if (favorite) 0.18 else 0.0) + exploration * 0.12 - skipRate * 0.55 - fatigue * 0.2 + jitter
             val reason = when {
@@ -115,10 +115,7 @@ object MusicRecommendationEngine {
         }.sortedWith(compareByDescending<Pick> { it.score }.thenBy { it.song.id })
     }
 
-    private data class RecordingCandidate(
-        val song: Song, val favorite: Boolean, val signal: Signal, val history: History,
-        val recordingKey: String, val artistKey: String, val genreKey: String?
-    )
+    private data class RecordingCandidate(val song: Song, val favorite: Boolean, val signal: Signal, val history: History)
 
     /**
      * DailyMixManager's ID normalization may place the same stored feedback object under
@@ -149,22 +146,11 @@ object MusicRecommendationEngine {
     private fun sumCounts(values: List<Int>): Int =
         values.sumOf { it.toLong().coerceAtLeast(0L) }.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
 
-    /** A ranked pick with the strings [select] compares, normalised once instead of once per slot. */
-    private class SelectCandidate(val pick: Pick, val artist: String, val albumKey: String?)
-
     /** Interleave exploration and reduce consecutive artist/album repeats, including unknown artist IDs. */
     fun select(ranked: List<Pick>, limit: Int, explorationFraction: Float = 0.25f): List<Pick> {
         if (limit <= 0) return emptyList()
-        // distinctBy(recordingKey), keeping the first of each recording, with the keys kept for the loop below.
-        val remaining = ArrayList<SelectCandidate>(ranked.size)
-        val seenRecordings = HashSet<String>(ranked.size * 2)
-        for (pick in ranked) {
-            val song = pick.song
-            val artist = artistKey(song)
-            if (!seenRecordings.add("$artist|${normalize(song.title)}")) continue
-            remaining += SelectCandidate(pick, artist, if (song.album.isNotBlank()) normalize(song.album) else null)
-        }
-        val selected = ArrayList<SelectCandidate>()
+        val remaining = ranked.distinctBy { recordingKey(it.song) }.toMutableList()
+        val selected = mutableListOf<Pick>()
         val counts = mutableMapOf<String, Int>()
         val target = minOf(limit, remaining.size)
         val discoveryTarget = (target * explorationFraction.coerceIn(0f, 0.6f)).toInt()
@@ -172,49 +158,27 @@ object MusicRecommendationEngine {
         repeat(target) { slot ->
             val needsDiscovery = discoveries < discoveryTarget &&
                 (slot % 3 == 2 || target - slot <= discoveryTarget - discoveries)
-            val pool = if (needsDiscovery) remaining.filter { it.pick.unheard }.ifEmpty { remaining } else remaining
-            val previous = selected.lastOrNull()
-            val previousArtist = previous?.artist
-            val previousAlbum = previous?.let { normalize(it.pick.song.album) }
-            val next = pool.maxByOrNull { candidate ->
-                val artist = candidate.artist
-                candidate.pick.score - (counts[artist] ?: 0) * 0.17 -
-                    (if (previous != null && artist == previousArtist) 0.3 else 0.0) -
-                    (if (previous != null && candidate.albumKey != null &&
-                        candidate.albumKey == previousAlbum && artist == previousArtist) 0.1 else 0.0)
+            val pool = if (needsDiscovery) remaining.filter { it.unheard }.ifEmpty { remaining } else remaining
+            val previous = selected.lastOrNull()?.song
+            val next = pool.maxByOrNull { pick ->
+                val artist = artistKey(pick.song)
+                pick.score - (counts[artist] ?: 0) * 0.17 -
+                    (if (previous != null && artist == artistKey(previous)) 0.3 else 0.0) -
+                    (if (previous != null && pick.song.album.isNotBlank() &&
+                        normalize(pick.song.album) == normalize(previous.album) && artist == artistKey(previous)) 0.1 else 0.0)
             } ?: return@repeat
             selected += next
-            // Recordings are unique here, so the first match is `next` itself (identity equality).
             remaining.remove(next)
-            counts.merge(next.artist, 1, Int::plus)
-            if (next.pick.unheard) discoveries++
+            counts.merge(artistKey(next.song), 1, Int::plus)
+            if (next.unheard) discoveries++
         }
-        return selected.map { it.pick }
+        return selected
     }
 
     fun artistKey(song: Song): String = normalize(song.artist).ifBlank { "unknown:${song.id}" }
     private fun genreKey(song: Song): String? = song.genre?.let(::normalize)?.takeUnless { it.isBlank() || it == "unknown" }
     fun recordingKey(song: Song): String = "${artistKey(song)}|${normalize(song.title)}"
-    private val WHITESPACE_RUN = Regex("\\s+")
-
-    private fun normalize(value: String): String {
-        val folded = Normalizer.normalize(value, Normalizer.Form.NFKC).lowercase(Locale.ROOT)
-        // Replacing `\s+` with " " does nothing unless a whitespace run is not already a single
-        // plain space, so most names skip the regex entirely (it used to be compiled again on
-        // every single call).
-        val collapsed = if (needsWhitespaceCollapse(folded)) folded.replace(WHITESPACE_RUN, " ") else folded
-        return collapsed.trim()
-    }
-
-    /** True if [value] has a whitespace run (ASCII `\s` only, like the regex) that is not one plain space. */
-    private fun needsWhitespaceCollapse(value: String): Boolean {
-        var previousWasWhitespace = false
-        for (c in value) {
-            val whitespace = c == ' ' || c == '\t' || c == '\n' || c == '\u000B' || c == '\u000C' || c == '\r'
-            if (whitespace && (c != ' ' || previousWasWhitespace)) return true
-            previousWasWhitespace = whitespace
-        }
-        return false
-    }
+    private fun normalize(value: String): String = Normalizer.normalize(value, Normalizer.Form.NFKC)
+        .lowercase(Locale.ROOT).replace(Regex("\\s+"), " ").trim()
     private const val DAY = 86_400_000L
 }

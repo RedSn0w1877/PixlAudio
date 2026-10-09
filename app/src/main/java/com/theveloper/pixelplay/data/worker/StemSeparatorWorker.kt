@@ -166,7 +166,7 @@ class StemSeparatorWorker @AssistedInject constructor(
                         addTag(AUTO_STUDIO_WORK_TAG)
                         addTag(AUTO_INSTRUMENTAL_TAG)
                         addTag(AUTO_SONG_TAG_PREFIX + songId)
-                        setConstraints(Constraints.Builder().setRequiresBatteryNotLow(true).setRequiresStorageNotLow(true).build())
+                        setConstraints(automaticStudioConstraints())
                     }
                 }
                 .addTag(PIXELPLAY_JOB_TAG)

@@ -208,8 +208,14 @@ class SettingsViewModel @Inject constructor(
     private val musicRepository: MusicRepository,
     private val backupManager: BackupManager,
     private val audioCacheManager: com.theveloper.pixelplay.data.cache.AudioCacheManager,
+    private val playbackStatsRepository: com.theveloper.pixelplay.data.stats.PlaybackStatsRepository,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
+
+    /** Developer › Regenerate stats: every live stats screen rebuilds its summaries from the recorded plays. */
+    fun requestStatsRefresh() {
+        playbackStatsRepository.requestRefresh()
+    }
 
     /**
      * Se mantiene fuera de [SettingsUiState] a propósito: ese estado se compone con un `combine`

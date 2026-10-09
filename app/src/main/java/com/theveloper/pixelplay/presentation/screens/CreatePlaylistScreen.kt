@@ -214,7 +214,10 @@ fun CreatePlaylistDialog(
     visible: Boolean,
     onDismiss: () -> Unit,
     onGenerateClick: () -> Unit,
-    onCreate: (String, String?, Int?, String?, List<String>, Float, Float, Float, String?, Float?, Float?, Float?, Float?, String?) -> Unit
+    onCreate: (String, String?, Int?, String?, List<String>, Float, Float, Float, String?, Float?, Float?, Float?, Float?, String?) -> Unit,
+    // Must be the activity-scoped instance: a hiltViewModel() default here would build a second
+    // PlayerViewModel (and re-initialise every singleton holder) inside the nav back stack entry.
+    playerViewModel: PlayerViewModel
 ) {
     val transitionState = remember { MutableTransitionState(false) }
     transitionState.targetState = visible
@@ -236,7 +239,8 @@ fun CreatePlaylistDialog(
                 CreatePlaylistContent(
                     onDismiss = onDismiss,
                     onGenerateClick = onGenerateClick,
-                    onCreate = onCreate
+                    onCreate = onCreate,
+                    playerViewModel = playerViewModel
                 )
             }
         }
@@ -301,7 +305,7 @@ private fun CreatePlaylistContent(
     onDismiss: () -> Unit,
     onGenerateClick: () -> Unit,
     onCreate: (String, String?, Int?, String?, List<String>, Float, Float, Float, String?, Float?, Float?, Float?, Float?, String?) -> Unit,
-    playerViewModel: PlayerViewModel = hiltViewModel()
+    playerViewModel: PlayerViewModel
 ) {
     val context = LocalContext.current
 

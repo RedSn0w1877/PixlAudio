@@ -80,6 +80,71 @@ class AutomaticStudioPolicyTest {
         assertEquals(0L, restarted.until("INSTRUMENTAL:song"))
     }
 
+    @Test fun `the re-check loop and the work query stay quiet while music plays, the app is open or the feature is off`() {
+        assertTrue(AutomaticStudioPolicy.shouldPoll(enabled = true, playbackActive = false, appVisible = false))
+        assertFalse(AutomaticStudioPolicy.shouldPoll(enabled = false, playbackActive = false, appVisible = false))
+        assertFalse(AutomaticStudioPolicy.shouldPoll(enabled = true, playbackActive = true, appVisible = false))
+        assertFalse(AutomaticStudioPolicy.shouldPoll(enabled = true, playbackActive = false, appVisible = true))
+
+        // A scan that cannot schedule only reads WorkManager when an automatic job may still be running.
+        assertFalse(AutomaticStudioPolicy.scanNeedsWorkQuery(enabled = true, playbackActive = true, appVisible = false, automaticMayBeRunning = false))
+        assertFalse(AutomaticStudioPolicy.scanNeedsWorkQuery(enabled = false, playbackActive = false, appVisible = false, automaticMayBeRunning = false))
+        assertFalse(AutomaticStudioPolicy.scanNeedsWorkQuery(enabled = true, playbackActive = false, appVisible = true, automaticMayBeRunning = false))
+        assertTrue(AutomaticStudioPolicy.scanNeedsWorkQuery(enabled = true, playbackActive = true, appVisible = false, automaticMayBeRunning = true))
+        assertTrue(AutomaticStudioPolicy.scanNeedsWorkQuery(enabled = false, playbackActive = false, appVisible = false, automaticMayBeRunning = true))
+        assertTrue(AutomaticStudioPolicy.scanNeedsWorkQuery(enabled = true, playbackActive = false, appVisible = false, automaticMayBeRunning = false))
+    }
+
+    private class FakeBudgetStore : AutomaticStudioBudget.Store {
+        var saved: Pair<Long, Int>? = null
+        override fun load() = saved
+        override fun save(windowStartedMs: Long, jobs: Int) { saved = windowStartedMs to jobs }
+    }
+
+    @Test fun `the job budget survives a new process instead of starting full again`() {
+        val store = FakeBudgetStore()
+        val firstProcess = AutomaticStudioBudget(store)
+        firstProcess.recordJob(1_000)
+        firstProcess.recordJob(2_000)
+        assertEquals(2, firstProcess.jobsInWindow(3_000))
+
+        val secondProcess = AutomaticStudioBudget(store)
+        assertEquals(2, secondProcess.jobsInWindow(4_000))
+        secondProcess.recordJob(5_000)
+        assertEquals(3, AutomaticStudioBudget(store).jobsInWindow(6_000))
+    }
+
+    @Test fun `the budget window rolls over after six hours or when the clock goes backwards`() {
+        val store = FakeBudgetStore()
+        val budget = AutomaticStudioBudget(store)
+        budget.recordJob(1_000)
+        budget.recordJob(1_000)
+        assertEquals(2, budget.jobsInWindow(1_000 + AutomaticStudioPolicy.BACKGROUND_WINDOW_MS - 1))
+        assertEquals(0, budget.jobsInWindow(1_000 + AutomaticStudioPolicy.BACKGROUND_WINDOW_MS))
+
+        budget.recordJob(10_000_000_000L)
+        assertEquals(1, budget.jobsInWindow(10_000_000_001L))
+        assertEquals(0, budget.jobsInWindow(5L)) // clock moved backwards
+    }
+
+    @Test fun `a job cut at its time budget waits hours before it is tried again`() {
+        assertTrue(AutomaticStudioPolicy.TIMEOUT_COOLDOWN_MS >= 6 * 60 * 60_000L)
+        assertTrue(AutomaticStudioPolicy.TIMEOUT_COOLDOWN_MS > AutomaticStudioPolicy.DEFERRED_COOLDOWN_MS)
+    }
+
+    @Test fun `an idle library walk is not repeated until something relevant changes`() {
+        val memo = IdleWalkMemo(ttlMs = 10_000)
+        assertFalse(memo.shouldSkipWalk(100)) // never walked yet
+        memo.markNothingToDo(100)
+        assertTrue(memo.shouldSkipWalk(101))
+        assertTrue(memo.shouldSkipWalk(10_099))
+        assertFalse(memo.shouldSkipWalk(10_100)) // the answer is re-checked after the ttl
+        memo.markNothingToDo(20_000)
+        assertTrue(memo.shouldSkipWalk(20_001))
+        memo.invalidate() // song changed, setting toggled, job finished...
+        assertFalse(memo.shouldSkipWalk(20_002))
+    }
+
     @Test fun `ledger keeps its bound on load and update without evicting the latest attempt`() {
         val ledger = AutomaticStudioCooldowns(mapOf("old" to 1L, "middle" to 2L, "new" to 3L), capacity = 2)
         assertEquals(setOf("middle", "new"), ledger.snapshot().keys)

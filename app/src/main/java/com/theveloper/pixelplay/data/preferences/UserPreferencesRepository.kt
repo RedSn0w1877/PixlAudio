@@ -24,10 +24,14 @@ import com.theveloper.pixelplay.data.model.StorageFilter
 import com.theveloper.pixelplay.data.model.TransitionSettings
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -125,14 +129,21 @@ data class AdvancedPerformanceDiagnosticsSettings(
 @Singleton
 class UserPreferencesRepository @Inject constructor(
     private val dataStore: DataStore<Preferences>,
-    private val json: Json
+    private val json: Json,
+    /** Where the saved playback queue lives (see [PlaybackQueueDataStore]); not the settings file. */
+    @PlaybackQueueDataStore private val queueDataStore: DataStore<Preferences>
 ) {
+
+    /** For tools and tests that only have one store: the queue then stays in it, exactly as it used to. */
+    constructor(dataStore: DataStore<Preferences>, json: Json) : this(dataStore, json, dataStore)
 
     private val backupExcludedKeyNames = setOf(
         PreferencesKeys.INITIAL_SETUP_DONE.name,
         // Device-local: the downloaded AI model itself is in noBackupFilesDir, so a restored
         // switch would point at a file that isn't there (and a restore must not clear it either).
-        AiPreferencesRepository.DOWNLOADED_MODEL_ENABLED_KEY
+        AiPreferencesRepository.DOWNLOADED_MODEL_ENABLED_KEY,
+        // Derived data (the generated accent scheme): rebuilt on demand, never worth exporting.
+        ThemePreferencesRepository.ACCENT_SCHEME_CACHE_KEY
     )
 
     // ─── Preference keys ────────────────────────────────────────────────────
@@ -322,7 +333,7 @@ class UserPreferencesRepository @Inject constructor(
 
     /** Shorthand to map a single value out of the DataStore. */
     private fun <T> pref(transform: (Preferences) -> T): Flow<T> =
-        dataStore.data.map(transform)
+        dataStore.prefFlow(transform)
 
     /** Decode a JSON string preference, returning [default] on missing or malformed data. */
     private inline fun <reified T> decodeJsonPref(
@@ -542,24 +553,70 @@ class UserPreferencesRepository @Inject constructor(
         dataStore.edit { it[PreferencesKeys.SHOW_QUEUE_HISTORY] = show }
     }
 
-    val playbackQueueSnapshotFlow: Flow<PlaybackQueueSnapshot?> =
-        pref { preferences ->
-            preferences[PreferencesKeys.PLAYBACK_QUEUE_SNAPSHOT]?.let { raw ->
-                runCatching { json.decodeFromString<PlaybackQueueSnapshot>(raw) }.getOrNull()
-            }
-        }
+    private fun decodeQueueSnapshot(raw: String?): PlaybackQueueSnapshot? =
+        raw?.let { runCatching { json.decodeFromString<PlaybackQueueSnapshot>(it) }.getOrNull() }
 
-    suspend fun getPlaybackQueueSnapshotOnce(): PlaybackQueueSnapshot? =
-        playbackQueueSnapshotFlow.first()
+    val playbackQueueSnapshotFlow: Flow<PlaybackQueueSnapshot?> =
+        queueDataStore.prefFlow { preferences -> decodeQueueSnapshot(preferences[PreferencesKeys.PLAYBACK_QUEUE_SNAPSHOT]) }
+
+    private val queueMigrationLock = Mutex()
+    @Volatile private var queueMigrated = false
+
+    /**
+     * One-time move of a queue saved by an earlier version, from the `settings` key to the queue store.
+     * Write first, remove second: a crash in between leaves the queue in both places (never in neither),
+     * and the next call finishes the job. A queue already present in the new store is newer and wins.
+     */
+    private suspend fun migrateLegacyQueueSnapshot() {
+        if (queueMigrated || queueDataStore === dataStore) return
+        queueMigrationLock.withLock {
+            if (queueMigrated) return
+            val legacy = dataStore.data.first()[PreferencesKeys.PLAYBACK_QUEUE_SNAPSHOT]
+            if (legacy != null) {
+                queueDataStore.edit { preferences ->
+                    if (preferences[PreferencesKeys.PLAYBACK_QUEUE_SNAPSHOT] == null) {
+                        preferences[PreferencesKeys.PLAYBACK_QUEUE_SNAPSHOT] = legacy
+                    }
+                }
+                dataStore.edit { preferences -> preferences.remove(PreferencesKeys.PLAYBACK_QUEUE_SNAPSHOT) }
+            }
+            queueMigrated = true
+        }
+    }
+
+    suspend fun getPlaybackQueueSnapshotOnce(): PlaybackQueueSnapshot? {
+        // A failed move is retried next time; meanwhile the queue is still readable from where it was.
+        runCatching { migrateLegacyQueueSnapshot() }
+        return withContext(Dispatchers.Default) {
+            playbackQueueSnapshotFlow.first()
+                ?: if (queueDataStore !== dataStore) {
+                    decodeQueueSnapshot(dataStore.data.first()[PreferencesKeys.PLAYBACK_QUEUE_SNAPSHOT])
+                } else {
+                    null
+                }
+        }
+    }
 
     suspend fun setPlaybackQueueSnapshot(snapshot: PlaybackQueueSnapshot?) {
-        dataStore.edit { preferences ->
-            if (snapshot == null || snapshot.items.isEmpty()) {
+        runCatching { migrateLegacyQueueSnapshot() }
+        // Encoded before the store's single writer is entered, so the multi-MB string is not built inside it.
+        val encoded = if (snapshot == null || snapshot.items.isEmpty()) {
+            null
+        } else {
+            withContext(Dispatchers.Default) { json.encodeToString(snapshot) }
+        }
+        queueDataStore.edit { preferences ->
+            if (encoded == null) {
                 preferences.remove(PreferencesKeys.PLAYBACK_QUEUE_SNAPSHOT)
             } else {
-                preferences[PreferencesKeys.PLAYBACK_QUEUE_SNAPSHOT] = json.encodeToString(snapshot)
+                preferences[PreferencesKeys.PLAYBACK_QUEUE_SNAPSHOT] = encoded
             }
         }
+    }
+
+    /** The queue store holds nothing but the queue: a settings reset / restore that wipes the queue key wipes it. */
+    private suspend fun clearQueueStore() {
+        if (queueDataStore !== dataStore) queueDataStore.edit { it.clear() }
     }
 
     // ─── Full player loading tweaks ───────────────────────────────────────────
@@ -791,7 +848,7 @@ suspend fun markDirectoryRulesVersionApplied(version: Int) {
     }
 
     val dailyMixSongIdsFlow: Flow<List<String>> =
-            dataStore.data.map { preferences ->
+            dataStore.prefFlow { preferences ->
                 val jsonString = preferences[PreferencesKeys.DAILY_MIX_SONG_IDS]
                 if (jsonString != null) {
                     try {
@@ -811,7 +868,7 @@ suspend fun markDirectoryRulesVersionApplied(version: Int) {
     }
 
     val yourMixSongIdsFlow: Flow<List<String>> =
-            dataStore.data.map { preferences ->
+            dataStore.prefFlow { preferences ->
                 val jsonString = preferences[PreferencesKeys.YOUR_MIX_SONG_IDS]
                 if (jsonString != null) {
                     try {
@@ -831,7 +888,7 @@ suspend fun markDirectoryRulesVersionApplied(version: Int) {
     }
 
     val isGenreGridViewFlow: Flow<Boolean> =
-        dataStore.data.map { preferences ->
+        dataStore.prefFlow { preferences ->
             preferences[PreferencesKeys.IS_GENRE_GRID_VIEW] ?: true
         }
 
@@ -842,7 +899,7 @@ suspend fun markDirectoryRulesVersionApplied(version: Int) {
     }
 
     val isAlbumsListViewFlow: Flow<Boolean> =
-        dataStore.data.map { preferences ->
+        dataStore.prefFlow { preferences ->
             preferences[PreferencesKeys.IS_ALBUMS_LIST_VIEW] ?: false
         }
 
@@ -853,7 +910,7 @@ suspend fun markDirectoryRulesVersionApplied(version: Int) {
     }
 
     val lastDailyMixUpdateFlow: Flow<Long> =
-            dataStore.data.map { preferences ->
+            dataStore.prefFlow { preferences ->
                 preferences[PreferencesKeys.LAST_DAILY_MIX_UPDATE] ?: 0L
             }
 
@@ -864,7 +921,7 @@ suspend fun markDirectoryRulesVersionApplied(version: Int) {
     }
 
     val minSongDurationFlow: Flow<Int> =
-        dataStore.data.map { preferences ->
+        dataStore.prefFlow { preferences ->
             (preferences[PreferencesKeys.MIN_SONG_DURATION] ?: 10000).coerceIn(0, 120000)
         }
 
@@ -879,7 +936,7 @@ suspend fun markDirectoryRulesVersionApplied(version: Int) {
     }
 
     val minTracksPerAlbumFlow: Flow<Int> =
-        dataStore.data.map { preferences ->
+        dataStore.prefFlow { preferences ->
             preferences[PreferencesKeys.MIN_TRACKS_PER_ALBUM] ?: 1
         }
 
@@ -890,12 +947,12 @@ suspend fun markDirectoryRulesVersionApplied(version: Int) {
     }
 
     val replayGainEnabledFlow: Flow<Boolean> =
-        dataStore.data.map { preferences ->
+        dataStore.prefFlow { preferences ->
             preferences[PreferencesKeys.REPLAYGAIN_ENABLED] ?: false
         }
 
     val replayGainUseAlbumGainFlow: Flow<Boolean> =
-        dataStore.data.map { preferences ->
+        dataStore.prefFlow { preferences ->
             preferences[PreferencesKeys.REPLAYGAIN_USE_ALBUM_GAIN] ?: false
         }
 
@@ -914,7 +971,7 @@ suspend fun markDirectoryRulesVersionApplied(version: Int) {
     // ─── Pause on volume zero ─────────────────────────────────────────────────
 
     val pauseOnVolumeZeroFlow: Flow<Boolean> =
-        dataStore.data.map { preferences ->
+        dataStore.prefFlow { preferences ->
             preferences[PreferencesKeys.PAUSE_ON_VOLUME_ZERO] ?: false
         }
 
@@ -925,7 +982,7 @@ suspend fun markDirectoryRulesVersionApplied(version: Int) {
     }
 
     val showScrollbarFlow: Flow<Boolean> =
-        dataStore.data.map { preferences ->
+        dataStore.prefFlow { preferences ->
             preferences[PreferencesKeys.SHOW_SCROLLBAR] ?: true
         }
 
@@ -1367,8 +1424,7 @@ suspend fun markDirectoryRulesVersionApplied(version: Int) {
         }
     }
 
-    val disableBlurAllOverFlow: Flow<Boolean> = dataStore.data
-        .map { preferences ->
+    val disableBlurAllOverFlow: Flow<Boolean> = dataStore.prefFlow { preferences ->
             preferences[PreferencesKeys.DISABLE_BLUR_ALL_OVER] ?: false
         }
 
@@ -1524,6 +1580,7 @@ suspend fun markDirectoryRulesVersionApplied(version: Int) {
 
     suspend fun clearPreferencesByKeys(keyNames: Set<String>) {
         if (keyNames.isEmpty()) return
+        if (PreferencesKeys.PLAYBACK_QUEUE_SNAPSHOT.name in keyNames) clearQueueStore()
         dataStore.edit { preferences ->
             preferences.asMap().keys
                 .filter { key -> key.name in keyNames && key.name !in backupExcludedKeyNames }
@@ -1536,6 +1593,7 @@ suspend fun markDirectoryRulesVersionApplied(version: Int) {
 
     suspend fun clearPreferencesExceptKeys(excludedKeyNames: Set<String>) {
         val protected = excludedKeyNames + backupExcludedKeyNames
+        if (PreferencesKeys.PLAYBACK_QUEUE_SNAPSHOT.name !in protected) clearQueueStore()
         dataStore.edit { preferences ->
             preferences.asMap().keys
                 .filterNot { key -> key.name in protected }
@@ -1586,6 +1644,9 @@ suspend fun markDirectoryRulesVersionApplied(version: Int) {
         entries: List<PreferenceBackupEntry>,
         clearExisting: Boolean = true
     ) {
+        if (clearExisting) clearQueueStore()
+        // An old backup may carry a queue under the settings key: let the next access move it over.
+        queueMigrated = false
         dataStore.edit { preferences ->
             if (clearExisting) {
                 preferences.asMap().keys

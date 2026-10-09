@@ -39,7 +39,7 @@ class EqualizerPreferencesRepository @Inject constructor(
         val PINNED_PRESETS = stringPreferencesKey("pinned_presets_json")
     }
 
-    val equalizerViewModeFlow: Flow<EqualizerViewMode> = dataStore.data.map { preferences ->
+    val equalizerViewModeFlow: Flow<EqualizerViewMode> = dataStore.prefFlow { preferences ->
         val modeString = preferences[Keys.VIEW_MODE]
         if (modeString != null) {
             try {
@@ -53,15 +53,15 @@ class EqualizerPreferencesRepository @Inject constructor(
         }
     }
 
-    val equalizerEnabledFlow: Flow<Boolean> = dataStore.data.map { preferences ->
+    val equalizerEnabledFlow: Flow<Boolean> = dataStore.prefFlow { preferences ->
         preferences[Keys.EQUALIZER_ENABLED] ?: false
     }
 
-    val equalizerPresetFlow: Flow<String> = dataStore.data.map { preferences ->
+    val equalizerPresetFlow: Flow<String> = dataStore.prefFlow { preferences ->
         preferences[Keys.EQUALIZER_PRESET] ?: "flat"
     }
 
-    val equalizerCustomBandsFlow: Flow<List<Int>> = dataStore.data.map { preferences ->
+    val equalizerCustomBandsFlow: Flow<List<Int>> = dataStore.prefFlow { preferences ->
         val stored = preferences[Keys.EQUALIZER_CUSTOM_BANDS]
         if (stored != null) {
             try {
@@ -79,43 +79,43 @@ class EqualizerPreferencesRepository @Inject constructor(
         }
     }
 
-    val bassBoostStrengthFlow: Flow<Int> = dataStore.data.map { preferences ->
+    val bassBoostStrengthFlow: Flow<Int> = dataStore.prefFlow { preferences ->
         preferences[Keys.BASS_BOOST_STRENGTH] ?: 0
     }
 
-    val virtualizerStrengthFlow: Flow<Int> = dataStore.data.map { preferences ->
+    val virtualizerStrengthFlow: Flow<Int> = dataStore.prefFlow { preferences ->
         preferences[Keys.VIRTUALIZER_STRENGTH] ?: 0
     }
 
-    val bassBoostEnabledFlow: Flow<Boolean> = dataStore.data.map { preferences ->
+    val bassBoostEnabledFlow: Flow<Boolean> = dataStore.prefFlow { preferences ->
         preferences[Keys.BASS_BOOST_ENABLED] ?: false
     }
 
-    val virtualizerEnabledFlow: Flow<Boolean> = dataStore.data.map { preferences ->
+    val virtualizerEnabledFlow: Flow<Boolean> = dataStore.prefFlow { preferences ->
         preferences[Keys.VIRTUALIZER_ENABLED] ?: false
     }
 
-    val loudnessEnhancerEnabledFlow: Flow<Boolean> = dataStore.data.map { preferences ->
+    val loudnessEnhancerEnabledFlow: Flow<Boolean> = dataStore.prefFlow { preferences ->
         preferences[Keys.LOUDNESS_ENHANCER_ENABLED] ?: false
     }
 
-    val loudnessEnhancerStrengthFlow: Flow<Int> = dataStore.data.map { preferences ->
+    val loudnessEnhancerStrengthFlow: Flow<Int> = dataStore.prefFlow { preferences ->
         (preferences[Keys.LOUDNESS_ENHANCER_STRENGTH] ?: 0).coerceIn(0, 1000)
     }
 
-    val bassBoostDismissedFlow: Flow<Boolean> = dataStore.data.map { preferences ->
+    val bassBoostDismissedFlow: Flow<Boolean> = dataStore.prefFlow { preferences ->
         preferences[Keys.BASS_BOOST_DISMISSED] ?: false
     }
 
-    val virtualizerDismissedFlow: Flow<Boolean> = dataStore.data.map { preferences ->
+    val virtualizerDismissedFlow: Flow<Boolean> = dataStore.prefFlow { preferences ->
         preferences[Keys.VIRTUALIZER_DISMISSED] ?: false
     }
 
-    val loudnessDismissedFlow: Flow<Boolean> = dataStore.data.map { preferences ->
+    val loudnessDismissedFlow: Flow<Boolean> = dataStore.prefFlow { preferences ->
         preferences[Keys.LOUDNESS_DISMISSED] ?: false
     }
 
-    val customPresetsFlow: Flow<List<EqualizerPreset>> = dataStore.data.map { preferences ->
+    val customPresetsFlow: Flow<List<EqualizerPreset>> = dataStore.prefFlow { preferences ->
         val jsonString = preferences[Keys.CUSTOM_PRESETS]
         if (jsonString != null) {
             try {
@@ -128,7 +128,7 @@ class EqualizerPreferencesRepository @Inject constructor(
         }
     }
 
-    val pinnedPresetsFlow: Flow<List<String>> = dataStore.data.map { preferences ->
+    val pinnedPresetsFlow: Flow<List<String>> = dataStore.prefFlow { preferences ->
         val jsonString = preferences[Keys.PINNED_PRESETS]
         if (jsonString != null) {
             try {

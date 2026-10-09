@@ -202,7 +202,6 @@ fun SettingsCategoryScreen(
     navController: NavController,
     playerViewModel: PlayerViewModel,
     settingsViewModel: SettingsViewModel = hiltViewModel(),
-    statsViewModel: com.theveloper.pixelplay.presentation.viewmodel.StatsViewModel = hiltViewModel(),
     onBackClick: () -> Unit
 ) {
     val category = SettingsCategory.fromId(categoryId) ?: return
@@ -2133,7 +2132,9 @@ fun SettingsCategoryScreen(
                 TextButton(
                     onClick = {
                         showRegenerateStatsDialog = false
-                        statsViewModel.forceRegenerateStats()
+                        // Not a StatsViewModel: building one here loaded the whole library and computed
+                        // the listening stats on every Settings category, for this one button.
+                        settingsViewModel.requestStatsRefresh()
                         Toast.makeText(context, toastStatsRegenerationStarted, Toast.LENGTH_SHORT).show()
                     }
                 ) {

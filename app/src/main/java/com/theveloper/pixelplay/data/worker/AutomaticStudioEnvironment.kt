@@ -8,6 +8,7 @@ import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.BatteryManager
 import android.os.PowerManager
+import androidx.work.Constraints
 import androidx.work.ListenableWorker
 import androidx.work.workDataOf
 import com.theveloper.pixelplay.data.cache.AudioCacheManager
@@ -30,6 +31,18 @@ internal const val AUTO_INSTRUMENTAL_TAG = "automatic_studio_instrumental"
 internal const val AUTO_SONG_TAG_PREFIX = "automatic_studio_song_"
 internal const val INPUT_AUTOMATIC_STUDIO = "automatic_studio"
 internal const val OUTPUT_AUTOMATIC_DEFERRED = "automatic_studio_deferred"
+/** Set (with [OUTPUT_AUTOMATIC_DEFERRED]) when a job was cut at its time budget, so it is not retried within minutes. */
+internal const val OUTPUT_AUTOMATIC_TIMED_OUT = "automatic_studio_timed_out"
+
+/**
+ * Constraints of every unattended job. Stem separation and forced alignment keep several cores busy
+ * for minutes, so they only start on a charger (the sweep that finds them has the same constraint).
+ */
+internal fun automaticStudioConstraints(): Constraints = Constraints.Builder()
+    .setRequiresCharging(true)
+    .setRequiresBatteryNotLow(true)
+    .setRequiresStorageNotLow(true)
+    .build()
 
 /** Shared by the coordinator and workers, so a restarted background process defaults to idle. */
 @Singleton
@@ -96,7 +109,7 @@ class AutomaticStudioEnvironment @Inject constructor(@ApplicationContext private
                         result
                     } finally { watchdog.cancel() }
                 }
-            } ?: deferredResult("Taking a break; automatic processing reached its time budget")
+            } ?: deferredResult("Taking a break; automatic processing reached its time budget", timedOut = true)
         } catch (deferred: Deferred) {
             deferredResult(deferred.message.orEmpty())
         }
@@ -105,8 +118,9 @@ class AutomaticStudioEnvironment @Inject constructor(@ApplicationContext private
     private class Deferred(message: String) : Exception(message)
 
     internal companion object {
-        fun deferredResult(reason: String): ListenableWorker.Result = ListenableWorker.Result.success(workDataOf(
+        fun deferredResult(reason: String, timedOut: Boolean = false): ListenableWorker.Result = ListenableWorker.Result.success(workDataOf(
             OUTPUT_AUTOMATIC_DEFERRED to true,
+            OUTPUT_AUTOMATIC_TIMED_OUT to timedOut,
             TaisStudioWorker.OUTPUT_DETAIL to reason
         ))
 

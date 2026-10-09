@@ -27,4 +27,28 @@ class AutomaticStudioRequestTest {
             assertTrue(request.workSpec.constraints.requiresStorageNotLow())
         }
     }
+
+    @Test fun `unattended DSP jobs only start on a charger`() {
+        val lyrics = TaisStudioWorker.buildRequest("song", "content://media/song", automatic = true)
+        val stems = StemSeparatorWorker.buildRequest("song", "content://media/song", automatic = true)
+        for (request in listOf(lyrics, stems)) {
+            assertTrue(request.workSpec.constraints.requiresCharging())
+        }
+    }
+
+    @Test fun `manual jobs are not held back by the charger constraint`() {
+        val lyrics = TaisStudioWorker.buildRequest("song", "content://media/song")
+        val stems = StemSeparatorWorker.buildRequest("song", "content://media/song")
+        for (request in listOf(lyrics, stems)) {
+            assertFalse(request.workSpec.constraints.requiresCharging())
+        }
+    }
+
+    @Test fun `the background sweep wakes the process rarely and only on a charger`() {
+        val sweep = AutomaticStudioManager.buildSweepRequest()
+        assertTrue(sweep.workSpec.constraints.requiresCharging())
+        assertTrue(sweep.workSpec.constraints.requiresBatteryNotLow())
+        assertTrue(sweep.workSpec.constraints.requiresStorageNotLow())
+        assertTrue(sweep.workSpec.intervalDuration >= 2 * 60 * 60_000L, "interval ${sweep.workSpec.intervalDuration} ms")
+    }
 }
