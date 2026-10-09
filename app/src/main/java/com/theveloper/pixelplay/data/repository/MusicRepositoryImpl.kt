@@ -126,8 +126,17 @@ class MusicRepositoryImpl @Inject constructor(
     @Volatile private var currentSongArtistPrefetchJob: Job? = null
     @Volatile private var currentSongArtistPrefetchSongId: Long? = null
 
-    private fun normalizePath(path: String): String =
-        runCatching { File(path).canonicalPath }.getOrElse { File(path).absolutePath }
+    // canonicalPath is a filesystem call; the directory filter normalises every song folder on every
+    // flow subscription and search, so each distinct path is resolved once.
+    private val normalizedPaths = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+    private fun normalizePath(path: String): String {
+        normalizedPaths[path]?.let { return it }
+        val resolved = runCatching { File(path).canonicalPath }.getOrElse { File(path).absolutePath }
+        if (normalizedPaths.size > 4_096) normalizedPaths.clear()
+        normalizedPaths[path] = resolved
+        return resolved
+    }
 
     /** Cached directory filter — recomputed when allowed/blocked dirs preferences change or when the set of song folders changes. */
     data class CachedDirFilter(val allowedParentDirs: List<String> = emptyList(), val applyFilter: Boolean = false)
