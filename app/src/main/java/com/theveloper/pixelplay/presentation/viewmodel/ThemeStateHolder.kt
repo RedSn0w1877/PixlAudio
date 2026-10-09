@@ -87,7 +87,7 @@ class ThemeStateHolder @Inject constructor(
             ?: AccentColorSchemes.pairFor(seed)
         // generateAccentColorSchemePair swallows failures into the static scheme: never save that one.
         if (saved == null && pair.light !== LightColorScheme) {
-            appScope.launch(Dispatchers.Default) {
+            appScope.launch {
                 runCatching { themePreferencesRepository.setAccentSchemeCache(AccentSchemeCodec.encode(hex, pair)) }
             }
         }

@@ -127,15 +127,9 @@ class ThemeStateHolderSchemeReuseTest {
             )
             val resolved = holder.accentScheme.filterNotNull().first { it.hex == "#654321" }
 
-            // The save runs off the resolve path, on a real background thread: wait for it.
-            var saved: String? = null
-            val deadline = System.nanoTime() + 5_000_000_000L
-            while (saved == null && System.nanoTime() < deadline) {
-                // DataStore's writer runs on the test scheduler: let it work between polls.
-                testScheduler.advanceUntilIdle()
-                saved = themes.accentSchemeCache()
-                if (saved == null) Thread.sleep(20)
-            }
+            // The save is launched in the app scope (the test scheduler here), off the resolve path.
+            testScheduler.advanceUntilIdle()
+            val saved = themes.accentSchemeCache()
             val decoded = AccentSchemeCodec.decode(saved, "#654321")
             assertNotNull(decoded, "the generated accent scheme was not saved")
             assertTrue(resolved.pair!!.hasSameColorsAs(decoded!!))
