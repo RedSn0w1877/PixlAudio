@@ -127,7 +127,7 @@ private const val HomeLoadingPlaceholderMinDurationMillis = 1200L
 fun HomeScreen(
     navController: NavController,
     paddingValuesParent: PaddingValues,
-    playerViewModel: PlayerViewModel = hiltViewModel(),
+    playerViewModel: PlayerViewModel,
     onOpenSidebar: () -> Unit
 ) {
     val context = LocalContext.current

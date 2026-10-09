@@ -448,7 +448,7 @@ private fun PlayerUiState.toLibraryScreenProjection(): LibraryScreenPlayerProjec
 @Composable
 fun LibraryScreen(
     navController: NavController,
-    playerViewModel: PlayerViewModel = hiltViewModel(),
+    playerViewModel: PlayerViewModel,
     playlistViewModel: PlaylistViewModel = hiltViewModel(),
     libraryViewModel: LibraryViewModel = hiltViewModel(),
     songInfoBottomSheetViewModel: SongInfoBottomSheetViewModel = hiltViewModel()
@@ -1734,6 +1734,7 @@ fun LibraryScreen(
 
     CreatePlaylistDialog(
         visible = showCreatePlaylistDialog,
+        playerViewModel = playerViewModel,
         onDismiss = { showCreatePlaylistDialog = false },
         onGenerateClick = {
             showCreatePlaylistDialog = false
