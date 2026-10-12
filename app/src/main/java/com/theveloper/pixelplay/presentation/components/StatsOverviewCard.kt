@@ -64,7 +64,7 @@ fun StatsOverviewCard(
         smoothnessAsPercentBL = 60,
     )
 
-    AdaptiveGlassCard(
+    androidx.compose.material3.Card(
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp),

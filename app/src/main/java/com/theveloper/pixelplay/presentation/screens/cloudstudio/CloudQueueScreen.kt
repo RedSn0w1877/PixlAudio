@@ -49,7 +49,6 @@ import com.theveloper.pixelplay.data.cloudstudio.CloudBatchKind
 import com.theveloper.pixelplay.data.cloudstudio.CloudJobRecord
 import com.theveloper.pixelplay.data.cloudstudio.CloudJobState
 import com.theveloper.pixelplay.data.model.Song
-import com.theveloper.pixelplay.presentation.components.glassClear
 import com.theveloper.pixelplay.presentation.screens.SettingsItem
 import com.theveloper.pixelplay.presentation.viewmodel.CloudBatchOrigin
 import com.theveloper.pixelplay.presentation.viewmodel.CloudStudioViewModel
@@ -235,7 +234,7 @@ internal fun CloudJobRow(
     var menu by remember { mutableStateOf(false) }
     val failed = record.state == CloudJobState.FAILED
     Surface(
-        color = glassClear(MaterialTheme.colorScheme.surfaceContainer),
+        color = MaterialTheme.colorScheme.surfaceContainer,
         shape = RoundedCornerShape(10.dp),
         modifier = modifier
             .fillMaxWidth()

@@ -1,11 +1,5 @@
 package com.theveloper.pixelplay.presentation.components
 
-import com.kyant.shapes.RoundedRectangle
-import com.theveloper.pixelplay.ui.glass.theme.LocalGlassPalette
-import com.theveloper.pixelplay.ui.glass.controls.LocalLensBloom
-import com.theveloper.pixelplay.ui.glass.controls.AccentWash
-import com.theveloper.pixelplay.ui.glass.components.GlassPanel
-import com.theveloper.pixelplay.ui.glass.LocalGlassModeEnabled
 import androidx.compose.runtime.State
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
@@ -165,52 +159,14 @@ fun HomeGreetingCard(
         }
     }
 
-    if (LocalGlassModeEnabled.current) {
-        GlassGreetingHero(colors = colors, modifier = modifier, content = body)
-    } else {
-        Box(
-            modifier = modifier
-                .fillMaxWidth()
-                .clip(shape)
-                .background(colors.surfaceContainerHigh)
-        ) {
-            GreetingColorSweep(colorScheme = colors, enabled = ambientMotionEnabled, modifier = Modifier.matchParentSize())
-            body()
-        }
-    }
-}
-
-/**
- * Liquid Glass: NexHome's `GreetingHero` — a heavy glass panel (radius 32, strong tint, lens 24/48
- * with depth, gravity rim, lens bloom) with two static, size-cached additive washes in the page's
- * own primary / tertiary at NexHome's approved levels (0.26 top-left, 0.16 bottom-right). The
- * Material colour sweep (a forever-running loop) is not drawn in glass mode.
- */
-@Composable
-private fun GlassGreetingHero(
-    colors: ColorScheme,
-    modifier: Modifier,
-    content: @Composable () -> Unit
-) {
-    val palette = LocalGlassPalette.current
-    val washA = remember(colors.primary) { AccentWash(colors.primary, centerX = 0.08f, centerY = 0.05f, radiusFraction = 1f) }
-    val washB = remember(colors.tertiary) {
-        AccentWash(colors.tertiary, centerX = 0.95f, centerY = 0.95f, radiusFraction = 0.8f)
-    }
-    GlassPanel(
-        modifier = modifier.fillMaxWidth(),
-        shape = RoundedRectangle(32.dp),
-        tint = palette.tintStrong,
-        heavy = true,
-        refractionHeight = 24.dp,
-        refractionAmount = 48.dp,
-        enterProgress = LocalLensBloom.current,
-        onDrawSurface = {
-            washA.draw(this, 0.26f)
-            washB.draw(this, 0.16f)
-        }
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(colors.surfaceContainerHigh)
     ) {
-        content()
+        GreetingColorSweep(colorScheme = colors, enabled = ambientMotionEnabled, modifier = Modifier.matchParentSize())
+        body()
     }
 }
 
@@ -223,10 +179,8 @@ private fun GreetingExpandButton(
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
-    val glassMode = LocalGlassModeEnabled.current
     val pressScale by animateFloatAsState(
-        // Glass mode swells on press (NexHome: a press never shrinks); Material keeps its dip.
-        targetValue = if (isPressed) (if (glassMode) 1.12f else 0.85f) else 1f,
+        targetValue = if (isPressed) 0.85f else 1f,
         animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium),
         label = "greetingExpandPressScale"
     )

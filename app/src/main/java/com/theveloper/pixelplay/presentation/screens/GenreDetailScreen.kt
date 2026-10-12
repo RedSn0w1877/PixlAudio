@@ -1,7 +1,6 @@
 package com.theveloper.pixelplay.presentation.screens
 
 import com.theveloper.pixelplay.presentation.components.CollapsingHeaderHeight
-import com.theveloper.pixelplay.presentation.components.GlassAwareMaterialTheme
 import com.theveloper.pixelplay.presentation.components.rememberAppListState
 import com.theveloper.pixelplay.presentation.components.PlaybackRowState
 import androidx.compose.runtime.State
@@ -308,7 +307,7 @@ fun GenreDetailScreen(
         )
     }
 
-    GlassAwareMaterialTheme(colorScheme = genreColorScheme) {
+    MaterialTheme(colorScheme = genreColorScheme) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -476,18 +475,6 @@ fun GenreDetailScreen(
                                 showMultiSelectionSheet = true
                             },
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
-                        )
-                    }
-                } else if (com.theveloper.pixelplay.ui.glass.LocalGlassModeEnabled.current) {
-                    // Liquid Glass: the 64 dp accent-lit glass header orb instead of a tinted FAB.
-                    com.theveloper.pixelplay.presentation.components.GlassHeaderActionOrb(
-                        onClick = { showSortSheet = true },
-                        contentDescription = stringResource(R.string.common_options)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.MoreVert,
-                            contentDescription = null,
-                            modifier = Modifier.size(28.dp)
                         )
                     }
                 } else {
@@ -794,18 +781,6 @@ fun GenreCollapsibleTopBar(
     collapsedContentColor: Color
 ) {
     val solidAlpha = (collapseFraction * 2f).coerceIn(0f, 1f)
-    if (com.theveloper.pixelplay.ui.glass.LocalGlassModeEnabled.current) {
-        // Liquid Glass: NexHome's floating capsule (no glint, no collapse) with the glass back
-        // orb; the header fills with the aligned ambient as it collapses, masking the list the
-        // way the Material header's container colour does.
-        com.theveloper.pixelplay.presentation.components.GlassCollapsingTopBar(
-            title = title,
-            headerHeight = headerHeight,
-            maskAlpha = solidAlpha,
-            onBackClick = onBackPressed
-        )
-        return
-    }
     val animatedContentColor = androidx.compose.ui.graphics.lerp(
         start = contentColor,
         stop = collapsedContentColor,

@@ -99,13 +99,6 @@ fun SpotifyDashboardScreen(
 
     Scaffold(
         topBar = {
-            if (com.theveloper.pixelplay.ui.glass.LocalGlassModeEnabled.current) {
-                // Liquid Glass: NexHome's floating capsule (no glint) with the back orb.
-                com.theveloper.pixelplay.presentation.components.GlassScreenTopBar(
-                    title = "Spotify",
-                    onBackClick = onBackClick
-                )
-            } else {
                 TopAppBar(
                     title = { Text("Spotify") },
                     navigationIcon = {
@@ -114,7 +107,6 @@ fun SpotifyDashboardScreen(
                         }
                     }
                 )
-            }
         }
     ) { innerPadding ->
         LazyColumn(
@@ -757,8 +749,7 @@ private fun DiagnosticsCard(
 
 /**
  * Streaming speed (R12): the last streamed-song starts, newest first, so a slow start can be
- * read on the phone without logcat. Plain text on purpose: the same card serves Material and
- * Liquid Glass modes, and these lines are meant to be copied into a bug report.
+ * read on the phone without logcat. Plain text on purpose: these lines are meant to be copied into a bug report.
  */
 @Composable
 private fun StreamStartTimingsSection(lines: List<String>) {

@@ -45,7 +45,6 @@ import com.theveloper.pixelplay.data.ai.local.ModelFileDownloader
 import com.theveloper.pixelplay.data.ai.local.NanoStatus
 import com.theveloper.pixelplay.data.ai.local.OnDeviceFailure
 import com.theveloper.pixelplay.presentation.components.AdaptiveAlertDialog
-import com.theveloper.pixelplay.presentation.components.glassClear
 
 /** Who answers AI requests right now, for the rows' "in use" wording. */
 enum class LocalAiAnswerer { NANO, DOWNLOADED_MODEL, CLOUD }
@@ -55,8 +54,7 @@ private fun formatBytes(context: android.content.Context, bytes: Long): String =
 
 /**
  * Gemini Nano's row: whether it runs AI here, or why not, with "Get ready" when Android only
- * needs to download it. Same flat surface as [ActionSettingsItem], so glass mode (inside the
- * glass SettingsSubsection) and Material mode both render it.
+ * needs to download it. Same flat surface as [ActionSettingsItem].
  */
 @Composable
 fun GeminiNanoStatusRow(
@@ -299,7 +297,7 @@ fun DeleteModelDialog(
 @Composable
 private fun LocalAiRowSurface(content: @Composable () -> Unit) {
     Surface(
-        color = glassClear(MaterialTheme.colorScheme.surfaceContainer),
+        color = MaterialTheme.colorScheme.surfaceContainer,
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(10.dp)),

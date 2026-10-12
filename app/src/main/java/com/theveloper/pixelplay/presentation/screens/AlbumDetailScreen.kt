@@ -3,10 +3,6 @@
 package com.theveloper.pixelplay.presentation.screens
 
 import com.theveloper.pixelplay.presentation.components.CollapsingHeaderHeight
-import com.theveloper.pixelplay.presentation.components.glassAwareHeaderFill
-import com.theveloper.pixelplay.presentation.components.glassArtFade
-import com.theveloper.pixelplay.presentation.components.glassAwareOverlay
-import com.theveloper.pixelplay.presentation.components.GlassAwareMaterialTheme
 import com.theveloper.pixelplay.presentation.components.rememberAppListState
 import com.theveloper.pixelplay.presentation.components.rememberIsSongPlaying
 import com.theveloper.pixelplay.presentation.components.rememberIsCurrentSong
@@ -170,7 +166,7 @@ fun AlbumDetailScreen(
     val density = LocalDensity.current
     val coroutineScope = rememberCoroutineScope()
 
-    GlassAwareMaterialTheme(
+    MaterialTheme(
         colorScheme = albumColorScheme,
         typography = MaterialTheme.typography,
         shapes = MaterialTheme.shapes
@@ -583,12 +579,11 @@ private fun SharedAlbumTopBarProbe(
                 modifier = Modifier
                     .fillMaxSize()
                     .graphicsLayer { alpha = expandedContentAlphaState.value }
-                    .glassArtFade()
             )
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .glassAwareOverlay(headerOverlayBrush)
+                    .background(headerOverlayBrush)
             )
         }
 
@@ -628,25 +623,6 @@ private fun SharedAlbumTopBarProbe(
             syncStatusBarWithContainer = false
         )
 
-        if (com.theveloper.pixelplay.ui.glass.LocalGlassModeEnabled.current) {
-            // Liquid Glass: the shuffle FAB becomes a lit glass orb, fading with the same collapse.
-            com.theveloper.pixelplay.presentation.components.GlassHeaderActionOrb(
-                onClick = onPlayClick,
-                contentDescription = stringResource(R.string.common_shuffle_play_album),
-                modifier = Modifier
-                    .align(shuffleAlignment)
-                    .statusBarsPadding()
-                    .padding(end = 16.dp, top = 8.dp, bottom = 8.dp)
-                    .graphicsLayer {
-                        val a = expandedContentAlphaState.value
-                        scaleX = a
-                        scaleY = a
-                        alpha = a
-                    }
-            ) {
-                Icon(Icons.Rounded.Shuffle, contentDescription = null, modifier = Modifier.size(26.dp))
-            }
-        } else {
             LargeExtendedFloatingActionButton(
                 onClick = onPlayClick,
                 shape = ShuffleFabShape,
@@ -661,7 +637,6 @@ private fun SharedAlbumTopBarProbe(
                     }
             ) {
                 Icon(Icons.Rounded.Shuffle, contentDescription = stringResource(R.string.common_shuffle_play_album))
-            }
         }
     }
 }
@@ -733,12 +708,11 @@ private fun CollapsingAlbumTopBar(
     ) {
         PixelPlayStatusBarStyle(color = fallbackStatusBarColor)
 
-        val glassHeader = com.theveloper.pixelplay.ui.glass.LocalGlassModeEnabled.current
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(headerHeight)
-                .glassAwareHeaderFill(surfaceColor, backgroundAlpha)
+                .background(surfaceColor.copy(alpha = backgroundAlpha))
         ) {
             if (showExpandedArtwork) {
                 SmartImage(
@@ -748,19 +722,15 @@ private fun CollapsingAlbumTopBar(
                     targetSize = headerImageRequestSize,
                     allowHardware = true,
                     crossfadeDurationMillis = 0,
-                    // Glass: the fade is a layer alpha above glassArtFade's offscreen layer, so
-                    // collapsing never re-renders that layer (its content stays static).
-                    alpha = if (glassHeader) 1f else headerContentAlpha,
+                    alpha = headerContentAlpha,
                     onState = onHeaderArtworkState,
                     modifier = Modifier
                         .fillMaxSize()
-                        .then(if (glassHeader) Modifier.graphicsLayer { alpha = headerContentAlpha } else Modifier)
-                        .glassArtFade()
                 )
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .glassAwareOverlay(headerOverlayBrush)
+                        .background(headerOverlayBrush)
                 )
             }
             Box(

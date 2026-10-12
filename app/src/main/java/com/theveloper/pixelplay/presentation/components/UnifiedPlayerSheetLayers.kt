@@ -15,8 +15,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.CompositionLocalProvider
-import com.kyant.backdrop.backdrops.emptyBackdrop
-import com.theveloper.pixelplay.ui.glass.LocalGlassBackdrop
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -40,7 +38,6 @@ import com.theveloper.pixelplay.presentation.components.scoped.PlayerSheetFieldS
 import com.theveloper.pixelplay.presentation.components.scoped.rememberFullPlayerRuntimePolicy
 import com.theveloper.pixelplay.presentation.viewmodel.PlayerSheetState
 import com.theveloper.pixelplay.presentation.viewmodel.PlayerViewModel
-import com.theveloper.pixelplay.ui.glass.LocalGlassModeEnabled
 
 @OptIn(UnstableApi::class)
 @Composable
@@ -70,15 +67,10 @@ internal fun BoxScope.UnifiedPlayerMiniAndFullLayers(
     onQueueDrag: (Float) -> Unit,
     onQueueRelease: (Float, Float) -> Unit,
     onShowCastClicked: () -> Unit,
-    /**
-     * Glass mode: true while something opaque covers the whole player. Read in the full player's
-     * layer only; the player then stops drawing its glass underneath. Nothing passes it since the
-     * glass queue became a ~92 % see-through sheet (2026-10-07): the player shows above it now.
-     */
+    /** True while something opaque covers the whole player; the player is then hidden. */
     isFullPlayerCoveredProvider: () -> Boolean = { false }
 ) {
     val currentSongNonNull = fieldStates.currentSong.value ?: return
-    val glassMode = LocalGlassModeEnabled.current
 
     // A hidden player gets the target scheme instead of the animated one: it isn't on
     // screen, so nothing visible changes, and it doesn't recompose for every frame of the
@@ -135,25 +127,6 @@ internal fun BoxScope.UnifiedPlayerMiniAndFullLayers(
             }
             val isPlaying = fieldStates.isPlaying.value
             val connectDeviceName by playerViewModel.spotifyConnect.playingOnName.collectAsStateWithLifecycle()
-            if (glassMode) {
-                GlassMiniPlayerContent(
-                    song = currentSongNonNull,
-                    isPlaying = isPlaying,
-                    isCastConnecting = isCastConnecting,
-                    isPreparingPlayback = isPreparingPlayback,
-                    onPlayPause = { playerViewModel.playPause() },
-                    onNext = { playerViewModel.nextSong() },
-                    positionProvider = currentPositionProvider,
-                    durationProvider = fieldStates.totalDurationProvider,
-                    progressActive = isMiniPlayerVisible,
-                    // The mini player is fully transparent from 0.5: its orbs stop sampling the
-                    // ambient then (invisible, so no visible change), instead of re-rendering two
-                    // moving lenses nobody sees.
-                    glassLive = isMiniPlayerOnScreen.value,
-                    remoteDeviceName = connectDeviceName,
-                    modifier = Modifier.fillMaxSize()
-                )
-            } else {
                 MiniPlayerContentInternal(
                     song = currentSongNonNull,
                     isPlaying = isPlaying,
@@ -166,7 +139,6 @@ internal fun BoxScope.UnifiedPlayerMiniAndFullLayers(
                     remoteDeviceName = connectDeviceName,
                     modifier = Modifier.fillMaxSize()
                 )
-            }
         }
     }
 
@@ -234,17 +206,6 @@ internal fun BoxScope.UnifiedPlayerMiniAndFullLayers(
                 val onRepeatToggle = remember(playerViewModel) { playerViewModel::cycleRepeatMode }
                 val onFavoriteToggle = remember(playerViewModel) { playerViewModel::toggleFavorite }
 
-                // Glass mode: while the full player is fully transparent (below 25 % expansion, or
-                // covered by the queue's opaque scrim) its kit surfaces sample an empty backdrop,
-                // so a dozen invisible lenses don't re-render on every frame of the sheet motion.
-                // Invisible either way: nothing on screen changes.
-                val fullPlayerGlassLive by remember(fullPlayerVisualState, isFullPlayerCoveredProvider) {
-                    derivedStateOf { fullPlayerVisualState.contentAlpha > 0f && !isFullPlayerCoveredProvider() }
-                }
-                val liveGlassBackdrop = LocalGlassBackdrop.current
-                CompositionLocalProvider(
-                    LocalGlassBackdrop provides if (!glassMode || fullPlayerGlassLive) liveGlassBackdrop else emptyBackdrop()
-                ) {
                 FullPlayerContent(
                     currentSong = currentSongNonNull,
                     currentPlaybackQueue = currentPlaybackQueue,
@@ -283,7 +244,6 @@ internal fun BoxScope.UnifiedPlayerMiniAndFullLayers(
                     onRepeatToggle = onRepeatToggle,
                     onFavoriteToggle = onFavoriteToggle
                 )
-                }
             }
         }
     }

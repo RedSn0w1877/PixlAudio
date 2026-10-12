@@ -1,9 +1,5 @@
 package com.theveloper.pixelplay.presentation.components.subcomps
 
-import com.theveloper.pixelplay.ui.glass.LocalGlassModeEnabled
-import com.theveloper.pixelplay.presentation.components.rememberGlassPressIndication
-import com.theveloper.pixelplay.presentation.components.glassNowPlayingRow
-import com.theveloper.pixelplay.presentation.components.glassClear
 import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.indication
@@ -243,19 +239,14 @@ fun EnhancedSongListItem(
     }
 
     val colors = MaterialTheme.colorScheme
-    // Liquid Glass (G3): rows are flat over the ambient (no tile fill); the playing row is one
-    // light glass panel instead of the primary-container tint, so its colours stay the base ones.
-    val glassMode = LocalGlassModeEnabled.current
-    val baseContainerColor = containerColorOverride ?: glassClear(colors.surfaceContainerLow)
+    val baseContainerColor = containerColorOverride ?: colors.surfaceContainerLow
     val playbackContainerColor =
-        if (glassMode) baseContainerColor
-        else lerpColor(baseContainerColor, colors.primaryContainer, highlightProgress)
+        lerpColor(baseContainerColor, colors.primaryContainer, highlightProgress)
     val containerColor = lerpColor(playbackContainerColor, colors.secondaryContainer, selectionVisualProgress)
 
     val baseContentColor = colors.onSurface
     val playbackContentColor =
-        if (glassMode) baseContentColor
-        else lerpColor(baseContentColor, colors.onPrimaryContainer, highlightProgress)
+        lerpColor(baseContentColor, colors.onPrimaryContainer, highlightProgress)
     val contentColor = lerpColor(playbackContentColor, colors.onSecondaryContainer, selectionVisualProgress)
 
     val selectionBorderColor = lerpColor(colors.primary.copy(alpha = 0f), colors.primary, selectionVisualProgress)
@@ -333,23 +324,11 @@ fun EnhancedSongListItem(
         }
     } else {
         // Actual Song Item Layout
-        // Glass mode only: the tap gesture reports presses to the glass press indication (swell +
-        // dim glow); Material 3 mode keeps its gesture exactly as it was, with no indication.
-        val pressSource = if (glassMode) remember { MutableInteractionSource() } else null
-        val pressIndication = if (glassMode) rememberGlassPressIndication() else null
         Surface(
             modifier = modifier
                 .fillMaxWidth()
                 .scale(selectionScale)
-                .glassNowPlayingRow(isHighlighted)
                 .clip(surfaceShape)
-                .then(
-                    if (pressSource != null && pressIndication != null) {
-                        Modifier.indication(pressSource, pressIndication)
-                    } else {
-                        Modifier
-                    }
-                )
                 .then(
                     if (showSelectionDecoration) {
                         Modifier.border(
@@ -361,40 +340,8 @@ fun EnhancedSongListItem(
                         Modifier
                     }
                 )
-                .pointerInput(isSelectionMode, pressSource) {
+                .pointerInput(isSelectionMode) {
                     detectTapGestures(
-                        onPress = { offset ->
-                            if (pressSource != null) {
-                                // Like clickable inside a scrolling list: the press shows only
-                                // after the tap timeout, so a scroll or fling that starts on a
-                                // row never swells and glows it. A quicker tap still flashes it.
-                                kotlinx.coroutines.coroutineScope {
-                                    var shownPress: PressInteraction.Press? = null
-                                    val delayedPress = launch {
-                                        kotlinx.coroutines.delay(GlassRowPressDelayMs)
-                                        val press = PressInteraction.Press(offset)
-                                        shownPress = press
-                                        pressSource.emit(press)
-                                    }
-                                    val released = tryAwaitRelease()
-                                    if (delayedPress.isActive) {
-                                        delayedPress.cancel()
-                                        if (released) {
-                                            val press = PressInteraction.Press(offset)
-                                            pressSource.emit(press)
-                                            pressSource.emit(PressInteraction.Release(press))
-                                        }
-                                    } else {
-                                        shownPress?.let { press ->
-                                            pressSource.emit(
-                                                if (released) PressInteraction.Release(press)
-                                                else PressInteraction.Cancel(press)
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        },
                         onTap = { 
                             if (isSelectionMode) {
                                 // In selection mode, tap toggles selection
@@ -544,7 +491,3 @@ fun EnhancedSongListItem(
         }
     }
 }
-
-
-/** Glass mode: how long a row waits before showing its press (the platform tap timeout). */
-private val GlassRowPressDelayMs: Long = android.view.ViewConfiguration.getTapTimeout().toLong()

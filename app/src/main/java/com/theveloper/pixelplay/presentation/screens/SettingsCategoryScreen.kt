@@ -2,8 +2,6 @@ package com.theveloper.pixelplay.presentation.screens
 
 import com.theveloper.pixelplay.presentation.components.CollapsingHeaderHeight
 import com.theveloper.pixelplay.presentation.components.AdaptivePressSurface
-import com.theveloper.pixelplay.ui.glass.LocalGlassModeEnabled
-import com.theveloper.pixelplay.presentation.components.RestoreMaterialColors
 import com.theveloper.pixelplay.presentation.components.AdaptiveFullScreenDialog
 import com.theveloper.pixelplay.presentation.components.AdaptiveDialogSurface
 import com.theveloper.pixelplay.presentation.components.AdaptiveAlertDialog
@@ -2055,9 +2053,7 @@ fun SettingsCategoryScreen(
     
      // Dialogs logic (copied)
     if (showTapTimingDialog) {
-        RestoreMaterialColors {
-            LyricsTapTimingDialog(settingsViewModel = settingsViewModel, onDismiss = { showTapTimingDialog = false })
-        }
+        LyricsTapTimingDialog(settingsViewModel = settingsViewModel, onDismiss = { showTapTimingDialog = false })
     }
 
     if (showClearLyricsDialog) {
@@ -3340,15 +3336,6 @@ private fun SettingsSubsection(
     addBottomSpace: Boolean = true,
     content: @Composable () -> Unit
 ) {
-    if (LocalGlassModeEnabled.current) {
-        // Liquid Glass: NexHome's section caption over one GlassSection of flat rows.
-        GlassSettingsCaption(title)
-        GlassSettingsGroup(modifier = Modifier.fillMaxWidth(), content = content)
-        if (addBottomSpace) {
-            Spacer(modifier = Modifier.height(10.dp))
-        }
-        return
-    }
     SettingsSubsectionHeader(title)
     Column(
         modifier = Modifier

@@ -4,7 +4,6 @@ import com.theveloper.pixelplay.presentation.components.CollapsingHeaderHeight
 import com.theveloper.pixelplay.presentation.components.AdaptivePressSurface
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
-import com.theveloper.pixelplay.ui.theme.VisualStyle
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.material3.Slider
 import androidx.annotation.OptIn
@@ -343,55 +342,6 @@ fun ExperimentalSettingsScreen(
                                         }
                                     }
                                 }
-
-                            Surface(
-                                color = MaterialTheme.colorScheme.surfaceContainer,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(10.dp))
-                            ) {
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(16.dp),
-                                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                                ) {
-                                    Text(
-                                        text = stringResource(R.string.settings_exp_ui_style_title),
-                                        style = MaterialTheme.typography.titleMedium,
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    )
-                                    Text(
-                                        text = stringResource(R.string.settings_exp_ui_style_subtitle),
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                    SingleChoiceSegmentedButtonRow(
-                                        modifier = Modifier.fillMaxWidth()
-                                    ) {
-                                        val styles = listOf(
-                                            VisualStyle.LIQUID_GLASS to R.string.settings_exp_ui_style_glass,
-                                            VisualStyle.MATERIAL3 to R.string.settings_exp_ui_style_m3
-                                        )
-                                        styles.forEachIndexed { index, (value, labelRes) ->
-                                            SegmentedButton(
-                                                selected = uiState.appUiStyle == value,
-                                                onClick = { settingsViewModel.setAppUiStyle(value) },
-                                                shape = SegmentedButtonDefaults.itemShape(
-                                                    index = index,
-                                                    count = styles.size
-                                                ),
-                                                // Glass needs the blur pipeline, so the existing
-                                                // "disable blur all over" switch overrides this
-                                                // choice — greying it out beats offering a control
-                                                // that silently does nothing.
-                                                enabled = !uiState.disableBlurAllOver,
-                                                label = { Text(stringResource(labelRes)) }
-                                            )
-                                        }
-                                    }
-                                }
-                            }
 
                             Surface(
                                 color = MaterialTheme.colorScheme.surfaceContainer,
