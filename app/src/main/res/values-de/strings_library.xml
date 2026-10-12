@@ -48,8 +48,6 @@
     <string name="library_telegram_topic_mode_channels">Kanäle</string>
     <string name="library_telegram_topic_mode_topics">Themen</string>
     <string name="library_telegram_topic_mode_both">Beides</string>
-    <string name="library_cloud_sources_heading">Cloud</string>
-    <string name="library_cloud_only_label">Nur Cloud</string>
 
     <!-- Library AI Metadata Processing -->
     <string name="library_generating_ai_metadata">Metadaten werden mit KI generiert…</string>
@@ -62,7 +60,6 @@
 
     <!-- Library empty (paginated) -->
     <string name="library_no_songs_in_library_message">Keine Songs in der Bibliothek gefunden.</string>
-    <string name="library_no_songs_rescan_hint">Musik auf dem Gerät? Rescan unter Einstellungen starten.</string>
     <string name="library_cd_no_songs_in_library">Keine Songs gefunden</string>
 
     <!-- Library action row -->
@@ -94,7 +91,6 @@
 
     <!-- Library Empty State -->
     <string name="library_empty_songs_all_title">Noch keine Songs</string>
-    <string name="library_empty_songs_all_subtitle">Füge Musik zu deinem Gerät hinzu oder synchronisiere eine Cloud-Quelle, um mit dem Hören zu beginnen.</string>
     <string name="library_empty_songs_offline_title">Keine lokalen Songs gefunden</string>
     <string name="library_empty_songs_offline_subtitle">Versuche es mit einem anderen Quellenfilter oder scanne die Gerätebibliothek erneut.</string>
     <string name="library_empty_songs_online_title">Keine Cloud-Songs gefunden</string>
@@ -378,7 +374,6 @@
     <string name="playlist_creation_ai_prompt_preview_empty">Prompt erscheint hier, sobald du etwas einstellst.</string>
     <string name="playlist_creation_ai_hero_title">Präzise kuratieren</string>
     <string name="playlist_creation_ai_hero_subtitle">Stimmung, Aktivität, Filter und Tiefe festlegen.</string>
-    <string name="playlist_creation_ai_hero_library_note">Die KI verwendet nur Songs aus deiner lokalen Bibliothek.</string>
     <string name="playlist_creation_ai_error_add_instruction">Mindestens eine Anweisung eingeben.</string>
     <string name="playlist_creation_ai_error_song_range">Gültigen Song-Bereich angeben.</string>
     <string name="playlist_creation_ai_level_out_of_five">%1$d/5</string>

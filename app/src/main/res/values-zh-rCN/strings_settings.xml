@@ -2,7 +2,6 @@
 <resources>
     <!-- SettingsCategory -->
     <string name="settings_category_music_management_title">音乐管理</string>
-    <string name="settings_category_music_management_subtitle">管理文件夹、刷新媒体库、解析选项</string>
     <string name="settings_category_appearance_title">外观</string>
     <string name="settings_category_appearance_subtitle">主题、布局和视觉样式</string>
     <string name="settings_category_playback_title">播放</string>
@@ -36,15 +35,11 @@
 
     <!-- Music Management category -->
     <string name="settings_library_structure_section">媒体库结构</string>
-    <string name="settings_excluded_directories_title">排除的目录</string>
-    <string name="settings_excluded_directories_subtitle">扫描媒体库时将跳过此处的文件夹。</string>
     <string name="settings_artists_title">艺术家</string>
     <string name="settings_artists_subtitle">多艺术家解析和整理选项。</string>
     <string name="settings_filtering_section">过滤</string>
-    <string name="settings_min_song_duration">最小歌曲时长</string>
     <string name="settings_min_tracks_per_album">每张专辑最少曲目数</string>
     <string name="settings_album_art_cache_limit">专辑封面缓存限制</string>
-    <string name="settings_sync_scanning_section">同步与扫描</string>
     <string name="settings_refresh_library_title">刷新媒体库</string>
     <string name="settings_refresh_library_subtitle">扫描整个媒体库以查找新增和修改的文件。</string>
     <string name="settings_action_full_rescan">完全重新扫描</string>
@@ -52,13 +47,9 @@
     <string name="settings_toast_full_rescan_started">已开始完全重新扫描…</string>
     <string name="settings_toast_library_sync_finished">媒体库同步完成</string>
     <string name="settings_action_rebuild_database">重建数据库</string>
-    <string name="settings_dialog_rebuild_database_title">重建数据库？</string>
-    <string name="settings_dialog_rebuild_database_body">这将从头开始完全重建您的音乐库。所有导入的歌词、收藏和自定义元数据都将丢失。此操作无法撤销。</string>
     <string name="settings_action_rebuild">重建</string>
     <string name="settings_label_sync_rebuilding">正在重建数据库</string>
     <string name="settings_toast_rebuilding_database">正在重建数据库…</string>
-    <string name="settings_auto_scan_lrc_title">自动扫描 .lrc 文件</string>
-    <string name="settings_auto_scan_lrc_subtitle">在同步媒体库时，自动扫描并分配同一文件夹中的 .lrc 文件。</string>
     <string name="settings_lyrics_management_section">歌词管理</string>
     <string name="settings_lyrics_source_priority_title">歌词来源优先级</string>
     <string name="settings_lyrics_source_priority_subtitle">选择获取歌词时优先尝试的来源。</string>
@@ -292,9 +283,6 @@
     <string name="settings_show_queue_history_subtitle">在队列中显示以前播放过的歌曲。</string>
 
     <!-- Behavior category -->
-    <string name="settings_folders_section">文件夹</string>
-    <string name="settings_folder_back_gesture_title">返回手势控制文件夹</string>
-    <string name="settings_folder_back_gesture_subtitle">在“文件夹”选项卡中，系统返回手势会在离开媒体库之前导航文件夹层级。</string>
     <string name="settings_player_gestures_section">播放器手势</string>
     <string name="settings_tap_bg_closes_title">点击背景关闭播放器</string>
     <string name="settings_tap_bg_closes_subtitle">点击模糊的背景以关闭播放器面板。</string>
@@ -522,7 +510,6 @@
     <string name="settings_devcaps_unknown">--</string>
     <string name="settings_devcaps_metric_formats">格式</string>
     <string name="settings_devcaps_metric_hw_decoders">硬件解码</string>
-    <string name="settings_devcaps_metric_local_music">本地歌曲</string>
     <string name="settings_devcaps_storage_title">本地音乐存储</string>
     <string name="settings_devcaps_storage_music_size">音乐大小</string>
     <string name="settings_devcaps_storage_music_count">%1$d 首本地歌曲</string>

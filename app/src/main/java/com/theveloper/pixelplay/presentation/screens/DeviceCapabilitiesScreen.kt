@@ -257,12 +257,6 @@ private fun DeviceCapabilitiesContent(
             )
         }
 
-        state.storageSummary?.let { storage ->
-            item {
-                LocalMusicStorageCard(storageSummary = storage)
-            }
-        }
-
         state.audioCapabilities?.let { audio ->
             item {
                 PlaybackPathCard(
@@ -570,7 +564,7 @@ private fun PlaybackReadinessCard(
                 )
                 HeroMetricTile(
                     label = stringResource(R.string.settings_devcaps_metric_local_music),
-                    value = storageSummary?.localSongCount?.toString()
+                    value = storageSummary?.cloudSongCount?.toString()
                         ?: stringResource(R.string.settings_devcaps_unknown),
                     modifier = Modifier.weight(1f),
                     containerColor = contentColor.copy(alpha = 0.10f),

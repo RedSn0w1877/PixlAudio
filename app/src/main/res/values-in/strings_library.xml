@@ -48,8 +48,6 @@
     <string name="library_telegram_topic_mode_channels">Saluran</string>
     <string name="library_telegram_topic_mode_topics">Topik</string>
     <string name="library_telegram_topic_mode_both">Keduanya</string>
-    <string name="library_cloud_sources_heading">Cloud</string>
-    <string name="library_cloud_only_label">Hanya Cloud</string>
 
     <!-- Library AI Metadata Processing -->
     <string name="library_generating_ai_metadata">Menghasilkan metadata dengan AI…</string>
@@ -62,7 +60,6 @@
 
     <!-- Library empty (paginated) -->
     <string name="library_no_songs_in_library_message">Tidak ada lagu ditemukan di pustaka Anda.</string>
-    <string name="library_no_songs_rescan_hint">Coba pindai ulang pustaka Anda di pengaturan jika Anda memiliki musik di perangkat Anda.</string>
     <string name="library_cd_no_songs_in_library">Tidak ada lagu ditemukan</string>
 
     <!-- Library action row -->
@@ -94,7 +91,6 @@
 
     <!-- Library Empty State -->
     <string name="library_empty_songs_all_title">Belum ada lagu</string>
-    <string name="library_empty_songs_all_subtitle">Tambahkan musik ke perangkat Anda atau sinkronkan sumber cloud untuk mulai mendengarkan.</string>
     <string name="library_empty_songs_offline_title">Tidak ada lagu lokal ditemukan</string>
     <string name="library_empty_songs_offline_subtitle">Coba filter sumber lain atau pindai ulang pustaka perangkat Anda.</string>
     <string name="library_empty_songs_online_title">Tidak ada lagu cloud ditemukan</string>
@@ -378,7 +374,6 @@
     <string name="playlist_creation_ai_prompt_preview_empty">Prompt akhir Anda akan muncul di sini setelah Anda menambahkan preferensi.</string>
     <string name="playlist_creation_ai_hero_title">Kurasi dengan presisi</string>
     <string name="playlist_creation_ai_hero_subtitle">Tentukan suasana hati, aktivitas, batasan, dan kedalaman.</string>
-    <string name="playlist_creation_ai_hero_library_note">AI hanya akan menggunakan lagu dari pustaka lokal Anda.</string>
     <string name="playlist_creation_ai_error_add_instruction">Tambahkan setidaknya satu instruksi untuk AI.</string>
     <string name="playlist_creation_ai_error_song_range">Atur rentang lagu yang valid.</string>
     <string name="playlist_creation_ai_level_out_of_five">%1$d/5</string>

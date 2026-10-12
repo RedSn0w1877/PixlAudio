@@ -8,7 +8,6 @@
 
     <!-- Library empty (paginated) -->
     <string name="library_no_songs_in_library_message">لم يتم العثور على أغانٍ في مكتبتك.</string>
-    <string name="library_no_songs_rescan_hint">جرّب إعادة فحص مكتبتك من الإعدادات إذا كانت لديك ملفات موسيقى على جهازك.</string>
     <string name="cd_no_songs_in_library">لم يتم العثور على أغانٍ</string>
 
     <!-- Library action row -->

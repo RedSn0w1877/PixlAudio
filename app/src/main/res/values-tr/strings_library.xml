@@ -48,8 +48,6 @@
     <string name="library_telegram_topic_mode_channels">Kanallar</string>
     <string name="library_telegram_topic_mode_topics">Konular</string>
     <string name="library_telegram_topic_mode_both">Her ikisi</string>
-    <string name="library_cloud_sources_heading">Bulut</string>
-    <string name="library_cloud_only_label">Sadece Bulut</string>
 
     <!-- Library AI Metadata Processing -->
     <string name="library_generating_ai_metadata">Yapay zeka ile meta veriler oluşturuluyor…</string>
@@ -62,7 +60,6 @@
 
     <!-- Library empty (paginated) -->
     <string name="library_no_songs_in_library_message">Kitaplığınızda şarkı bulunamadı.</string>
-    <string name="library_no_songs_rescan_hint">Cihazınızda müzik varsa, ayarlardan kitaplığınızı yeniden taramayı deneyin.</string>
     <string name="library_cd_no_songs_in_library">Şarkı bulunamadı</string>
 
     <!-- Library action row -->
@@ -94,7 +91,6 @@
 
     <!-- Library Empty State -->
     <string name="library_empty_songs_all_title">Henüz şarkı yok</string>
-    <string name="library_empty_songs_all_subtitle">Dinlemeye başlamak için cihazınıza müzik ekleyin veya bir bulut kaynağını senkronize edin.</string>
     <string name="library_empty_songs_offline_title">Yerel şarkı bulunamadı</string>
     <string name="library_empty_songs_offline_subtitle">Başka bir kaynak filtresi deneyin veya cihaz kitaplığını yeniden tarayın.</string>
     <string name="library_empty_songs_online_title">Bulut şarkısı bulunamadı</string>
@@ -378,7 +374,6 @@
     <string name="playlist_creation_ai_prompt_preview_empty">Tercihlerinizi eklediğinizde nihai komutunuz burada görünecektir.</string>
     <string name="playlist_creation_ai_hero_title">Hassasiyetle derleyin</string>
     <string name="playlist_creation_ai_hero_subtitle">Ruh halini, aktiviteyi, kısıtlamaları ve derinliği belirleyin.</string>
-    <string name="playlist_creation_ai_hero_library_note">Yapay zeka yalnızca yerel kitaplığınızdaki şarkıları kullanacaktır.</string>
     <string name="playlist_creation_ai_error_add_instruction">Yapay zeka için en az bir talimat ekleyin.</string>
     <string name="playlist_creation_ai_error_song_range">Geçerli bir şarkı aralığı belirleyin.</string>
     <string name="playlist_creation_ai_level_out_of_five">%1$d/5</string>

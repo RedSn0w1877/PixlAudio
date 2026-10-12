@@ -12,10 +12,7 @@
     <string name="setup_beta_symbol">β</string>
     <string name="setup_beta_label">Beta</string>
     <string name="setup_intro_body">Let\'s get everything set up for you.</string>
-    <string name="setup_permission_media_title">Media Permission</string>
-    <string name="setup_permission_media_description">PixelPlayer needs access to your audio files to build your music library.</string>
     <string name="setup_permission_granted">Permission Granted</string>
-    <string name="setup_grant_media_permission">Grant Media Permission</string>
     <string name="setup_permission_notifications_title">Notifications</string>
     <string name="setup_permission_notifications_description">Enable notifications to control your music from the lock screen and notification shade.</string>
     <string name="setup_enable_notifications">Enable Notifications</string>
@@ -34,10 +31,6 @@
     <string name="setup_backup_unknown_version">Unknown version</string>
     <string name="setup_restore_selected">Restore selected</string>
     <string name="setup_restoring">Restoring</string>
-    <string name="setup_excluded_folders_title">Excluded folders</string>
-    <string name="setup_excluded_folders_description">All folders are scanned by default. Pick any locations you want to ignore when building your library.</string>
-    <string name="setup_choose_folders_ignore">Choose folders to ignore</string>
-    <string name="setup_toast_grant_storage_first">Grant storage permissions first</string>
     <string name="setup_theme_title">App Theme</string>
     <string name="setup_theme_subtitle">Pick the look you want before you start exploring your library.</string>
     <string name="setup_theme_dark_title">Dark</string>

@@ -2,7 +2,6 @@
 <resources>
     <!-- SettingsCategory -->
     <string name="settings_category_music_management_title">Gestión de música</string>
-    <string name="settings_category_music_management_subtitle">Carpetas, actualizar biblioteca y opciones de análisis</string>
     <string name="settings_category_appearance_title">Apariencia</string>
     <string name="settings_category_appearance_subtitle">Temas, diseño y estilos visuales</string>
     <string name="settings_category_playback_title">Reproducción</string>
@@ -36,15 +35,11 @@
 
     <!-- Music Management category -->
     <string name="settings_library_structure_section">Estructura de la biblioteca</string>
-    <string name="settings_excluded_directories_title">Directorios excluidos</string>
-    <string name="settings_excluded_directories_subtitle">Estas carpetas se omitirán al escanear la biblioteca.</string>
     <string name="settings_artists_title">Artistas</string>
     <string name="settings_artists_subtitle">Análisis de varios artistas y organización.</string>
     <string name="settings_filtering_section">Filtrado</string>
-    <string name="settings_min_song_duration">Duración mínima de canción</string>
     <string name="settings_min_tracks_per_album">Número mínimo de pistas por álbum</string>
     <string name="settings_album_art_cache_limit">Límite de caché de carátulas de álbum</string>
-    <string name="settings_sync_scanning_section">Sincronización y escaneo</string>
     <string name="settings_refresh_library_title">Actualizar biblioteca</string>
     <string name="settings_refresh_library_subtitle">Buscar en toda la biblioteca archivos nuevos y modificados.</string>
     <string name="settings_action_full_rescan">Reescaneo completo</string>
@@ -52,13 +47,9 @@
     <string name="settings_toast_full_rescan_started">Reescaneo completo iniciado…</string>
     <string name="settings_toast_library_sync_finished">Sincronización de la biblioteca terminada</string>
     <string name="settings_action_rebuild_database">Rebuild base de datos</string>
-    <string name="settings_dialog_rebuild_database_title">¿Reconstruir la base de datos?</string>
-    <string name="settings_dialog_rebuild_database_body">Esto reconstruirá por completo tu biblioteca musical desde cero. Se perderán todas las letras importadas, favoritos y metadatos personalizados. Esta acción no se puede deshacer.</string>
     <string name="settings_action_rebuild">Reconstruir</string>
     <string name="settings_label_sync_rebuilding">Reconstruyendo base de datos</string>
     <string name="settings_toast_rebuilding_database">Reconstruyendo base de datos…</string>
-    <string name="settings_auto_scan_lrc_title">Escanear archivos .lrc automáticamente</string>
-    <string name="settings_auto_scan_lrc_subtitle">Buscar y asignar automáticamente archivos .lrc en la misma carpeta durante la sincronización de la biblioteca.</string>
     <string name="settings_lyrics_management_section">Gestión de letras</string>
     <string name="settings_lyrics_source_priority_title">Prioridad de fuente de letras</string>
     <string name="settings_lyrics_source_priority_subtitle">Elige qué fuente probar primero al buscar letras.</string>
@@ -292,9 +283,6 @@
     <string name="settings_show_queue_history_subtitle">Mostrar canciones previamente reproducidas en la cola.</string>
 
     <!-- Behavior category -->
-    <string name="settings_folders_section">Carpetas</string>
-    <string name="settings_folder_back_gesture_title">El gesto atrás controla carpetas</string>
-    <string name="settings_folder_back_gesture_subtitle">En la pestaña Carpetas, el botón de atrás del sistema navega por la pila de carpetas antes de salir de la Biblioteca.</string>
     <string name="settings_player_gestures_section">Gestos del reproductor</string>
     <string name="settings_tap_bg_closes_title">Tocar el fondo cierra el reproductor</string>
     <string name="settings_tap_bg_closes_subtitle">Toca el fondo difuminado para cerrar el panel del reproductor.</string>
@@ -522,7 +510,6 @@
     <string name="settings_devcaps_unknown">--</string>
     <string name="settings_devcaps_metric_formats">Formatos</string>
     <string name="settings_devcaps_metric_hw_decoders">Decodificadores HW</string>
-    <string name="settings_devcaps_metric_local_music">Canciones locales</string>
     <string name="settings_devcaps_storage_title">Almacenamiento de música local</string>
     <string name="settings_devcaps_storage_music_size">Tamaño de la música</string>
     <string name="settings_devcaps_storage_music_count">%1$d canciones locales</string>

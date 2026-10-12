@@ -318,21 +318,13 @@ class MainActivity : ComponentActivity() {
             var showCrashReportDialog by remember { mutableStateOf(false) }
             var crashLogData by remember { mutableStateOf<CrashLogData?>(null) }
             
-            // Permissions Logic
-            val permissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                listOf(Manifest.permission.READ_MEDIA_AUDIO, Manifest.permission.POST_NOTIFICATIONS)
-            } else {
-                listOf(Manifest.permission.READ_EXTERNAL_STORAGE)
-            }
-            @OptIn(ExperimentalPermissionsApi::class)
-            val permissionState = rememberMultiplePermissionsState(permissions = permissions)
-            // Determine if we need to show Setup based on completion OR missing permissions
-            val permissionsValid = permissionState.allPermissionsGranted
-            val showSetupScreen = remember(isSetupComplete, permissionsValid, isBenchmarkMode) {
+            // Spotify-only: no media permission is needed (notifications are asked for during
+            // onboarding but never gate the app), so setup is shown only until it is completed.
+            val showSetupScreen = remember(isSetupComplete, isBenchmarkMode) {
                 when {
                     isBenchmarkMode -> false
                     isSetupComplete == null -> null
-                    else -> !isSetupComplete!! || !permissionsValid
+                    else -> !isSetupComplete!!
                 }
             }
 

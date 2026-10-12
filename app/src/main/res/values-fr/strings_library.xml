@@ -48,8 +48,6 @@
     <string name="library_telegram_topic_mode_channels">Canaux</string>
     <string name="library_telegram_topic_mode_topics">Sujets</string>
     <string name="library_telegram_topic_mode_both">Les deux</string>
-    <string name="library_cloud_sources_heading">Cloud</string>
-    <string name="library_cloud_only_label">Uniquement Cloud</string>
 
     <!-- Library AI Metadata Processing -->
     <string name="library_generating_ai_metadata">Génération des métadonnées avec l\'IA…</string>
@@ -62,7 +60,6 @@
 
     <!-- Library empty (paginated) -->
     <string name="library_no_songs_in_library_message">Aucun titre trouvé dans votre bibliothèque.</string>
-    <string name="library_no_songs_rescan_hint">Essayez de réanalyser votre bibliothèque dans les paramètres si vous avez de la musique sur votre appareil.</string>
     <string name="library_cd_no_songs_in_library">Aucun titre trouvé</string>
 
     <!-- Library action row -->
@@ -94,7 +91,6 @@
 
     <!-- Library Empty State -->
     <string name="library_empty_songs_all_title">Aucun titre pour le moment</string>
-    <string name="library_empty_songs_all_subtitle">Ajoutez de la musique à votre appareil ou synchronisez une source cloud pour commencer l\'écoute.</string>
     <string name="library_empty_songs_offline_title">Aucun titre local trouvé</string>
     <string name="library_empty_songs_offline_subtitle">Essayez un autre filtre de source ou réanalysez la bibliothèque de votre appareil.</string>
     <string name="library_empty_songs_online_title">Aucun titre cloud trouvé</string>
@@ -378,7 +374,6 @@
     <string name="playlist_creation_ai_prompt_preview_empty">Votre instruction finale apparaîtra ici une fois vos préférences ajoutées.</string>
     <string name="playlist_creation_ai_hero_title">Sélectionnez avec précision</string>
     <string name="playlist_creation_ai_hero_subtitle">Définissez l\'humeur, l\'activité, les contraintes et la profondeur.</string>
-    <string name="playlist_creation_ai_hero_library_note">L\'IA utilisera uniquement les chansons de votre bibliothèque locale.</string>
     <string name="playlist_creation_ai_error_add_instruction">Ajoutez au moins une instruction pour l\'IA.</string>
     <string name="playlist_creation_ai_error_song_range">Définissez une plage de chansons valide.</string>
     <string name="playlist_creation_ai_level_out_of_five">%1$d/5</string>

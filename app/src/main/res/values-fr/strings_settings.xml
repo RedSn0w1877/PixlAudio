@@ -2,7 +2,6 @@
 <resources>
     <!-- SettingsCategory -->
     <string name="settings_category_music_management_title">Gestion de la musique</string>
-    <string name="settings_category_music_management_subtitle">Gérer les dossiers, actualiser la bibliothèque, options d\'analyse</string>
     <string name="settings_category_appearance_title">Apparence</string>
     <string name="settings_category_appearance_subtitle">Thèmes, disposition et styles visuels</string>
     <string name="settings_category_playback_title">Lecture</string>
@@ -36,15 +35,11 @@
 
     <!-- Music Management category -->
     <string name="settings_library_structure_section">Structure de la bibliothèque</string>
-    <string name="settings_excluded_directories_title">Répertoires exclus</string>
-    <string name="settings_excluded_directories_subtitle">Les dossiers listés ici seront ignorés lors de l\'analyse.</string>
     <string name="settings_artists_title">Artistes</string>
     <string name="settings_artists_subtitle">Options d\'analyse et d\'organisation multi-artistes.</string>
     <string name="settings_filtering_section">Filtrage</string>
-    <string name="settings_min_song_duration">Durée minimale de la chanson</string>
     <string name="settings_min_tracks_per_album">Nombre minimal de pistes par album</string>
     <string name="settings_album_art_cache_limit">Limite du cache des pochettes</string>
-    <string name="settings_sync_scanning_section">Synchronisation et analyse</string>
     <string name="settings_refresh_library_title">Actualiser la bibliothèque</string>
     <string name="settings_refresh_library_subtitle">Analyser toute la bibliothèque à la recherche de fichiers nouveaux et modifiés.</string>
     <string name="settings_action_full_rescan">Analyse complète</string>
@@ -52,13 +47,9 @@
     <string name="settings_toast_full_rescan_started">Analyse complète démarrée…</string>
     <string name="settings_toast_library_sync_finished">Synchronisation de la bibliothèque terminée</string>
     <string name="settings_action_rebuild_database">Reconstruire la base de données</string>
-    <string name="settings_dialog_rebuild_database_title">Reconstruire la base de données ?</string>
-    <string name="settings_dialog_rebuild_database_body">Cela reconstruira complètement votre bibliothèque musicale à partir de zéro. Toutes les paroles importées, les favoris et les métadonnées personnalisées seront perdus. Cette action ne peut pas être annulée.</string>
     <string name="settings_action_rebuild">Reconstruire</string>
     <string name="settings_label_sync_rebuilding">Reconstruction de la base de données</string>
     <string name="settings_toast_rebuilding_database">Reconstruction de la base de données…</string>
-    <string name="settings_auto_scan_lrc_title">Analyse auto des fichiers .lrc</string>
-    <string name="settings_auto_scan_lrc_subtitle">Analyser et assigner automatiquement les fichiers .lrc du même dossier lors de la synchro.</string>
     <string name="settings_lyrics_management_section">Gestion des paroles</string>
     <string name="settings_lyrics_source_priority_title">Priorité des sources de paroles</string>
     <string name="settings_lyrics_source_priority_subtitle">Choisissez quelle source essayer en premier pour récupérer les paroles.</string>
@@ -288,9 +279,6 @@
     <string name="settings_show_queue_history_subtitle">Afficher les chansons lues précédemment dans la file d\'attente.</string>
 
     <!-- Behavior category -->
-    <string name="settings_folders_section">Dossiers</string>
-    <string name="settings_folder_back_gesture_title">Le geste retour contrôle les dossiers</string>
-    <string name="settings_folder_back_gesture_subtitle">Dans l\'onglet Dossiers, le retour système navigue dans la pile de dossiers avant de quitter la bibliothèque.</string>
     <string name="settings_player_gestures_section">Gestes du lecteur</string>
     <string name="settings_tap_bg_closes_title">Appuyer sur l\'arrière-plan ferme le lecteur</string>
     <string name="settings_tap_bg_closes_subtitle">Appuyez sur l\'arrière-plan flou pour fermer la feuille du lecteur.</string>
@@ -518,7 +506,6 @@
     <string name="settings_devcaps_unknown">--</string>
     <string name="settings_devcaps_metric_formats">Formats</string>
     <string name="settings_devcaps_metric_hw_decoders">Décodeurs matériels</string>
-    <string name="settings_devcaps_metric_local_music">Chansons locales</string>
     <string name="settings_devcaps_storage_title">Stockage de la musique locale</string>
     <string name="settings_devcaps_storage_music_size">Taille de la musique</string>
     <string name="settings_devcaps_storage_music_count">%1$d chansons locales</string>

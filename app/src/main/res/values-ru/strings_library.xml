@@ -48,8 +48,6 @@
     <string name="library_telegram_topic_mode_channels">Каналы</string>
     <string name="library_telegram_topic_mode_topics">Темы</string>
     <string name="library_telegram_topic_mode_both">Оба варианта</string>
-    <string name="library_cloud_sources_heading">Облако</string>
-    <string name="library_cloud_only_label">Только облако</string>
 
     <!-- Library AI Metadata Processing -->
     <string name="library_generating_ai_metadata">Генерация метаданных с помощью ИИ…</string>
@@ -62,7 +60,6 @@
 
     <!-- Library empty (paginated) -->
     <string name="library_no_songs_in_library_message">В вашей библиотеке не найдено треков.</string>
-    <string name="library_no_songs_rescan_hint">Попробуйте повторно просканировать библиотеку в настройках, если музыка есть на устройстве.</string>
     <string name="library_cd_no_songs_in_library">Треки не найдены</string>
 
     <!-- Library action row -->
@@ -94,7 +91,6 @@
 
     <!-- Library Empty State -->
     <string name="library_empty_songs_all_title">Пока нет треков</string>
-    <string name="library_empty_songs_all_subtitle">Добавьте музыку на устройство или синхронизируйте облачный источник, чтобы начать прослушивание.</string>
     <string name="library_empty_songs_offline_title">Локальные треки не найдены</string>
     <string name="library_empty_songs_offline_subtitle">Попробуйте другой фильтр источников или повторно просканируйте библиотеку устройства.</string>
     <string name="library_empty_songs_online_title">Облачные треки не найдены</string>
@@ -378,7 +374,6 @@
     <string name="playlist_creation_ai_prompt_preview_empty">Ваш итоговый запрос появится здесь после добавления предпочтений.</string>
     <string name="playlist_creation_ai_hero_title">Точная настройка подборки</string>
     <string name="playlist_creation_ai_hero_subtitle">Задайте настроение, активность, ограничения и глубину подбора.</string>
-    <string name="playlist_creation_ai_hero_library_note">ИИ будет использовать только песни из вашей локальной медиатеки.</string>
     <string name="playlist_creation_ai_error_add_instruction">Добавьте хотя бы одну инструкцию для ИИ.</string>
     <string name="playlist_creation_ai_error_song_range">Укажите допустимый диапазон количества песен.</string>
     <string name="playlist_creation_ai_level_out_of_five">%1$d/5</string>

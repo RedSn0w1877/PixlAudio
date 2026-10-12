@@ -74,7 +74,7 @@ class SpotifyLoginActivity : ComponentActivity() {
         if (!authManager.hasClientId()) {
             Toast.makeText(
                 this,
-                "No Spotify client ID is set up in this build.",
+                "Spotify sign-in is not configured in this build.",
                 Toast.LENGTH_LONG
             ).show()
             finish()

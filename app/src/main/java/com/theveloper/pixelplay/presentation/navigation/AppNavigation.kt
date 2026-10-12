@@ -17,6 +17,7 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -92,6 +93,12 @@ fun AppNavigation(
     }
 
     startDestination?.let { initialRoute ->
+      // Lets empty states ("Connect Spotify") open the Spotify dashboard without threading a callback.
+      CompositionLocalProvider(
+        com.theveloper.pixelplay.presentation.screens.LocalConnectSpotify provides {
+            navController.navigateSafely(Screen.SpotifyDashboard.route)
+        }
+      ) {
         NavHost(
             navController = navController,
             startDestination = initialRoute,
@@ -563,6 +570,7 @@ fun AppNavigation(
                 }
             }
         }
+      }
     }
 }
 

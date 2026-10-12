@@ -113,7 +113,7 @@
     <string name="home_greeting_expand_insight">Show more insight</string>
     <string name="home_greeting_collapse_insight">Show less insight</string>
     <string name="home_empty_placeholder_title">No data to show yet</string>
-    <string name="home_empty_placeholder_subtitle">Your mix will appear here when PixelPlayer finds songs or syncs a source.</string>
+    <string name="home_empty_placeholder_subtitle">Connect Spotify and your mix will appear here.</string>
     <string name="home_empty_placeholder_refresh">Refresh</string>
 
     <!-- DailyMixSection -->

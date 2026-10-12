@@ -718,6 +718,12 @@ private fun YourMixEmptyPlaceholder(
                 )
             }
 
+            LocalConnectSpotify.current?.let { connectSpotify ->
+                androidx.compose.material3.Button(onClick = connectSpotify) {
+                    Text(text = stringResource(R.string.library_connect_spotify))
+                }
+            }
+
             FilledTonalButton(
                 onClick = onRefresh,
                 shape = AbsoluteSmoothCornerShape(
