@@ -47,7 +47,7 @@ Lint is not enforced on release builds (`lint.checkReleaseBuilds = false`); ther
 - `-Ppixelplay.enableAbiSplits=true|false` (default true) — per-ABI APKs for `arm64-v8a` / `armeabi-v7a`, no universal APK. CI verifies both split outputs.
 - `-Ppixelplay.enableComposeCompilerReports=true` — emits Compose stability/metrics reports under `app/build/compose_compiler_reports`.
 - Release signing reads `keystore.properties` at the repo root and `vz-pixelplay.jks`; if the keystore is absent the release build silently falls back to the debug signing config.
-- `local.properties` supplies `SPOTIFY_CLIENT_ID` → `BuildConfig.SPOTIFY_CLIENT_ID`. If absent it is an empty string and Spotify sign-in is disabled at runtime (`SpotifyAuthManager.hasClientId()`).
+- `SPOTIFY_CLIENT_ID` → `BuildConfig.SPOTIFY_CLIENT_ID` is read from the **`SPOTIFY_CLIENT_ID` environment variable first** (the CI secret of that name, passed in by every workflow that builds the app), then from `local.properties`. If both are absent it is an empty string and Spotify sign-in is disabled at runtime (`SpotifyAuthManager.hasClientId()`); the login page and the dashboard say so instead of opening a dead browser tab.
 - A `benchmark` build type (release, non-debuggable) exists for the macrobenchmark/baseline-profile modules.
 
 ## Module layout
@@ -75,7 +75,9 @@ UI talks to the service through a Media3 `MediaController` obtained from an inje
 
 ### Data & sources
 
-`MusicRepository`/`MusicRepositoryImpl` is the aggregate library API over Room. `MediaStoreSongRepository` reads local files; `SyncWorker`/`SyncManager` (WorkManager) do incremental/full library syncs, artist parsing (`ArtistParsingUtils`, configurable delimiters) and album grouping (`AlbumGroupingUtils`).
+`MusicRepository`/`MusicRepositoryImpl` is the aggregate library API over Room. `RoomSongRepository` backs `SongRepository` and pins every query to `StorageFilter.ONLINE`.
+
+**There is no on-device music library.** The app is Spotify-only: MediaStore audio scanning, the folders/"songs on device" views, the import-from-device flow and the `READ_MEDIA_AUDIO`/`READ_EXTERNAL_STORAGE` permissions were all removed (see `handoff/2026-10-12-android-no-local.md`). Spotify tracks downloaded for offline playback are files on disk but are *not* "local songs" — they carry a `spotifyId` and `source_type != 0`. `SyncWorker`/`SyncManager` are now just housekeeping: a one-shot purge of leftover `source_type = LOCAL` rows plus album-art cache cleanup. Artist parsing (`ArtistParsingUtils`) and album grouping (`AlbumGroupingUtils`) still run on imported Spotify metadata. Do not reintroduce a MediaStore audio query.
 
 **Spotify is the only remote source.** The six upstream sources (Telegram, Navidrome, Jellyfin, Netease, QQ Music, Google Drive) were removed from this fork along with TDLib.
 
