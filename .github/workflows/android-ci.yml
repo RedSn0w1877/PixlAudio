@@ -50,11 +50,13 @@ jobs:
       - name: Compile app (debug)
         env:
           CLOUD_DEFAULTS_KEY: ${{ secrets.CLOUD_DEFAULTS_KEY }}
+          SPOTIFY_CLIENT_ID: ${{ secrets.SPOTIFY_CLIENT_ID }}
         run: ./gradlew :app:compileDebugKotlin
 
       - name: Unit tests
         env:
           CLOUD_DEFAULTS_KEY: ${{ secrets.CLOUD_DEFAULTS_KEY }}
+          SPOTIFY_CLIENT_ID: ${{ secrets.SPOTIFY_CLIENT_ID }}
         run: ./gradlew :app:testDebugUnitTest
 
       - name: Upload unit test reports
@@ -74,6 +76,7 @@ jobs:
       - name: Build debug APKs
         env:
           CLOUD_DEFAULTS_KEY: ${{ secrets.CLOUD_DEFAULTS_KEY }}
+          SPOTIFY_CLIENT_ID: ${{ secrets.SPOTIFY_CLIENT_ID }}
         run: ./gradlew :app:assembleDebug -Ppixelplay.enableAbiSplits=true
 
       - name: Upload arm64 debug APK

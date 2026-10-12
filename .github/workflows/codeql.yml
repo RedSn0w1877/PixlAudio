@@ -49,6 +49,8 @@ jobs:
           build-mode: manual
   
       - name: Build with Gradle
+        env:
+          SPOTIFY_CLIENT_ID: ${{ secrets.SPOTIFY_CLIENT_ID }}
         run: ${{ github.workspace }}/gradlew :app:assembleDebug :wear:assembleDebug --no-daemon
 
       - name: Perform CodeQL Analysis

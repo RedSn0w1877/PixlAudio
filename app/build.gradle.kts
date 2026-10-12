@@ -130,9 +130,15 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-        // Client ID de la app de Spotify. Se toma de local.properties para no
-        // versionarlo; si falta queda vacío y el usuario debe pegar el suyo en Ajustes.
-        val spotifyClientId = localProperties.getProperty("SPOTIFY_CLIENT_ID")?.ifEmpty { null } ?: ""
+        // Client ID de la app de Spotify (ver abajo: variable de entorno, luego local.properties).
+        // Order: SPOTIFY_CLIENT_ID environment variable (the CI secret), then local.properties, then empty.
+        // Empty only disables Spotify sign-in at runtime (the screen says so); it never fails the build.
+        // A client ID is public (it travels in the OAuth URL) but is still stripped to safe characters.
+        val spotifyClientId = (providers.environmentVariable("SPOTIFY_CLIENT_ID").orNull?.takeIf { it.isNotBlank() }
+            ?: localProperties.getProperty("SPOTIFY_CLIENT_ID"))
+            .orEmpty()
+            .trim()
+            .filter { it.isLetterOrDigit() || it == '-' || it == '_' }
         buildConfigField("String", "SPOTIFY_CLIENT_ID", "\"$spotifyClientId\"")
         buildConfigField("String", "CLOUD_DEFAULTS_KEY", "\"$cloudDefaultsKey\"")
         buildConfigField("String", "PLUS_CHECKOUT_URL", "\"${plusCheckoutUrl.replace("\\", "\\\\").replace("\"", "\\\"")}\"")
