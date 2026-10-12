@@ -222,14 +222,6 @@ interface MusicRepository {
      */
     suspend fun getSongByPath(path: String): Song?
 
-    /**
-     * Obtiene todos los directorios únicos que contienen archivos de audio.
-     * Esto se usa principalmente para la configuración inicial de directorios.
-     * También gestiona el guardado inicial de directorios permitidos si es la primera vez.
-     * @return Conjunto de rutas de directorios únicas.
-     */
-    suspend fun getAllUniqueAudioDirectories(): Set<String>
-
     fun getAllUniqueAlbumArtUris(): Flow<List<Uri>> // Nuevo para precarga de temas
 
     suspend fun invalidateCachesDependentOnAllowedDirectories() // Nuevo para precarga de temas

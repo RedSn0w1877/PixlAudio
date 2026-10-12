@@ -251,6 +251,19 @@ interface MusicDao {
         deleteOrphanedArtists()
     }
 
+    /**
+     * One-shot removal of every on-device (source_type = LOCAL) song and the albums/artists that
+     * only they referenced. The app is Spotify-only; old installs may still hold such rows.
+     * Returns how many songs were removed.
+     */
+    @Transaction
+    suspend fun purgeLocalSongs(): Int {
+        val ids = getAllMediaStoreSongIds()
+        if (ids.isEmpty()) return 0
+        deleteSongsAndRelatedData(ids)
+        return ids.size
+    }
+
     @Transaction
     suspend fun clearAllSpotifySongs() {
         val spotifySongIds = getAllSpotifySongIds()

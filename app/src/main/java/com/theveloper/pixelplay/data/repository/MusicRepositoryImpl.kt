@@ -2,12 +2,10 @@ package com.theveloper.pixelplay.data.repository
 
 // import kotlinx.coroutines.withContext // May not be needed for Flow transformations
 
-// import kotlinx.coroutines.sync.withLock // May not be needed if directoryScanMutex logic changes
 
 import android.content.Context
 import android.net.Uri
 import android.os.Environment
-import android.provider.MediaStore
 import android.util.Log
 
 import com.theveloper.pixelplay.data.model.Song
@@ -66,8 +64,6 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
 import androidx.paging.Pager
@@ -108,7 +104,6 @@ class MusicRepositoryImpl @Inject constructor(
         private const val SQLITE_MAX_BIND_ARGS = 900
     }
 
-    private val directoryScanMutex = Mutex()
     private val repositoryScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     // maxSize 1000 (a Song is ~1-2 KB): at 250 only five pages stayed loaded, so scrolling back
     // turned rows into placeholders and recreated them. jumpThreshold lets a far fast-scroller
@@ -509,25 +504,9 @@ class MusicRepositoryImpl @Inject constructor(
         }.flowOn(Dispatchers.IO)
     }
 
-    override suspend fun getAllUniqueAudioDirectories(): Set<String> = withContext(Dispatchers.IO) {
-        LogUtils.d(this, "getAllUniqueAudioDirectories")
-        directoryScanMutex.withLock {
-            val directories = mutableSetOf<String>()
-            val projection = arrayOf(MediaStore.Audio.Media.DATA)
-            val selection = "(${MediaStore.Audio.Media.IS_MUSIC} != 0 OR ${MediaStore.Audio.Media.DATA} LIKE '%.m4a' OR ${MediaStore.Audio.Media.DATA} LIKE '%.flac')"
-            context.contentResolver.query(
-                MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
-                projection, selection, null, null
-            )?.use { c ->
-                val dataColumn = c.getColumnIndexOrThrow(MediaStore.Audio.Media.DATA)
-                while (c.moveToNext()) {
-                    File(c.getString(dataColumn)).parent?.let { directories.add(it) }
-                }
-            }
-            LogUtils.i(this, "Found ${directories.size} unique audio directories")
-            return@withLock directories
-        }
-    }
+    // getAllUniqueAudioDirectories() lived here and scanned MediaStore.Audio for folders. The app
+    // is Spotify-only and no longer holds READ_MEDIA_AUDIO, so the query would throw SecurityException;
+    // it had no callers left once the folder picker went away.
 
     override fun getAllUniqueAlbumArtUris(): Flow<List<Uri>> {
         return musicDao.getAllUniqueAlbumArtUrisFromSongs().map { uriStrings ->
