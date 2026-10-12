@@ -17,7 +17,7 @@ import org.junit.jupiter.api.Test
 import java.nio.file.Files
 
 /**
- * The app-wide accent state the root theme, the splash and glass mode read
+ * The app-wide accent state the root theme and the splash read
  * ([ThemeStateHolder.accentScheme]): non-null once the store is read (the splash waits for that),
  * the default as a null pair (Material You stays), a chosen accent as the memoised pair (the same
  * instances every time, since `ColorScheme` has no `equals`), and live updates from the store.

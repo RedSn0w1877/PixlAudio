@@ -32,7 +32,6 @@ class BaselineProfileCoverageTest {
         val base = "Lcom/theveloper/pixelplay/presentation/components"
         val mustBeCovered = listOf(
             "$base/QueueBottomSheetKt;",
-            "$base/QueueGlassControlsKt;",
             "$base/LyricsSheetKt;",
             "$base/LyricsFloatingToolbarKt;",
             "$base/CastBottomSheetKt;",

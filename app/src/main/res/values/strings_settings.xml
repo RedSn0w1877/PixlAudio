@@ -181,7 +181,7 @@
     <string name="settings_theme_follow_system">Follow System</string>
     <!-- Accent Color (2026-10-07 batch; key names shared with iOS, which says "PixlAudio" where Android says "Dynamic") -->
     <string name="settings_accent_color_title">Accent Color</string>
-    <string name="settings_accent_color_subtitle">Colors buttons, switches, sliders, the navigation bar and glass highlights across the app. The player keeps its album colors (see Player Theme).</string>
+    <string name="settings_accent_color_subtitle">Colors buttons, switches, sliders and the navigation bar across the app. The player keeps its album colors (see Player Theme).</string>
     <string name="settings_accent_color_dynamic">Dynamic</string>
     <string name="settings_accent_color_dynamic_description">Dynamic (wallpaper colors)</string>
     <string name="settings_accent_color_blue">Blue</string>
@@ -517,10 +517,6 @@
     <string name="settings_exp_lyrics_blur_strength_title">Blur Strength</string>
     <string name="settings_exp_lyrics_blur_strength_subtitle">Adjust the intensity of the blur effect.</string>
     <string name="settings_exp_lyrics_blur_strength_value">%1$.1fx</string>
-    <string name="settings_exp_ui_style_title">Visual style</string>
-    <string name="settings_exp_ui_style_subtitle">Liquid Glass makes surfaces refract what\'s behind them. Material 3 keeps them solid and tonal.</string>
-    <string name="settings_exp_ui_style_glass">Liquid Glass</string>
-    <string name="settings_exp_ui_style_m3">Material 3</string>
     <string name="settings_exp_step1_delay_header">Step 1 · Choose what to delay</string>
     <string name="settings_exp_delay_everything_title">Delay everything</string>
     <string name="settings_exp_delay_everything_subtitle">Hold the full player content until the sheet background is fully expanded.</string>
@@ -744,7 +740,7 @@
     <string name="settings_storage_action_free">Free up %1$s</string>
     <string name="settings_storage_action_nothing">Nothing to free</string>
     <string name="settings_storage_freed">Freed %1$s. Your downloads were kept.</string>
-    <!-- Main settings groups (Liquid Glass mode) -->
+    <!-- Main settings groups -->
     <string name="settings_group_music">Music</string>
     <string name="settings_group_look_and_feel">Look &amp; feel</string>
     <string name="settings_group_services">Services</string>
