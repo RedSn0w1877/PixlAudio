@@ -85,16 +85,24 @@ internal class BiniLyricsSource(
     @Volatile private var blockedUntil = 0L
     @Volatile private var backoffMs = 0L
 
-    suspend fun find(song: Song, isrc: String? = null): Match? = withContext(Dispatchers.IO) {
+    /**
+     * @param bypassMemo skip (and refresh) the memoised answer; the user's explicit "try again".
+     *   The back-off after 429/403/5xx still applies: hammering a rate-limiting host helps nobody.
+     */
+    suspend fun find(song: Song, isrc: String? = null, bypassMemo: Boolean = false): Match? = withContext(Dispatchers.IO) {
         try {
             if (song.title.isBlank()) return@withContext null
             val normalizedIsrc = normalizeIsrc(isrc)
             val key = listOf(song.id, song.title, song.artist, song.album, song.duration, normalizedIsrc)
                 .joinToString("\u0000")
             locks[(key.hashCode() and Int.MAX_VALUE) % LOCK_STRIPES].withLock {
-                synchronized(memo) { memo[key] }?.let { entry ->
-                    if (entry.expiresAt > now()) return@withContext entry.match
+                if (bypassMemo) {
                     synchronized(memo) { memo.remove(key) }
+                } else {
+                    synchronized(memo) { memo[key] }?.let { entry ->
+                        if (entry.expiresAt > now()) return@withContext entry.match
+                        synchronized(memo) { memo.remove(key) }
+                    }
                 }
                 if (now() < blockedUntil) return@withContext null
                 when (val outcome = lookup(song, normalizedIsrc)) {
@@ -118,7 +126,12 @@ internal class BiniLyricsSource(
     private suspend fun lookup(song: Song, isrc: String?): Outcome {
         if (isrc != null) {
             val rows = search(mapOf("isrc" to isrc)) ?: return Outcome.Transient
-            val hits = rows.filter { it.isrc.equals(isrc, ignoreCase = true) && durationMatches(song, it) }
+            // The ISRC already names the recording, so the duration check only guards against a
+            // catalog row that reuses it for another cut: it is looser than for a title match,
+            // because Spotify and Apple often differ by a few seconds of silence on one master.
+            val hits = rows.filter {
+                it.isrc.equals(isrc, ignoreCase = true) && durationMatches(song, it, ISRC_DURATION_TOLERANCE_MS)
+            }
             // An ISRC names the exact recording: prefer its word-timed file, then line, then plain.
             hits.maxByOrNull { timingRank(it.timing) }?.let { return fetchLyrics(it, song) }
         }
@@ -226,6 +239,7 @@ internal class BiniLyricsSource(
         private const val MAX_RESULTS = 50
         private const val MAX_REDIRECTS = 3
         private const val DURATION_TOLERANCE_MS = 3_000L
+        private const val ISRC_DURATION_TOLERANCE_MS = 8_000L
         /** Starts beyond the song's end by more than this mean the file is for another cut. */
         private const val PAST_END_TOLERANCE_MS = 1_500L
         private const val MIN_BACKOFF_MS = 60_000L
@@ -257,10 +271,10 @@ internal class BiniLyricsSource(
             else -> 1
         }
 
-        private fun durationMatches(song: Song, candidate: Candidate): Boolean {
+        private fun durationMatches(song: Song, candidate: Candidate, toleranceMs: Long = DURATION_TOLERANCE_MS): Boolean {
             val seconds = candidate.durationSec ?: return true
             if (song.duration <= 0) return true
-            return abs(seconds * 1000 - song.duration) <= DURATION_TOLERANCE_MS
+            return abs(seconds * 1000 - song.duration) <= toleranceMs
         }
 
         private fun titleKey(title: String): String =

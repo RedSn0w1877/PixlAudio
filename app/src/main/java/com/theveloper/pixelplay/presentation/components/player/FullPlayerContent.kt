@@ -919,6 +919,7 @@ fun FullPlayerContent(
             onShuffleToggle = onShuffleToggle,
             onRepeatToggle = onRepeatToggle,
             onFavoriteToggle = onFavoriteToggle,
+            onRetryLyrics = playerViewModel::retryLyricsForCurrentSong,
             onSyncYourself = if (isRemotePlaybackActive || isCastConnecting) null else {
                 { playerViewModel.openLyricsSyncEditor() }
             },

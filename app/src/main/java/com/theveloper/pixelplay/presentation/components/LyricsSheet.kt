@@ -172,6 +172,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import androidx.compose.material.icons.rounded.TouchApp
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.animation.core.FastOutLinearInEasing
@@ -285,6 +286,8 @@ fun LyricsSheet(
     modifier: Modifier = Modifier,
     /** Opens the "sync it yourself" editor; null hides its entry points (e.g. while casting). */
     onSyncYourself: (() -> Unit)? = null,
+    /** Looks the song's lyrics up again (the not-found state's "Try again"); null hides the button. */
+    onRetryLyrics: (() -> Unit)? = null,
     /** The user closed the "Make the words light up" chip for this song. */
     syncChipDismissed: Boolean = true,
     onDismissSyncChip: () -> Unit = {},
@@ -901,6 +904,7 @@ fun LyricsSheet(
                     onPlayOriginal = onToggleStudioInstrumental,
                     onFindLyrics = { showFetchLyricsDialog = true },
                     onSyncYourself = onSyncYourself,
+                    onRetry = onRetryLyrics,
                 )
 
                 true -> Unit // KaraokeLyricsView above (nothing while the model is still being built).
@@ -1412,6 +1416,7 @@ private fun LyricsStatusContent(
     onPlayOriginal: () -> Unit,
     onFindLyrics: () -> Unit,
     onSyncYourself: (() -> Unit)?,
+    onRetry: (() -> Unit)? = null,
 ) {
     var loaderVisible by remember { mutableStateOf(false) }
     LaunchedEffect(isLoading) {
@@ -1461,6 +1466,26 @@ private fun LyricsStatusContent(
                                     onPlayOriginal = onPlayOriginal,
                                     onFindLyrics = onFindLyrics
                                 )
+                                // Nothing was found (or the lookup failed): look again, or search by hand
+                                // through "Find or import lyrics" above.
+                                if (onRetry != null) {
+                                    TextButton(
+                                        onClick = onRetry,
+                                        modifier = Modifier.padding(top = 8.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Rounded.Refresh,
+                                            contentDescription = null,
+                                            tint = Color.White.copy(alpha = 0.85f),
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                        Spacer(Modifier.width(8.dp))
+                                        Text(
+                                            text = "Try again",
+                                            color = Color.White.copy(alpha = 0.85f)
+                                        )
+                                    }
+                                }
                                 if (onSyncYourself != null) {
                                     TextButton(
                                         onClick = onSyncYourself,
