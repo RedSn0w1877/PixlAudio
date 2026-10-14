@@ -2,11 +2,6 @@ package com.theveloper.pixelplay.presentation.components
 
 import android.widget.Toast
 import com.theveloper.pixelplay.data.model.Song
-import com.kyant.backdrop.Backdrop
-import com.kyant.backdrop.backdrops.layerBackdrop
-import com.kyant.backdrop.backdrops.rememberLayerBackdrop
-import com.theveloper.pixelplay.ui.glass.LocalGlassModeEnabled
-import com.theveloper.pixelplay.ui.glass.components.GlassPanel
 import com.theveloper.pixelplay.data.model.Lyrics
 import com.theveloper.pixelplay.R
 import androidx.activity.compose.BackHandler
@@ -139,9 +134,6 @@ import com.theveloper.pixelplay.presentation.lyrics.model.plainLinesFor
 import com.theveloper.pixelplay.presentation.lyrics.model.resolveLyricsDisplay
 import com.theveloper.pixelplay.presentation.viewmodel.LyricsTranslateUiState
 import com.theveloper.pixelplay.presentation.viewmodel.SingUi
-import com.theveloper.pixelplay.ui.glass.controls.MediaOrb
-import com.theveloper.pixelplay.ui.glass.theme.GlassPalette
-import com.theveloper.pixelplay.ui.glass.theme.LocalGlassPalette
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
@@ -419,11 +411,7 @@ fun LyricsSheet(
     // and an observed state here would recompose the whole sheet on each of them.
     val lastInteractionAt = remember { longArrayOf(SystemClock.uptimeMillis()) }
     var showMoreSheet by remember { mutableStateOf(false) }
-    // Liquid Glass opens the More sheet at half height as a floating glass sheet (owner decision,
-    // as on iOS: drag it up for the rest); Material 3 keeps the full-height sheet.
-    val moreSheetState = rememberModalBottomSheetState(
-        skipPartiallyExpanded = !LocalGlassModeEnabled.current
-    )
+    val moreSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     // Swipe Gesture State
     val hapticFeedback = LocalHapticFeedback.current
@@ -691,24 +679,6 @@ fun LyricsSheet(
     }
     val reduceMotion = remember(context) { readReduceMotion(context) }
     val density = LocalDensity.current
-    // Liquid Glass: the chrome is the full player's glass (owner decision: match its chrome
-    // tints; play/pause and the active segment as strong as the player's). Every glass node samples
-    // the artwork background (captured below as a SIBLING layer, never an ancestor of a reader),
-    // never the lyric lines. The renderer and the background are untouched; the capture adds no
-    // pixels. Lenses over the 30 fps art: the header, the play/pause orb, the seek bar and the
-    // toolbar bar (4), plus the sync chip or the sync-offset capsule while they show.
-    val glassChrome = LocalGlassModeEnabled.current
-    val lyricsGlassBackdrop = if (glassChrome) rememberLayerBackdrop() else null
-    // The chrome always sits over the dark, graded artwork, so the kit draws with its DARK palette
-    // even in a light-themed app (white text; the light palette would draw black on dark art).
-    val lyricsGlassPalette = remember(chrome.accent) { GlassPalette.of(isDark = true, accent = chrome.accent) }
-    // The full player's top-pill tint over ordinary art; darker over bright art for readability,
-    // and the opaque-ish container under Increase contrast.
-    val lyricsGlassTint = when {
-        backgroundState.isBrightArt -> LyricsGlassTintBright
-        highContrastText || highContrast -> chrome.container
-        else -> lyricsGlassPalette.tintSubtle
-    }
     // Plain lyrics start at the top for every song.
     val staticListState = remember(currentSong?.id) { LazyListState() }
 
@@ -829,7 +799,6 @@ fun LyricsSheet(
             )
         }
 
-        CompositionLocalProvider(LocalGlassPalette provides lyricsGlassPalette) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -846,8 +815,7 @@ fun LyricsSheet(
             LyricsArtworkBackground(
                 artUri = currentSong?.albumArtUriString,
                 modifier = Modifier
-                    .matchParentSize()
-                    .then(if (lyricsGlassBackdrop != null) Modifier.layerBackdrop(lyricsGlassBackdrop) else Modifier),
+                    .matchParentSize(),
                 state = backgroundState,
                 colorScheme = colorScheme
             )
@@ -925,9 +893,8 @@ fun LyricsSheet(
                     isLoading = isLoadingLyrics,
                     song = currentSong,
                     colorScheme = colorScheme,
-                    // Not chrome: in glass mode the status content keeps its white accent.
-                    accent = if (glassChrome) Color.White else chrome.accent,
-                    accentTrack = if (glassChrome) LyricsGlassStatusTrack else chrome.accentTrack,
+                    accent = chrome.accent,
+                    accentTrack = chrome.accentTrack,
                     contentPadding = listPadding,
                     studioInstrumentalActive = studioInstrumentalActive,
                     onPlayInstrumental = onPlayInstrumental,
@@ -987,8 +954,6 @@ fun LyricsSheet(
                     song = currentSong,
                     isPlaying = isPlaying,
                     chrome = chrome,
-                    glassBackdrop = lyricsGlassBackdrop,
-                    glassTint = lyricsGlassTint,
                 )
                 // "Make the words light up - Sync it yourself": line-only or plain lyrics only.
                 androidx.compose.animation.AnimatedVisibility(
@@ -1000,8 +965,6 @@ fun LyricsSheet(
                     LyricsSyncChip(
                         onClick = { onSyncYourself?.invoke() },
                         onDismiss = onDismissSyncChip,
-                        glassBackdrop = lyricsGlassBackdrop,
-                        glassTint = lyricsGlassTint,
                     )
                 }
             }
@@ -1036,8 +999,6 @@ fun LyricsSheet(
                     onNavigateBack = onBackClick,
                     onMoreClick = { showMoreSheet = true },
                     backProgressProvider = backProgressProvider,
-                    glassBackdrop = lyricsGlassBackdrop,
-                    glassTint = lyricsGlassTint,
                 )
             }
 
@@ -1047,7 +1008,6 @@ fun LyricsSheet(
                     onClick = { resetImmersiveTimer() },
                     progress = showButtonProgress,
                     chrome = chrome,
-                    glassBackdrop = lyricsGlassBackdrop,
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .padding(bottom = navBottom + ShowControlsBottomGap)
@@ -1174,11 +1134,9 @@ fun LyricsSheet(
                         onFavoriteToggle()
                     },
                     onSyncYourself = if (currentSong != null) onSyncYourself else null,
-                    glass = glassChrome,
                 )
             }
         }
-    }
 }
 
 /** Content padding for the plain/status lists; the bottom follows the measured controls. */
@@ -1201,15 +1159,11 @@ private fun LyricsHeader(
     isPlaying: Boolean,
     chrome: LyricsChromeColors,
     modifier: Modifier = Modifier,
-    glassBackdrop: Backdrop? = null,
-    glassTint: Color = Color.Unspecified,
 ) {
     if (song == null) return
     LyricsHeaderContainer(
         modifier = modifier,
         chrome = chrome,
-        glassBackdrop = glassBackdrop,
-        glassTint = glassTint
     ) {
         AnimatedContent(
             targetState = song,
@@ -1231,57 +1185,28 @@ private fun LyricsHeader(
     }
 }
 
-/**
- * The header's container: the Material 3 tonal capsule, or in Liquid Glass a light capsule with
- * the full player's top-pill tint ([glassTint]: the palette's subtle White@0.08, darkened to
- * Black@0.35 over bright art for readability) and no glint. One glass node.
- */
+/** The header's container: the Material 3 tonal capsule. */
 @Composable
 private fun LyricsHeaderContainer(
     modifier: Modifier,
     chrome: LyricsChromeColors,
-    glassBackdrop: Backdrop?,
-    glassTint: Color,
     content: @Composable () -> Unit,
 ) {
-    if (glassBackdrop == null) {
-        Box(
-            modifier = modifier
-                .clip(CircleShape)
-                .background(chrome.container)
-                .animateContentSize()
-        ) {
-            content()
-        }
-    } else {
-        GlassPanel(
-            modifier = modifier.animateContentSize(),
-            backdrop = glassBackdrop,
-            shape = LyricsGlassCapsule,
-            tint = glassTint,
-            showHighlight = false,
-        ) {
-            content()
-        }
+    Box(
+        modifier = modifier
+            .clip(CircleShape)
+            .background(chrome.container)
+            .animateContentSize()
+    ) {
+        content()
     }
 }
-
-/** Over bright art the glass darkens for readability (NexHome's raise, research-nexhome-design §10.2). */
-private val LyricsGlassTintBright = Color.Black.copy(alpha = 0.35f)
-
-/** Glass-mode looks kept for the status content (its accent track stays white). */
-private val LyricsGlassStatusTrack = Color.White.copy(alpha = 0.28f)
-private val LyricsGlassCapsule = com.kyant.shapes.Capsule()
 
 /**
  * The bottom control cluster, sliding and fading with [progress]: the sync-offset row (when
  * shown), play/pause with the seek bar, and the toolbar (Back · Translate · Sing · More).
  *
- * Material 3: the familiar tonal pills over a soft scrim, unchanged. Liquid Glass ([glassBackdrop]):
- * the full player's glass, each piece its own light lens over the artwork rather than one heavy
- * panel full of fills: play/pause is the player's MediaOrb (lit with the album accent while
- * playing), the seek bar sits in a light capsule like the player's top pills, the toolbar is ONE
- * glass bar, and the sync-offset row its own capsule. Every piece takes [glassTint].
+ * Material 3: the familiar tonal pills over a soft scrim.
  */
 @Composable
 private fun LyricsControlCluster(
@@ -1310,8 +1235,6 @@ private fun LyricsControlCluster(
     onNavigateBack: () -> Unit,
     onMoreClick: () -> Unit,
     backProgressProvider: () -> Float,
-    glassBackdrop: Backdrop? = null,
-    glassTint: Color = Color.Unspecified,
 ) {
     val slidePx = with(LocalDensity.current) { ControlsSlide.toPx() }
     // Two small dedicated states, collected here so only the cluster hears a progress tick or a
@@ -1330,7 +1253,6 @@ private fun LyricsControlCluster(
                 translationY = (1f - p) * slidePx
             }
     ) {
-        if (glassBackdrop == null) {
             AnimatedVisibility(
                 visible = showSyncControls,
                 enter = expandVertically() + fadeIn(),
@@ -1398,124 +1320,8 @@ private fun LyricsControlCluster(
                 // Pass progress so the back button animates with the gesture (draw-phase).
                 backProgressProvider = backProgressProvider,
             )
-        } else {
-            val palette = LocalGlassPalette.current
-            AnimatedVisibility(
-                visible = showSyncControls,
-                enter = expandVertically() + fadeIn(),
-                exit = shrinkVertically() + fadeOut()
-            ) {
-                GlassPanel(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 8.dp),
-                    backdrop = glassBackdrop,
-                    shape = LyricsGlassCapsule,
-                    tint = glassTint,
-                    showHighlight = false,
-                    refractionHeight = LyricsGlassRefraction,
-                    refractionAmount = LyricsGlassRefraction * 2f,
-                ) {
-                    LyricsSyncControls(
-                        modifier = Modifier.fillMaxWidth(),
-                        offsetMillis = lyricsSyncOffset,
-                        onOffsetChange = onLyricsSyncOffsetChange,
-                        backgroundColor = Color.Transparent,
-                        accentColor = chrome.syncAccent,
-                        onAccentColor = chrome.onSyncAccent,
-                        onBackgroundColor = palette.primary
-                    )
-                }
-            }
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                // The full player's play/pause orb (GlassTransportRow): lit with the accent while
-                // playing, its own swell and haptic.
-                MediaOrb(
-                    onClick = onPlayPause,
-                    size = LyricsOrbSize,
-                    lit = if (isPlaying) 1f else 0f,
-                    backdrop = glassBackdrop,
-                    contentDescription = stringResource(if (isPlaying) R.string.common_pause else R.string.common_play),
-                ) {
-                    Icon(
-                        imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                        contentDescription = null,
-                        modifier = Modifier.size(36.dp)
-                    )
-                }
-                // Not interactive glass: a press jelly could pull the thumb away from the finger.
-                GlassPanel(
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(50.dp),
-                    backdrop = glassBackdrop,
-                    shape = LyricsGlassCapsule,
-                    tint = glassTint,
-                    showHighlight = false,
-                    refractionHeight = LyricsGlassRefraction,
-                    refractionAmount = LyricsGlassRefraction * 2f,
-                ) {
-                    LyricsPlaybackSeekBar(
-                        modifier = Modifier.fillMaxSize(),
-                        playbackPositionFlow = playbackPositionFlow,
-                        backgroundColor = Color.Transparent,
-                        onBackgroundColor = palette.primary,
-                        accentColor = chrome.accent,
-                        totalDuration = totalDuration,
-                        onSeekTo = onSeekTo,
-                        onSeekPreviewChange = onSeekPreviewChange,
-                        isPlaying = isPlaying
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // ONE glass bar for the whole toolbar; its buttons are flat fills on it that swell
-            // when pressed (one lens instead of four over the moving art).
-            GlassPanel(
-                modifier = Modifier.fillMaxWidth(),
-                backdrop = glassBackdrop,
-                shape = LyricsGlassCapsule,
-                tint = glassTint,
-                showHighlight = false,
-                refractionHeight = LyricsGlassRefraction,
-                refractionAmount = LyricsGlassRefraction * 2f,
-            ) {
-                LyricsFloatingToolbar(
-                    hasLyrics = hasLyrics,
-                    translate = translateState,
-                    onTranslate = onTranslate,
-                    onTranslateViaAi = onTranslateViaAi,
-                    onShowRomanizationChange = onShowRomanizationChange,
-                    sing = singUi,
-                    onSing = onSing,
-                    onNavigateBack = onNavigateBack,
-                    onMoreClick = onMoreClick,
-                    backgroundColor = palette.tintSubtle,
-                    onBackgroundColor = palette.primary,
-                    accentColor = palette.accent,
-                    onAccentColor = palette.primary,
-                    menuColorScheme = menuColorScheme,
-                    backProgressProvider = backProgressProvider,
-                    glass = true,
-                    glassAccent = palette.accent,
-                )
-            }
-        }
     }
 }
-
-/** The glass play/pause orb: the full player's 80 dp orb, sized to the lyrics cluster. */
-private val LyricsOrbSize = 78.dp
-
-/** The light lens of the cluster's capsules (the full player's top pills: 16 / 32). */
-private val LyricsGlassRefraction = 16.dp
 
 /** Play/pause: a squircle while playing, a circle while paused; the morph is read in the layer. */
 @Composable
@@ -1567,29 +1373,7 @@ private fun LyricsShowControlsButton(
     progress: () -> Float,
     chrome: LyricsChromeColors,
     modifier: Modifier = Modifier,
-    glassBackdrop: Backdrop? = null,
 ) {
-    if (glassBackdrop != null) {
-        // Liquid Glass: a small lit orb, like the player's transport. It exists only while the
-        // controls are hidden, so it never adds to the cluster's lenses.
-        MediaOrb(
-            onClick = onClick,
-            size = ShowControlsSize,
-            lit = 1f,
-            backdrop = glassBackdrop,
-            contentDescription = "Show Controls",
-            modifier = modifier.graphicsLayer {
-                val p = progress().coerceIn(0f, 1f)
-                alpha = p
-                val s = lerp(0.8f, 1f, p)
-                scaleX = s
-                scaleY = s
-            }
-        ) {
-            Icon(imageVector = Icons.Rounded.KeyboardArrowUp, contentDescription = null)
-        }
-        return
-    }
     Box(
         modifier = modifier
             .size(ShowControlsSize)
@@ -1885,38 +1669,19 @@ private const val LOADER_DELAY_MS = 400L
 
 private fun accentTrackFor(accent: Color): Color = accent.copy(alpha = accent.alpha * 0.26f)
 
-/**
- * "Make the words light up · Sync it yourself". Liquid Glass: a light capsule lens over the art
- * (only while the chip shows, for lyrics without word timing); Material 3: a soft white fill.
- */
+/** "Make the words light up - Sync it yourself": a soft white fill over the art. */
 @Composable
 private fun LyricsSyncChip(
     onClick: () -> Unit,
     onDismiss: () -> Unit,
-    glassBackdrop: Backdrop? = null,
-    glassTint: Color = Color.Unspecified,
 ) {
-    if (glassBackdrop != null) {
-        GlassPanel(
-            modifier = Modifier.height(40.dp),
-            backdrop = glassBackdrop,
-            shape = LyricsGlassCapsule,
-            tint = glassTint,
-            showHighlight = false,
-            refractionHeight = LyricsGlassRefraction,
-            refractionAmount = LyricsGlassRefraction * 2f,
-        ) {
-            LyricsSyncChipContent(onClick, onDismiss, Modifier.clip(LyricsGlassCapsule))
-        }
-    } else {
-        LyricsSyncChipContent(
-            onClick,
-            onDismiss,
-            Modifier
-                .clip(CircleShape)
-                .background(Color.White.copy(alpha = 0.16f))
-        )
-    }
+    LyricsSyncChipContent(
+        onClick,
+        onDismiss,
+        Modifier
+            .clip(CircleShape)
+            .background(Color.White.copy(alpha = 0.16f))
+    )
 }
 
 @Composable

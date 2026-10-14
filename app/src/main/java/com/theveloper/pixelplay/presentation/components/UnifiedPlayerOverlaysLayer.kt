@@ -49,8 +49,6 @@ import com.theveloper.pixelplay.data.model.Song
 import com.theveloper.pixelplay.presentation.viewmodel.PlayerViewModel
 import com.theveloper.pixelplay.presentation.viewmodel.PlaylistViewModel
 import com.theveloper.pixelplay.presentation.components.scoped.PlayerSheetFieldStates
-import com.theveloper.pixelplay.ui.glass.LocalGlassModeEnabled
-import com.theveloper.pixelplay.ui.glass.theme.LocalGlassPalette
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.coroutines.flow.map
 import kotlin.math.min
@@ -59,44 +57,6 @@ import kotlin.math.roundToInt
 /** SheetOverlayState's queue scrim alpha at full open. */
 private const val QUEUE_SCRIM_MAX_ALPHA = 0.45f
 
-/**
- * Glass mode's queue height as a share of the player (owner decision, 2026-10-07: the queue is a
- * see-through glass sheet at about 92 %, like iOS's partial detent, instead of a full-height one).
- */
-internal const val QUEUE_SHEET_HEIGHT_FRACTION = 0.92f
-
-/** The least gap glass mode keeps between the status bar and the queue sheet's top edge. */
-private val QueueSheetMinTopGap = 8.dp
-
-/**
- * The glass queue sheet's height in px: [fraction] of the container, but never so tall that its
- * top reaches within [minTopGapPx] of the status bar (a short or landscape screen), never negative.
- */
-internal fun resolveQueueSheetHeightPx(
-    containerPx: Float,
-    statusTopPx: Float,
-    minTopGapPx: Float,
-    fraction: Float = QUEUE_SHEET_HEIGHT_FRACTION,
-): Float = min(containerPx * fraction, containerPx - statusTopPx - minTopGapPx).coerceAtLeast(0f)
-
-/**
- * Measures the queue sheet at [resolveQueueSheetHeightPx] of the container's height. The insets are
- * read here, in the layout pass, so a status-bar change re-measures the sheet without recomposing
- * the queue.
- */
-private fun Modifier.glassQueueSheetHeight(statusBars: WindowInsets): Modifier = layout { measurable, constraints ->
-    if (!constraints.hasBoundedHeight) {
-        val placeable = measurable.measure(constraints)
-        return@layout layout(placeable.width, placeable.height) { placeable.place(0, 0) }
-    }
-    val heightPx = resolveQueueSheetHeightPx(
-        containerPx = constraints.maxHeight.toFloat(),
-        statusTopPx = statusBars.getTop(this).toFloat(),
-        minTopGapPx = QueueSheetMinTopGap.toPx(),
-    ).roundToInt()
-    val placeable = measurable.measure(constraints.copy(minHeight = heightPx, maxHeight = heightPx))
-    layout(placeable.width, placeable.height) { placeable.place(0, 0) }
-}
 
 internal data class SaveQueueOverlayData(
     val songs: List<Song>,
@@ -161,41 +121,7 @@ internal fun UnifiedPlayerQueueLayer(
         val showQueueScrim by remember(queueScrimAlphaState) {
             derivedStateOf { queueScrimAlphaState.value > 0f }
         }
-        val glassMode = LocalGlassModeEnabled.current
-        if (showQueueScrim && glassMode) {
-            // Glass mode: the queue is a ~92 % glass sheet, so the player stays visible above it
-            // under the palette's see-through sheet scrim (the one glass ModalBottomSheets use),
-            // fading in with the open progress (the M3 scrim tops out at 0.45; this maps that to 1).
-            // The exposed strip now shows the player's top bar, so while the queue is open every
-            // touch there is swallowed and a tap closes the queue instead of reaching the player.
-            val glassScrimColor = LocalGlassPalette.current.scrim
-            val latestOnDismissQueue = rememberUpdatedState(onDismissQueue)
-            Box(
-                modifier = Modifier
-                    .matchParentSize()
-                    .zIndex(0f)
-                    .graphicsLayer {
-                        alpha = (queueScrimAlphaState.value / QUEUE_SCRIM_MAX_ALPHA).coerceIn(0f, 1f)
-                    }
-                    .background(glassScrimColor)
-                    .then(
-                        if (showQueueSheet) {
-                            Modifier.pointerInput(Unit) {
-                                awaitEachGesture {
-                                    awaitFirstDown(requireUnconsumed = false).consume()
-                                    val up = waitForUpOrCancellation()
-                                    if (up != null) {
-                                        up.consume()
-                                        latestOnDismissQueue.value()
-                                    }
-                                }
-                            }
-                        } else {
-                            Modifier
-                        }
-                    )
-            )
-        } else if (showQueueScrim) {
+        if (showQueueScrim) {
             Box(
                 modifier = Modifier
                     .matchParentSize()
@@ -210,31 +136,10 @@ internal fun UnifiedPlayerQueueLayer(
         }
 
         if (shouldRenderQueueSheet) {
-            // Glass mode: the queue's panels bloom their lens with the queue's open progress
-            // (NexHome's sheet "lens bloom"), following the drag both ways.
-            val queueLensBloom = remember(queueScrimAlphaState) {
-                { (queueScrimAlphaState.value / QUEUE_SCRIM_MAX_ALPHA).coerceIn(0f, 1f) }
-            }
-            // Glass mode sizes the sheet to ~92 % of the player in its layout pass (no
-            // BoxWithConstraints: the queue stays composed in place, never in a subcomposition).
-            // The measured height feeds queueSheetHeightPx, so the hidden offset, the slide-in and
-            // the drag adapt by themselves. Material 3 mode keeps the full-height queue.
-            val statusBarInsets = WindowInsets.statusBars
-            val queueSheetSize = if (glassMode) {
-                Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .glassQueueSheetHeight(statusBarInsets)
-            } else {
-                Modifier.fillMaxSize()
-            }
             PlayerSchemeMaterialTheme(scheme = colorScheme) {
-              CompositionLocalProvider(
-                  com.theveloper.pixelplay.ui.glass.controls.LocalLensBloom provides
-                      if (glassMode) queueLensBloom else com.theveloper.pixelplay.ui.glass.controls.LocalLensBloom.current
-              ) {
                 QueueBottomSheet(
-                    modifier = queueSheetSize
+                    modifier = Modifier
+                        .fillMaxSize()
                         .offset {
                             val offsetVal = queueSheetOffset.value.roundToInt()
                             IntOffset(0, if (offsetVal < 0) 0 else offsetVal)
@@ -282,7 +187,6 @@ internal fun UnifiedPlayerQueueLayer(
                     predictiveBackSwipeEdge = queuePredictiveBackSwipeEdge,
                     queueSheetOffset = queueSheetOffset
                 )
-              }
             }
         }
     }

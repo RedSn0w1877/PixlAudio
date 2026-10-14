@@ -149,12 +149,9 @@ fun AiPlaylistSheet(
     var isPressed by remember { mutableStateOf(false) }
     
     // Animated scale for the button - shrinks when pressed, bounces back when released
-    // (Liquid Glass mode: swells like NexHome's wide bars instead).
-    val buttonScale by animatePressScaleAsState(
-        pressed = isPressed,
-        materialPressedScale = 0.92f,
-        glassPressedScale = com.theveloper.pixelplay.ui.glass.RowPressScale,
-        materialSpec = spring(
+    val buttonScale by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (isPressed) 0.92f else 1f,
+        animationSpec = spring(
             dampingRatio = Spring.DampingRatioMediumBouncy,
             stiffness = Spring.StiffnessMedium
         ),

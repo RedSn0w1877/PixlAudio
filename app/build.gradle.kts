@@ -399,8 +399,6 @@ dependencies {
     // Doing this by hand (see data/youtube/SignatureCipherSolver) stopped being viable once
     // YouTube restructured how the cipher is built; this is the maintained alternative.
     implementation(libs.newpipe.extractor)
-    implementation(libs.kyant.backdrop)
-    implementation(libs.kyant.shapes)
     // NewPipeExtractor la usa como implementation, así que sus clases no llegan a nuestro
     // classpath de compilación solo por depender de la librería; hay que declararla aparte.
     implementation(libs.nanojson)

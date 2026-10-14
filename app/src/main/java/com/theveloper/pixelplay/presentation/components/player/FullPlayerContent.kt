@@ -1,13 +1,4 @@
 package com.theveloper.pixelplay.presentation.components.player
-
-import com.kyant.shapes.RoundedRectangle
-import com.theveloper.pixelplay.ui.glass.GlassCircleAction
-import com.theveloper.pixelplay.ui.glass.GlassPillShape
-import com.theveloper.pixelplay.ui.glass.LocalGlassModeEnabled
-import com.theveloper.pixelplay.ui.glass.components.GlassPanel
-import com.theveloper.pixelplay.ui.glass.controls.MediaScrubber
-import com.theveloper.pixelplay.ui.glass.theme.LocalGlassPalette
-
 import kotlinx.coroutines.flow.distinctUntilChanged
 import android.annotation.SuppressLint
 import android.content.Context
@@ -168,9 +159,6 @@ private const val EDITOR_COVER_DELAY_MS = 450L
 private const val SKIP_COMMAND_GUARD_MS = 96L
 /** While paused, how often the seek bar checks for a seek made outside the app. */
 private const val PAUSED_PROGRESS_CHECK_MS = 250L
-// Glass mode's paced progress clock: bounds for the interval between ticks.
-private const val GLASS_CLOCK_MIN_STEP_MS = 16L
-private const val GLASS_CLOCK_MAX_STEP_MS = 250L
 
 private enum class SkipDirection { PREVIOUS, NEXT }
 
@@ -363,9 +351,6 @@ fun FullPlayerContent(
         com.theveloper.pixelplay.presentation.lyrics.LongSource { playerViewModel.currentPositionForLyrics() }
     }
 
-    // Liquid Glass mode (static): the player's chrome, transport, seek bar and toggles become
-    // NexHome glass; the card behind the player already draws the baked ambient.
-    val glassMode = LocalGlassModeEnabled.current
     val playerOnBaseColor = LocalMaterialTheme.current.onPrimaryContainer
     val playerAccentColor = LocalMaterialTheme.current.primary
     val playerOnAccentColor = LocalMaterialTheme.current.onPrimary
@@ -581,7 +566,6 @@ fun FullPlayerContent(
             placeholderOnColor = placeholderOnColor,
             albumArtQuality = albumArtQuality,
             requestedScrollIndex = pendingCarouselIndex,
-            glassFrame = glassMode,
             onSongSelected = onAlbumSongSelected,
             onAlbumClick = { albumSong ->
                 playerViewModel.triggerAlbumNavigationFromPlayer(albumSong.albumId)
@@ -786,9 +770,6 @@ fun FullPlayerContent(
                             // 2. Alinea el contenido (el botón) al final (derecha) y centrado verticalmente
                             contentAlignment = Alignment.CenterEnd
                         ) {
-                            if (glassMode) {
-                                GlassPlayerCollapseButton(onCollapse = onCollapse)
-                            } else
                             // 3. Tu botón circular original, sin cambios
                             Box(
                                 modifier = Modifier
@@ -811,7 +792,6 @@ fun FullPlayerContent(
                             playerViewModel = playerViewModel,
                             isCastConnecting = isCastConnecting,
                             isExpanded = currentSheetState == PlayerSheetState.EXPANDED,
-                            glassMode = glassMode,
                             accent = playerAccentColor,
                             onAccent = playerOnAccentColor,
                             onOutputClick = onShowCastClicked,
@@ -839,9 +819,7 @@ fun FullPlayerContent(
                 .graphicsLayer { alpha = contentAlpha }
         ) {
             val ambientStyle by playerViewModel.playerAmbientStyle.collectAsStateWithLifecycle()
-            // Glass mode: the background is the baked ambient (drawn by the player card); the
-            // animated ambient styles are not glass sources (orchestrator decision G3).
-            if (!glassMode && ambientStyle != com.theveloper.pixelplay.data.preferences.PlayerAmbientStyle.OFF) {
+            if (ambientStyle != com.theveloper.pixelplay.data.preferences.PlayerAmbientStyle.OFF) {
                 val ambientAudioSessionId by playerViewModel.audioSessionId.collectAsStateWithLifecycle()
                 PlayerAmbientBackground(
                     style = ambientStyle,
@@ -988,7 +966,6 @@ private fun FullPlayerAlbumCoverSection(
     placeholderOnColor: Color,
     albumArtQuality: AlbumArtQuality,
     requestedScrollIndex: Int?,
-    glassFrame: Boolean = false,
     onSongSelected: (Song, Int) -> Unit,
     onAlbumClick: (Song) -> Unit,
     modifier: Modifier = Modifier
@@ -1054,64 +1031,29 @@ private fun FullPlayerAlbumCoverSection(
                 }
             }
         ) {
-            // The frame goes around the centre art only (G3): with peeking neighbours the carousel
-            // is full width, so those styles keep the plain carousel.
-            val framed = glassFrame && carouselStyle == CarouselStyle.NO_PEEK
-            val carousel: @Composable (Modifier, Dp) -> Unit = { carouselModifier, itemCorner ->
-                AlbumCarouselSection(
-                    currentSong = song,
-                    queue = currentPlaybackQueue,
-                    expansionFraction = 1f,
-                    currentMediaItemIndex = currentMediaItemIndex,
-                    requestedScrollIndex = requestedScrollIndex,
-                    onSongSelected = { newSong, index ->
-                        if (newSong.id != song.id || index != currentMediaItemIndex) {
-                            onSongSelected(newSong, index)
-                        }
+            AlbumCarouselSection(
+                currentSong = song,
+                queue = currentPlaybackQueue,
+                expansionFraction = 1f,
+                currentMediaItemIndex = currentMediaItemIndex,
+                requestedScrollIndex = requestedScrollIndex,
+                onSongSelected = { newSong, index ->
+                    if (newSong.id != song.id || index != currentMediaItemIndex) {
+                        onSongSelected(newSong, index)
+                    }
+                },
+                onAlbumClick = onAlbumClick,
+                carouselStyle = carouselStyle,
+                animateProgrammaticScroll = { expansionFractionProvider() > 0.01f },
+                modifier = Modifier
+                    .height(carouselHeight)
+                    .graphicsLayer {
+                        scaleX = albumArtScale
+                        scaleY = albumArtScale
                     },
-                    onAlbumClick = onAlbumClick,
-                    carouselStyle = carouselStyle,
-                    animateProgrammaticScroll = { expansionFractionProvider() > 0.01f },
-                    modifier = if (framed) {
-                        // The frame carries the pause squish for both (see below).
-                        carouselModifier
-                    } else {
-                        carouselModifier
-                            .graphicsLayer {
-                                scaleX = albumArtScale
-                                scaleY = albumArtScale
-                            }
-                    },
-                    albumArtQuality = albumArtQuality,
-                    itemCornerRadius = itemCorner
-                )
-            }
-            if (framed) {
-                // NexHome's photo frame (CamerasScreen): a light glass panel at radius 30 with
-                // 8 dp padding, the art inside at radius 22. One static glass node: the art
-                // scrolls inside it without re-rendering the lens. The pause squish scales the
-                // frame and the art together, so the art never shrinks inside a fixed frame.
-                GlassPanel(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(carouselHeight)
-                        .graphicsLayer {
-                            scaleX = albumArtScale
-                            scaleY = albumArtScale
-                        },
-                    shape = RoundedRectangle(30.dp),
-                    tint = LocalGlassPalette.current.tint,
-                ) {
-                    carousel(
-                        Modifier
-                            .fillMaxSize()
-                            .padding(8.dp),
-                        22.dp
-                    )
-                }
-            } else {
-                carousel(Modifier.height(carouselHeight), 18.dp)
-            }
+                albumArtQuality = albumArtQuality,
+                itemCornerRadius = 18.dp
+            )
         }
     }
 }
@@ -1162,30 +1104,6 @@ private fun FullPlayerControlsSection(
             }
         }
     ) {
-        if (LocalGlassModeEnabled.current) {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                GlassTransportRow(
-                    isPlayingProvider = isPlayingProvider,
-                    onPrevious = onPrevious,
-                    onPlayPause = onPlayPause,
-                    onNext = onNext,
-                    modifier = Modifier.padding(horizontal = 12.dp)
-                )
-                Spacer(modifier = Modifier.height(14.dp))
-                GlassPlayerToggleRow(
-                    isShuffleEnabled = isShuffleEnabledProvider(),
-                    isShuffleTransitionInProgress = shuffleTransitionInProgress,
-                    repeatMode = repeatModeProvider(),
-                    isFavoriteProvider = isFavoriteProvider,
-                    onShuffleToggle = onShuffleToggle,
-                    onRepeatToggle = onRepeatToggle,
-                    onFavoriteToggle = onFavoriteToggle,
-                    modifier = Modifier.padding(bottom = 6.dp)
-                )
-            }
-        } else
         Column(
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
@@ -1552,10 +1470,6 @@ private fun SongMetadataDisplaySection(
         }.collectAsStateWithLifecycle(initialValue = playerViewModel.stablePlayerState.value.isBuffering)
 
 
-        // Liquid Glass mode: the row's chips are glass circles (NexHome's light orb, sampling the
-        // root ambient like the rest of the player's glass) instead of solid onAccent fills.
-        // Static at rest: their lenses re-render only while the player sheet moves.
-        val glassChips = LocalGlassModeEnabled.current
 
         AnimatedVisibility(
             visible = isBuffering,
@@ -1584,28 +1498,6 @@ private fun SongMetadataDisplaySection(
                 )
             )
         ) {
-            if (glassChips) {
-                // A non-interactive clear glass circle around the indicator.
-                val palette = LocalGlassPalette.current
-                GlassPanel(
-                    modifier = Modifier.padding(end = 8.dp),
-                    shape = CircleShape,
-                    tint = palette.tintSubtle,
-                    showHighlight = false,
-                    refractionHeight = 16.dp,
-                    refractionAmount = 32.dp,
-                ) {
-                    Box(
-                        modifier = Modifier.padding(10.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        LoadingIndicator(
-                            modifier = Modifier.size(28.dp),
-                            color = palette.primary
-                        )
-                    }
-                }
-            } else
             Surface(
                 shape = CircleShape,
                 color = chipColor,
@@ -1623,27 +1515,7 @@ private fun SongMetadataDisplaySection(
             }
         }
 
-        if (showQueueButton && glassChips) {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                GlassCircleAction(
-                    onClick = onClickLyrics,
-                    size = 48.dp,
-                    contentDescription = stringResource(R.string.common_lyrics)
-                ) {
-                    Icon(painter = painterResource(R.drawable.rounded_lyrics_24), contentDescription = null)
-                }
-                GlassCircleAction(
-                    onClick = onClickQueue,
-                    size = 48.dp,
-                    contentDescription = stringResource(R.string.player_cd_open_queue)
-                ) {
-                    Icon(painter = painterResource(R.drawable.rounded_queue_music_24), contentDescription = null)
-                }
-            }
-        } else if (showQueueButton) {
+        if (showQueueButton) {
             Row(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -1691,14 +1563,6 @@ private fun SongMetadataDisplaySection(
                     )
                 }
             }
-        } else if (glassChips) {
-            GlassCircleAction(
-                onClick = onClickLyrics,
-                size = 48.dp,
-                contentDescription = stringResource(R.string.common_lyrics)
-            ) {
-                Icon(painter = painterResource(R.drawable.rounded_lyrics_24), contentDescription = null)
-            }
         } else {
             // Portrait Mode: Just the Lyrics button (Queue is in TopBar)
             FilledIconButton(
@@ -1720,19 +1584,6 @@ private fun SongMetadataDisplaySection(
         // Taizo — TAIS Engine 3's on-device DJ. Same 48dp footprint and monochrome chipColor/
         // chipContentColor styling as the Lyrics button so it reads as a sibling action, not a
         // rainbow afterthought.
-        if (glassChips) {
-            GlassCircleAction(
-                onClick = onClickTaizo,
-                size = 48.dp,
-                contentDescription = stringResource(R.string.player_cd_ask_taizo)
-            ) {
-                Icon(
-                    imageVector = androidx.compose.material.icons.Icons.Rounded.AutoAwesome,
-                    contentDescription = null,
-                    modifier = Modifier.size(22.dp)
-                )
-            }
-        } else
         Box(
             modifier = Modifier
                 .size(48.dp)
@@ -1867,16 +1718,7 @@ private fun PlayerProgressBarSection(
     val latestIsVisible = rememberUpdatedState(isVisible)
     val latestIsCovered = rememberUpdatedState(isPlayerCovered)
     val latestIsPlayingProvider = rememberUpdatedState(isPlayingProvider)
-    // Glass mode's MediaScrubber only moves once per whole pixel (and the labels once a second),
-    // so the clock there ticks about twice per pixel of travel instead of on every vsync: the UI
-    // thread no longer wakes 120 times a second for the whole listening session. The wavy
-    // Material slider animates every frame and keeps the frame loop.
-    val glassPacedClock = LocalGlassModeEnabled.current
-    val scrubberWidthPx = LocalWindowInfo.current.containerSize.width.coerceAtLeast(1)
-    val latestGlassStepMs = rememberUpdatedState(
-        (durationForCalc / (scrubberWidthPx * 2L)).coerceIn(GLASS_CLOCK_MIN_STEP_MS, GLASS_CLOCK_MAX_STEP_MS)
-    )
-    LaunchedEffect(progressClock, glassPacedClock) {
+    LaunchedEffect(progressClock) {
         // 0 = idle (hidden or covered by the lyrics/sync editor), 1 = paused, 2 = playing.
         snapshotFlow {
             when {
@@ -1889,17 +1731,10 @@ private fun PlayerProgressBarSection(
                 2 -> {
                     progressClock.isPlaying = true
                     progressClock.rebase()
-                    if (glassPacedClock) {
-                        while (true) {
-                            withFrameNanos { progressClock.tick(it) }
-                            kotlinx.coroutines.delay(latestGlassStepMs.value)
-                        }
-                    } else {
-                        while (true) {
-                            withFrameNanos { progressClock.tick(it) }
-                        }
-                    }
+                    while (true) {
+                        withFrameNanos { progressClock.tick(it) }
                 }
+                    }
                 1 -> {
                     // Paused: sample once, then only look for a seek made elsewhere
                     // (notification, watch, car) a few times a second. No frame loop.
@@ -2105,23 +1940,6 @@ private fun EfficientSlider(
         }
     }
 
-    if (LocalGlassModeEnabled.current) {
-        // NexHome's MediaScrubber shape, no waveform: the frame-accurate value is read in its draw
-        // only, the played part is a plain accent fill, drag commits on release, tap seeks, and it
-        // ticks its own haptic every 5 %.
-        val latestOnScrubEnd = rememberUpdatedState(onScrubEnd)
-        MediaScrubber(
-            progress = { valueState.value },
-            onSeek = onValueCommit,
-            onScrubChange = { scrub ->
-                if (scrub != null) currentOnValueChange.value(scrub) else latestOnScrubEnd.value()
-            },
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 8.dp, horizontal = 0.dp)
-        )
-        return
-    }
 
     WavySliderExpressive(
         value = { valueState.value },
@@ -2191,34 +2009,7 @@ private fun EfficientTimeLabels(
             )
         }
 
-        if (!audioMetaLabel.isNullOrBlank() && LocalGlassModeEnabled.current) {
-            // Liquid Glass mode: a small clear glass capsule (NexHome LiquidChip's 6 / 12 lens,
-            // no glint) instead of a tinted fill. Its glass is built once: the per-second label
-            // recomposition above never touches it.
-            val palette = LocalGlassPalette.current
-            GlassPanel(
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .padding(horizontal = 58.dp),
-                shape = GlassPillShape,
-                tint = palette.tintSubtle,
-                showHighlight = false,
-                refractionHeight = 12.dp,
-                refractionAmount = 24.dp,
-            ) {
-                Text(
-                    text = audioMetaLabel,
-                    style = MaterialTheme.typography.labelSmall.copy(
-                        fontWeight = FontWeight.Medium,
-                        fontSize = 11.sp
-                    ),
-                    color = palette.primary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp)
-                )
-            }
-        } else if (!audioMetaLabel.isNullOrBlank()) {
+        if (!audioMetaLabel.isNullOrBlank()) {
             Surface(
                 modifier = Modifier
                     .align(Alignment.Center)

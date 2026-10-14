@@ -435,7 +435,7 @@ fun KaraokeLyricsView(
 }
 
 /**
- * The lyrics edge fade (§1.1, glass spec §3) as a mask that must sit inside an offscreen layer
+ * The lyrics edge fade as a mask that must sit inside an offscreen layer
  * (`CompositingStrategy.Offscreen`) so it masks only the lyrics.
  *
  * - Top: everything above [topInsetPx] is cleared, then alpha 0 → 1 over [topFadePx]. A negative

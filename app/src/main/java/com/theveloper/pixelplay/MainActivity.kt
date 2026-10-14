@@ -123,8 +123,6 @@ import com.theveloper.pixelplay.presentation.components.AppSidebarDrawer
 import com.theveloper.pixelplay.presentation.components.CrashReportDialog
 import com.theveloper.pixelplay.presentation.components.DismissUndoBar
 import com.theveloper.pixelplay.presentation.components.DrawerDestination
-import com.theveloper.pixelplay.presentation.components.GlassNavBarSideInset
-import com.theveloper.pixelplay.presentation.components.GlassNavigationBar
 import com.theveloper.pixelplay.presentation.components.MiniPlayerBottomSpacer
 import com.theveloper.pixelplay.presentation.components.MiniPlayerHeight
 import com.theveloper.pixelplay.presentation.components.PlayerInternalNavigationBar
@@ -132,9 +130,7 @@ import com.theveloper.pixelplay.presentation.components.PlayStoreAnnouncementDef
 import com.theveloper.pixelplay.presentation.components.PlayStoreAnnouncementDialog
 import com.theveloper.pixelplay.presentation.components.PlayStoreAnnouncementUiModel
 import com.theveloper.pixelplay.presentation.components.UnifiedPlayerSheetV2
-import com.theveloper.pixelplay.presentation.components.ProvidePlayerGlassPalette
 import com.theveloper.pixelplay.presentation.components.calculatePlayerSheetCollapsedTargetY
-import com.theveloper.pixelplay.presentation.components.resolveGlassNavBarOccupiedHeight
 import com.theveloper.pixelplay.presentation.components.resolveNavBarOccupiedHeight
 import com.theveloper.pixelplay.presentation.components.resolveNavBarSurfaceHeight
 import com.theveloper.pixelplay.presentation.components.sanitizeNavigationBarBottomInset
@@ -144,13 +140,10 @@ import com.theveloper.pixelplay.presentation.screens.SetupScreen
 import com.theveloper.pixelplay.presentation.viewmodel.MainViewModel
 import com.theveloper.pixelplay.presentation.viewmodel.PlayerViewModel
 import com.theveloper.pixelplay.presentation.viewmodel.ThemeStateHolder
-import com.theveloper.pixelplay.ui.glass.theme.GlassPalette
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.theveloper.pixelplay.ui.theme.LocalHighContrastText
 import com.theveloper.pixelplay.ui.theme.LocalPixelPlayDarkTheme
-import com.theveloper.pixelplay.ui.theme.VisualStyle
 import com.theveloper.pixelplay.ui.theme.rememberPowerSaveMode
-import com.theveloper.pixelplay.ui.glass.GlassModeRoot
 import com.theveloper.pixelplay.ui.theme.readHighContrastText
 import com.theveloper.pixelplay.ui.theme.PixelPlayTheme
 import com.theveloper.pixelplay.ui.theme.LocalShowScrollbar
@@ -763,16 +756,6 @@ class MainActivity : ComponentActivity() {
             onPauseOrDispose { }
         }
 
-        // Liquid Glass mode: read from the startup snapshot (so the first frame is already right) and
-        // kept live by it; only a flip of the resolved mode recomposes this shell.
-        val startupPrefsState = mainViewModel.startupPrefs.collectAsStateWithLifecycle()
-        val glassModeEnabled by remember {
-            derivedStateOf {
-                val prefs = startupPrefsState.value
-                prefs != null && VisualStyle.isGlassMode(prefs.appUiStyle, prefs.disableBlurAllOver)
-            }
-        }
-
         val rootView = LocalView.current
         val platformHapticFeedback = LocalHapticFeedback.current
         val appHapticsConfig = remember(hapticsEnabled) {
@@ -791,10 +774,7 @@ class MainActivity : ComponentActivity() {
             rootView.rootView?.isHapticFeedbackEnabled = hapticsEnabled
         }
 
-        val horizontalPadding = if (glassModeEnabled) {
-            // Glass mode: the mini player floats with NexHome's 20 dp sides, like the tab bar.
-            GlassNavBarSideInset
-        } else if (navBarStyle == NavBarStyle.DEFAULT) {
+        val horizontalPadding = if (navBarStyle == NavBarStyle.DEFAULT) {
             if (systemNavBarInset > 30.dp) 16.dp else 14.dp
         } else {
             0.dp
@@ -806,14 +786,8 @@ class MainActivity : ComponentActivity() {
         )
         val bottomBarPadding = animatedBottomBarPadding
         val navBarHeight = resolveNavBarSurfaceHeight(navBarStyle, systemNavBarInset, navBarCompactMode)
-        val navBarOccupiedHeight by remember(systemNavBarInset, navBarCompactMode, glassModeEnabled) {
-            derivedStateOf {
-                if (glassModeEnabled) {
-                    resolveGlassNavBarOccupiedHeight(systemNavBarInset)
-                } else {
-                    resolveNavBarOccupiedHeight(systemNavBarInset, navBarCompactMode)
-                }
-            }
+        val navBarOccupiedHeight by remember(systemNavBarInset, navBarCompactMode) {
+            derivedStateOf { resolveNavBarOccupiedHeight(systemNavBarInset, navBarCompactMode) }
         }
         val navBarVisibilityProgressState = animateFloatAsState(
             targetValue = if (shouldHideNavigationBar) 0f else 1f,
@@ -890,7 +864,7 @@ class MainActivity : ComponentActivity() {
             LocalHapticFeedback provides scopedHapticFeedback,
             LocalHighContrastText provides highContrastText
         ) {
-          GlassRoot(playerViewModel = playerViewModel, enabled = glassModeEnabled) {
+          run {
             RouteAwareSidebarDrawer(
                 drawerState = drawerState,
                 currentRouteProvider = currentRouteProvider,
@@ -913,39 +887,7 @@ class MainActivity : ComponentActivity() {
                 // full-screen fill here was pure overdraw.
                 containerColor = Color.Transparent,
                 bottomBar = {
-                    if (shouldRenderNavigationBar && glassModeEnabled) {
-                        val showPlayerContentArea by remember {
-                            playerViewModel.stablePlayerState
-                                .map { it.currentSong?.id != null }
-                                .distinctUntilChanged()
-                        }.collectAsStateWithLifecycle(initialValue = false)
-                        val latestShowPlayerContentArea by rememberUpdatedState(showPlayerContentArea)
-                        val onSearchIconDoubleTap = remember(playerViewModel) {
-                            { playerViewModel.onSearchNavIconDoubleTapped() }
-                        }
-                        // Read in the bar's layer only, like the Material 3 bar's slide-down.
-                        val glassNavHideFraction = remember(playerViewModel) {
-                            {
-                                val expansionHide = if (latestShowPlayerContentArea) {
-                                    playerViewModel.playerContentExpansionFraction.value.coerceIn(0f, 1f)
-                                } else {
-                                    0f
-                                }
-                                val routeHide = (1f - navBarVisibilityProgressState.value).coerceIn(0f, 1f)
-                                maxOf(expansionHide, routeHide)
-                            }
-                        }
-                        GlassNavigationBar(
-                            navController = navController,
-                            navItems = commonNavItems,
-                            currentRouteProvider = currentRouteProvider,
-                            hideFraction = glassNavHideFraction,
-                            onSearchIconDoubleTap = onSearchIconDoubleTap,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(navBarOccupiedHeight)
-                        )
-                    } else if (shouldRenderNavigationBar) {
+                    if (shouldRenderNavigationBar) {
                         val currentSongId by remember {
                             playerViewModel.stablePlayerState
                                 .map { it.currentSong?.id }
@@ -1204,18 +1146,15 @@ class MainActivity : ComponentActivity() {
                             )
                         }
 
-                        // Glass mode: the player keeps its album colours whatever the app accent is.
-                        ProvidePlayerGlassPalette(playerViewModel) {
-                            UnifiedPlayerSheetV2(
-                                playerViewModel = playerViewModel,
-                                sheetCollapsedTargetYProvider = sheetCollapsedTargetYProvider,
-                                collapsedStateHorizontalPadding = horizontalPadding,
-                                hideMiniPlayer = shouldHideMiniPlayer,
-                                containerHeight = containerHeight,
-                                navController = navController,
-                                isNavBarHidden = isNavBarEffectivelyHidden
-                            )
-                        }
+                        UnifiedPlayerSheetV2(
+                            playerViewModel = playerViewModel,
+                            sheetCollapsedTargetYProvider = sheetCollapsedTargetYProvider,
+                            collapsedStateHorizontalPadding = horizontalPadding,
+                            hideMiniPlayer = shouldHideMiniPlayer,
+                            containerHeight = containerHeight,
+                            navController = navController,
+                            isNavBarHidden = isNavBarEffectivelyHidden
+                        )
 
                         val dismissUndoBarSlice by remember {
                             playerViewModel.playerUiState
@@ -1369,56 +1308,6 @@ class MainActivity : ComponentActivity() {
         /** The remote announcement check waits until the app has settled. */
         const val ANNOUNCEMENT_FETCH_DELAY_MS = 5_000L
     }
-}
-
-/**
- * Liquid Glass mode's root (see [GlassModeRoot]): the baked ambient layer behind the whole UI, the
- * accelerometer, the light and the palette. The per-track inputs (artwork, album scheme) and the
- * battery-saver receiver are collected here, in their own scope and only in glass mode, so a track
- * change re-runs this wrapper and never the shell; [content] is the same instance and is skipped.
- * In Material 3 mode nothing is collected and [content] is composed exactly as before.
- */
-@Composable
-private fun GlassRoot(
-    playerViewModel: PlayerViewModel,
-    enabled: Boolean,
-    content: @Composable () -> Unit
-) {
-    val isDark = LocalPixelPlayDarkTheme.current
-    val appScheme = MaterialTheme.colorScheme
-    var accent = Color.Unspecified
-    var artUri: String? = null
-    var blobs: List<Color>? = null
-    var powerSave = false
-    if (enabled) {
-        val albumPair by playerViewModel.currentAlbumArtColorSchemePair.collectAsStateWithLifecycle()
-        val themedArtUri by playerViewModel.currentThemedAlbumArtUri.collectAsStateWithLifecycle()
-        val appAccent by playerViewModel.themeStateHolder.accentScheme.collectAsStateWithLifecycle()
-        val powerSaveState = rememberPowerSaveMode()
-        val albumScheme = albumPair?.let { if (isDark) it.dark else it.light }
-        // A chosen accent colours the app's glass; the default (Dynamic) keeps following the album.
-        // The ambient bake and blobs below stay art-driven either way (owner decision).
-        accent = GlassPalette.rootAccent(
-            accentChosen = appAccent?.pair != null,
-            albumPrimary = albumScheme?.primary,
-            appPrimary = appScheme.primary
-        )
-        artUri = themedArtUri
-        blobs = remember(albumScheme, appScheme, isDark) {
-            val source = albumScheme ?: appScheme.takeUnless { isDark }
-            source?.let { listOf(it.primaryContainer, it.tertiaryContainer, it.secondaryContainer) }
-        }
-        powerSave = powerSaveState.value
-    }
-    GlassModeRoot(
-        enabled = enabled,
-        isDark = isDark,
-        accent = accent,
-        artUri = artUri,
-        blobs = blobs,
-        powerSave = powerSave,
-        content = content
-    )
 }
 
 /**

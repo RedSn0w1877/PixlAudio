@@ -36,10 +36,7 @@ HSPLcom/theveloper/pixelplay/presentation/components/UnifiedPlayer**->**(**)**
 HSPLcom/theveloper/pixelplay/presentation/components/scoped/**->**(**)**
 HSPLcom/theveloper/pixelplay/presentation/components/player/**->**(**)**
 HSPLcom/theveloper/pixelplay/presentation/components/PlayerInternalNavigationBar**->**(**)**
-HSPLcom/theveloper/pixelplay/presentation/components/GlassNavigationBar**->**(**)**
 HSPLcom/theveloper/pixelplay/presentation/components/ScreenChrome**->**(**)**
-HSPLcom/theveloper/pixelplay/presentation/components/GlassAdaptive**->**(**)**
-HSPLcom/theveloper/pixelplay/presentation/components/GlassScreens**->**(**)**
 HSPLcom/theveloper/pixelplay/presentation/screens/SettingsComponents**->**(**)**
 HSPLcom/theveloper/pixelplay/presentation/components/subcomps/EnhancedSongListItem**->**(**)**
 HSPLcom/theveloper/pixelplay/presentation/components/PlayerSchemeScopes**->**(**)**
@@ -56,11 +53,9 @@ HSPLcom/theveloper/pixelplay/presentation/viewmodel/**->**(**)**
 HSPLcom/theveloper/pixelplay/data/preferences/**->**(**)**
 HSPLcom/theveloper/pixelplay/data/repository/MusicRepositoryImpl**->**(**)**
 HSPLcom/theveloper/pixelplay/ui/theme/**->**(**)**
-HSPLcom/theveloper/pixelplay/ui/glass/**->**(**)**
 Lcom/theveloper/pixelplay/presentation/navigation/**;
 Lcom/theveloper/pixelplay/presentation/viewmodel/**;
 Lcom/theveloper/pixelplay/ui/theme/**;
-Lcom/theveloper/pixelplay/ui/glass/**;
 
 # material-color-utilities: the accent scheme and the album-art palette are built through it, and
 # it ships in no baseline profile of its own, so its many small classes start interpreted.
@@ -72,7 +67,6 @@ Lcom/google/android/material/color/utilities/**;
 # bar, the scroll bar and SmartImage (every list row and the mini player art). They were in no profile,
 # so after each install or update they ran interpreted until the JIT warmed up.
 HSPLcom/theveloper/pixelplay/presentation/components/QueueBottomSheet**->**(**)**
-HSPLcom/theveloper/pixelplay/presentation/components/QueueGlassControls**->**(**)**
 HSPLcom/theveloper/pixelplay/presentation/components/LyricsSheet**->**(**)**
 HSPLcom/theveloper/pixelplay/presentation/components/LyricsFloatingToolbar**->**(**)**
 HSPLcom/theveloper/pixelplay/presentation/components/LyricsSyncControls**->**(**)**
@@ -81,7 +75,6 @@ HSPLcom/theveloper/pixelplay/presentation/components/SmartImage**->**(**)**
 HSPLcom/theveloper/pixelplay/presentation/components/ExpressiveScrollBar**->**(**)**
 HSPLcom/theveloper/pixelplay/presentation/components/subcomps/PlayerSeekBar**->**(**)**
 Lcom/theveloper/pixelplay/presentation/components/QueueBottomSheet**;
-Lcom/theveloper/pixelplay/presentation/components/QueueGlassControls**;
 Lcom/theveloper/pixelplay/presentation/components/LyricsSheet**;
 Lcom/theveloper/pixelplay/presentation/components/LyricsFloatingToolbar**;
 Lcom/theveloper/pixelplay/presentation/components/LyricsSyncControls**;

@@ -25,7 +25,6 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
-import com.theveloper.pixelplay.ui.glass.LocalGlassModeEnabled
 import com.theveloper.pixelplay.ui.theme.PixelPlayStatusBarStyle
 import androidx.compose.ui.res.stringResource
 import com.theveloper.pixelplay.R
@@ -72,25 +71,6 @@ fun CollapsibleCommonTopBar(
     if (syncStatusBarWithContainer) {
         PixelPlayStatusBarStyle(color = statusBarFallbackColor)
     }
-    if (LocalGlassModeEnabled.current) {
-        // Liquid Glass: NexHome's floating capsule (no glint, no collapse), through the
-        // ScreenChrome seam. The header keeps its height so the screen's layout is unchanged;
-        // it fills with the aligned ambient as it collapses (the Material header's solid fill:
-        // the caller's container alpha, else the default 0 → 1 ramp), so a collapsed header
-        // still masks the list scrolled under it.
-        GlassCollapsingTopBar(
-            title = title,
-            headerHeight = headerHeight,
-            maskAlpha = containerColor?.alpha ?: solidAlpha,
-            onBackClick = onBackClick,
-            modifier = modifier,
-            subtitle = subtitle,
-            supportingContent = supportingContent,
-            actions = actions
-        )
-        return
-    }
-
     // We can also fade the content color if we want, but usually onSurface is fine.
     // GenreDetail interpolates content color, but for standard screens onSurface is usually correct for both states 
     // (transparent surface vs surfaceContainer).

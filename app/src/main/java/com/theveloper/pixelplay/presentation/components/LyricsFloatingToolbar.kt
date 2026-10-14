@@ -71,9 +71,6 @@ import androidx.compose.ui.util.fastCoerceIn
 import androidx.compose.ui.util.lerp
 import com.theveloper.pixelplay.R
 import com.theveloper.pixelplay.presentation.viewmodel.SingUi
-import com.theveloper.pixelplay.ui.glass.glassPressSwell
-import com.theveloper.pixelplay.ui.glass.motion.LiquidMotion
-import com.theveloper.pixelplay.ui.glass.theme.LocalGlassPalette
 import kotlin.math.roundToInt
 
 /** What the toolbar's Translate segment shows; LyricsSheet derives it, the toolbar only draws it. */
@@ -99,10 +96,6 @@ data class LyricsTranslateSegment(
  * - Sing: vocals off / on through the song's studio instrumental, with the render's progress
  *   filling the segment the first time.
  *
- * Material 3 mode keeps the tonal pills. Liquid Glass mode ([glass]) draws the toolbar's content
- * for ONE glass bar the caller provides (LyricsSheet): flat subtle-tint circles and segments on
- * it, the active segment flooded with [glassAccent] as the full player's selected chips are, and
- * NexHome's press swell on every button. No glass node of its own (the bar is the lens).
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -125,8 +118,6 @@ fun LyricsFloatingToolbar(
     menuColorScheme: ColorScheme = MaterialTheme.colorScheme,
     // Draw-phase lambda: 0f = fully visible, 1f = dismissed. Read inside graphicsLayer to avoid recomposition per frame.
     backProgressProvider: () -> Float = { 0f },
-    glass: Boolean = false,
-    glassAccent: Color = Color.Unspecified,
 ) {
     val haptic = LocalHapticFeedback.current
     var translateMenuOpen by remember { mutableStateOf(false) }
@@ -162,9 +153,7 @@ fun LyricsFloatingToolbar(
     // With no lyrics (loading, or none found) there is nothing to translate or sing along to, but
     // Back and More stay: the screen must always be easy to leave and to fix.
     Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .then(if (glass) Modifier.padding(4.dp) else Modifier),
+        modifier = modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -173,35 +162,20 @@ fun LyricsFloatingToolbar(
             backgroundColor = backgroundColor,
             onBackgroundColor = onBackgroundColor,
             backProgressProvider = backProgressProvider,
-            glass = glass,
         )
 
-        Spacer(modifier = Modifier.width(if (glass) 6.dp else 8.dp))
+        Spacer(modifier = Modifier.width(8.dp))
 
-        val segmentHeight = if (glass) GlassSegmentHeight else MaterialSegmentHeight
+        val segmentHeight = MaterialSegmentHeight
         if (!hasLyrics) {
             Spacer(modifier = Modifier.weight(1f).height(segmentHeight))
         } else Row(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(if (glass) 6.dp else 8.dp)
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Box(modifier = Modifier.weight(1f).height(segmentHeight)) {
-                if (glass) {
-                    GlassToolbarSegment(
-                        modifier = Modifier.fillMaxWidth().fillMaxHeight(),
-                        text = translateLabel,
-                        icon = Icons.Rounded.Translate,
-                        active = translate.active,
-                        dimmed = !translate.available,
-                        accent = glassAccent,
-                        onClick = tapTranslate,
-                        onLongClick = openTranslateMenu,
-                        onLongClickLabel = moreOptionsLabel,
-                        stateDescription = translateState,
-                    )
-                } else {
                     ToggleSegmentButton(
                         modifier = Modifier.fillMaxWidth().fillMaxHeight(),
                         active = translate.active,
@@ -220,7 +194,7 @@ fun LyricsFloatingToolbar(
                         stateDescription = translateState,
                         dimmed = !translate.available,
                     )
-                }
+                
                 MaterialTheme(colorScheme = menuColorScheme) {
                     DropdownMenu(
                         expanded = translateMenuOpen,
@@ -251,19 +225,6 @@ fun LyricsFloatingToolbar(
                 }
             }
 
-            if (glass) {
-                GlassToolbarSegment(
-                    modifier = Modifier.weight(1f).height(segmentHeight),
-                    text = singLabel,
-                    icon = singIcon,
-                    active = sing.active,
-                    enabled = sing.enabled,
-                    accent = glassAccent,
-                    onClick = tapSing,
-                    progress = singProgressProvider,
-                    stateDescription = singState,
-                )
-            } else {
                 ToggleSegmentButton(
                     modifier = Modifier.weight(1f).height(segmentHeight),
                     active = sing.active,
@@ -281,18 +242,11 @@ fun LyricsFloatingToolbar(
                     progress = singProgressProvider,
                     stateDescription = singState,
                 )
-            }
         }
 
-        Spacer(modifier = Modifier.width(if (glass) 6.dp else 8.dp))
+        Spacer(modifier = Modifier.width(8.dp))
 
-        if (glass) {
-            GlassToolbarCircle(
-                onClick = onMoreClick,
-                icon = Icons.Filled.MoreVert,
-                contentDescription = stringResource(R.string.lyrics_options),
-            )
-        } else {
+        run {
             IconButton(
                 colors = IconButtonDefaults.iconButtonColors(
                     containerColor = backgroundColor,
@@ -310,32 +264,19 @@ fun LyricsFloatingToolbar(
     }
 }
 
-/**
- * Back, which also follows the predictive-back gesture. Material 3 shrinks on press; Liquid Glass
- * (NexHome's rule: presses swell, never shrink) swells to the orb press scale with the press
- * spring and settles back with the bouncy release spring.
- */
+/** Back, which also follows the predictive-back gesture and shrinks on press. */
 @Composable
 private fun LyricsToolbarBackButton(
     onNavigateBack: () -> Unit,
     backgroundColor: Color,
     onBackgroundColor: Color,
     backProgressProvider: () -> Float,
-    glass: Boolean,
 ) {
     val backInteractionSource = remember { MutableInteractionSource() }
     val isBackPressed by backInteractionSource.collectIsPressedAsState()
     val backPressScale = animateFloatAsState(
-        targetValue = when {
-            !isBackPressed -> 1f
-            glass -> LiquidMotion.OrbPressScale
-            else -> 0.82f
-        },
-        animationSpec = when {
-            !glass -> BackPressSpring
-            isBackPressed -> LiquidMotion.PressSpring
-            else -> LiquidMotion.ReleaseSpring
-        },
+        targetValue = if (isBackPressed) 0.82f else 1f,
+        animationSpec = BackPressSpring,
         label = "backPressScale"
     )
     // Press scale combined with the predictive-back gesture's scale, both read in the layer.
@@ -345,25 +286,7 @@ private fun LyricsToolbarBackButton(
         scaleY = combined
     }
     val backLabel = stringResource(R.string.common_back)
-    if (glass) {
-        val palette = LocalGlassPalette.current
-        Box(
-            modifier = pressAndGesture
-                .size(GlassCircleSize)
-                .clip(CircleShape)
-                .background(palette.tintSubtle)
-                .clickable(
-                    interactionSource = backInteractionSource,
-                    indication = rememberGlassPressIndication(),
-                    role = Role.Button,
-                    onClick = onNavigateBack
-                )
-                .semantics { contentDescription = backLabel },
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = null, tint = palette.primary)
-        }
-    } else {
+    run {
         IconButton(
             modifier = pressAndGesture,
             interactionSource = backInteractionSource,
@@ -382,143 +305,7 @@ private fun LyricsToolbarBackButton(
     }
 }
 
-/** A round button on the glass bar: the palette's subtle tint, NexHome's orb press swell. */
-@Composable
-private fun GlassToolbarCircle(
-    onClick: () -> Unit,
-    icon: ImageVector,
-    contentDescription: String,
-) {
-    val palette = LocalGlassPalette.current
-    val interaction = remember { MutableInteractionSource() }
-    Box(
-        modifier = Modifier
-            .glassPressSwell(interaction, LiquidMotion.OrbPressScale)
-            .size(GlassCircleSize)
-            .clip(CircleShape)
-            .background(palette.tintSubtle)
-            .clickable(
-                interactionSource = interaction,
-                indication = rememberGlassPressIndication(),
-                role = Role.Button,
-                onClick = onClick
-            )
-            .semantics { this.contentDescription = contentDescription },
-        contentAlignment = Alignment.Center
-    ) {
-        Icon(icon, contentDescription = null, tint = palette.primary)
-    }
-}
-
-/**
- * A segment on the glass bar: a subtle-tint capsule that, when [active], is flooded with [accent]
- * exactly as the full player's selected LiquidChip is (Hue 0.9 + 0.42, LiquidChip.kt), so it
- * reads as strongly as the player's chips. The flood, the [progress] fill and the press swell are
- * all read in the layer / draw phase. [dimmed] looks unavailable but still answers the tap (and
- * the long press), which explains why.
- */
-@Composable
-private fun GlassToolbarSegment(
-    modifier: Modifier,
-    text: String,
-    icon: ImageVector,
-    active: Boolean,
-    accent: Color,
-    onClick: () -> Unit,
-    enabled: Boolean = true,
-    dimmed: Boolean = false,
-    onLongClick: (() -> Unit)? = null,
-    onLongClickLabel: String? = null,
-    progress: (() -> Float)? = null,
-    stateDescription: String? = null,
-) {
-    val palette = LocalGlassPalette.current
-    val interaction = remember { MutableInteractionSource() }
-    val selection = remember { Animatable(if (active) 1f else 0f, 0.001f) }
-    LaunchedEffect(active) {
-        selection.animateTo(if (active) 1f else 0f, LiquidMotion.ReleaseSpring)
-    }
-    val fillAccent = if (accent == Color.Unspecified) palette.accent else accent
-    val currentAccent by rememberUpdatedState(fillAccent)
-    val currentProgress by rememberUpdatedState(progress)
-    val rest = palette.tintSubtle
-    val indication = rememberGlassPressIndication()
-    val looksEnabled = enabled && !dimmed
-    Box(
-        modifier = modifier
-            .glassPressSwell(interaction, LiquidMotion.TilePressScale)
-            .graphicsLayer {
-                shape = CircleShape
-                clip = true
-            }
-            .drawBehind {
-                drawRect(rest)
-                val s = selection.value.fastCoerceIn(0f, 1f)
-                if (s > 0.001f) {
-                    drawRect(currentAccent.copy(alpha = 0.9f * s), blendMode = BlendMode.Hue)
-                    drawRect(currentAccent.copy(alpha = 0.42f * s))
-                }
-                val fraction = currentProgress?.invoke()?.fastCoerceIn(0f, 1f) ?: 0f
-                if (fraction > 0f) {
-                    drawRect(currentAccent.copy(alpha = 0.35f), size = Size(size.width * fraction, size.height))
-                }
-            }
-            .then(
-                if (onLongClick != null) {
-                    Modifier.combinedClickable(
-                        interactionSource = interaction,
-                        indication = indication,
-                        enabled = enabled,
-                        role = Role.Button,
-                        onLongClickLabel = onLongClickLabel,
-                        onLongClick = onLongClick,
-                        onClick = onClick
-                    )
-                } else {
-                    Modifier.clickable(
-                        interactionSource = interaction,
-                        indication = indication,
-                        enabled = enabled,
-                        role = Role.Button,
-                        onClick = onClick
-                    )
-                }
-            )
-            .then(
-                if (stateDescription != null) {
-                    val spokenState: String = stateDescription
-                    Modifier.semantics { this.stateDescription = spokenState }
-                } else {
-                    Modifier
-                }
-            ),
-        contentAlignment = Alignment.Center
-    ) {
-        Row(
-            modifier = Modifier
-                .graphicsLayer(alpha = if (looksEnabled) 1f else 0.38f)
-                .padding(horizontal = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.Center
-        ) {
-            Icon(icon, contentDescription = null, tint = palette.primary, modifier = Modifier.size(18.dp))
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text = text,
-                color = if (active) palette.primary else palette.secondary,
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Bold,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                textAlign = TextAlign.Center
-            )
-        }
-    }
-}
-
 private val MaterialSegmentHeight = 50.dp
-private val GlassSegmentHeight = 44.dp
-private val GlassCircleSize = 44.dp
 
 // Material 3 mode: the back button press spring (unchanged).
 private val BackPressSpring = spring<Float>(

@@ -84,11 +84,6 @@ import com.theveloper.pixelplay.presentation.components.AdaptiveModalBottomSheet
 import com.theveloper.pixelplay.presentation.utils.LocalAppHapticsConfig
 import com.theveloper.pixelplay.presentation.utils.performAppCompatHapticFeedback
 import com.theveloper.pixelplay.presentation.viewmodel.ColorSchemePair
-import com.theveloper.pixelplay.ui.glass.LocalGlassModeEnabled
-import com.theveloper.pixelplay.ui.glass.components.GlassText
-import com.theveloper.pixelplay.ui.glass.components.LiquidButton
-import com.theveloper.pixelplay.ui.glass.theme.GlassType
-import com.theveloper.pixelplay.ui.glass.theme.LocalGlassPalette
 import com.theveloper.pixelplay.ui.theme.DarkColorScheme
 import com.theveloper.pixelplay.ui.theme.LightColorScheme
 import com.theveloper.pixelplay.ui.theme.LocalPixelPlayDarkTheme
@@ -106,7 +101,7 @@ import kotlin.math.roundToInt
  * laid out like ThemeSelectorItem (icon, title, description) with the grid where its value badge is.
  * A choice re-themes the whole app at once (ThemeStateHolder.accentScheme → PixelPlayTheme).
  *
- * The swatches are plain fills (no glass on glass in glass mode) and show the named colour itself,
+ * The swatches are plain fills and show the named colour itself,
  * as on iOS: the app around the row shows the accent scheme's tone of it, which in dark mode is
  * pastel and nearly equal for Red/Pink or Blue/Indigo, so tones would make the grid hard to read.
  * It also means the row builds no schemes at all.
@@ -155,34 +150,7 @@ fun AccentColorSettingItem(
         Icon(Icons.Outlined.Palette, contentDescription = null, tint = MaterialTheme.colorScheme.secondary)
     }
 
-    if (LocalGlassModeEnabled.current) {
-        val palette = LocalGlassPalette.current
-        GlassFlatSettingRow(
-            title = title,
-            subtitle = subtitle,
-            leadingIcon = leadingIcon,
-            onClick = null,
-            trailing = {
-                GlassText(
-                    text = selectedName,
-                    modifier = Modifier.widthIn(max = 132.dp),
-                    style = GlassType.Label,
-                    color = palette.accent,
-                    maxLines = 1
-                )
-            },
-            below = {
-                AccentSwatchGrid(
-                    selectedHex = selectedHex,
-                    selectedPreset = selectedPreset,
-                    dynamicPrimary = dynamicPrimary,
-                    ringColor = palette.primary,
-                    onSelect = choose,
-                    onCustom = openPicker
-                )
-            }
-        )
-    } else {
+    run {
         Surface(
             color = MaterialTheme.colorScheme.surfaceContainer,
             modifier = Modifier
@@ -443,7 +411,6 @@ private fun AccentColorPickerSheet(
 ) {
     val state = rememberSaveable(saver = AccentPickerState.Saver) { AccentPickerState.from(initialArgb) }
     val isDark = LocalPixelPlayDarkTheme.current
-    val glassMode = LocalGlassModeEnabled.current
     // Every drag step rewrites the hex text; reading its validity through a derived state means
     // only an actual valid/invalid flip recomposes this sheet (the field recomposes on its own).
     val hexValid by remember(state) { derivedStateOf { state.isHexValid } }
@@ -512,31 +479,8 @@ private fun AccentColorPickerSheet(
                     val onApplyClick: () -> Unit = {
                         if (state.isHexValid) onApply(AccentColor.normalize(state.hexText))
                     }
-                    if (glassMode) {
-                        val palette = LocalGlassPalette.current
-                        LiquidButton(onClick = onDismiss, surfaceColor = palette.tintSubtle) {
-                            GlassText(cancel, style = GlassType.BodyStrong, maxLines = 1)
-                        }
-                        // NexHome's tinted call to action; with a bad hex it rests untinted with a
-                        // faded label (NexHome's disabled button). The label follows the tint's
-                        // luminance: the palette's text colour is black in light mode, which is
-                        // unreadable on a deep accent, and white is unreadable on a dark-mode pastel.
-                        val applyLabelColor = when {
-                            !hexValid -> palette.quaternary
-                            AccentColor.prefersDarkContent(palette.accent.toArgb()) -> Color.Black
-                            else -> Color.White
-                        }
-                        LiquidButton(
-                            onClick = onApplyClick,
-                            isInteractive = hexValid,
-                            tint = if (hexValid) palette.accent else Color.Unspecified
-                        ) {
-                            GlassText(apply, style = GlassType.BodyStrong, color = applyLabelColor, maxLines = 1)
-                        }
-                    } else {
-                        TextButton(onClick = onDismiss) { Text(cancel) }
-                        Button(onClick = onApplyClick, enabled = hexValid) { Text(apply) }
-                    }
+                    TextButton(onClick = onDismiss) { Text(cancel) }
+                    Button(onClick = onApplyClick, enabled = hexValid) { Text(apply) }
                 }
             }
         }

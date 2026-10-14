@@ -57,7 +57,6 @@ import com.theveloper.pixelplay.presentation.components.CollapsibleCommonTopBar
 import com.theveloper.pixelplay.presentation.components.CollapsingHeaderHeight
 import com.theveloper.pixelplay.presentation.components.MiniPlayerHeight
 import com.theveloper.pixelplay.presentation.components.WithCollapsingHeader
-import com.theveloper.pixelplay.presentation.components.glassClear
 import com.theveloper.pixelplay.presentation.components.rememberCollapseFraction
 import com.theveloper.pixelplay.presentation.components.rememberCollapsingHeaderContentPadding
 import kotlin.math.roundToInt
@@ -151,7 +150,7 @@ internal fun CloudPanel(
     content: @Composable ColumnScope.() -> Unit,
 ) {
     Surface(
-        color = glassClear(color),
+        color = color,
         shape = RoundedCornerShape(10.dp),
         modifier = modifier.fillMaxWidth(),
     ) {

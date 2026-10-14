@@ -169,7 +169,6 @@ internal fun FullPlayerTopActions(
     playerViewModel: PlayerViewModel,
     isCastConnecting: Boolean,
     isExpanded: Boolean,
-    glassMode: Boolean,
     accent: Color,
     onAccent: Color,
     onOutputClick: () -> Unit,
@@ -194,13 +193,8 @@ internal fun FullPlayerTopActions(
     ) {
         // weight(fill = false): the pill hugs its content and only grows into the width the
         // collapse button leaves, where a long name ellipsizes.
-        if (glassMode) {
-            GlassPlayerOutputPill(output, label, spoken, onOutputClick, Modifier.weight(1f, fill = false))
-            GlassPlayerQueueOrb(onQueueClick)
-        } else {
-            MaterialPlayerOutputPill(output, label, spoken, accent, onAccent, onOutputClick, Modifier.weight(1f, fill = false))
-            MaterialPlayerQueueButton(accent, onAccent, onQueueClick)
-        }
+        MaterialPlayerOutputPill(output, label, spoken, accent, onAccent, onOutputClick, Modifier.weight(1f, fill = false))
+        MaterialPlayerQueueButton(accent, onAccent, onQueueClick)
     }
 }
 

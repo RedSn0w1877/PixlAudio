@@ -103,8 +103,6 @@ data class SettingsUiState(
     val immersiveLyricsTimeout: Long = 4000L,
     val animatedLyricsBlurEnabled: Boolean = true,
     val animatedLyricsBlurStrength: Float = 1.2f,
-    val liquidGlassIntensity: Float = 0.55f,
-    val appUiStyle: String = "LiquidGlass",
     val disableBlurAllOver: Boolean = false,
     val backupInfoDismissed: Boolean = false,
     val isDataTransferInProgress: Boolean = false,
@@ -179,8 +177,6 @@ private sealed interface SettingsUiUpdate {
         val immersiveLyricsTimeout: Long,
         val animatedLyricsBlurEnabled: Boolean,
         val animatedLyricsBlurStrength: Float,
-        val liquidGlassIntensity: Float,
-        val appUiStyle: String,
         val disableBlurAllOver: Boolean,
         val showScrollbar: Boolean,
         val audioQuality: AudioQuality,
@@ -819,8 +815,6 @@ class SettingsViewModel @Inject constructor(
                 userPreferencesRepository.animatedLyricsBlurStrengthFlow,
                 userPreferencesRepository.disableBlurAllOverFlow,
                 userPreferencesRepository.showScrollbarFlow,
-                userPreferencesRepository.liquidGlassIntensityFlow,
-                userPreferencesRepository.appUiStyleFlow,
                 userPreferencesRepository.audioQualityFlow,
                 userPreferencesRepository.playerAmbientStyleFlow
             ) { values ->
@@ -845,10 +839,8 @@ class SettingsViewModel @Inject constructor(
                     animatedLyricsBlurStrength = values[17] as Float,
                     disableBlurAllOver = values[18] as Boolean,
                     showScrollbar = values[19] as Boolean,
-                    liquidGlassIntensity = values[20] as Float,
-                    appUiStyle = values[21] as String,
-                    audioQuality = values[22] as AudioQuality,
-                    playerAmbientStyle = values[23] as PlayerAmbientStyle
+                    audioQuality = values[20] as AudioQuality,
+                    playerAmbientStyle = values[21] as PlayerAmbientStyle
                 )
             }.collect { update ->
                 _uiState.update { state ->
@@ -873,8 +865,6 @@ class SettingsViewModel @Inject constructor(
                         animatedLyricsBlurStrength = update.animatedLyricsBlurStrength,
                         disableBlurAllOver = update.disableBlurAllOver,
                         showScrollbar = update.showScrollbar,
-                        liquidGlassIntensity = update.liquidGlassIntensity,
-                        appUiStyle = update.appUiStyle,
                         audioQuality = update.audioQuality,
                         playerAmbientStyle = update.playerAmbientStyle
                     )
@@ -1286,18 +1276,6 @@ class SettingsViewModel @Inject constructor(
     fun setAnimatedLyricsBlurStrength(strength: Float) {
         viewModelScope.launch {
             userPreferencesRepository.setAnimatedLyricsBlurStrength(strength)
-        }
-    }
-
-    fun setAppUiStyle(style: String) {
-        viewModelScope.launch {
-            userPreferencesRepository.setAppUiStyle(style)
-        }
-    }
-
-    fun setLiquidGlassIntensity(intensity: Float) {
-        viewModelScope.launch {
-            userPreferencesRepository.setLiquidGlassIntensity(intensity)
         }
     }
 

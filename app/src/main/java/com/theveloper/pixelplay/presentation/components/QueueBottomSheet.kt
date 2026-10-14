@@ -155,12 +155,6 @@ import com.theveloper.pixelplay.presentation.viewmodel.PlayerViewModel
 import com.theveloper.pixelplay.presentation.viewmodel.PlaylistViewModel
 import com.theveloper.pixelplay.presentation.utils.LocalAppHapticsConfig
 import com.theveloper.pixelplay.presentation.utils.performAppCompatHapticFeedback
-import com.theveloper.pixelplay.ui.glass.GlassPillButton
-import com.theveloper.pixelplay.ui.glass.LocalGlassModeEnabled
-import com.theveloper.pixelplay.ui.glass.components.GlassPanel
-import com.theveloper.pixelplay.ui.glass.glassLightSurface
-import com.theveloper.pixelplay.ui.glass.glassPressSwell
-import com.theveloper.pixelplay.ui.glass.theme.LocalGlassPalette
 import com.theveloper.pixelplay.ui.theme.GoogleSansRounded
 import com.theveloper.pixelplay.ui.theme.LocalShowScrollbar
 import racra.compose.smooth_corner_rect_library.AbsoluteSmoothCornerShape
@@ -746,14 +740,8 @@ fun QueueBottomSheet(
             }
         }
 
-    // Liquid Glass mode (owner decision 2026-10-07): the queue is a ~92 % glass sheet over a
-    // see-through scrim (UnifiedPlayerQueueLayer sizes it), so the player shows above it. The
-    // sheet is one heavy NexHome panel at radius 32 (the in-window twin of a glass
-    // ModalBottomSheet's container), the header one heavy panel on it, the now-playing row one
-    // light panel, the toolbar separate glass circles, rows flat.
-    val glassMode = LocalGlassModeEnabled.current
-    val sheetShape = if (glassMode) QueueGlassSheetShape else shape
-    val sheetCornerRadius = if (glassMode) QueueGlassSheetRadius else 28.dp
+    val sheetShape = shape
+    val sheetCornerRadius = 28.dp
     Surface(
         modifier = modifier
             .graphicsLayer {
@@ -793,38 +781,18 @@ fun QueueBottomSheet(
                 }
             },
         shape = sheetShape,
-        tonalElevation = if (glassMode) 0.dp else tonalElevation,
-        color = if (glassMode) Color.Transparent else colors.surfaceContainer,
+        tonalElevation = tonalElevation,
+        color = colors.surfaceContainer,
     ) {
         Box(
             modifier = Modifier.fillMaxSize()
         ) {
-            if (glassMode) {
-                // The sheet's glass: a SIBLING behind the content, never its parent, so scrolling
-                // the list never re-records the lens; skipped while the bloom is 0 (hidden queue).
-                GlassPanel(
-                    modifier = Modifier.matchParentSize(),
-                    shape = QueueGlassSheetShape,
-                    tint = LocalGlassPalette.current.tintStrong,
-                    heavy = true,
-                    refractionHeight = 24.dp,
-                    refractionAmount = 48.dp,
-                    enterProgress = com.theveloper.pixelplay.ui.glass.controls.LocalLensBloom.current,
-                )
-            }
             Column {
-                // Glass mode's sheet starts below the status bar (it's ~92 % tall); the
-                // full-height Material sheet pads past it.
-                val headerTopPadding = if (glassMode) {
-                    10.dp
-                } else {
-                    WindowInsets.statusBars
-                        .asPaddingValues()
-                        .calculateTopPadding() + 10.dp
-                }
+                val headerTopPadding = WindowInsets.statusBars
+                    .asPaddingValues()
+                    .calculateTopPadding() + 10.dp
 
                 QueueHeaderSection(
-                    glass = glassMode,
                     isPlaying = isPlaying,
                     queueSourceName = currentQueueSourceName,
                     queueCount = displaySongCount,
@@ -858,7 +826,7 @@ fun QueueBottomSheet(
                     ) {
                         Text(
                             stringResource(R.string.queue_empty_label),
-                            color = if (glassMode) LocalGlassPalette.current.secondary else colors.onSurface
+                            color = colors.onSurface
                         )
                     }
                 } else {
@@ -873,7 +841,7 @@ fun QueueBottomSheet(
                                 .fillMaxSize()
                                 .clip(shape = queueListShape)
                                 .background(
-                                    color = if (glassMode) Color.Transparent else MaterialTheme.colorScheme.surfaceContainerHigh,
+                                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
                                     shape = queueListShape
                                 )
                                 .then(
@@ -954,7 +922,6 @@ fun QueueBottomSheet(
                                         onDismissSong = { onRemoveSong(song.id) },
                                         isFromPlaylist = true,
                                         onMoreOptionsClick = { onSongInfoClick(song) },
-                                        glass = glassMode,
                                         dragHandle = {
                                             IconButton(
                                                 onClick = {},
@@ -1022,7 +989,7 @@ fun QueueBottomSheet(
                 }
                 val canLocateCurrentSong = currentSongDisplayIndex >= 0 && currentSongDisplayIndex < displaySongCount
 
-                // The ⋯ menu's three actions, shared by the glass menu and the Material one.
+                // The ⋯ menu's three actions.
                 val onLocateFromMenu: () -> Unit = {
                     isFabExpanded = false
                     queueCoroutineScope.launch {
@@ -1062,26 +1029,6 @@ fun QueueBottomSheet(
                     }
                 }
 
-                if (glassMode) {
-                    // Separate glass circles, and the ⋯ circle that flows into the menu's
-                    // "Save as playlist" pill (QueueGlassControls.kt).
-                    GlassQueueControls(
-                        expanded = isFabExpanded,
-                        onExpandedChange = { isFabExpanded = it },
-                        bottomPadding = fabSpacing + navigationBarHeight,
-                        dragModifier = directSheetDragModifier,
-                        isShuffleOn = isShuffleOn,
-                        repeatMode = repeatMode,
-                        isTimerActive = isTimerActiveDerived,
-                        onToggleShuffle = onToggleShuffle,
-                        onToggleRepeat = onToggleRepeat,
-                        onTimerClick = { showTimerOptions = true },
-                        showLocate = canLocateCurrentSong,
-                        onLocate = onLocateFromMenu,
-                        onClear = onClearFromMenu,
-                        onSave = onSaveFromMenu,
-                    )
-                } else {
                 Row(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
@@ -1198,7 +1145,6 @@ fun QueueBottomSheet(
                         }
                     }
                 }
-                }
             }
 
             val queueUndoBarState by remember(viewModel) {
@@ -1217,54 +1163,6 @@ fun QueueBottomSheet(
                 enter = fadeIn() + slideInVertically(initialOffsetY = { it }),
                 exit = fadeOut() + slideOutVertically(targetOffsetY = { it })
             ) {
-                if (glassMode) {
-                    // Glass mode: a light glass capsule (no glint, like the kit's other wide
-                    // floating capsules) instead of the opaque inverse-surface snackbar. Undo is a
-                    // lit fill on it, so the text stays the palette's primary over glass.
-                    val palette = LocalGlassPalette.current
-                    GlassPanel(
-                        // The bar floats over the queue rows. Like the Material Surface it
-                        // replaces, it takes every touch on it: a tap that misses Undo must not
-                        // play the song row underneath.
-                        modifier = Modifier.pointerInput(Unit) {},
-                        shape = QueueGlassCapsule,
-                        tint = palette.tintStrong,
-                        showHighlight = false,
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(start = 20.dp, top = 6.dp, bottom = 6.dp, end = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = queueUndoBarState.removedSongTitle,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = palette.primary,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f, fill = false)
-                            )
-                            Spacer(Modifier.width(4.dp))
-                            Text(
-                                text = stringResource(R.string.queue_song_removed),
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = palette.secondary,
-                            )
-                            Spacer(Modifier.width(8.dp))
-                            TextButton(
-                                onClick = { viewModel.undoRemoveSongFromQueue() },
-                                colors = androidx.compose.material3.ButtonDefaults.textButtonColors(
-                                    containerColor = palette.accent.copy(alpha = com.theveloper.pixelplay.ui.glass.GlassLitAlpha),
-                                    contentColor = palette.primary
-                                )
-                            ) {
-                                Text(
-                                    text = stringResource(R.string.common_undo),
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                        }
-                    }
-                } else
                 Surface(
                     shape = RoundedCornerShape(16.dp),
                     color = colors.inverseSurface,
@@ -1397,7 +1295,6 @@ private fun QueueToolbarMenuButton(
 
 @Composable
 private fun QueueHeaderSection(
-    glass: Boolean = false,
     isPlaying: Boolean,
     queueSourceName: String,
     queueCount: Int,
@@ -1426,29 +1323,6 @@ private fun QueueHeaderSection(
                 .background(colors.onSurface.copy(alpha = 0.14f))
         )
 
-        if (glass) {
-            // NexHome's sheet header: one heavy panel at radius 32 with the strong tint and its
-            // radius-32 lens (24/48, depth).
-            GlassPanel(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp),
-                shape = QueueGlassHeaderShape,
-                tint = LocalGlassPalette.current.tintStrong,
-                heavy = true,
-                enterProgress = com.theveloper.pixelplay.ui.glass.controls.LocalLensBloom.current,
-            ) {
-                QueueHeader(
-                    queueSourceName = queueSourceName,
-                    queueCount = queueCount,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    onLocateCurrentSong = onLocateCurrentSong,
-                    glass = true
-                )
-            }
-        } else
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -1470,8 +1344,7 @@ private fun QueueHeader(
     queueSourceName: String,
     queueCount: Int,
     modifier: Modifier = Modifier,
-    onLocateCurrentSong: () -> Unit = {},
-    glass: Boolean = false
+    onLocateCurrentSong: () -> Unit = {}
 ) {
     val view = LocalView.current
     val appHapticsConfig = LocalAppHapticsConfig.current
@@ -1519,8 +1392,7 @@ private fun QueueHeader(
         }
         QueueSourceBadge(
             queueSourceName = queueSourceName,
-            modifier = Modifier.padding(top = 6.dp),
-            glass = glass
+            modifier = Modifier.padding(top = 6.dp)
         )
     }
 }
@@ -1528,17 +1400,14 @@ private fun QueueHeader(
 @Composable
 private fun QueueSourceBadge(
     queueSourceName: String,
-    modifier: Modifier = Modifier,
-    glass: Boolean = false
+    modifier: Modifier = Modifier
 ) {
     val colors = MaterialTheme.colorScheme
-    // Glass mode: a subtle fill on the header's glass (no extra lens), palette text.
-    val palette = LocalGlassPalette.current
-    val badgeContentColor = if (glass) palette.secondary else colors.onSurfaceVariant
+    val badgeContentColor = colors.onSurfaceVariant
     Surface(
         modifier = modifier.widthIn(max = 190.dp),
         shape = CircleShape,
-        color = if (glass) palette.tintSubtle else colors.surfaceContainerHighest.copy(alpha = 0.88f),
+        color = colors.surfaceContainerHighest.copy(alpha = 0.88f),
         tonalElevation = 0.dp,
         shadowElevation = 0.dp
     ) {
@@ -1564,10 +1433,7 @@ private fun QueueSourceBadge(
     }
 }
 
-/**
- * Material 3 mode's queue toolbar: tonal circles in one capsule. Glass mode draws separate glass
- * circles instead ([GlassQueueControls]).
- */
+/** The queue toolbar: tonal circles in one capsule. */
 @Composable
 private fun QueueControlsToolbar(
     isShuffleOn: Boolean,
@@ -1658,17 +1524,6 @@ private fun QueueControlsToolbar(
     }
 }
 
-private val QueueGlassHeaderShape = com.kyant.shapes.RoundedRectangle(32.dp)
-
-/** Glass mode's queue sheet corner: NexHome's sheet radius, as on the glass ModalBottomSheets. */
-private val QueueGlassSheetRadius = 32.dp
-
-/** Glass mode's queue sheet shape (top corners only; the sheet meets the screen's bottom edge). */
-private val QueueGlassSheetShape = RoundedCornerShape(topStart = QueueGlassSheetRadius, topEnd = QueueGlassSheetRadius)
-
-/** Glass mode's capsule (the undo bar). */
-private val QueueGlassCapsule = com.kyant.shapes.Capsule()
-
 /**
  * A circular toolbar button: a tonal [Surface] with a ripple. The Surface keeps its default
  * `contentColorFor(containerColor)`, so an inactive `surfaceContainer` button shows `onSurface`
@@ -1741,8 +1596,7 @@ fun SaveQueueAsPlaylistSheet(
     val allSelected by remember {
         derivedStateOf { selectedSongIds.isNotEmpty() && selectedSongIds.all { it.value } }
     }
-    // One save action for both bars. The glass pill gets a stable wrapper, so typing a name or
-    // ticking songs never recomposes it (its lens is built once either way).
+    // One save action for both bars.
     val saveSelection: () -> Unit = {
         if (hasSelection) {
             val finalName =
@@ -1925,73 +1779,6 @@ fun SaveQueueAsPlaylistSheet(
                     }
                 },
                 bottomBar = {
-                    if (LocalGlassModeEnabled.current) {
-                        // Glass mode: no glass button on a glass bar. The summary is its own
-                        // capsule and Save its own glass pill, both 56 dp, as on iOS.
-                        val palette = LocalGlassPalette.current
-                        val selectedCount = selectedSongIds.count { it.value }
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .windowInsetsPadding(WindowInsets.ime)
-                                .windowInsetsPadding(WindowInsets.navigationBars)
-                                .padding(16.dp),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            GlassPanel(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(QueueMenuPillHeight),
-                                shape = QueueGlassCapsule,
-                                tint = palette.tintStrong,
-                                showHighlight = false,
-                            ) {
-                                Column(
-                                    modifier = Modifier
-                                        .align(Alignment.CenterStart)
-                                        .padding(horizontal = 20.dp)
-                                ) {
-                                    Text(
-                                        text = pluralStringResource(
-                                            R.plurals.queue_save_as_playlist_n_songs_selected,
-                                            selectedCount,
-                                            selectedCount
-                                        ),
-                                        style = MaterialTheme.typography.labelLarge,
-                                        maxLines = 1,
-                                        color = palette.primary
-                                    )
-                                    Text(
-                                        text = if (playlistName.text.isNotBlank()) {
-                                            stringResource(
-                                                R.string.queue_save_as_playlist_format,
-                                                playlistName.text
-                                            )
-                                        } else {
-                                            stringResource(R.string.queue_save_as_playlist_name_placeholder)
-                                        },
-                                        style = MaterialTheme.typography.bodySmall,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                        color = palette.secondary
-                                    )
-                                }
-                            }
-                            GlassPillButton(
-                                onClick = onSavePill,
-                                enabled = hasSelection,
-                                modifier = Modifier.height(QueueMenuPillHeight)
-                            ) {
-                                Icon(
-                                    Icons.Rounded.Check,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                                Text(stringResource(R.string.common_save), maxLines = 1)
-                            }
-                        }
-                    } else
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -2163,9 +1950,6 @@ fun SaveQueueAsPlaylistSheet(
         }
     }
 
-/** Glass mode's now-playing queue row panel (NexHome's `GlassSettingRow` radius). */
-private val GlassQueueCurrentRowShape = RoundedCornerShape(20.dp)
-
 @Composable
 fun QueuePlaylistSongItem(
     modifier: Modifier = Modifier,
@@ -2183,9 +1967,7 @@ fun QueuePlaylistSongItem(
     enableSwipeToDismiss: Boolean = false,
     swipeStateIdentity: Long = 0L,
     onDismissSong: () -> Unit = {},
-    isFromPlaylist: Boolean,
-    /** Liquid Glass: a flat row with a press swell; the now-playing row is one light panel. */
-    glass: Boolean = false
+    isFromPlaylist: Boolean
 ) {
     val colors = MaterialTheme.colorScheme
 
@@ -2304,27 +2086,18 @@ fun QueuePlaylistSongItem(
                     if (h != surfaceHeightPx) surfaceHeightPx = h
                 }
                 .padding(horizontal = 12.dp)
-                .then(
-                    if (glass) {
-                        Modifier
-                            .glassPressSwell(rowInteraction)
-                            .then(if (isCurrentSong) Modifier.glassLightSurface(GlassQueueCurrentRowShape) else Modifier)
-                    } else {
-                        Modifier
-                    }
-                )
                 .clip(itemShape)
                 .clickable(
                     interactionSource = rowInteraction,
-                    indication = if (glass) null else LocalIndication.current,
+                    indication = LocalIndication.current,
                     enabled = currentOffsetPx == 0f
                 ) {
                     onClick()
                 },
             shape = itemShape,
-            color = if (glass) Color.Transparent else backgroundColor,
-            tonalElevation = if (glass) 0.dp else elevation,
-            shadowElevation = if (glass) 0.dp else elevation
+            color = backgroundColor,
+            tonalElevation = elevation,
+            shadowElevation = elevation
         ) {
             Row(
                 modifier = Modifier.padding(horizontal = 4.dp, vertical = 16.dp),

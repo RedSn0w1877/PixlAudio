@@ -108,8 +108,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import com.theveloper.pixelplay.ui.glass.GlassPillButton
-import com.theveloper.pixelplay.ui.glass.LocalGlassModeEnabled
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
@@ -522,21 +520,6 @@ private fun CreatePlaylistContent(
                         )
                     }
                 }
-                if (LocalGlassModeEnabled.current) {
-                    // Liquid Glass: the primary action as its own lit glass pill, disabled (as the
-                    // Material FAB is dimmed) until the playlist has a name.
-                    val isNextStep = currentStep == 0 && creationMode == PlaylistCreationMode.MANUAL
-                    CreatePlaylistGlassFab(
-                        onClick = onCreateFabClick,
-                        enabled = !(currentStep == 0 && playlistName.isBlank()),
-                        icon = if (isNextStep) Icons.AutoMirrored.Rounded.ArrowForward else Icons.Rounded.Check,
-                        text = if (isNextStep) {
-                            stringResource(R.string.playlist_creation_next)
-                        } else {
-                            stringResource(R.string.playlist_creation_create)
-                        },
-                    )
-                } else
                 MediumExtendedFloatingActionButton(
                     text = {
                         Text(
@@ -925,14 +908,6 @@ fun EditPlaylistContent(
                         d1, d2, d3, d4
                     )
                 }
-                if (LocalGlassModeEnabled.current) {
-                    // Liquid Glass: the primary action as its own lit glass pill.
-                    CreatePlaylistGlassFab(
-                        onClick = onSaveFabClick,
-                        icon = Icons.Rounded.Check,
-                        text = stringResource(R.string.common_save),
-                    )
-                } else
                 MediumExtendedFloatingActionButton(
                     text = { Text(stringResource(R.string.common_save)) },
                     icon = { Icon(Icons.Rounded.Check, contentDescription = null) },
@@ -1748,32 +1723,6 @@ fun ThickSlider(
 
 fun getThemeContentColor(colorArgb: Int, scheme: androidx.compose.material3.ColorScheme): Color {
     return resolvePlaylistCoverContentColor(colorArgb, scheme)
-}
-
-/**
- * Liquid Glass mode's replacement for the editor's extended FAB: the action as its own lit glass
- * pill at the FAB's size and inset. Its click is a stable wrapper, so typing the playlist name
- * (which recomposes the whole Scaffold) never recomposes the pill.
- */
-@Composable
-private fun CreatePlaylistGlassFab(
-    onClick: () -> Unit,
-    icon: ImageVector,
-    text: String,
-    enabled: Boolean = true,
-) {
-    val latestOnClick = rememberUpdatedState(onClick)
-    val stableOnClick = remember { { latestOnClick.value() } }
-    GlassPillButton(
-        onClick = stableOnClick,
-        enabled = enabled,
-        modifier = Modifier
-            .padding(bottom = 8.dp, end = 8.dp)
-            .height(56.dp)
-    ) {
-        Icon(icon, contentDescription = null)
-        Text(text, maxLines = 1)
-    }
 }
 
 // End of file

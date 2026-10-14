@@ -4,11 +4,6 @@ package com.theveloper.pixelplay.presentation.screens
 
 import com.theveloper.pixelplay.presentation.components.CollapsingHeaderHeight
 import com.theveloper.pixelplay.presentation.components.AdaptiveClickableSurface
-import com.theveloper.pixelplay.presentation.components.glassAwareHeaderFill
-import com.theveloper.pixelplay.presentation.components.glassArtFade
-import com.theveloper.pixelplay.presentation.components.glassAwareOverlay
-import com.theveloper.pixelplay.presentation.components.GlassAwareMaterialTheme
-import com.theveloper.pixelplay.presentation.components.RestoreMaterialColors
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
@@ -280,7 +275,7 @@ fun ArtistDetailScreen(
     // --- Fin de la lógica del Header ---
 
     // Wrap in dynamic theme derived from the artist's image
-    GlassAwareMaterialTheme(
+    MaterialTheme(
         colorScheme = artistColorScheme,
         typography = MaterialTheme.typography,
         shapes = MaterialTheme.shapes
@@ -1035,7 +1030,6 @@ private fun SharedArtistTopBarProbe(
                     modifier = Modifier
                         .fillMaxSize()
                         .graphicsLayer { alpha = expandedContentAlphaState.value }
-                        .glassArtFade()
                 )
             } else {
                 MusicIconPattern(
@@ -1048,7 +1042,7 @@ private fun SharedArtistTopBarProbe(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .glassAwareOverlay(headerOverlayBrush)
+                    .background(headerOverlayBrush)
             )
         }
 
@@ -1087,23 +1081,9 @@ private fun SharedArtistTopBarProbe(
             fadeSubtitleOnCollapse = false,
             syncStatusBarWithContainer = false,
             actions = {
-                val glassBar = com.theveloper.pixelplay.ui.glass.LocalGlassModeEnabled.current
                 Box(
-                    modifier = if (glassBar) Modifier else Modifier.padding(end = 12.dp, top = 4.dp)
+                    modifier = Modifier.padding(end = 12.dp, top = 4.dp)
                 ) {
-                    if (glassBar) {
-                        // Liquid Glass: the capsule's 40 dp action orb.
-                        com.theveloper.pixelplay.ui.glass.GlassCircleAction(
-                            onClick = { showImageMenu = true },
-                            contentDescription = stringResource(R.string.artist_cd_edit_image)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.Edit,
-                                contentDescription = null,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-                    } else {
                         FilledIconButton(
                             onClick = { showImageMenu = true },
                             colors = IconButtonDefaults.filledIconButtonColors(
@@ -1115,9 +1095,8 @@ private fun SharedArtistTopBarProbe(
                                 contentDescription = stringResource(R.string.artist_cd_edit_image)
                             )
                         }
-                    }
 
-                    RestoreMaterialColors {
+                    run {
                         DropdownMenu(
                             expanded = showImageMenu,
                             onDismissRequest = { showImageMenu = false }
@@ -1150,25 +1129,6 @@ private fun SharedArtistTopBarProbe(
             }
         )
 
-        if (com.theveloper.pixelplay.ui.glass.LocalGlassModeEnabled.current) {
-            // Liquid Glass: the shuffle FAB becomes a lit glass orb, fading with the same collapse.
-            com.theveloper.pixelplay.presentation.components.GlassHeaderActionOrb(
-                onClick = onPlayClick,
-                contentDescription = stringResource(R.string.artist_cd_shuffle_play),
-                modifier = Modifier
-                    .align(shuffleAlignment)
-                    .statusBarsPadding()
-                    .padding(end = 16.dp, top = 8.dp, bottom = 8.dp)
-                    .graphicsLayer {
-                        val a = expandedContentAlphaState.value
-                        scaleX = a
-                        scaleY = a
-                        alpha = a
-                    }
-            ) {
-                Icon(Icons.Rounded.Shuffle, contentDescription = null, modifier = Modifier.size(26.dp))
-            }
-        } else {
             LargeExtendedFloatingActionButton(
                 onClick = onPlayClick,
                 shape = ShuffleFabShape,
@@ -1184,7 +1144,6 @@ private fun SharedArtistTopBarProbe(
             ) {
                 Icon(Icons.Rounded.Shuffle, contentDescription = stringResource(R.string.artist_cd_shuffle_play))
             }
-        }
     }
 }
 
@@ -1266,12 +1225,11 @@ private fun CustomCollapsingTopBar(
     ) {
         PixelPlayStatusBarStyle(color = fallbackStatusBarColor)
 
-        val glassHeader = com.theveloper.pixelplay.ui.glass.LocalGlassModeEnabled.current
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(headerHeight)
-                .glassAwareHeaderFill(surfaceColor, backgroundAlpha)
+                .background(surfaceColor.copy(alpha = backgroundAlpha))
         ) {
             if (showExpandedArtwork) {
                 val displayUrl = effectiveImageUrl?.takeIf { it.isNotBlank() }
@@ -1285,13 +1243,9 @@ private fun CustomCollapsingTopBar(
                             .build(),
                         contentDescription = artist.name,
                         contentScale = ContentScale.Crop,
-                        // Glass: the fade is a layer alpha above glassArtFade's offscreen layer, so
-                        // collapsing never re-renders that layer (its content stays static).
-                        alpha = if (glassHeader) 1f else headerContentAlpha,
+                        alpha = headerContentAlpha,
                         modifier = Modifier
                             .fillMaxSize()
-                            .then(if (glassHeader) Modifier.graphicsLayer { alpha = headerContentAlpha } else Modifier)
-                            .glassArtFade()
                     )
                 } else {
                     MusicIconPattern(
@@ -1303,7 +1257,7 @@ private fun CustomCollapsingTopBar(
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .glassAwareOverlay(headerOverlayBrush)
+                        .background(headerOverlayBrush)
                 )
             }
             Box(
@@ -1342,7 +1296,7 @@ private fun CustomCollapsingTopBar(
                         ) {
                             Icon(Icons.Rounded.Edit, contentDescription = stringResource(R.string.artist_cd_edit_image))
                         }
-                        RestoreMaterialColors {
+                        run {
                             DropdownMenu(
                                 expanded = showImageMenu,
                                 onDismissRequest = { showImageMenu = false }

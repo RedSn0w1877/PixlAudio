@@ -50,7 +50,7 @@ fun AlbumCarouselSection(
     carouselStyle: String = CarouselStyle.NO_PEEK,
     itemSpacing: Dp = 8.dp,
     albumArtQuality: AlbumArtQuality = AlbumArtQuality.MEDIUM,
-    /** Corner radius of each art item (glass mode's framed art uses NexHome's inner 22 dp). */
+    /** Corner radius of each art item. */
     itemCornerRadius: Dp = 18.dp,
     /**
      * Read when a programmatic scroll starts. False while the carousel isn't on screen (the

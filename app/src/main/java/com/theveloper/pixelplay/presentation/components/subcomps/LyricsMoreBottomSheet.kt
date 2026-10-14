@@ -61,10 +61,6 @@ import com.theveloper.pixelplay.R
 import com.theveloper.pixelplay.data.model.Lyrics
 import com.theveloper.pixelplay.presentation.components.ToggleSegmentButton
 import com.theveloper.pixelplay.presentation.components.player.BottomToggleRow
-import com.theveloper.pixelplay.presentation.components.player.GlassPlayerToggleRow
-import com.theveloper.pixelplay.ui.glass.controls.LiquidSegmented
-import com.theveloper.pixelplay.ui.glass.controls.SegmentOption
-import com.theveloper.pixelplay.ui.glass.theme.LocalGlassPalette
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.text.style.TextOverflow
@@ -115,13 +111,6 @@ fun LyricsMoreBottomSheet(
     onTertiaryColor: Color = MaterialTheme.colorScheme.onTertiary,
     /** "Sync the words yourself"; null hides the item (no song, or casting). */
     onSyncYourself: (() -> Unit)? = null,
-    /**
-     * Liquid Glass: a floating, half-height glass sheet (owner decision) whose rows stay soft
-     * fills in the glass palette's text colour, with the full player's liquid pieces for the
-     * alignment picker (LiquidSegmented) and the shuffle / repeat / heart row (LiquidChips).
-     * Material 3 mode keeps its look.
-     */
-    glass: Boolean = false,
 ) {
     val paragraphBreak = "\n\n"
     val isUserSynced = lyrics?.document?.metadata?.source == com.theveloper.pixelplay.data.lyrics.sync.LyricsTapSync.SOURCE_USER
@@ -137,18 +126,14 @@ fun LyricsMoreBottomSheet(
         contentColor = contentColor,
         shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
         contentWindowInsets = { WindowInsets(top = 0, bottom = 0) },
-        floating = glass
     ) {
         Box(modifier = Modifier.fillMaxWidth()) {
-        // Over glass the rows take the glass palette's text colour: the caller's default is the
-        // album scheme's onSurface, which can be dark on a light-palette sheet or vice versa.
-        val rowContent = if (glass) LocalGlassPalette.current.primary else contentColor
+        val rowContent = contentColor
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp)
-                // The floating glass sheet already sits above the navigation bar.
-                .padding(bottom = if (glass) 16.dp else 24.dp + navigationBarsPadding)
+                .padding(bottom = 24.dp + navigationBarsPadding)
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
@@ -429,30 +414,7 @@ fun LyricsMoreBottomSheet(
                         fontWeight = FontWeight.Medium
                     )
 
-                    if (glass) {
-                        // The liquid lens picker, on the sheet's own window backdrop. It prints each
-                        // label under its icon on one line, so the short "Left / Center / Right"
-                        // (the long "Align lyrics center" would be cut off in a third of the sheet).
-                        val alignments = remember { listOf("left", "center", "right") }
-                        LiquidSegmented(
-                            options = listOf(
-                                SegmentOption(
-                                    stringResource(R.string.lyrics_appearance_align_left_short),
-                                    Icons.AutoMirrored.Rounded.FormatAlignLeft
-                                ),
-                                SegmentOption(
-                                    stringResource(R.string.lyrics_appearance_align_center_short),
-                                    Icons.Rounded.FormatAlignCenter
-                                ),
-                                SegmentOption(
-                                    stringResource(R.string.lyrics_appearance_align_right_short),
-                                    Icons.AutoMirrored.Rounded.FormatAlignRight
-                                ),
-                            ),
-                            selectedIndex = alignments.indexOf(lyricsAlignment).coerceAtLeast(0),
-                            onSelect = { index -> onLyricsAlignmentChange(alignments[index]) }
-                        )
-                    } else Row(
+                    Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
@@ -713,19 +675,7 @@ fun LyricsMoreBottomSheet(
             Spacer(modifier = Modifier.height(8.dp))
 
             // Playback Options
-            if (glass) {
-                // The full player's liquid chips (not clipped: their press swell needs the room).
-                GlassPlayerToggleRow(
-                    isShuffleEnabled = isShuffleEnabled,
-                    isShuffleTransitionInProgress = isShuffleTransitionInProgress,
-                    repeatMode = repeatMode,
-                    isFavoriteProvider = isFavoriteProvider,
-                    onShuffleToggle = onShuffleToggle,
-                    onRepeatToggle = onRepeatToggle,
-                    onFavoriteToggle = onFavoriteToggle,
-                    modifier = Modifier.fillMaxWidth()
-                )
-            } else Box(
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(24.dp))

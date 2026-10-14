@@ -100,14 +100,6 @@ fun SpotifyBrowseScreen(
 
     Scaffold(
         topBar = {
-            if (com.theveloper.pixelplay.ui.glass.LocalGlassModeEnabled.current) {
-                // Liquid Glass: NexHome's floating capsule (no glint) with the back orb; back
-                // still steps out of the drill-down first.
-                com.theveloper.pixelplay.presentation.components.GlassScreenTopBar(
-                    title = titleFor(uiState.level),
-                    onBackClick = { if (!viewModel.goBack()) onBackClick() }
-                )
-            } else {
                 TopAppBar(
                     title = { Text(titleFor(uiState.level)) },
                     navigationIcon = {
@@ -116,7 +108,6 @@ fun SpotifyBrowseScreen(
                         }
                     }
                 )
-            }
         },
         snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { innerPadding ->
