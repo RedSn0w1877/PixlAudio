@@ -92,13 +92,7 @@
     <string name="cd_reset_defaults">إعادة تعيين الافتراضيات</string>
 
     <!-- Setup (additional literals) -->
-    <string name="setup_excluded_folders_title">المجلدات المستبعدة</string>
-    <string name="setup_excluded_folders_description">يتم فحص جميع المجلدات افتراضياً. اختر أي مواقع تريد تجاهلها عند بناء مكتبتك.</string>
-    <string name="setup_choose_folders_ignore">اختر المجلدات لتجاهلها</string>
-    <string name="setup_permission_media_title">إذن الوصول إلى الوسائط</string>
-    <string name="setup_permission_media_description">يحتاج PixelPlayer إلى الوصول إلى ملفاتك الصوتية لبناء مكتبتك الموسيقية.</string>
     <string name="setup_permission_granted">تم منح الإذن</string>
-    <string name="setup_grant_media_permission">منح إذن الوسائط</string>
     <string name="setup_permission_notifications_title">الإشعارات</string>
     <string name="setup_permission_notifications_description">قم بتمكين الإشعارات للتحكم في موسيقاك من شاشة القفل ولوحة الإشعارات.</string>
     <string name="setup_enable_notifications">تمكين الإشعارات</string>
@@ -132,7 +126,6 @@
     <!-- Home / detail shared -->
     <string name="home_your_mix_title">المزيج\nالخاص بك</string>
     <string name="home_empty_placeholder_title">لا توجد بيانات لعرضها بعد</string>
-    <string name="home_empty_placeholder_subtitle">سيظهر المزيج الخاص بك هنا عندما يجد PixelPlayer أغانٍ أو يقوم بمزامنة أحد المصادر.</string>
     <string name="home_empty_placeholder_refresh">تحديث</string>
     <string name="cd_shuffle_play">تشغيل عشوائي</string>
     <string name="cd_album_art_for_title">غلاف ألبوم لـ %1$s</string>

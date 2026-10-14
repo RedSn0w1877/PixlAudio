@@ -160,6 +160,9 @@ class SpotifyDashboardViewModel @Inject constructor(
 
     fun signIn() = SpotifyLoginActivity.start(context)
 
+    /** False in builds without a Spotify client ID (e.g. CI build without the secret). */
+    fun hasClientId(): Boolean = authManager.hasClientId()
+
     fun syncNow() {
         SpotifySyncWorker.enqueue(context)
     }

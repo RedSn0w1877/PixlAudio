@@ -708,13 +708,7 @@ class PlayerViewModel @Inject constructor(
                 val sortOption = playerUiState.value.currentSongSortOption
                 
                 // Logic must match effectiveStorageFilter in LibraryStateHolder
-                val baseFilter = playerUiState.value.currentStorageFilter
-                val hideLocal = playerUiState.value.hideLocalMedia
-                val storageFilter = if (hideLocal) {
-                    com.theveloper.pixelplay.data.model.StorageFilter.ONLINE
-                } else {
-                    baseFilter
-                }
+                val storageFilter = com.theveloper.pixelplay.data.model.StorageFilter.ONLINE
 
                 val sortedIds = musicRepository.getSongIdsSorted(sortOption, storageFilter)
 
@@ -1202,19 +1196,23 @@ class PlayerViewModel @Inject constructor(
             initialValue = 0 // Default to Songs tab
         )
 
+    // The Folders tab browsed on-device audio; the app is Spotify-only now, so it is never listed
+    // (a stored order that still contains FOLDERS is filtered here rather than rewritten).
+    private val defaultLibraryTabs = listOf("SONGS", "ALBUMS", "ARTIST", "PLAYLISTS", "LIKED")
     val libraryTabsFlow: StateFlow<List<String>> = userPreferencesRepository.libraryTabsOrderFlow
         .map { orderJson ->
-            if (orderJson != null) {
+            val stored = if (orderJson != null) {
                 try {
                     Json.decodeFromString<List<String>>(orderJson)
                 } catch (e: Exception) {
-                    listOf("SONGS", "ALBUMS", "ARTIST", "PLAYLISTS", "FOLDERS", "LIKED")
+                    defaultLibraryTabs
                 }
             } else {
-                listOf("SONGS", "ALBUMS", "ARTIST", "PLAYLISTS", "FOLDERS", "LIKED")
+                defaultLibraryTabs
             }
+            stored.filterNot { it == "FOLDERS" }.ifEmpty { defaultLibraryTabs }
         }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), listOf("SONGS", "ALBUMS", "ARTIST", "PLAYLISTS", "FOLDERS", "LIKED"))
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), defaultLibraryTabs)
 
     private val _loadedTabs = MutableStateFlow(emptySet<String>())
     private var lastBlockedDirectories: Set<String>? = null

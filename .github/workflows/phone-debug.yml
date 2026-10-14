@@ -30,6 +30,8 @@ jobs:
         uses: gradle/actions/setup-gradle@v6
 
       - name: Build Phone debug APK
+        env:
+          SPOTIFY_CLIENT_ID: ${{ secrets.SPOTIFY_CLIENT_ID }}
         run: gradle :app:assembleDebug -Ppixelplay.enableAbiSplits=true
 
       - name: Verify Phone split APKs

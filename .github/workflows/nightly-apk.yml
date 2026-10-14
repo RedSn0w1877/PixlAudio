@@ -117,6 +117,8 @@ jobs:
           echo "keyPassword=994273" >> keystore.properties
 
       - name: Build Phone nightly release APKs
+        env:
+          SPOTIFY_CLIENT_ID: ${{ secrets.SPOTIFY_CLIENT_ID }}
         run: gradle :app:assembleRelease -Ppixelplay.enableAbiSplits=true
 
       - name: Verify Phone nightly split APKs

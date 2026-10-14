@@ -40,7 +40,7 @@ import com.theveloper.pixelplay.data.network.lyrics.LrcLibApiService
 import com.theveloper.pixelplay.data.repository.ArtistImageRepository
 import com.theveloper.pixelplay.data.repository.LyricsRepository
 import com.theveloper.pixelplay.data.repository.LyricsRepositoryImpl
-import com.theveloper.pixelplay.data.repository.MediaStoreSongRepository
+import com.theveloper.pixelplay.data.repository.RoomSongRepository
 import com.theveloper.pixelplay.data.repository.MusicRepository
 import com.theveloper.pixelplay.data.repository.MusicRepositoryImpl
 import com.theveloper.pixelplay.data.repository.SongRepository
@@ -303,21 +303,7 @@ object AppModule {
 
     @Provides
     @Singleton
-    fun provideSongRepository(
-        @ApplicationContext context: Context,
-        mediaStoreObserver: com.theveloper.pixelplay.data.observer.MediaStoreObserver,
-        favoritesDao: FavoritesDao,
-        userPreferencesRepository: UserPreferencesRepository,
-        musicDao: MusicDao
-    ): SongRepository {
-        return MediaStoreSongRepository(
-            context = context,
-            mediaStoreObserver = mediaStoreObserver,
-            favoritesDao = favoritesDao,
-            userPreferencesRepository = userPreferencesRepository,
-            musicDao = musicDao
-        )
-    }
+    fun provideSongRepository(musicDao: MusicDao): SongRepository = RoomSongRepository(musicDao)
 
     @Provides
     @Singleton

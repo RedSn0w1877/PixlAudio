@@ -1237,11 +1237,8 @@ fun LibraryScreen(
                                     onFolderClick = { playerViewModel.navigateToFolder(it) },
                                     onNavigateBack = { playerViewModel.navigateBackFolder() },
                                     isShuffleEnabled = isShuffleEnabled,
-                                    showStorageFilterButton = currentTabId == LibraryTabId.SONGS ||
-                                            currentTabId == LibraryTabId.ALBUMS ||
-                                            currentTabId == LibraryTabId.ARTISTS ||
-                                            currentTabId == LibraryTabId.LIKED ||
-                                            (ENABLE_FOLDERS_STORAGE_FILTER && currentTabId == LibraryTabId.FOLDERS),
+                                    // Spotify-only: "on device vs online" no longer means anything.
+                                    showStorageFilterButton = false,
                                     currentStorageFilter = playerUiState.currentStorageFilter,
                                     onStorageFilterClick = { playerViewModel.toggleStorageFilter() },
                                     showInstrumentalizedFilterButton = currentTabId == LibraryTabId.SONGS,
@@ -1381,28 +1378,7 @@ fun LibraryScreen(
                                         }
                                     }
                                 } else null,
-                                extraContent = {
-                                    if (!isFoldersTab) {
-                                        Spacer(modifier = Modifier.height(12.dp))
-                                        Text(
-                                            text = stringResource(R.string.library_cloud_sources_heading),
-                                            style = MaterialTheme.typography.headlineSmall,
-                                            fontFamily = com.theveloper.pixelplay.ui.theme.GoogleSansRounded,
-                                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-                                            modifier = Modifier.padding(start = 2.dp, bottom = 8.dp)
-                                        )
-                                        com.theveloper.pixelplay.presentation.components.LibrarySheetToggleCard(
-                                            label = stringResource(R.string.library_cloud_only_label),
-                                            checked = playerUiState.hideLocalMedia,
-                                            boxBackgroundColor = if (playerUiState.hideLocalMedia)
-                                                MaterialTheme.colorScheme.tertiary
-                                            else
-                                                MaterialTheme.colorScheme.surfaceContainerLow,
-                                            boxCornerRadius = if (playerUiState.hideLocalMedia) 18.dp else 50.dp,
-                                            onCheckedChange = { playerViewModel.setHideLocalMedia(it) }
-                                        )
-                                    }
-                                }
+                                extraContent = { }
                             )
                         }
 

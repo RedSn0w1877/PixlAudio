@@ -48,8 +48,6 @@
     <string name="library_telegram_topic_mode_channels">Canali</string>
     <string name="library_telegram_topic_mode_topics">Argomenti</string>
     <string name="library_telegram_topic_mode_both">Entrambi</string>
-    <string name="library_cloud_sources_heading">Cloud</string>
-    <string name="library_cloud_only_label">Solo cloud</string>
 
     <!-- Library AI Metadata Processing -->
     <string name="library_generating_ai_metadata">Generazione metadati con AI…</string>
@@ -62,7 +60,6 @@
 
     <!-- Library empty (paginated) -->
     <string name="library_no_songs_in_library_message">Nessun brano trovato nella tua libreria.</string>
-    <string name="library_no_songs_rescan_hint">Prova a ripetere la scansione della libreria nelle impostazioni se hai musica sul dispositivo.</string>
     <string name="library_cd_no_songs_in_library">Nessun brano trovato</string>
 
     <!-- Library action row -->
@@ -94,7 +91,6 @@
 
     <!-- Library Empty State -->
     <string name="library_empty_songs_all_title">Ancora nessun brano</string>
-    <string name="library_empty_songs_all_subtitle">Aggiungi musica al tuo dispositivo o sincronizza una sorgente cloud per iniziare l\'ascolto.</string>
     <string name="library_empty_songs_offline_title">Nessun brano locale trovato</string>
     <string name="library_empty_songs_offline_subtitle">Prova un altro filtro sorgente o scansiona nuovamente la libreria del dispositivo.</string>
     <string name="library_empty_songs_online_title">Nessun brano cloud trovato</string>
@@ -378,7 +374,6 @@
     <string name="playlist_creation_ai_prompt_preview_empty">Il prompt finale apparirà qui una volta aggiunte le preferenze.</string>
     <string name="playlist_creation_ai_hero_title">Cura con precisione</string>
     <string name="playlist_creation_ai_hero_subtitle">Definisci umore, attività, vincoli e profondità.</string>
-    <string name="playlist_creation_ai_hero_library_note">L\'AI utilizzerà solo brani dalla tua libreria locale.</string>
     <string name="playlist_creation_ai_error_add_instruction">Aggiungi almeno un\'istruzione per l\'AI.</string>
     <string name="playlist_creation_ai_error_song_range">Imposta un intervallo valido di brani.</string>
     <string name="playlist_creation_ai_level_out_of_five">%1$d/5</string>

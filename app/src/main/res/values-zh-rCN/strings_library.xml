@@ -48,8 +48,6 @@
     <string name="library_telegram_topic_mode_channels">频道</string>
     <string name="library_telegram_topic_mode_topics">话题</string>
     <string name="library_telegram_topic_mode_both">全部</string>
-    <string name="library_cloud_sources_heading">云端</string>
-    <string name="library_cloud_only_label">仅云端</string>
 
     <!-- Library AI Metadata Processing -->
     <string name="library_generating_ai_metadata">正在使用 AI 生成元数据…</string>
@@ -62,7 +60,6 @@
 
     <!-- Library empty (paginated) -->
     <string name="library_no_songs_in_library_message">在您的媒体库中未找到歌曲。</string>
-    <string name="library_no_songs_rescan_hint">如果您设备上有音乐，请尝试在设置中重新扫描媒体库。</string>
     <string name="library_cd_no_songs_in_library">未找到歌曲</string>
 
     <!-- Library action row -->
@@ -94,7 +91,6 @@
 
     <!-- Library Empty State -->
     <string name="library_empty_songs_all_title">暂无歌曲</string>
-    <string name="library_empty_songs_all_subtitle">将音乐添加到您的设备或同步云端数据源以开始收听。</string>
     <string name="library_empty_songs_offline_title">未找到本地歌曲</string>
     <string name="library_empty_songs_offline_subtitle">尝试其他数据源过滤或重新扫描您的设备媒体库。</string>
     <string name="library_empty_songs_online_title">未找到云端歌曲</string>
@@ -378,7 +374,6 @@
     <string name="playlist_creation_ai_prompt_preview_empty">当您添加偏好设置后，最终的提示词将显示在这里。</string>
     <string name="playlist_creation_ai_hero_title">精准策展</string>
     <string name="playlist_creation_ai_hero_subtitle">定义情绪、活动、约束和深度。</string>
-    <string name="playlist_creation_ai_hero_library_note">AI 将仅使用您本地媒体库中的歌曲。</string>
     <string name="playlist_creation_ai_error_add_instruction">至少为 AI 添加一项指令。</string>
     <string name="playlist_creation_ai_error_song_range">请设置有效的歌曲数量范围。</string>
     <string name="playlist_creation_ai_level_out_of_five">%1$d/5</string>

@@ -48,8 +48,6 @@
     <string name="library_telegram_topic_mode_channels">Kanaler</string>
     <string name="library_telegram_topic_mode_topics">Emner</string>
     <string name="library_telegram_topic_mode_both">Begge</string>
-    <string name="library_cloud_sources_heading">Sky</string>
-    <string name="library_cloud_only_label">Kun sky</string>
 
     <!-- Library AI Metadata Processing -->
     <string name="library_generating_ai_metadata">Genererer metadata med AI…</string>
@@ -62,7 +60,6 @@
 
     <!-- Library empty (paginated) -->
     <string name="library_no_songs_in_library_message">Ingen sanger funnet i biblioteket ditt.</string>
-    <string name="library_no_songs_rescan_hint">Prøv å skanne biblioteket på nytt i innstillingene hvis du har musikk på enheten.</string>
     <string name="library_cd_no_songs_in_library">Ingen sanger funnet</string>
 
     <!-- Library action row -->
@@ -94,7 +91,6 @@
 
     <!-- Library Empty State -->
     <string name="library_empty_songs_all_title">Ingen sanger ennå</string>
-    <string name="library_empty_songs_all_subtitle">Legg til musikk på enheten eller synkroniser en skykilde for å begynne å lytte.</string>
     <string name="library_empty_songs_offline_title">Ingen lokale sanger funnet</string>
     <string name="library_empty_songs_offline_subtitle">Prøv et annet kildefilter eller skann enhetsbiblioteket på nytt.</string>
     <string name="library_empty_songs_online_title">Ingen skysanger funnet</string>
@@ -378,7 +374,6 @@
     <string name="playlist_creation_ai_prompt_preview_empty">Den endelige prompten din vises her når du legger til preferanser.</string>
     <string name="playlist_creation_ai_hero_title">Kurater med presisjon</string>
     <string name="playlist_creation_ai_hero_subtitle">Definer stemning, aktivitet, begrensninger og dybde.</string>
-    <string name="playlist_creation_ai_hero_library_note">AI-en vil kun bruke sanger fra det lokale biblioteket ditt.</string>
     <string name="playlist_creation_ai_error_add_instruction">Legg til minst én instruksjon for AI.</string>
     <string name="playlist_creation_ai_error_song_range">Angi et gyldig sangantallsintervall.</string>
     <string name="playlist_creation_ai_level_out_of_five">%1$d/5</string>

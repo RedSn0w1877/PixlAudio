@@ -12,7 +12,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.Button
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -125,6 +127,9 @@ private fun libraryEmptySpec(
     }
 }
 
+/** Set by AppNavigation: opens the Spotify dashboard (sign-in). Null outside navigation (previews/tests). */
+val LocalConnectSpotify = compositionLocalOf<(() -> Unit)?> { null }
+
 @Composable
 internal fun LibraryExpressiveEmptyState(
     tabId: LibraryTabId,
@@ -133,6 +138,11 @@ internal fun LibraryExpressiveEmptyState(
     modifier: Modifier = Modifier
 ) {
     val spec = remember(tabId, storageFilter) { libraryEmptySpec(tabId, storageFilter) }
+    val connectSpotify = LocalConnectSpotify.current
+    val showConnect = connectSpotify != null && when (tabId) {
+        LibraryTabId.SONGS, LibraryTabId.ALBUMS, LibraryTabId.ARTISTS -> true
+        else -> false
+    }
 
     Box(
         modifier = modifier
@@ -184,6 +194,12 @@ internal fun LibraryExpressiveEmptyState(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center
                 )
+            }
+
+            if (showConnect) {
+                Button(onClick = { connectSpotify?.invoke() }) {
+                    Text(stringResource(R.string.library_connect_spotify))
+                }
             }
         }
     }

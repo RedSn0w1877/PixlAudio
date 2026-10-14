@@ -120,6 +120,7 @@ fun SpotifyDashboardScreen(
                 AccountCard(
                     uiState = uiState,
                     onSignIn = viewModel::signIn,
+                    clientIdMissing = !viewModel.hasClientId(),
                     onSync = viewModel::syncNow,
                     onMatch = viewModel::matchNow,
                     onDiagnose = viewModel::runDiagnostics,
@@ -360,6 +361,7 @@ private fun YouTubeSignInDialog(
 private fun AccountCard(
     uiState: SpotifyDashboardUiState,
     onSignIn: () -> Unit,
+    clientIdMissing: Boolean,
     onSync: () -> Unit,
     onMatch: () -> Unit,
     onDiagnose: () -> Unit,
@@ -386,8 +388,16 @@ private fun AccountCard(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                if (clientIdMissing) {
+                    Text(
+                        text = "Spotify sign-in is not configured in this build.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
                 Button(
                     onClick = onSignIn,
+                    enabled = !clientIdMissing,
                     colors = ButtonDefaults.buttonColors(
                         containerColor = SpotifyBrandGreen,
                         contentColor = Color.Black

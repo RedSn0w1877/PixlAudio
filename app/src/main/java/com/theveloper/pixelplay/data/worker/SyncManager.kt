@@ -7,9 +7,6 @@ import androidx.work.ExistingWorkPolicy
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import androidx.work.OneTimeWorkRequest
-import androidx.lifecycle.DefaultLifecycleObserver
-import androidx.lifecycle.LifecycleOwner
-import androidx.lifecycle.ProcessLifecycleOwner
 import com.theveloper.pixelplay.data.preferences.UserPreferencesRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
@@ -21,11 +18,8 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.launch
-import com.theveloper.pixelplay.data.observer.MediaStoreObserver
 import javax.inject.Inject
 import javax.inject.Singleton
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 
 /**
  * Data class representing the progress of the sync operation.
@@ -58,17 +52,10 @@ data class SyncProgress(
 @Singleton
 class SyncManager @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val userPreferencesRepository: UserPreferencesRepository,
-    private val mediaStoreObserver: MediaStoreObserver
+    private val userPreferencesRepository: UserPreferencesRepository
 ) {
     private val workManager = WorkManager.getInstance(context)
     private val sharingScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    private var mediaStoreAutoSyncJob: Job? = null
-    private val autoSyncLock = Any()
-    // In-memory only: lives in this @Singleton for the process lifetime, so no leak.
-    @Volatile
-    private var lastForegroundSyncTime = 0L
-
     // EXPONE UN FLOW<BOOLEAN> SIMPLE
     val isSyncing: Flow<Boolean> =
         workManager.getWorkInfosForUniqueWorkFlow(SyncWorker.WORK_NAME)
@@ -93,8 +80,6 @@ class SyncManager @Inject constructor(
             )
 
     init {
-        observeStorageChanges()
-        observeAppForeground()
         schedulePeriodicMaintenance()
     }
 
@@ -204,25 +189,13 @@ class SyncManager @Inject constructor(
         )
 
     fun sync() {
-        sharingScope.launch {
-            val now = System.currentTimeMillis()
-            val lastSyncTimestamp = userPreferencesRepository.getLastSyncTimestamp()
-            val shouldRunSync =
-                lastSyncTimestamp <= 0L || (now - lastSyncTimestamp) >= MIN_SYNC_INTERVAL_MS
-
-            if (!shouldRunSync) {
-                val ageSeconds = (now - lastSyncTimestamp) / 1000
-                Log.d(TAG, "Skipping startup sync (last sync ${ageSeconds}s ago)")
-                return@launch
-            }
-
-            Log.i(TAG, "Startup sync requested - Scheduling Incremental Sync")
-            enqueueSyncWork(
-                request = SyncWorker.incrementalSyncWork(),
-                policy = ExistingWorkPolicy.KEEP,
-                notifyObserver = false
-            )
-        }
+        // Cheap now (no scan): purges leftover on-device rows from older installs, every launch.
+        Log.i(TAG, "Startup sync requested - scheduling housekeeping")
+        enqueueSyncWork(
+            request = SyncWorker.incrementalSyncWork(),
+            policy = ExistingWorkPolicy.KEEP,
+            notifyObserver = false
+        )
     }
 
     /**
@@ -275,64 +248,6 @@ class SyncManager @Inject constructor(
         )
     }
 
-    private fun observeStorageChanges() {
-        sharingScope.launch {
-            mediaStoreObserver.externalMediaStoreChanges.collect {
-                scheduleLocalAutoSync()
-            }
-        }
-    }
-
-    private fun scheduleLocalAutoSync() {
-        synchronized(autoSyncLock) {
-            mediaStoreAutoSyncJob?.cancel()
-            mediaStoreAutoSyncJob = sharingScope.launch {
-                runLocalAutoSyncAfterDebounce()
-            }
-        }
-    }
-
-    private suspend fun runLocalAutoSyncAfterDebounce() {
-        delay(MEDIASTORE_CHANGE_DEBOUNCE_MS)
-        Log.i(TAG, "Storage change detected - scheduling local incremental sync")
-        enqueueSyncWork(
-            request = SyncWorker.incrementalSyncWork(runMaintenance = false),
-            policy = ExistingWorkPolicy.KEEP,
-            notifyObserver = false
-        )
-    }
-
-    private fun observeAppForeground() {
-        // ProcessLifecycleOwner is application-scoped; the observer and this @Singleton both
-        // live for the whole process, so registering once here cannot leak.
-        ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
-            override fun onStart(owner: LifecycleOwner) {
-                maybeRunForegroundCatchUpSync()
-            }
-        })
-    }
-
-    /**
-     * Fast, maintenance-free incremental sync triggered when the app returns to the
-     * foreground. Catches files MediaStore indexed while we were backgrounded (the
-     * ContentObserver is only registered in the foreground). Guarded by an in-memory
-     * cooldown so quick minimize/restore cycles don't pile up redundant work.
-     */
-    private fun maybeRunForegroundCatchUpSync() {
-        val now = System.currentTimeMillis()
-        if (now - lastForegroundSyncTime < FOREGROUND_SYNC_COOLDOWN_MS) {
-            Log.d(TAG, "Skipping foreground catch-up sync (cooldown active)")
-            return
-        }
-        lastForegroundSyncTime = now
-        Log.i(TAG, "Foreground catch-up - scheduling local incremental sync")
-        enqueueSyncWork(
-            request = SyncWorker.incrementalSyncWork(runMaintenance = false),
-            policy = ExistingWorkPolicy.KEEP,
-            notifyObserver = false
-        )
-    }
-
     private fun enqueueSyncWork(
         request: OneTimeWorkRequest,
         policy: ExistingWorkPolicy,
@@ -343,17 +258,11 @@ class SyncManager @Inject constructor(
             policy,
             request
         )
-        if (notifyObserver) {
-            // Keep reactive MediaStore-based views in sync with manual refresh actions.
-            mediaStoreObserver.forceRescan()
-        }
     }
 
     companion object {
         private const val TAG = "SyncManager"
         private const val MIN_SYNC_INTERVAL_MS = 6 * 60 * 60 * 1000L // 6 hours
-        private const val MEDIASTORE_CHANGE_DEBOUNCE_MS = 1_500L
-        private const val FOREGROUND_SYNC_COOLDOWN_MS = 60_000L
 
         private val CHANGE_PHASES = setOf(
             SyncProgress.SyncPhase.IDLE,

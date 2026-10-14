@@ -447,16 +447,6 @@ fun SettingsCategoryScreen(
                         Column {
                             SettingsSubsection(title = stringResource(R.string.settings_library_structure_section)) {
                                 SettingsItem(
-                                    title = stringResource(R.string.settings_excluded_directories_title),
-                                    subtitle = stringResource(R.string.settings_excluded_directories_subtitle),
-                                    leadingIcon = { Icon(Icons.Outlined.Folder, null, tint = MaterialTheme.colorScheme.secondary) },
-                                    trailingIcon = { Icon(Icons.Rounded.ChevronRight, stringResource(R.string.settings_cd_open), tint = MaterialTheme.colorScheme.onSurfaceVariant) },
-                                    onClick = {
-                                        showExplorerSheet = true
-                                        settingsViewModel.openExplorer()
-                                    }
-                                )
-                                SettingsItem(
                                     title = stringResource(R.string.settings_artists_title),
                                     subtitle = stringResource(R.string.settings_artists_subtitle),
                                     leadingIcon = { Icon(Icons.Outlined.Person, null, tint = MaterialTheme.colorScheme.secondary) },
@@ -469,20 +459,6 @@ fun SettingsCategoryScreen(
                     item(key = "library_filtering", contentType = "settings_subsection") {
                         Column {
                             SettingsSubsection(title = stringResource(R.string.settings_filtering_section)) {
-                                SliderSettingsItem(
-                                    label = stringResource(R.string.settings_min_song_duration),
-                                    value = minSongDurationDraft,
-                                    valueRange = 0f..120000f,
-                                    steps = 23, // 0, 5, 10, 15, ... 120 seconds (24 positions, 23 steps)
-                                    onValueChange = { minSongDurationDraft = it },
-                                    onValueChangeFinished = {
-                                        val selectedDuration = minSongDurationDraft.toInt()
-                                        if (selectedDuration != uiState.minSongDuration) {
-                                            settingsViewModel.setMinSongDuration(selectedDuration)
-                                        }
-                                    },
-                                    valueText = { value -> "${(value / 1000).toInt()}s" }
-                                )
                                 SliderSettingsItem(
                                     label = stringResource(R.string.settings_min_tracks_per_album),
                                     value = minTracksPerAlbumDraft,
@@ -510,36 +486,6 @@ fun SettingsCategoryScreen(
                                         }
                                     },
                                     valueText = { value -> "${value.toInt()} MB" }
-                                )
-                            }
-                        }
-                    }
-                    item(key = "library_sync", contentType = "settings_subsection") {
-                        Column {
-                            SettingsSubsection(title = stringResource(R.string.settings_sync_scanning_section)) {
-                                RefreshLibraryItem(
-                                    isSyncing = isSyncing,
-                                    syncProgress = settingsViewModel.syncProgress.collectAsStateWithLifecycle().value,
-                                    activeOperationLabel = if (isSyncing) syncIndicatorLabel else null,
-                                    onFullSync = {
-                                        if (isSyncing) return@RefreshLibraryItem
-                                        refreshRequested = true
-                                        syncRequestObservedRunning = false
-                                        syncIndicatorLabel = syncFullRescanLabel
-                                        Toast.makeText(context, toastFullRescanStarted, Toast.LENGTH_SHORT).show()
-                                        settingsViewModel.fullSyncLibrary()
-                                    },
-                                    onRebuild = {
-                                        if (isSyncing) return@RefreshLibraryItem
-                                        showRebuildDatabaseWarning = true
-                                    }
-                                )
-                                SwitchSettingItem(
-                                    title = stringResource(R.string.settings_auto_scan_lrc_title),
-                                    subtitle = stringResource(R.string.settings_auto_scan_lrc_subtitle),
-                                    checked = uiState.autoScanLrcFiles,
-                                    onCheckedChange = { settingsViewModel.setAutoScanLrcFiles(it) },
-                                    leadingIcon = { Icon(Icons.Outlined.Folder, null, tint = MaterialTheme.colorScheme.secondary) }
                                 )
                             }
                         }
@@ -1045,27 +991,6 @@ fun SettingsCategoryScreen(
                     }
                 }
                 SettingsCategory.BEHAVIOR -> {
-                    item(key = "behavior_folders", contentType = "settings_subsection") {
-                        Column {
-                            SettingsSubsection(
-                                title = stringResource(R.string.settings_folders_section)
-                            ) {
-                                SwitchSettingItem(
-                                    title = stringResource(R.string.settings_folder_back_gesture_title),
-                                    subtitle = stringResource(R.string.settings_folder_back_gesture_subtitle),
-                                    checked = uiState.folderBackGestureNavigation,
-                                    onCheckedChange = { settingsViewModel.setFolderBackGestureNavigation(it) },
-                                    leadingIcon = {
-                                        Icon(
-                                            painterResource(R.drawable.rounded_touch_app_24),
-                                            null,
-                                            tint = MaterialTheme.colorScheme.secondary
-                                        )
-                                    }
-                                )
-                            }
-                        }
-                    }
                     item(key = "behavior_gestures", contentType = "settings_subsection") {
                         Column {
                             SettingsSubsection(
@@ -1857,34 +1782,6 @@ fun SettingsCategoryScreen(
     SettingsBackupTransferProgressHost(settingsViewModel)
 
     // Dialogs
-    FileExplorerDialog(
-        visible = showExplorerSheet,
-        currentPath = currentPath,
-        directoryChildren = directoryChildren,
-        availableStorages = availableStorages,
-        selectedStorageIndex = selectedStorageIndex,
-        isLoading = isLoadingDirectories,
-        isPriming = isExplorerPriming,
-        isReady = isExplorerReady,
-        isCurrentDirectoryResolved = isCurrentDirectoryResolved,
-        isAtRoot = settingsViewModel.isAtRoot(),
-        rootDirectory = explorerRoot,
-        onNavigateTo = settingsViewModel::loadDirectory,
-        onNavigateUp = settingsViewModel::navigateUp,
-        onNavigateHome = { settingsViewModel.loadDirectory(explorerRoot) },
-        onToggleAllowed = settingsViewModel::toggleDirectoryAllowed,
-        onRefresh = settingsViewModel::refreshExplorer,
-        onStorageSelected = settingsViewModel::selectStorage,
-        onDone = {
-            settingsViewModel.applyPendingDirectoryRuleChanges()
-            showExplorerSheet = false
-        },
-        onDismiss = {
-            settingsViewModel.applyPendingDirectoryRuleChanges()
-            showExplorerSheet = false
-        }
-    )
-
     if (showPaletteRegenerateSheet) {
         AdaptiveModalBottomSheet(
             containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
@@ -2064,34 +1961,6 @@ fun SettingsCategoryScreen(
             onDismissRequest = { showClearLyricsDialog = false },
             confirmButton = { TextButton(onClick = { showClearLyricsDialog = false; playerViewModel.resetAllLyrics() }) { Text(stringResource(R.string.common_confirm), maxLines = 1, overflow = TextOverflow.Ellipsis) } },
             dismissButton = { TextButton(onClick = { showClearLyricsDialog = false }) { Text(stringResource(R.string.common_cancel), maxLines = 1, overflow = TextOverflow.Ellipsis) } }
-        )
-    }
-
-    
-    if (showRebuildDatabaseWarning) {
-        val syncIndicatorRebuilding = stringResource(R.string.settings_label_sync_rebuilding)
-        val toastRebuildingDatabase = stringResource(R.string.settings_toast_rebuilding_database)
-        AdaptiveAlertDialog(
-            icon = { Icon(Icons.Outlined.Warning, null, tint = MaterialTheme.colorScheme.error) },
-            title = { Text(stringResource(R.string.settings_dialog_rebuild_database_title)) },
-            text = { Text(stringResource(R.string.settings_dialog_rebuild_database_body)) },
-            onDismissRequest = { showRebuildDatabaseWarning = false },
-            confirmButton = { 
-                TextButton(
-                    onClick = { 
-                        showRebuildDatabaseWarning = false
-                        refreshRequested = true
-                        syncRequestObservedRunning = false
-                        syncIndicatorLabel = syncIndicatorRebuilding
-                        Toast.makeText(context, toastRebuildingDatabase, Toast.LENGTH_SHORT).show()
-                        settingsViewModel.rebuildDatabase() 
-                    },
-                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
-                ) { 
-                    Text(stringResource(R.string.settings_action_rebuild)) 
-                } 
-            },
-            dismissButton = { TextButton(onClick = { showRebuildDatabaseWarning = false }) { Text(stringResource(R.string.common_cancel), maxLines = 1, overflow = TextOverflow.Ellipsis) } }
         )
     }
 
