@@ -18,6 +18,7 @@ import com.theveloper.pixelplay.data.model.Song
 import com.theveloper.pixelplay.data.preferences.UserPreferencesRepository
 import com.theveloper.pixelplay.data.repository.MusicRepository
 import com.theveloper.pixelplay.data.service.player.DualPlayerEngine
+import com.theveloper.pixelplay.data.service.player.PlayerTransport
 import com.theveloper.pixelplay.data.worker.SyncManager
 import com.theveloper.pixelplay.utils.AppShortcutManager
 import com.theveloper.pixelplay.utils.MediaItemBuilder
@@ -40,6 +41,8 @@ import timber.log.Timber
 private const val CAST_LOG_TAG = "PlayerCastTransfer"
 private const val SONG_ID_QUERY_CHUNK_SIZE = 900
 private val LOCAL_PLAYBACK_SCHEMES = setOf("content", "file", "android.resource")
+/** The "Preparing playback" hint gives up after this long, whatever the player reports. */
+private const val PREPARING_PILL_MAX_MS = 45_000L
 
 /**
  * Callbacks supplied by [PlayerViewModel] so the playback dispatch core can reach
@@ -111,6 +114,7 @@ class PlaybackDispatchStateHolder @Inject constructor(
     private var directPlaybackToken: Long = 0L
     private var pendingQueueSegmentsJob: Job? = null
     private var remoteQueueLoadJob: Job? = null
+    private var preparingTimeoutJob: Job? = null
 
     // Playback action parked until the MediaController finishes connecting.
     private var pendingPlaybackAction: (() -> Unit)? = null
@@ -684,8 +688,17 @@ class PlaybackDispatchStateHolder @Inject constructor(
         // (or a re-tap of an already-loaded song) can otherwise leave the pill stuck.
         // Always write the new value (null for local, song.id for remote) so a stale
         // preparingSongId from a previous remote song cannot outlive a local track switch.
+        preparingTimeoutJob?.cancel()
+        preparingTimeoutJob = null
         if (!isLocalPlaybackSong(song)) {
             setPreparingSong(song.id)
+            // Safety net: the pill clears on READY, on playing and on an error, but whatever
+            // happens it never outlives a long resolve. It is only a hint; the transport buttons
+            // never wait for it.
+            preparingTimeoutJob = cb.scope.launch {
+                delay(PREPARING_PILL_MAX_MS)
+                clearPreparingSongIfMatching(song.id)
+            }
         } else {
             setPreparingSong(null)
         }
@@ -748,7 +761,7 @@ class PlaybackDispatchStateHolder @Inject constructor(
         player: Player,
         startSongId: String,
         preparedSegments: PreparedPlaybackQueueSegments
-    ) {
+    ): Boolean {
         val attachStart = System.nanoTime()
         val attached = attachQueueSegmentsIfCurrent(
             player = player,
@@ -756,12 +769,13 @@ class PlaybackDispatchStateHolder @Inject constructor(
             beforeCurrent = preparedSegments.beforeCurrent,
             afterCurrent = preparedSegments.afterCurrent
         )
-        if (!attached) return
+        if (!attached) return false
         PerformanceMetrics.recordTiming("queue_attach", (System.nanoTime() - attachStart) / 1_000_000)
 
         playbackStateHolder.updateStablePlayerState {
             it.copy(currentMediaItemIndex = preparedSegments.currentIndex)
         }
+        return true
     }
 
     suspend fun internalPlaySongs(songsToPlay: List<Song>, startSong: Song, queueName: String = "None", playlistId: String? = null) {
@@ -838,18 +852,31 @@ class PlaybackDispatchStateHolder @Inject constructor(
 
                 if (songsToPlay.size > 1) {
                     pendingQueueSegmentsJob?.cancel()
+                    // The player holds only the tapped song until the rest is attached, so a
+                    // next/previous tapped in that gap would have nothing to go to. The gate holds
+                    // those taps and replays them once the queue is there.
+                    val attachToken = playbackStateHolder.beginQueueAttach()
                     pendingQueueSegmentsJob = cb.scope.launch {
-                        val preparedSegments = preparePlaybackQueueSegments(
-                            songsToPlay = songsToPlay,
-                            startSongId = effectiveStartSong.id,
-                            playlistId = playlistId
-                        )
-                        withContext(Dispatchers.Main.immediate) {
-                            attachPreparedQueueSegmentsIfCurrent(
-                                player = dualPlayerEngine.masterPlayer,
+                        var attached = false
+                        try {
+                            val preparedSegments = preparePlaybackQueueSegments(
+                                songsToPlay = songsToPlay,
                                 startSongId = effectiveStartSong.id,
-                                preparedSegments = preparedSegments
+                                playlistId = playlistId
                             )
+                            attached = withContext(Dispatchers.Main.immediate) {
+                                attachPreparedQueueSegmentsIfCurrent(
+                                    player = dualPlayerEngine.masterPlayer,
+                                    startSongId = effectiveStartSong.id,
+                                    preparedSegments = preparedSegments
+                                )
+                            }
+                        } finally {
+                            if (attached) {
+                                playbackStateHolder.endQueueAttach(attachToken)
+                            } else {
+                                playbackStateHolder.abandonQueueAttach(attachToken)
+                            }
                         }
                     }
                 }
@@ -915,7 +942,7 @@ class PlaybackDispatchStateHolder @Inject constructor(
         cb.scope.launch {
             val mediaItem = buildResolvedPlaybackMediaItem(song)
             if (controller.currentMediaItem?.mediaId == song.id) {
-                if (!controller.isPlaying) controller.play()
+                if (!PlayerTransport.isPlayIntent(controller)) PlayerTransport.play(controller)
             } else {
                 controller.setMediaItem(mediaItem)
                 controller.prepare()
@@ -1030,42 +1057,38 @@ class PlaybackDispatchStateHolder @Inject constructor(
                 return
             }
 
-            if (controller.isPlaying) {
-                controller.pause()
+            if (controller.currentMediaItem != null) {
+                // Pause while a song still loads, retry after a failed one, restart after the end:
+                // decided on playWhenReady and the state, not on isPlaying (see PlayerTransport).
+                PlayerTransport.togglePlayPause(controller)
             } else {
-                if (controller.currentMediaItem == null) {
-                    val currentQueue = cb.getUiState().currentPlaybackQueue
-                    val currentSong = playbackStateHolder.stablePlayerState.value.currentSong
-                    when {
-                        currentQueue.isNotEmpty() && currentSong != null -> {
-                            cb.scope.launch {
-                                cb.cancelTransitionScheduler()
-                                internalPlaySongs(
-                                    currentQueue.toList(),
-                                    currentSong,
-                                    cb.getUiState().currentQueueSourceName
-                                )
-                            }
+                // Nothing loaded in the player: start the shown queue (or song) from scratch.
+                val currentQueue = cb.getUiState().currentPlaybackQueue
+                val currentSong = playbackStateHolder.stablePlayerState.value.currentSong
+                when {
+                    currentQueue.isNotEmpty() && currentSong != null -> {
+                        cb.scope.launch {
+                            cb.cancelTransitionScheduler()
+                            internalPlaySongs(
+                                currentQueue.toList(),
+                                currentSong,
+                                cb.getUiState().currentQueueSourceName
+                            )
                         }
-                        currentSong != null -> {
-                            loadAndPlaySong(currentSong)
-                        }
-                        else -> {
-                            cb.scope.launch {
-                                val fallbackSong = musicRepository.getFirstPlayableSong()
-                                if (fallbackSong != null) {
-                                    loadAndPlaySong(fallbackSong)
-                                } else {
-                                    controller.play()
-                                }
+                    }
+                    currentSong != null -> {
+                        loadAndPlaySong(currentSong)
+                    }
+                    else -> {
+                        cb.scope.launch {
+                            val fallbackSong = musicRepository.getFirstPlayableSong()
+                            if (fallbackSong != null) {
+                                loadAndPlaySong(fallbackSong)
+                            } else {
+                                controller.play()
                             }
                         }
                     }
-                } else {
-                    if (controller.playbackState == Player.STATE_IDLE && controller.mediaItemCount > 0) {
-                        controller.prepare()
-                    }
-                    controller.play()
                 }
             }
         }

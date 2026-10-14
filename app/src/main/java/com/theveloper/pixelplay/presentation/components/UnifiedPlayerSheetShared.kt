@@ -97,7 +97,10 @@ internal fun MiniPlayerContentInternal(
     remoteDeviceName: String? = null
 ) {
     val hapticFeedback = LocalHapticFeedback.current
-    val controlsEnabled = !isCastConnecting && !isPreparingPlayback
+    // Only the cast hand-over locks the buttons. "Preparing playback" used to as well, and with every
+    // song now a Spotify stream that waits for a YouTube match, so pause, skip and previous were
+    // dead for the whole load (and for good when a song failed). Pausing a loading song is valid.
+    val controlsEnabled = !isCastConnecting
 
     val previousInteraction = remember { MutableInteractionSource() }
     val playPauseInteraction = remember { MutableInteractionSource() }

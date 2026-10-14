@@ -55,6 +55,8 @@ import com.theveloper.pixelplay.data.preferences.UserPreferencesRepository
 import com.theveloper.pixelplay.data.stream.CloudStreamUris
 import com.theveloper.pixelplay.data.repository.MusicRepository
 import com.theveloper.pixelplay.data.service.player.DualPlayerEngine
+import com.theveloper.pixelplay.data.service.player.PlaybackErrorSkipPolicy
+import com.theveloper.pixelplay.data.service.player.PlayerTransport
 import com.theveloper.pixelplay.data.service.player.TransitionController
 import com.theveloper.pixelplay.ui.glancewidget.PlayerActions
 import com.theveloper.pixelplay.utils.AlbumArtUtils
@@ -263,6 +265,9 @@ class MusicService : MediaLibraryService() {
     private var playbackSnapshotUnloadWriteJob: Job? = null
     private var isRestoringPlaybackSnapshot = false
     private var isPlaybackUnloadInProgress = false
+    // What to do when a song fails to play: move on to the next one, but not through a whole
+    // queue of failures (offline, YouTube blocked).
+    private val playbackErrorSkipPolicy = PlaybackErrorSkipPolicy()
     private val audioManager by lazy {
         getSystemService(Context.AUDIO_SERVICE) as AudioManager
     }
@@ -1423,6 +1428,49 @@ class MusicService : MediaLibraryService() {
         }
     }
 
+    /**
+     * A skip or a seek on a player that stopped (after a failed song, or a queue restored paused)
+     * moves the index but leaves it IDLE, so nothing plays and the controller drops further seeks.
+     * Prepare it whichever surface asked: the app, the notification, the lock screen, Wear or Auto.
+     */
+    private fun reviveIdlePlayerAfterNavigation() {
+        if (isRestoringPlaybackSnapshot || isPlaybackUnloadInProgress || connectSessionPlayer != null) return
+        PlayerTransport.ensurePrepared(engine.masterPlayer)
+    }
+
+    /** A song failed: move on to the next one (a few times at most), or stop with the player pausable. */
+    private fun recoverFromPlaybackError(): Boolean {
+        if (isPlaybackUnloadInProgress || connectSessionPlayer != null) return false
+        val player = engine.masterPlayer
+        val decision = playbackErrorSkipPolicy.onError(
+            nowMs = SystemClock.elapsedRealtime(),
+            hasNext = player.hasNextMediaItem(),
+            mediaId = player.currentMediaItem?.mediaId,
+            positionMs = player.currentPosition
+        )
+        return when (decision) {
+            PlaybackErrorSkipPolicy.Decision.RETRY_CURRENT -> {
+                // Lost the stream mid-song: prepare again, playback resumes from the same spot.
+                Timber.tag(TAG).w("Playback error mid-song: retrying in place")
+                player.prepare()
+                false
+            }
+            PlaybackErrorSkipPolicy.Decision.SKIP_TO_NEXT -> {
+                Timber.tag(TAG).w("Playback error: skipping to the next song")
+                player.seekToNextMediaItem()
+                player.prepare()
+                true
+            }
+            PlaybackErrorSkipPolicy.Decision.STOP -> {
+                Timber.tag(TAG).w("Playback error: stopping; the play button retries")
+                // Not "wants to play" any more, so play in the app, the notification or on a
+                // watch is a real state change that re-prepares the song.
+                player.playWhenReady = false
+                false
+            }
+        }
+    }
+
     private val playerListener = object : Player.Listener {
         override fun onVolumeChanged(volume: Float) {
             replayGainProcessor.onPlayerVolumeChanged(volume)
@@ -1442,7 +1490,10 @@ class MusicService : MediaLibraryService() {
             // non-urgent work (AI generation, incremental sync) while audio
             // is producing — keeps thermal headroom and battery for playback.
             PlaybackActivityTracker.setPlaybackActive(isPlaying)
-            if (isPlaying) automaticStudioManager.onSongChanged(player.currentMediaItem?.mediaId)
+            if (isPlaying) {
+                automaticStudioManager.onSongChanged(player.currentMediaItem?.mediaId)
+                playbackErrorSkipPolicy.onPlaybackStarted()
+            }
             updateNextStreamPrefetch()
             syncLocalListeningStatsFromPlayer(player)
 
@@ -1467,6 +1518,11 @@ class MusicService : MediaLibraryService() {
             // While a Spotify Connect device plays, the reported playWhenReady is the device's: the
             // local instrumental shadow must not start playing on the phone.
             instrumentalCrossfadeController.onPlayWhenReadyChanged(playWhenReady && connectSessionPlayer == null)
+            // Play pressed (notification, lock screen, Wear, headset) on a player that stopped after
+            // a failed song or was restored paused: prepare it, or the press would do nothing.
+            if (playWhenReady && !isRestoringPlaybackSnapshot && connectSessionPlayer == null) {
+                PlayerTransport.ensurePrepared(engine.masterPlayer)
+            }
             // A pause while the song still buffers changes neither isPlaying nor the state, so
             // only this callback stops the preparation (and a pending listening-cache wait) then.
             updateNextStreamPrefetch()
@@ -1522,6 +1578,7 @@ class MusicService : MediaLibraryService() {
             reason: Int
         ) {
             if (reason == Player.DISCONTINUITY_REASON_SEEK) {
+                reviveIdlePlayerAfterNavigation()
                 instrumentalCrossfadeController.onMainSeek(newPosition.positionMs)
             }
             if (reason == Player.DISCONTINUITY_REASON_AUTO_TRANSITION ||
@@ -1542,6 +1599,7 @@ class MusicService : MediaLibraryService() {
         }
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_SEEK) reviveIdlePlayerAfterNavigation()
             automaticStudioManager.onSongChanged(mediaItem?.mediaId)
             updateNextStreamPrefetch()
             instrumentalCrossfadeController.onSongChanged(
@@ -1614,8 +1672,12 @@ class MusicService : MediaLibraryService() {
 
         override fun onPlayerError(error: PlaybackException) {
             Timber.tag(TAG).e(error, "Error en el reproductor: ")
+            // The failed song, read before the recovery moves the index to the next one.
+            val currentMediaItem = mediaSession?.player?.currentMediaItem
+            // A failed stream used to leave a silent IDLE player behind (and a mini player with
+            // dead buttons). Move on to the next song, or stop in a state the play button restarts.
+            val skippedToNext = recoverFromPlaybackError()
             serviceScope.launch {
-                val currentMediaItem = mediaSession?.player?.currentMediaItem
                 val trackTitle = currentMediaItem?.mediaMetadata?.title?.toString()
                     ?: currentMediaItem?.mediaId
                     ?: getString(R.string.common_unknown_track)
@@ -1634,7 +1696,11 @@ class MusicService : MediaLibraryService() {
                 )
 
                 val errorMessage = error.localizedMessage ?: error.message ?: "Unknown error"
-                val toastMessage = getString(R.string.player_playback_error, "$trackTitle ($errorMessage)")
+                val toastMessage = if (skippedToNext) {
+                    getString(R.string.player_playback_error_skipping, trackTitle)
+                } else {
+                    getString(R.string.player_playback_error, "$trackTitle ($errorMessage)")
+                }
                 android.widget.Toast.makeText(this@MusicService, toastMessage, android.widget.Toast.LENGTH_LONG).show()
             }
         }

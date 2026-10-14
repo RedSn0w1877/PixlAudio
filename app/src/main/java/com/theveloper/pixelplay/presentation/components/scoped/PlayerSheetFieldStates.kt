@@ -26,6 +26,13 @@ internal class PlayerSheetFieldStates(source: State<StablePlayerState>) {
     val currentMediaItemIndex: State<Int> = derivedStateOf { source.value.currentMediaItemIndex }
     val isPlaying: State<Boolean> = derivedStateOf { source.value.isPlaying }
     val playWhenReady: State<Boolean> = derivedStateOf { source.value.playWhenReady }
+    /**
+     * What the transport buttons show: playing, or asked to play and still loading. A streamed
+     * song is not "playing" while it is matched and resolved, but the user already pressed play
+     * and the button must offer pause, not play. [isPlaying] stays the audio truth (progress clock).
+     */
+    val isTransportPlaying: State<Boolean> =
+        derivedStateOf { source.value.isPlaying || (source.value.playWhenReady && source.value.isBuffering) }
     val totalDuration: State<Long> = derivedStateOf { source.value.totalDuration }
     val isShuffleEnabled: State<Boolean> = derivedStateOf { source.value.isShuffleEnabled }
     val isShuffleTransitionInProgress: State<Boolean> =
@@ -34,6 +41,7 @@ internal class PlayerSheetFieldStates(source: State<StablePlayerState>) {
     val lyrics: State<Lyrics?> = derivedStateOf { source.value.lyrics }
 
     val isPlayingProvider: () -> Boolean = { isPlaying.value }
+    val isTransportPlayingProvider: () -> Boolean = { isTransportPlaying.value }
     val playWhenReadyProvider: () -> Boolean = { playWhenReady.value }
     val totalDurationProvider: () -> Long = { totalDuration.value }
     val isShuffleEnabledProvider: () -> Boolean = { isShuffleEnabled.value }

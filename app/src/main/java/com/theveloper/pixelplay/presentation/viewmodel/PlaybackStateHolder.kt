@@ -8,6 +8,9 @@ import androidx.media3.common.Player
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import com.theveloper.pixelplay.data.service.player.DualPlayerEngine
+import com.theveloper.pixelplay.data.service.player.PendingSeek
+import com.theveloper.pixelplay.data.service.player.PlayerTransport
+import com.theveloper.pixelplay.data.service.player.QueueAttachGate
 import com.theveloper.pixelplay.data.preferences.UserPreferencesRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
@@ -77,6 +80,33 @@ class PlaybackStateHolder @Inject constructor(
 
     private var scope: CoroutineScope? = null
     private var onCastSeekBlocked: (() -> Unit)? = null
+
+    // A seek asked for while the streamed song is still loading (not seekable yet): applied on READY.
+    private val pendingSeek = PendingSeek()
+    // Skips tapped between a song starting and the rest of its queue being attached.
+    private val queueAttachGate = QueueAttachGate()
+
+    /** The queue of a freshly started song is about to be attached; skips are held until [endQueueAttach]. */
+    fun beginQueueAttach(): Int = queueAttachGate.begin()
+
+    /** The queue is attached: replays the skips tapped meanwhile. */
+    fun endQueueAttach(token: Int) {
+        queueAttachGate.end(token).forEach { skip ->
+            when (skip) {
+                QueueAttachGate.Skip.NEXT -> nextSong()
+                QueueAttachGate.Skip.PREVIOUS -> previousSong()
+            }
+        }
+    }
+
+    /** The attach was cancelled (a newer song started): the held skips belong to a queue that is gone. */
+    fun abandonQueueAttach(token: Int) = queueAttachGate.abandon(token)
+
+    /** Called when the player becomes ready: applies a seek that had to wait for the song to load. */
+    fun applyPendingSeek() {
+        if (!pendingSeek.isHeld) return
+        pendingSeek.applyIfReady(activeLocalPlayer())
+    }
     
     // MediaController
     var mediaController: MediaController? = null
@@ -518,15 +548,9 @@ class PlaybackStateHolder @Inject constructor(
                 }
             }
         } else {
-            val controller = activeLocalPlayer()
-            if (controller.isPlaying) {
-                controller.pause()
-            } else {
-                if (controller.playbackState == Player.STATE_IDLE && controller.mediaItemCount > 0) {
-                    controller.prepare()
-                }
-                controller.play()
-            }
+            // Acts on what the user asked for (playWhenReady), not on isPlaying: a song that is
+            // still loading is not playing yet, but it must still be pausable.
+            PlayerTransport.togglePlayPause(activeLocalPlayer())
         }
     }
 
@@ -573,7 +597,8 @@ class PlaybackStateHolder @Inject constructor(
             // not misinterpret the resulting STATE_BUFFERING as an audio HAL underflow and
             // rebuild the players (which would race with the in-flight seek command).
             dualPlayerEngine.notifyExternalSeekInitiated()
-            player.seekTo(targetPosition)
+            // A seek on a song that is still loading is held and applied once it is ready.
+            PlayerTransport.seekInCurrent(player, targetPosition, pendingSeek)
         }
     }
 
@@ -582,12 +607,8 @@ class PlaybackStateHolder @Inject constructor(
         if (castSession != null && castSession.remoteMediaClient != null) {
             castStateHolder.castPlayer?.previous()
         } else {
-            val controller = activeLocalPlayer()
-             if (controller.currentPosition > 10000) { // 10 seconds
-                 controller.seekTo(0)
-            } else {
-                 controller.seekToPrevious()
-            }
+            if (queueAttachGate.deferIfAttaching(QueueAttachGate.Skip.PREVIOUS)) return
+            PlayerTransport.skipPrevious(activeLocalPlayer(), pendingSeek)
         }
     }
 
@@ -596,7 +617,8 @@ class PlaybackStateHolder @Inject constructor(
         if (castSession != null && castSession.remoteMediaClient != null) {
             castStateHolder.castPlayer?.next()
         } else {
-             activeLocalPlayer().seekToNext()
+            if (queueAttachGate.deferIfAttaching(QueueAttachGate.Skip.NEXT)) return
+            PlayerTransport.skipNext(activeLocalPlayer())
         }
     }
 
