@@ -10,6 +10,7 @@ import com.theveloper.pixelplay.data.database.SpotifyDao
 import com.theveloper.pixelplay.data.database.SpotifyPlaylistEntity
 import com.theveloper.pixelplay.data.service.PlaybackErrorInfo
 import com.theveloper.pixelplay.data.service.PlaybackErrorReporter
+import com.theveloper.pixelplay.data.spotify.SkippedPlaylist
 import com.theveloper.pixelplay.data.spotify.SpotifyAuthManager
 import com.theveloper.pixelplay.data.spotify.SpotifyRepository
 import com.theveloper.pixelplay.data.worker.SpotifyMatchWorker
@@ -50,10 +51,17 @@ data class SpotifyDashboardUiState(
     val youTubeSignInPrompt: YouTubeSignInPrompt? = null,
     val youTubeSignInError: String? = null,
     /**
-     * Spotify rechaza por permisos el contenido de las playlists: el token es de antes de
-     * que la app pidiera ese permiso. Se arregla volviendo a enlazar la cuenta.
+     * The login itself is the problem (expired/revoked, or missing a scope the import reads
+     * with). Signing in again fixes it. NOT raised for a single refused playlist.
      */
-    val playlistAccessDenied: Boolean = false
+    val reconnectRequired: Boolean = false,
+    /** Playlists the import left out, each with its reason. */
+    val skippedPlaylists: List<SkippedPlaylist> = emptyList(),
+    /** 0-100 while the import runs, null otherwise. */
+    val syncPercent: Int? = null,
+    /** "Matching 120/800 songs" while audio matching runs, null otherwise. */
+    val matchStatus: String? = null,
+    val matchPercent: Int? = null
 )
 
 data class YouTubeSignInPrompt(
@@ -78,17 +86,26 @@ class SpotifyDashboardViewModel @Inject constructor(
     private val youTubePrompt = MutableStateFlow<YouTubeSignInPrompt?>(null)
     private val youTubeError = MutableStateFlow<String?>(null)
 
-    private val syncState: StateFlow<Pair<Boolean, String?>> =
+    /** Running state of a unique worker plus its label and percent. */
+    private data class JobView(val running: Boolean, val label: String?, val percent: Int?)
+
+    private fun jobView(uniqueName: String, labelKey: String): StateFlow<JobView> =
         WorkManager.getInstance(context)
-            .getWorkInfosForUniqueWorkFlow(SpotifySyncWorker.WORK_NAME)
+            .getWorkInfosForUniqueWorkFlow(uniqueName)
             .map { infos ->
                 val info = infos.firstOrNull()
                 val running = info?.state == WorkInfo.State.RUNNING ||
                     info?.state == WorkInfo.State.ENQUEUED
-                val label = info?.progress?.getString(SpotifySyncWorker.PROGRESS_NAME)
-                running to label
+                JobView(
+                    running = running,
+                    label = if (running) info?.progress?.getString(labelKey) else null,
+                    percent = if (running) info?.progress?.getInt("percent", -1)?.takeIf { it in 0..100 } else null
+                )
             }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false to null)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), JobView(false, null, null))
+
+    private val syncState = jobView(SpotifySyncWorker.WORK_NAME, "detail")
+    private val matchJob = jobView(SpotifyMatchWorker.WORK_NAME, "detail")
 
     val uiState: StateFlow<SpotifyDashboardUiState> = combine(
         repository.isLoggedIn,
@@ -102,13 +119,15 @@ class SpotifyDashboardViewModel @Inject constructor(
         youTubeAuthManager.isSignedIn,
         youTubePrompt,
         youTubeError,
-        repository.playlistAccessDenied
+        repository.reconnectRequired,
+        repository.skippedPlaylists,
+        matchJob
     ) { values ->
         @Suppress("UNCHECKED_CAST")
         val loggedIn = values[0] as Boolean
         val playlists = values[1] as List<SpotifyPlaylistEntity>
         val songs = values[2] as List<com.theveloper.pixelplay.data.database.SpotifySongEntity>
-        val sync = values[3] as Pair<Boolean, String?>
+        val sync = values[3] as JobView
         val counts = values[4] as Triple<Int, Int, Int>
         val diag = values[5] as Pair<Boolean, PlaybackDiagnosticsReport?>
         val playbackError = values[6] as PlaybackErrorInfo?
@@ -116,7 +135,9 @@ class SpotifyDashboardViewModel @Inject constructor(
         val ytSignedIn = values[8] as Boolean
         val ytPrompt = values[9] as YouTubeSignInPrompt?
         val ytError = values[10] as String?
-        val playlistDenied = values[11] as Boolean
+        val reconnect = values[11] as Boolean
+        val skipped = values[12] as List<SkippedPlaylist>
+        val match = values[13] as JobView
 
         SpotifyDashboardUiState(
             isLoggedIn = loggedIn,
@@ -124,8 +145,11 @@ class SpotifyDashboardViewModel @Inject constructor(
             accountEmail = authManager.accountEmail(),
             playlists = playlists,
             totalSongs = songs.distinctBy { it.spotifyId }.size,
-            isSyncing = sync.first,
-            syncStatus = sync.second,
+            isSyncing = sync.running,
+            syncStatus = sync.label,
+            syncPercent = sync.percent,
+            matchStatus = match.label,
+            matchPercent = match.percent,
             matchedCount = counts.first,
             pendingMatchCount = counts.second,
             unmatchedCount = counts.third,
@@ -137,12 +161,17 @@ class SpotifyDashboardViewModel @Inject constructor(
             isYouTubeSignedIn = ytSignedIn,
             youTubeSignInPrompt = ytPrompt,
             youTubeSignInError = ytError,
-            playlistAccessDenied = playlistDenied
+            reconnectRequired = reconnect,
+            skippedPlaylists = skipped
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SpotifyDashboardUiState())
 
     init {
         refreshMatchCounts()
+        // The ready/looking/no-match counters move while matching runs: follow its progress.
+        viewModelScope.launch {
+            matchJob.collect { refreshMatchCounts() }
+        }
     }
 
     fun refreshMatchCounts() {

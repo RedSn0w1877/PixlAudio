@@ -72,6 +72,8 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.theveloper.pixelplay.data.database.SpotifyPlaylistEntity
+import com.theveloper.pixelplay.data.spotify.SkipReason
+import com.theveloper.pixelplay.data.spotify.SkippedPlaylist
 import com.theveloper.pixelplay.data.service.PlaybackErrorInfo
 import com.theveloper.pixelplay.data.youtube.PlaybackDiagnosticsReport
 
@@ -154,8 +156,12 @@ fun SpotifyDashboardScreen(
                 }
             }
 
-            if (uiState.playlistAccessDenied) {
+            if (uiState.reconnectRequired) {
                 item { ReconnectRequiredCard(onReconnect = viewModel::reconnect) }
+            }
+
+            if (uiState.skippedPlaylists.isNotEmpty()) {
+                item { SkippedPlaylistsCard(uiState.skippedPlaylists) }
             }
 
             uiState.lastPlaybackError?.let { error ->
@@ -449,12 +455,25 @@ private fun AccountCard(
                     CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
                     Spacer(Modifier.width(10.dp))
                     Text(
-                        text = uiState.syncStatus?.let { "Importing $it…" } ?: "Importing…",
+                        text = uiState.syncStatus?.let { "Importing $it" } ?: "Importing…",
                         style = MaterialTheme.typography.bodyMedium,
-                        maxLines = 1,
+                        maxLines = 2,
                         overflow = TextOverflow.Ellipsis
                     )
                 }
+                uiState.syncPercent?.let { percent ->
+                    LinearProgressIndicator(
+                        progress = { percent / 100f },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            }
+            uiState.matchStatus?.let { status ->
+                Text(
+                    text = status,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
 
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -506,10 +525,9 @@ private fun AccountCard(
 /**
  * Aviso de que hay que volver a enlazar la cuenta.
  *
- * Spotify da 403 al leer el contenido de las playlists cuando el token se emitió antes de
- * que la app pidiera ese permiso: la lista de playlists se lee, sus canciones no. Visto
- * desde fuera son "playlists vacías" — de ahí que merezca un aviso explícito y no una
- * línea en el log.
+ * Solo aparece cuando el LOGIN es el problema: Spotify rechazó el token renovado (401) o el
+ * token no lleva un permiso que la importación necesita. Que Spotify no entregue una
+ * playlist concreta NO sale aquí; eso va en [SkippedPlaylistsCard], playlist por playlist.
  */
 @Composable
 private fun ReconnectRequiredCard(onReconnect: () -> Unit) {
@@ -523,18 +541,15 @@ private fun ReconnectRequiredCard(onReconnect: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Text(
-                text = "Reconnect Spotify to import playlists",
+                text = "Reconnect Spotify",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onErrorContainer
             )
             Text(
-                text = "Spotify is refusing to hand over the songs inside your playlists " +
-                    "(HTTP 403). Your login is from before the app asked for that " +
-                    "permission, so the saved token never got it — which is why every " +
-                    "playlist imports empty while Liked Songs works fine.\n\n" +
-                    "Signing in again fixes it. This keeps your library and the audio " +
-                    "already matched — it only replaces the login.",
+                text = "Your Spotify login has expired, or it was granted without permission " +
+                    "to read your library or playlists. Signing in again fixes it. " +
+                    "This keeps everything already imported and matched; it only replaces the login.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onErrorContainer
             )
@@ -546,6 +561,60 @@ private fun ReconnectRequiredCard(onReconnect: () -> Unit) {
                 )
             ) {
                 Text("Sign in to Spotify again")
+            }
+        }
+    }
+}
+
+/** Playlists the import left out, each with the honest reason. The rest of the import is unaffected. */
+@Composable
+private fun SkippedPlaylistsCard(skipped: List<SkippedPlaylist>) {
+    Card(
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Text(
+                text = "${skipped.size} playlist${if (skipped.size == 1) "" else "s"} not imported",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSecondaryContainer
+            )
+            val notOwned = skipped.count { it.reason == SkipReason.NOT_OWNED }
+            if (notOwned > 0) {
+                Text(
+                    text = "$notOwned of them belong to other people. Spotify only lets this app read " +
+                        "playlists you own or collaborate on.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                )
+            }
+            skipped.filter { it.reason != SkipReason.NOT_OWNED }.forEach { item ->
+                Text(
+                    text = "${item.name}: ${item.explanation}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                )
+            }
+            skipped.filter { it.reason == SkipReason.NOT_OWNED }.take(8).forEach { item ->
+                Text(
+                    text = "• ${item.name}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            if (notOwned > 8) {
+                Text(
+                    text = "…and ${notOwned - 8} more",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                )
             }
         }
     }
