@@ -1,4 +1,6 @@
 import java.io.File
+import java.time.LocalDate
+import java.time.ZoneOffset
 import java.util.Properties
 import javax.inject.Inject
 import org.gradle.api.DefaultTask
@@ -78,7 +80,7 @@ val gitCommitShort: String = (providers.environmentVariable("GITHUB_SHA").orNull
     }.getOrNull())
     ?.takeIf { it.matches(Regex("[0-9a-fA-F]{4,40}")) }
     ?: "unknown"
-val buildDateUtc: String = java.time.LocalDate.now(java.time.ZoneOffset.UTC).toString()
+val buildDateUtc: String = LocalDate.now(ZoneOffset.UTC).toString()
 
 val enableAbiSplits = providers.gradleProperty("pixelplay.enableAbiSplits")
     .getOrElse("true")
