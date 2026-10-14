@@ -274,7 +274,7 @@ fun SetupScreen(
                 pagerState = pagerState,
                 animated = (pagerState.currentPage != 0),
                 isNextButtonEnabled = isNextButtonEnabled,
-                isFinishButtonEnabled = uiState.allPermissionsGranted,
+                isFinishButtonEnabled = true,
                 onNextClicked = {
                     val page = pages[pagerState.currentPage]
                     if (isPermissionGateSatisfied(context, page, uiState)) {
@@ -471,27 +471,15 @@ private fun isPermissionGateSatisfied(
     page: SetupPage,
     uiState: SetupUiState
 ): Boolean {
-    return when (page) {
-        SetupPage.NotificationsPermission -> {
-            uiState.notificationsPermissionGranted ||
-                Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
-                ContextCompat.checkSelfPermission(
-                    context,
-                    Manifest.permission.POST_NOTIFICATIONS
-                ) == PackageManager.PERMISSION_GRANTED
-        }
-        else -> true
-    }
+    // Nothing blocks onboarding. Notifications used to: after two denials Android stops showing the
+    // dialog, so "Next" stayed disabled forever and the app could never be opened (a dead end now that
+    // the media-permission step is gone). Declining only hides the playback notification controls.
+    return true
 }
 
 private fun allRequiredPermissionsGrantedNow(context: Context): Boolean {
-    val notificationsGranted =
-        Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
-            ContextCompat.checkSelfPermission(
-                context,
-                Manifest.permission.POST_NOTIFICATIONS
-            ) == PackageManager.PERMISSION_GRANTED
-    return notificationsGranted
+    // See isPermissionGateSatisfied: a denied notification permission must not trap the user in setup.
+    return true
 }
 
 private fun hasExactAlarmPermissionNow(context: Context): Boolean {

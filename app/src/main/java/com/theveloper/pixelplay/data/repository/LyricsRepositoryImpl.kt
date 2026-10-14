@@ -12,6 +12,8 @@ import com.google.gson.Gson
 import com.kyant.taglib.TagLib
 import com.theveloper.pixelplay.R
 import com.theveloper.pixelplay.data.database.MusicDao
+import com.theveloper.pixelplay.data.diagnostics.DiagnosticsLog
+import com.theveloper.pixelplay.data.diagnostics.DiagnosticsRedactor
 import com.theveloper.pixelplay.data.model.Lyrics
 import com.theveloper.pixelplay.data.model.SyncedLine
 import com.theveloper.pixelplay.data.model.LyricsSourcePreference
@@ -292,6 +294,10 @@ class LyricsRepositoryImpl @Inject constructor(
     ): Lyrics? = withContext(Dispatchers.IO) {
         val cacheKey = generateCacheKey(song.id)
         val isNeteaseTrack = isNeteaseSong(song)
+        // Diagnostics log: titles/artists never go in; a stable opaque id does (and the redactor learns the names).
+        DiagnosticsRedactor.registerSensitive(song.title)
+        DiagnosticsRedactor.registerSensitive(song.displayArtist)
+        val diagId = DiagnosticsRedactor.opaqueId(song.title)
         
         Log.d(TAG, "===== FETCH LYRICS START: ${song.displayArtist} - ${song.title} (forceRefresh=$forceRefresh, source=$sourcePreference) =====")
 
@@ -299,6 +305,7 @@ class LyricsRepositoryImpl @Inject constructor(
         if (!forceRefresh && !isNeteaseTrack) {
             lyricsCache.get(cacheKey)?.let { cached ->
                 Log.d(TAG, "===== RETURNING IN-MEMORY CACHED LYRICS =====")
+                DiagnosticsLog.event("Lyrics", "lookup track=$diagId result=found source=memory-cache")
                 return@withContext cached
             }
             Log.d(TAG, "===== NO IN-MEMORY CACHE HIT, proceeding to fetch =====")
@@ -312,6 +319,7 @@ class LyricsRepositoryImpl @Inject constructor(
             loadStoredLyrics(song, cacheKey, includeMemoryCache = false)?.let { stored ->
                 lyricsCache.put(cacheKey, stored.first)
                 Log.d(TAG, "===== RETURNING STORED LYRICS WITHOUT REMOTE FETCH =====")
+                DiagnosticsLog.event("Lyrics", "lookup track=$diagId result=found source=stored")
                 return@withContext stored.first
             }
         }
@@ -359,6 +367,7 @@ class LyricsRepositoryImpl @Inject constructor(
                         }
                     }
                     Log.d(TAG, "Found lyrics from $sourceName for: ${song.displayArtist} - ${song.title}")
+                    DiagnosticsLog.event("Lyrics", "lookup track=$diagId result=found source=$sourceName")
                     
                     // Cache the result
                     lyricsCache.put(cacheKey, lyrics)
@@ -373,12 +382,14 @@ class LyricsRepositoryImpl @Inject constructor(
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
                 Log.w(TAG, "Error fetching from source ${index + 1}: ${e.message}")
+                DiagnosticsLog.event("Lyrics", "lookup track=$diagId source#${index + 1} failed: ${e.javaClass.simpleName}")
                 // Continue to next source
             }
         }
 
         // No lyrics found from any source
         Log.d(TAG, "No lyrics found from any source for: ${song.displayArtist} - ${song.title}")
+        DiagnosticsLog.event("Lyrics", "lookup track=$diagId result=none preference=$sourcePreference")
         return@withContext null
     }
 

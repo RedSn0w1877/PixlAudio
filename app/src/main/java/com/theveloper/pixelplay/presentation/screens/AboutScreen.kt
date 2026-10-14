@@ -49,6 +49,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.BugReport
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Gavel
 import androidx.compose.material.icons.rounded.Palette
@@ -311,6 +312,26 @@ fun AboutScreen(
                 )
             }
 
+            item(key = "support_title") {
+                AboutSectionHeader(
+                    title = stringResource(R.string.about_diagnostics_title),
+                    subtitle = stringResource(R.string.about_diagnostics_subtitle),
+                    modifier = Modifier.padding(top = 24.dp),
+                )
+            }
+
+            item(key = "diagnostics") {
+                AboutLinkCard(
+                    title = stringResource(R.string.about_diagnostics_card_title),
+                    subtitle = stringResource(R.string.about_diagnostics_card_subtitle),
+                    icon = Icons.Rounded.BugReport,
+                    onClick = { navController.navigateSafely(Screen.Diagnostics.route) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp),
+                )
+            }
+
             item(key = "bottom_spacer") {
                 Spacer(modifier = Modifier.height(24.dp))
             }
@@ -324,6 +345,58 @@ fun AboutScreen(
                 onBackClick = onNavigationIconClick,
                 expandedTitleStartPadding = 20.dp,
                 collapsedTitleStartPadding = 68.dp
+            )
+        }
+    }
+}
+
+@Composable
+private fun AboutLinkCard(
+    title: String,
+    subtitle: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    AdaptivePressSurface(
+        onClick = onClick,
+        modifier = modifier,
+        shape = expressiveListShape(index = 0, count = 1),
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        tonalElevation = 2.dp,
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Surface(
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.secondaryContainer,
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    modifier = Modifier.padding(10.dp).size(22.dp),
+                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                )
+            }
+            Spacer(modifier = Modifier.width(14.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Icon(
+                imageVector = Icons.Rounded.ChevronRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
     }

@@ -64,6 +64,22 @@ val cloudDefaultsKey: String = (providers.environmentVariable("CLOUD_DEFAULTS_KE
     .orEmpty()
     .filter { it in 'A'..'Z' || it in 'a'..'z' || it in '0'..'9' || it == '+' || it == '/' || it == '=' }
 
+// Build identity for Settings > About > Diagnostics and the shareable log header: the commit this APK was
+// built from (the CI's GITHUB_SHA, else `git rev-parse --short HEAD`, else "unknown") and the UTC build date.
+// Never fails the build: a checkout without git just reports "unknown".
+val gitCommitShort: String = (providers.environmentVariable("GITHUB_SHA").orNull
+    ?.trim()?.takeIf { it.isNotEmpty() }?.take(7)
+    ?: runCatching {
+        providers.exec {
+            commandLine("git", "rev-parse", "--short", "HEAD")
+            workingDir(rootProject.projectDir)
+            isIgnoreExitValue = true
+        }.standardOutput.asText.get().trim()
+    }.getOrNull())
+    ?.takeIf { it.matches(Regex("[0-9a-fA-F]{4,40}")) }
+    ?: "unknown"
+val buildDateUtc: String = java.time.LocalDate.now(java.time.ZoneOffset.UTC).toString()
+
 val enableAbiSplits = providers.gradleProperty("pixelplay.enableAbiSplits")
     .getOrElse("true")
     .toBoolean()
@@ -141,6 +157,8 @@ android {
             .filter { it.isLetterOrDigit() || it == '-' || it == '_' }
         buildConfigField("String", "SPOTIFY_CLIENT_ID", "\"$spotifyClientId\"")
         buildConfigField("String", "CLOUD_DEFAULTS_KEY", "\"$cloudDefaultsKey\"")
+        buildConfigField("String", "GIT_SHA", "\"$gitCommitShort\"")
+        buildConfigField("String", "BUILD_DATE", "\"$buildDateUtc\"")
         buildConfigField("String", "PLUS_CHECKOUT_URL", "\"${plusCheckoutUrl.replace("\\", "\\\\").replace("\"", "\\\"")}\"")
     }
 

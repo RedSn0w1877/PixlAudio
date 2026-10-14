@@ -409,6 +409,7 @@ object AppModule {
                 chain.proceed(requestWithUserAgent)
             }
             .addInterceptor(loggingInterceptor)
+            .addInterceptor(com.theveloper.pixelplay.data.diagnostics.DiagnosticsHttpInterceptor)
             .build()
     }
 
@@ -466,6 +467,7 @@ object AppModule {
                 chain.proceed(requestWithHeaders)
             }
             .addInterceptor(loggingInterceptor)
+            .addInterceptor(com.theveloper.pixelplay.data.diagnostics.DiagnosticsHttpInterceptor)
             .build()
     }
 
@@ -542,6 +544,7 @@ object AppModule {
             .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
             .writeTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
             .retryOnConnectionFailure(true)
+            .addInterceptor(com.theveloper.pixelplay.data.diagnostics.DiagnosticsHttpInterceptor)
             .build()
     }
 
