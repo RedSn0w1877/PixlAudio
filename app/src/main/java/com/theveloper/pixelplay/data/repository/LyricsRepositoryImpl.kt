@@ -57,7 +57,9 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 
 import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.async
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Semaphore
@@ -142,6 +144,10 @@ class LyricsRepositoryImpl @Inject constructor(
         private const val NETWORK_RETRY_ATTEMPTS = 3
         private const val NETWORK_RETRY_INITIAL_DELAY_MS = 500L
         private const val BINI_TIMEOUT_MS = 10_000L
+        /** One song's whole lookup (every source, in order) never takes longer than this. */
+        private const val LOOKUP_TIMEOUT_MS = 30_000L
+        /** After a lookup finds nothing, the same song is not looked up again for this long (Retry bypasses it). */
+        internal const val NEGATIVE_TTL_MS = 5 * 60_000L
     }
 
     // Repository scope for background tasks
@@ -156,6 +162,28 @@ class LyricsRepositoryImpl @Inject constructor(
 
     // Gson for JSON cache
     private val gson = Gson()
+
+    // One lookup per song at a time: the player's load, the next-song prefetch and a Retry all join it.
+    private val inFlight = HashMap<String, Deferred<Lyrics?>>()
+
+    // Songs a full lookup found nothing for, and until when that answer stands.
+    private val negativeUntil = ConcurrentHashMap<String, Long>()
+
+    private fun sharedLookup(key: String, work: suspend () -> Lyrics?): Deferred<Lyrics?> = synchronized(inFlight) {
+        inFlight[key]?.takeIf { it.isActive }?.let { return@synchronized it }
+        val deferred = repositoryScope.async { work() }
+        inFlight[key] = deferred
+        deferred.invokeOnCompletion {
+            synchronized(inFlight) { if (inFlight[key] === deferred) inFlight.remove(key) }
+        }
+        deferred
+    }
+
+    /** Local-file sources only make sense for a song that is a file; a streamed Spotify track is not. */
+    private fun isFileBacked(song: Song): Boolean =
+        song.path.isNotBlank() ||
+            song.contentUriString.startsWith("content://") ||
+            song.contentUriString.startsWith("file://")
 
     /**
      * Executes multiple remote search strategies in parallel and returns the first non-empty result set.
@@ -324,6 +352,32 @@ class LyricsRepositoryImpl @Inject constructor(
             }
         }
 
+        if (forceRefresh) {
+            negativeUntil.remove(cacheKey)
+        } else {
+            negativeUntil[cacheKey]?.let { until ->
+                if (until > System.currentTimeMillis()) {
+                    Log.d(TAG, "Negative-cached (nothing found recently): ${song.displayArtist} - ${song.title}")
+                    return@withContext null
+                }
+                negativeUntil.remove(cacheKey, until)
+            }
+        }
+
+        // Concurrent callers for one song share a single lookup that outlives any one of them.
+        return@withContext sharedLookup(cacheKey) {
+            withTimeoutOrNull(LOOKUP_TIMEOUT_MS) { lookupLyrics(song, sourcePreference, cacheKey, forceRefresh) }
+                .also { found -> if (found == null) negativeUntil[cacheKey] = System.currentTimeMillis() + NEGATIVE_TTL_MS }
+        }.await()
+    }
+
+    /** Walks the sources in the user's order until one yields lyrics; caches what it finds. */
+    private suspend fun lookupLyrics(
+        song: Song,
+        sourcePreference: LyricsSourcePreference,
+        cacheKey: String,
+        forceRefresh: Boolean
+    ): Lyrics? {
         // Define source fetchers (matching Rhythm pattern)
         val fetchFromLocal: suspend () -> Lyrics? = {
             findLocalLyricsFile(song)
@@ -334,7 +388,7 @@ class LyricsRepositoryImpl @Inject constructor(
         }
 
         val fetchFromAPI: suspend () -> Lyrics? = {
-            fetchLyricsFromAPI(song)
+            fetchLyricsFromAPI(song, forceFresh = forceRefresh)
         }
 
         // Try sources in order based on preference, with fallback (matching Rhythm)
@@ -343,9 +397,12 @@ class LyricsRepositoryImpl @Inject constructor(
             LyricsSourcePreference.EMBEDDED_FIRST -> listOf(fetchFromEmbedded, fetchFromAPI, fetchFromLocal)
             LyricsSourcePreference.LOCAL_FIRST -> listOf(fetchFromLocal, fetchFromEmbedded, fetchFromAPI)
         }
+        // A streamed (Spotify) song has no file to read tags or an .lrc from: online is the default path.
+        val fileBacked = isFileBacked(song)
 
         // Try each source in order until we find lyrics (early return on success)
         for ((index, fetcher) in sourceFetchers.withIndex()) {
+            if (!fileBacked && fetcher !== fetchFromAPI) continue
             try {
                 val lyrics = fetcher()
                 if (lyrics != null && lyrics.isValid()) {
@@ -377,7 +434,7 @@ class LyricsRepositoryImpl @Inject constructor(
                         saveLocalLyricsJson(song, lyrics)
                     }
                     
-                    return@withContext lyrics
+                    return lyrics
                 }
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
@@ -410,7 +467,7 @@ class LyricsRepositoryImpl @Inject constructor(
     private val biniSource by lazy { BiniLyricsSource(okHttpClient) }
 
     /** BiniLyrics' match for [song]; memoised inside the source, so repeat calls cost nothing. */
-    private suspend fun findBiniLyrics(song: Song): BiniLyricsSource.Match? =
+    private suspend fun findBiniLyrics(song: Song, forceFresh: Boolean = false): BiniLyricsSource.Match? =
         kotlinx.coroutines.withTimeoutOrNull(BINI_TIMEOUT_MS) {
             val isrc = try {
                 songIsrcResolver?.isrcFor(song)
@@ -419,7 +476,7 @@ class LyricsRepositoryImpl @Inject constructor(
             } catch (_: Exception) {
                 null
             }
-            biniSource.find(song, isrc)
+            biniSource.find(song, isrc, bypassMemo = forceFresh)
         }
 
     override suspend fun findOnlineSyncedLyrics(song: Song): OnlineSyncedLyrics? =
@@ -430,10 +487,10 @@ class LyricsRepositoryImpl @Inject constructor(
      * (the others are cancelled). Otherwise word timing from any source beats line timing,
      * and among equals the earlier source in this list (BiniLyrics, AMLL, NetEase, LRCLIB) wins.
      */
-    private suspend fun findCatalogLyrics(song: Song, syncedOnly: Boolean): OnlineSyncedLyrics? = coroutineScope {
+    private suspend fun findCatalogLyrics(song: Song, syncedOnly: Boolean, forceFresh: Boolean = false): OnlineSyncedLyrics? = coroutineScope {
         // Fetch independent catalogs concurrently so a slow/missing provider cannot consume
         // the entire worker timeout before the usable line-sync fallback is checked.
-        val bini = async { findBiniLyrics(song) }
+        val bini = async { findBiniLyrics(song, forceFresh) }
         val amll = async { kotlinx.coroutines.withTimeoutOrNull(10_000) { amllSource.find(song) } }
         val netease = async { neteaseSource.find(song) }
         val lrc = async { kotlinx.coroutines.withTimeoutOrNull(12_000) { fetchLyricsFromAPI(song, skipDiskCache = true, includeAmll = false) } }
@@ -468,11 +525,11 @@ class LyricsRepositoryImpl @Inject constructor(
             ?.let(::lyricsToRawContent) ?: response.syncedLyrics ?: response.plainLyrics
 
     private suspend fun fetchLyricsFromAPI(song: Song, skipDiskCache: Boolean = false,
-        includeAmll: Boolean = true): Lyrics? = withContext(Dispatchers.IO) {
+        includeAmll: Boolean = true, forceFresh: Boolean = false): Lyrics? = withContext(Dispatchers.IO) {
         if (includeAmll) {
             if (!skipDiskCache) loadLocalLyricsJson(song)?.let { return@withContext it }
             // Normal lyric loading and explicit resync share the same word-first catalogs.
-            return@withContext findCatalogLyrics(song, syncedOnly = false)?.lyrics
+            return@withContext findCatalogLyrics(song, syncedOnly = false, forceFresh = forceFresh)?.lyrics
         }
         if (!skipDiskCache) {
             loadLocalLyricsJson(song)?.let { return@withContext it }

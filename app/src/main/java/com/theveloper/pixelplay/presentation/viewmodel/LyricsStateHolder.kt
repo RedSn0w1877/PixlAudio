@@ -74,6 +74,10 @@ class LyricsStateHolder @Inject constructor(
 ) {
     private var scope: CoroutineScope? = null
     private var loadingJob: Job? = null
+    // The user's own "find lyrics" / manual search runs beside the automatic load, never cancelling
+    // it: cancelling it left isLoadingLyrics pinned true and hid the not-found state for good.
+    private var searchJob: Job? = null
+    private var prefetchJob: Job? = null
     private var automaticUpdatesJob: Job? = null
     private var loadCallback: LyricsLoadCallback? = null
     private var preparedJob: Job? = null
@@ -173,7 +177,7 @@ class LyricsStateHolder @Inject constructor(
      * @param song The song to load lyrics for
      * @param sourcePreference The preferred source for lyrics
      */
-    fun loadLyricsForSong(song: Song, sourcePreference: LyricsSourcePreference) {
+    fun loadLyricsForSong(song: Song, sourcePreference: LyricsSourcePreference, forceRefresh: Boolean = false) {
         loadingJob?.cancel()
         val targetSongId = song.id
 
@@ -184,7 +188,8 @@ class LyricsStateHolder @Inject constructor(
                 withContext(Dispatchers.IO) {
                     musicRepository.getLyrics(
                         song = song,
-                        sourcePreference = sourcePreference
+                        sourcePreference = sourcePreference,
+                        forceRefresh = forceRefresh
                     )
                 }
             } catch (cancellation: CancellationException) {
@@ -194,6 +199,26 @@ class LyricsStateHolder @Inject constructor(
             }
 
             loadCallback?.onLyricsLoaded(targetSongId, fetchedLyrics)
+        }
+    }
+
+    /**
+     * Warms the cache for a song that is about to play (the next in the queue): the same lookup the
+     * player would start, deduplicated by the repository, with no UI state attached. A miss is
+     * negatively cached there, so this never repeats work for songs that have no lyrics.
+     */
+    fun prefetchLyricsForSong(song: Song, sourcePreference: LyricsSourcePreference) {
+        prefetchJob?.cancel()
+        prefetchJob = scope?.launch {
+            // Let the current song's own lookup go first.
+            kotlinx.coroutines.delay(PREFETCH_DELAY_MS)
+            try {
+                withContext(Dispatchers.IO) { musicRepository.getLyrics(song, sourcePreference) }
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (error: Exception) {
+                Timber.d(error, "Lyrics prefetch failed for %s", song.id)
+            }
         }
     }
 
@@ -245,8 +270,8 @@ class LyricsStateHolder @Inject constructor(
         sourcePreference: LyricsSourcePreference,
         contextHelper: (Int) -> String
     ) {
-        loadingJob?.cancel()
-        loadingJob = scope?.launch {
+        searchJob?.cancel()
+        searchJob = scope?.launch {
             _searchUiState.value = LyricsSearchUiState.Loading
 
             if (!forcePickResults) {
@@ -345,8 +370,8 @@ class LyricsStateHolder @Inject constructor(
      */
     fun searchLyricsManually(title: String, artist: String?) {
         if (title.isBlank()) return
-        loadingJob?.cancel()
-        loadingJob = scope?.launch {
+        searchJob?.cancel()
+        searchJob = scope?.launch {
             _searchUiState.value = LyricsSearchUiState.Loading
             musicRepository.searchRemoteLyricsByQuery(title, artist)
                 .onSuccess { (q, results) ->
@@ -558,6 +583,8 @@ class LyricsStateHolder @Inject constructor(
 
     fun onCleared() {
         loadingJob?.cancel()
+        searchJob?.cancel()
+        prefetchJob?.cancel()
         scope = null
         loadCallback = null
     }
@@ -571,3 +598,6 @@ internal fun Song.withPersistedLyrics(rawLyrics: String, refreshedAlbumArtUri: S
         albumArtUriString = refreshedAlbumArtUri ?: albumArtUriString
     )
 }
+
+/** The next song's lyrics are warmed this long after the current one starts loading. */
+private const val PREFETCH_DELAY_MS = 2_000L

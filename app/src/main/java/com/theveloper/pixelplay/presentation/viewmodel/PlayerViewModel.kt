@@ -305,7 +305,8 @@ class PlayerViewModel @Inject constructor(
         override fun onLyricsLoaded(songId: String, lyrics: Lyrics?) {
             playbackStateHolder.updateStablePlayerState { state ->
                 if (state.currentSong?.id != songId) state
-                else state.copy(isLoadingLyrics = false, lyrics = lyrics)
+                // A null result must not wipe lyrics the user's own search put there meanwhile.
+                else state.copy(isLoadingLyrics = false, lyrics = lyrics ?: state.lyrics)
             }
         }
     }
@@ -897,7 +898,8 @@ class PlayerViewModel @Inject constructor(
                     } else {
                         song
                     }
-                    updateSongInStates(safeSong, lyrics)
+                    // Lyrics that arrive this way (manual search, import) end any loading spinner.
+                    updateSongInStates(safeSong, lyrics, isLoadingLyrics = if (lyrics != null) false else null)
                 }
                 if (_selectedSongForInfo.value?.id == song.id) {
                     val currentSelected = _selectedSongForInfo.value
@@ -3068,6 +3070,26 @@ class PlayerViewModel @Inject constructor(
         val currentSong = playbackStateHolder.stablePlayerState.value.currentSong ?: return
         // Delegate to LyricsStateHolder
         lyricsStateHolder.loadLyricsForSong(currentSong, lyricsSourcePreference.value)
+        prefetchLyricsForNextSong(currentSong)
+    }
+
+    /** The lyrics screen's Retry: looks the current song up again, bypassing the "nothing found" memory. */
+    fun retryLyricsForCurrentSong() {
+        val currentSong = playbackStateHolder.stablePlayerState.value.currentSong ?: return
+        playbackStateHolder.updateStablePlayerState { state ->
+            if (state.currentSong?.id != currentSong.id) state else state.copy(isLoadingLyrics = true, lyrics = null)
+        }
+        lyricsStateHolder.loadLyricsForSong(currentSong, lyricsSourcePreference.value, forceRefresh = true)
+    }
+
+    /** Warms the lyrics of the song after the current one, so it opens with them already cached. */
+    private fun prefetchLyricsForNextSong(currentSong: Song) {
+        val queue = _playerUiState.value.currentPlaybackQueue
+        val index = queue.indexOfFirst { it.id == currentSong.id }
+        val next = if (index >= 0) queue.getOrNull(index + 1) else null
+        if (next != null && next.id != currentSong.id) {
+            lyricsStateHolder.prefetchLyricsForSong(next, lyricsSourcePreference.value)
+        }
     }
 
     /** Re-fetches lyrics for the current song — used after [com.theveloper.pixelplay.data.worker.TaisStudioWorker] persists new word-synced lyrics, so the sheet picks up the upgrade without the user re-opening it. */
