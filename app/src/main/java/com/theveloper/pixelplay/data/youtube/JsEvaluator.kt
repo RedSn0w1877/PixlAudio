@@ -3,11 +3,13 @@ package com.theveloper.pixelplay.data.youtube
 import android.annotation.SuppressLint
 import android.content.Context
 import android.os.Build
+import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellableContinuation
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
@@ -30,6 +32,11 @@ import kotlin.coroutines.resume
  *
  * La instancia se mantiene caliente entre llamadas — crear un WebView es caro — y un
  * [Mutex] serializa los accesos porque un mismo WebView no admite evaluaciones solapadas.
+ *
+ * El proceso de renderizado de Chromium (`SandboxedProcessService`) puede morir en cualquier
+ * momento (poca memoria, un fallo del propio WebView). Sin un `onRenderProcessGone` que lo
+ * gestione, Android mata la APLICACIÓN entera con él, la música incluida. Aquí se descarta el
+ * WebView muerto y el siguiente `evaluate` crea uno nuevo.
  */
 @Singleton
 class JsEvaluator @Inject constructor(
@@ -48,6 +55,10 @@ class JsEvaluator @Inject constructor(
      * Es `suspend` a propósito: el original bloqueaba con `CountDownLatch` y tenía que
      * rechazar llamadas desde el hilo principal. Aquí el salto a Main lo hacemos nosotros,
      * así que se puede llamar desde cualquier dispatcher sin ese cuidado.
+     *
+     * El plazo [timeoutMs] cubre solo la evaluación: crear el WebView y cargar el origen tiene
+     * el suyo ([PAGE_LOAD_TIMEOUT_MS]). Antes compartían los 5 s, así que una carga lenta
+     * cancelaba la creación a medias y dejaba un WebView huérfano en cada intento.
      */
     suspend fun evaluate(
         script: String,
@@ -59,9 +70,16 @@ class JsEvaluator @Inject constructor(
         }
 
         return evaluationMutex.withLock {
+            val view = try {
+                ensureWebView()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Throwable) {
+                Timber.e(error, "Fallo al crear el WebView de JsEvaluator")
+                return@withLock null
+            }
             withTimeoutOrNull(timeoutMs) {
-                runCatching {
-                    val view = ensureWebView()
+                try {
                     withContext(Dispatchers.Main.immediate) {
                         suspendCancellableCoroutine { continuation ->
                             view.evaluateJavascript(script) { raw ->
@@ -69,9 +87,12 @@ class JsEvaluator @Inject constructor(
                             }
                         }
                     }
-                }.onFailure { error ->
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Throwable) {
                     Timber.e(error, "Fallo al evaluar JavaScript")
-                }.getOrNull()
+                    null
+                }
             }
         }
     }
@@ -88,6 +109,24 @@ class JsEvaluator @Inject constructor(
     }
 
     // ─── Internos ──────────────────────────────────────────────────────
+
+    /** Un único cliente: avisa de la carga de la página y sobrevive a la muerte del renderizador. */
+    private inner class EvaluatorClient : WebViewClient() {
+        @Volatile
+        var onPageFinishedCallback: (() -> Unit)? = null
+
+        override fun onPageFinished(view: WebView?, url: String?) {
+            onPageFinishedCallback?.invoke()
+        }
+
+        override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
+            Timber.w("Renderizador del WebView de JsEvaluator terminado (didCrash=%s)", detail.didCrash())
+            if (webView === view) webView = null
+            runCatching { view.destroy() }
+            // true = gestionado: la app NO debe morir con el proceso del WebView.
+            return true
+        }
+    }
 
     @SuppressLint("SetJavaScriptEnabled")
     private suspend fun ensureWebView(): WebView {
@@ -111,24 +150,29 @@ class JsEvaluator @Inject constructor(
                     }
                 }
             }
+            val client = EvaluatorClient()
+            instance.webViewClient = client
 
-            // base.js de YouTube toca `window`/`document`, así que cargamos el origen real
-            // en lugar de about:blank antes de evaluar nada.
-            awaitPageLoad(instance, ORIGIN_URL)
-
-            webView = instance
-            instance
+            var kept = false
+            try {
+                // base.js de YouTube toca `window`/`document`, así que cargamos el origen real
+                // en lugar de about:blank antes de evaluar nada.
+                awaitPageLoad(instance, client, ORIGIN_URL)
+                webView = instance
+                kept = true
+                instance
+            } finally {
+                // Cancelado o fallido a medias: sin esto el WebView quedaba huérfano.
+                if (!kept) runCatching { instance.destroy() }
+            }
         }
     }
 
-    private suspend fun awaitPageLoad(view: WebView, url: String) {
+    private suspend fun awaitPageLoad(view: WebView, client: EvaluatorClient, url: String) {
         val loaded = withTimeoutOrNull(PAGE_LOAD_TIMEOUT_MS) {
             suspendCancellableCoroutine { continuation ->
-                view.webViewClient = object : WebViewClient() {
-                    override fun onPageFinished(view: WebView?, url: String?) {
-                        continuation.resumeIfActive(Unit)
-                    }
-                }
+                client.onPageFinishedCallback = { continuation.resumeIfActive(Unit) }
+                continuation.invokeOnCancellation { client.onPageFinishedCallback = null }
                 view.loadUrl(url)
             }
         }

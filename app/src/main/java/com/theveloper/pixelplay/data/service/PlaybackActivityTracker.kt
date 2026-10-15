@@ -1,5 +1,6 @@
 package com.theveloper.pixelplay.data.service
 
+import com.theveloper.pixelplay.data.diagnostics.DiagnosticsLog
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -23,6 +24,10 @@ object PlaybackActivityTracker {
 
     /** Called by MusicService when playback transitions to/from playing. */
     fun setPlaybackActive(active: Boolean) {
-        this.active.set(active)
+        val before = this.active.getAndSet(active)
+        // Diagnostics log: playback started/stopped (only on a real change).
+        if (before != active) {
+            DiagnosticsLog.event("Playback", if (active) "audio started" else "audio stopped")
+        }
     }
 }

@@ -216,6 +216,8 @@ fun FullPlayerContent(
     currentPositionProvider: () -> Long,
     isPlayingProvider: () -> Boolean,
     playWhenReadyProvider: () -> Boolean,
+    // What the transport buttons show: playing, or asked to play and still loading.
+    transportPlayingProvider: (() -> Boolean)? = null,
     isFavoriteProvider: () -> Boolean,
     repeatModeProvider: () -> Int,
     isShuffleEnabledProvider: () -> Boolean,
@@ -607,7 +609,7 @@ fun FullPlayerContent(
             currentSheetState = currentSheetState,
             placeholderColor = placeholderColor,
             placeholderOnColor = placeholderOnColor,
-            isPlayingProvider = isPlayingProvider,
+            isPlayingProvider = transportPlayingProvider ?: isPlayingProvider,
             onPrevious = onPreviousWithOptimisticCarousel,
             onPlayPause = onPlayPause,
             onNext = onNextWithOptimisticCarousel,

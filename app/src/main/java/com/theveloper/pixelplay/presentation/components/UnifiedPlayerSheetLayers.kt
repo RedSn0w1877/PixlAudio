@@ -129,7 +129,7 @@ internal fun BoxScope.UnifiedPlayerMiniAndFullLayers(
             val connectDeviceName by playerViewModel.spotifyConnect.playingOnName.collectAsStateWithLifecycle()
                 MiniPlayerContentInternal(
                     song = currentSongNonNull,
-                    isPlaying = isPlaying,
+                    isPlaying = fieldStates.isTransportPlaying.value,
                     isCastConnecting = isCastConnecting,
                     isPreparingPlayback = isPreparingPlayback,
                     onPlayPause = { playerViewModel.playPause() },
@@ -224,6 +224,7 @@ internal fun BoxScope.UnifiedPlayerMiniAndFullLayers(
                     currentPositionProvider = currentPositionProvider,
                     isPlayingProvider = fieldStates.isPlayingProvider,
                     playWhenReadyProvider = fieldStates.playWhenReadyProvider,
+                    transportPlayingProvider = fieldStates.isTransportPlayingProvider,
                     repeatModeProvider = fieldStates.repeatModeProvider,
                     isShuffleEnabledProvider = fieldStates.isShuffleEnabledProvider,
                     totalDurationProvider = fieldStates.totalDurationProvider,
@@ -310,6 +311,7 @@ internal fun UnifiedPlayerPrewarmLayer(
                 currentPositionProvider = currentPositionProvider,
                 isPlayingProvider = fieldStates.isPlayingProvider,
                 playWhenReadyProvider = fieldStates.playWhenReadyProvider,
+                transportPlayingProvider = fieldStates.isTransportPlayingProvider,
                 repeatModeProvider = fieldStates.repeatModeProvider,
                 isShuffleEnabledProvider = fieldStates.isShuffleEnabledProvider,
                 totalDurationProvider = fieldStates.totalDurationProvider,

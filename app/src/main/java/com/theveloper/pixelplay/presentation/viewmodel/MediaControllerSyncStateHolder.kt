@@ -600,6 +600,13 @@ class MediaControllerSyncStateHolder @Inject constructor(
                 }
             }
 
+            override fun onAvailableCommandsChanged(availableCommands: Player.Commands) {
+                // Seeking becomes available once the streamed song is prepared.
+                if (availableCommands.contains(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)) {
+                    playbackStateHolder.applyPendingSeek()
+                }
+            }
+
             override fun onPlaybackStateChanged(playbackState: Int) {
                 if (isRemoteSessionControllingPlayback()) return
                 refreshPlaybackAudioMetadata(playerCtrl)
@@ -633,6 +640,22 @@ class MediaControllerSyncStateHolder @Inject constructor(
                     syncPlaybackPositionFromPlayer(playerCtrl.currentMediaItem?.mediaId, readyPosition)
                     playbackStateHolder.updateStablePlayerState { it.copy(totalDuration = resolvedDuration) }
                     playbackStateHolder.startProgressUpdates()
+                    // A seek asked for while the stream was still loading lands now.
+                    playbackStateHolder.applyPendingSeek()
+                }
+                if (playbackState == Player.STATE_IDLE && playerCtrl.mediaItemCount > 0) {
+                    // The player stopped on a song it still holds: a failed stream, or a queue
+                    // restored paused. It is not playing and not loading, whatever the optimistic
+                    // state set at the tap said; the "Preparing playback" hint must not outlive it
+                    // (it used to, which left the mini player's buttons disabled for good).
+                    playbackDispatchStateHolder.clearPreparingSongIfMatching()
+                    playbackStateHolder.updateStablePlayerState {
+                        it.copy(
+                            isPlaying = false,
+                            playWhenReady = playerCtrl.playWhenReady,
+                            isBuffering = false
+                        )
+                    }
                 }
                 if (playbackState == Player.STATE_IDLE && playerCtrl.mediaItemCount == 0) {
                     playbackDispatchStateHolder.clearPreparingSongIfMatching()

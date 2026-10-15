@@ -16,7 +16,13 @@ data class BulkSyncResult(
      * pendientes. Quien la lanzó debe reencolarla: lo ya importado está guardado y la
      * siguiente ejecución sigue donde esta lo dejó.
      */
-    val isComplete: Boolean = true
+    val isComplete: Boolean = true,
+    /** Set when Spotify rate-limited the pass for longer than is worth waiting inline: reschedule after this many seconds. */
+    val retryAfterSeconds: Long? = null,
+    /** The login is dead or lacks a scope: no point rescheduling until the user signs in again. */
+    val needsReconnect: Boolean = false,
+    /** Playlists left out (not owned / refused / gone); the dashboard lists them with reasons. */
+    val skippedPlaylistCount: Int = 0
 )
 
 /**

@@ -23,4 +23,11 @@
          the endpoint settings stay on this phone only. -->
     <exclude domain="sharedpref" path="cloud_studio_secrets.xml"/>
     <exclude domain="sharedpref" path="cloud_studio_settings.xml"/>
+
+    <!-- Spotify and YouTube sessions (refresh token, cookie): encrypted under a Keystore key that is never
+         restored, and the plaintext fallback files must never be uploaded either. Sign in again after a restore. -->
+    <exclude domain="sharedpref" path="spotify_prefs.xml"/>
+    <exclude domain="sharedpref" path="spotify_prefs_plain.xml"/>
+    <exclude domain="sharedpref" path="youtube_auth_prefs.xml"/>
+    <exclude domain="sharedpref" path="youtube_auth_prefs_plain.xml"/>
 </full-backup-content>

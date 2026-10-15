@@ -59,6 +59,7 @@ import com.theveloper.pixelplay.presentation.screens.RecentlyPlayedScreen
 
 import com.theveloper.pixelplay.presentation.screens.AboutScreen
 import com.theveloper.pixelplay.presentation.screens.OpenSourceLicensesScreen
+import com.theveloper.pixelplay.presentation.screens.DiagnosticsScreen
 import com.theveloper.pixelplay.presentation.screens.SearchScreen
 import com.theveloper.pixelplay.presentation.screens.StatsScreen
 import com.theveloper.pixelplay.presentation.screens.SettingsScreen
@@ -506,6 +507,15 @@ fun AppNavigation(
                         navController = navController,
                         viewModel = playerViewModel,
                         onNavigationIconClick = { navController.popBackStack() }
+                    )
+                }
+            }
+            composable(
+                Screen.Diagnostics.route,
+            ) {
+                ScreenWrapper(navController = navController, playerViewModel = playerViewModel, animatedVisibilityScope = this) {
+                    DiagnosticsScreen(
+                        onBackClick = { navController.popBackStack() },
                     )
                 }
             }

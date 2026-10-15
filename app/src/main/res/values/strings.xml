@@ -71,6 +71,7 @@
     <string name="close_notification_player">Close player</string>
     <string name="service_processing_action">Processing playback action…</string>
     <string name="player_playback_error">Playback error: %1$s</string>
+    <string name="player_playback_error_skipping">Can’t play %1$s. Skipping to the next song.</string>
 
     <!-- Streaming speed: stream-start timings in the Spotify dashboard's Playback test -->
     <string name="stream_start_timings_title">Recent stream starts</string>

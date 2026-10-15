@@ -119,12 +119,12 @@ class WearCommandReceiver : WearableListenerService() {
             else -> {
                 getOrBuildMediaController { controller ->
                     when (command.action) {
-                        WearPlaybackCommand.PLAY -> controller.play()
+                        WearPlaybackCommand.PLAY -> com.theveloper.pixelplay.data.service.player.PlayerTransport.play(controller)
                         WearPlaybackCommand.PAUSE -> controller.pause()
                         WearPlaybackCommand.TOGGLE_PLAY_PAUSE -> {
-                            if (controller.isPlaying) controller.pause() else controller.play()
+                            com.theveloper.pixelplay.data.service.player.PlayerTransport.togglePlayPause(controller)
                         }
-                        WearPlaybackCommand.NEXT -> controller.seekToNext()
+                        WearPlaybackCommand.NEXT -> com.theveloper.pixelplay.data.service.player.PlayerTransport.skipNext(controller)
                         WearPlaybackCommand.PREVIOUS -> controller.seekToPrevious()
                         WearPlaybackCommand.PLAY_QUEUE_INDEX -> {
                             val queueIndex = command.queueIndex

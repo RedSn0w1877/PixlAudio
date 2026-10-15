@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="about_diagnostics_title">Support</string>
+    <string name="about_diagnostics_subtitle">Something not working? Send a log with the details.</string>
+    <string name="about_diagnostics_card_title">Diagnostics</string>
+    <string name="about_diagnostics_card_subtitle">Build info, recent errors and shareable logs</string>
+
+    <string name="diagnostics_screen_title">Diagnostics</string>
+    <string name="diagnostics_section_build">This build</string>
+    <string name="diagnostics_section_device">Device</string>
+    <string name="diagnostics_section_exits">Last app exits</string>
+    <string name="diagnostics_section_log">Recent log</string>
+    <string name="diagnostics_row_version">Version</string>
+    <string name="diagnostics_row_commit">Commit</string>
+    <string name="diagnostics_row_built">Built</string>
+    <string name="diagnostics_row_spotify">Spotify sign-in</string>
+    <string name="diagnostics_spotify_configured">Configured in this build</string>
+    <string name="diagnostics_spotify_missing">Not configured in this build</string>
+    <string name="diagnostics_no_exits">No earlier exits recorded.</string>
+    <string name="diagnostics_log_empty">Nothing logged yet. Warnings, errors and key events appear here.</string>
+    <string name="diagnostics_log_size">Log size: %1$s (the newest ~1 MB is kept)</string>
+    <string name="diagnostics_privacy_note">Logs never contain sign-in tokens, keys, e-mail addresses, web addresses with query strings, or song titles and artists (those are replaced by short ids). You choose where to send the file.</string>
+    <string name="diagnostics_action_share">Share logs</string>
+    <string name="diagnostics_action_clear">Clear logs</string>
+    <string name="diagnostics_share_chooser_title">Share diagnostics</string>
+    <string name="diagnostics_share_subject">PixlAudio diagnostics</string>
+    <string name="diagnostics_share_failed">Could not prepare the log file.</string>
+    <string name="diagnostics_cleared">Logs cleared.</string>
+</resources>
