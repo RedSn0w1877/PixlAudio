@@ -107,7 +107,12 @@ data class SpotifyPlaylist(
     @SerializedName("id") val id: String?,
     @SerializedName("name") val name: String?,
     @SerializedName("images") val images: List<SpotifyImage>? = null,
+    /** Pre-2026 name of [items]; kept as a fallback for the count. */
     @SerializedName("tracks") val tracks: SpotifyPlaylistTracksRef? = null,
+    /** Since Spotify's Feb 2026 migration the track count lives here; absent for playlists the user neither owns nor collaborates on. */
+    @SerializedName("items") val items: SpotifyPlaylistTracksRef? = null,
+    /** Changes whenever the playlist's contents change: lets a later sync skip untouched playlists. */
+    @SerializedName("snapshot_id") val snapshotId: String? = null,
     @SerializedName("owner") val owner: SpotifyPlaylistOwner? = null,
     @SerializedName("public") val isPublic: Boolean? = null,
     @SerializedName("collaborative") val collaborative: Boolean? = null

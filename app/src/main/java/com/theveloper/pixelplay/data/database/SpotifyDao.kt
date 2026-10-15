@@ -75,6 +75,62 @@ interface SpotifyDao {
     @Query("DELETE FROM spotify_songs WHERE playlist_id = :playlistId")
     suspend fun deleteSongsByPlaylist(playlistId: String)
 
+    @Query("SELECT * FROM spotify_songs WHERE playlist_id = :playlistId")
+    suspend fun getSongsByPlaylistList(playlistId: String): List<SpotifySongEntity>
+
+    @Query("SELECT id FROM spotify_songs WHERE playlist_id = :playlistId")
+    suspend fun getSongIdsByPlaylist(playlistId: String): List<String>
+
+    @Query("DELETE FROM spotify_songs WHERE id IN (:ids)")
+    suspend fun deleteSongsByIds(ids: List<String>)
+
+    /** Match results already known for these tracks (in any playlist), for [upsertImportedSongs]. */
+    @Query(
+        """
+        SELECT spotify_id, matched_video_id, match_score, match_state
+        FROM spotify_songs
+        WHERE spotify_id IN (:spotifyIds) AND match_state != :pendingState
+        GROUP BY spotify_id
+        """
+    )
+    suspend fun getKnownMatchesFor(
+        spotifyIds: List<String>,
+        pendingState: Int = SpotifyMatchState.PENDING
+    ): List<SpotifyMatchRow>
+
+    /**
+     * Publish one imported page. Unlike a wholesale replace this keeps every other row of the
+     * playlist, so songs show up page by page while the import is still running — and it
+     * re-reads the match results INSIDE the transaction, because the matcher now runs at the
+     * same time as the import and a stale snapshot would overwrite a fresh match with PENDING.
+     */
+    @Transaction
+    suspend fun upsertImportedSongs(songs: List<SpotifySongEntity>) {
+        if (songs.isEmpty()) return
+        val known = songs.map { it.spotifyId }.distinct().chunked(500)
+            .flatMap { getKnownMatchesFor(it) }
+            .associateBy { it.spotifyId }
+        insertSongs(
+            if (known.isEmpty()) songs else songs.map { song ->
+                val previous = known[song.spotifyId] ?: return@map song
+                song.copy(
+                    matchedVideoId = previous.matchedVideoId,
+                    matchScore = previous.matchScore,
+                    matchState = previous.matchState
+                )
+            }
+        )
+    }
+
+    /** After a playlist was read completely: drop rows of tracks it no longer contains. */
+    @Transaction
+    suspend fun removeSongsNotIn(playlistId: String, keepIds: Set<String>) {
+        getSongIdsByPlaylist(playlistId)
+            .filter { it !in keepIds }
+            .chunked(500)
+            .forEach { deleteSongsByIds(it) }
+    }
+
     @Query("DELETE FROM spotify_songs")
     suspend fun clearAllSongs()
 
@@ -115,6 +171,27 @@ interface SpotifyDao {
         afterSpotifyId: String,
         limit: Int,
         pendingState: Int = SpotifyMatchState.PENDING
+    ): List<SpotifySongEntity>
+
+    /**
+     * Matching order = the order the user will look at things: tracks they just pulled in from
+     * the catalogue, then Liked Songs (newest first), then everything else newest first.
+     * [skip] steps over rows already tried this run that stayed PENDING after a network error.
+     */
+    @Query("""
+        SELECT * FROM spotify_songs
+        WHERE match_state = :pendingState
+        GROUP BY spotify_id
+        ORDER BY MIN(CASE playlist_id WHEN :browseId THEN 0 WHEN :likedId THEN 1 ELSE 2 END) ASC,
+                 MAX(date_added) DESC
+        LIMIT :limit OFFSET :skip
+    """)
+    suspend fun getPendingSongsByPriority(
+        limit: Int,
+        skip: Int,
+        pendingState: Int = SpotifyMatchState.PENDING,
+        browseId: String = SpotifyPlaylistEntity.BROWSE_ID,
+        likedId: String = SpotifyPlaylistEntity.LIKED_SONGS_ID
     ): List<SpotifySongEntity>
 
     /** A slow background lookup must never replace a manual or on-demand match. */

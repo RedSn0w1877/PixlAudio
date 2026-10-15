@@ -250,6 +250,21 @@ class SpotifyAuthManager @Inject constructor(
 
     suspend fun forceRefresh(): Result<String> = refreshMutex.withLock { refreshAccessTokenLocked() }
 
+    /**
+     * Refresh after Spotify answered 401 to [rejectedAuthorization]. True when a usable token exists afterwards.
+     *
+     * With several requests in flight, each gets its own 401 when the token dies. Only the
+     * first should spend the (rotating) refresh token; the others find a newer access token
+     * already stored and just retry with it.
+     */
+    suspend fun refreshAfterRejected(rejectedAuthorization: String): Boolean = refreshMutex.withLock {
+        val current = prefs.getString(KEY_ACCESS_TOKEN, null)
+        if (!current.isNullOrBlank() && "Bearer $current" != rejectedAuthorization) {
+            return@withLock true
+        }
+        refreshAccessTokenLocked().isSuccess
+    }
+
     private suspend fun refreshAccessTokenLocked(): Result<String> = withContext(Dispatchers.IO) {
         val refreshToken = prefs.getString(KEY_REFRESH_TOKEN, null)
         if (refreshToken.isNullOrBlank()) {
@@ -321,6 +336,10 @@ class SpotifyAuthManager @Inject constructor(
     fun hasGrantedScopes(required: Collection<String>): Boolean? =
         grantedScopes.value?.containsAll(required)
 
+    /** The scopes in [required] that Spotify did not grant; null when the grant is not known yet. */
+    fun missingScopes(required: Collection<String>): Set<String>? =
+        grantedScopes.value?.let { granted -> required.filterNot { it in granted }.toSet() }
+
     fun clearSession() {
         prefs.edit()
             .remove(KEY_ACCESS_TOKEN)
@@ -371,6 +390,10 @@ class SpotifyAuthManager @Inject constructor(
             "user-library-read playlist-read-private playlist-read-collaborative " +
                 "user-read-private user-top-read " +
                 "user-read-playback-state user-modify-playback-state"
+
+        /** The scopes the library import reads with; without one of them playlists/likes answer 403. */
+        val IMPORT_SCOPES: Set<String> =
+            setOf("user-library-read", "playlist-read-private", "playlist-read-collaborative")
 
         /** The scopes Spotify Connect output needs. */
         val CONNECT_SCOPES: Set<String> = setOf("user-read-playback-state", "user-modify-playback-state")

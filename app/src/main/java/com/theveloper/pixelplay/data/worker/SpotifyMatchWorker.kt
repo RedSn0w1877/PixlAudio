@@ -13,7 +13,9 @@ import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.theveloper.pixelplay.data.database.SpotifyDao
 import com.theveloper.pixelplay.data.database.SpotifyMatchState
+import com.theveloper.pixelplay.data.database.SpotifySongEntity
 import com.theveloper.pixelplay.data.service.PlaybackActivityTracker
+import com.theveloper.pixelplay.data.youtube.TrackMatch
 import com.theveloper.pixelplay.data.youtube.TrackMatcher
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
@@ -23,21 +25,29 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import timber.log.Timber
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Busca en YouTube Music el audio de las pistas de Spotify que aún no lo tienen.
  *
  * Cada pista son una o dos búsquedas contra InnerTube, y ahí el tiempo se va esperando a la
- * red, no calculando. Antes esto iba estrictamente en serie y además dormía entre pista y
- * pista, así que el hilo estaba parado la mayor parte del tiempo y una biblioteca mediana
- * tardaba horas. Ahora van [CONCURRENCY_IDLE] en paralelo — bastante para saturar la
- * latencia sin parecer un bot — y la ejecución encadena lotes hasta agotar su presupuesto
- * de tiempo, en vez de reencolarse y pagar la latencia de WorkManager cada 50 pistas.
+ * red, no calculando. Por eso van [CONCURRENCY_IDLE] en paralelo — bastante para saturar la
+ * latencia sin parecer un bot — bajo un limitador propio ([SearchPacer]) que frena solo
+ * cuando YouTube empieza a fallar. La ejecución encadena lotes hasta agotar su presupuesto
+ * de tiempo, en vez de reencolarse y pagar la latencia de WorkManager cada pocas pistas.
+ *
+ * Arranca en cuanto aterriza la primera página de la importación (no espera a que termine) y
+ * empareja primero lo que el usuario ve primero: lo que acaba de traer del catálogo, luego
+ * "Me gusta" de más nuevo a más viejo y después el resto. Cada resultado se escribe en el
+ * momento en que llega.
  *
  * Mientras suena música se baja a [CONCURRENCY_PLAYING]: emparejar no debe competir por la
  * red con la canción que se está escuchando.
@@ -59,20 +69,25 @@ class SpotifyMatchWorker @AssistedInject constructor(
         }
 
         val startedAt = System.currentTimeMillis()
-        val totalPending = spotifyDao.countByMatchState(SpotifyMatchState.PENDING)
+        var totalPending = spotifyDao.countByMatchState(SpotifyMatchState.PENDING)
         if (totalPending == 0) {
             Timber.d("SpotifyMatchWorker: no queda nada por emparejar")
             return@withContext Result.success()
         }
 
-        var matched = 0
-        var failed = 0
+        val matched = AtomicInteger(0)
+        val failed = AtomicInteger(0)
         var errored = 0
         var done = 0
         var moreWork = false
-        // Failed rows remain PENDING. A keyset cursor still lets the next batch
-        // advance past them instead of reading the same first page forever.
-        var afterSpotifyId = ""
+        // Rows that hit a network error stay PENDING and keep their place in the priority
+        // order; skipping that many rows lets the next batch move past them instead of
+        // retrying the same ones forever.
+        var skip = 0
+        val pacer = SearchPacer()
+        // The same recording (ISRC), or the same title/artist/length under another Spotify
+        // id, is searched once per run.
+        val resultCache = ConcurrentHashMap<String, TrackMatchOrNone>()
 
         while (true) {
             if (isStopped) break
@@ -81,9 +96,8 @@ class SpotifyMatchWorker @AssistedInject constructor(
                 break
             }
 
-            val batch = spotifyDao.getUnmatchedSongsAfter(afterSpotifyId, limit = BATCH_SIZE)
+            val batch = spotifyDao.getPendingSongsByPriority(limit = BATCH_SIZE, skip = skip)
             if (batch.isEmpty()) break
-            afterSpotifyId = batch.last().spotifyId
 
             val permits = if (PlaybackActivityTracker.isPlaybackActive) {
                 CONCURRENCY_PLAYING
@@ -91,66 +105,88 @@ class SpotifyMatchWorker @AssistedInject constructor(
                 CONCURRENCY_IDLE
             }
             val gate = Semaphore(permits)
+            val batchErrors = AtomicInteger(0)
 
-            val results = coroutineScope {
+            coroutineScope {
                 batch.map { song ->
                     async {
                         gate.withPermit {
-                            song to runCatching { trackMatcher.findMatch(song) }
-                                .onFailure {
-                                    if (it is CancellationException) throw it
-                                    Timber.w(it, "Fallo buscando '${song.title}'")
+                            val cacheKey = cacheKeyOf(song)
+                            val cached = resultCache[cacheKey]
+                            val outcome: kotlin.Result<TrackMatch?> = if (cached != null) {
+                                kotlin.Result.success(cached.match)
+                            } else {
+                                pacer.await()
+                                runCatching { trackMatcher.findMatch(song) }
+                                    .onSuccess {
+                                        resultCache[cacheKey] = TrackMatchOrNone(it)
+                                        pacer.onSuccess()
+                                    }
+                                    .onFailure {
+                                        if (it is CancellationException) throw it
+                                        pacer.onFailure()
+                                        Timber.w(it, "Fallo buscando '${song.title}'")
+                                    }
+                            }
+
+                            // Escribe en cuanto llega el resultado, no al final del lote: la
+                            // canción queda reproducible en el momento en que se encuentra.
+                            val match = outcome.getOrNull()
+                            when {
+                                // La petición reventó (red caída, YouTube limitando el ritmo). No es
+                                // que la pista no exista, así que se queda PENDING: marcarla UNMATCHED
+                                // la daría por perdida para siempre.
+                                outcome.isFailure -> batchErrors.incrementAndGet()
+
+                                match != null -> {
+                                    spotifyDao.updateAutomaticMatch(
+                                        spotifyId = song.spotifyId,
+                                        videoId = match.videoId,
+                                        score = match.score,
+                                        state = SpotifyMatchState.MATCHED
+                                    )
+                                    matched.incrementAndGet()
                                 }
+
+                                else -> {
+                                    spotifyDao.updateAutomaticMatch(
+                                        spotifyId = song.spotifyId,
+                                        videoId = null,
+                                        score = null,
+                                        state = SpotifyMatchState.UNMATCHED
+                                    )
+                                    failed.incrementAndGet()
+                                }
+                            }
                         }
                     }
                 }.awaitAll()
             }
 
-            // Las escrituras van después y en serie: son rápidas, y así una sola
-            // transacción por pista no compite con las búsquedas en vuelo.
-            results.forEach { (song, outcome) ->
-                val match = outcome.getOrNull()
-                when {
-                    // La petición reventó (red caída, YouTube limitando el ritmo). No es
-                    // que la pista no exista, así que se queda PENDING: marcarla UNMATCHED
-                    // la daría por perdida para siempre, y una racha de 429 se llevaría por
-                    // delante media biblioteca.
-                    outcome.isFailure -> errored++
+            val batchErrorCount = batchErrors.get()
+            errored += batchErrorCount
+            skip += batchErrorCount
+            done += batch.size
 
-                    match != null -> {
-                        spotifyDao.updateAutomaticMatch(
-                            spotifyId = song.spotifyId,
-                            videoId = match.videoId,
-                            score = match.score,
-                            state = SpotifyMatchState.MATCHED
-                        )
-                        matched++
-                    }
-
-                    else -> {
-                        spotifyDao.updateAutomaticMatch(
-                            spotifyId = song.spotifyId,
-                            videoId = null,
-                            score = null,
-                            state = SpotifyMatchState.UNMATCHED
-                        )
-                        failed++
-                    }
-                }
-            }
-
-            done += results.size
+            // The import keeps adding songs while this runs, so the total grows with it.
+            totalPending = maxOf(
+                totalPending,
+                done + spotifyDao.countByMatchState(SpotifyMatchState.PENDING) - skip
+            )
             setProgressAsync(
                 workDataOf(
                     PROGRESS_DONE to done,
-                    PROGRESS_TOTAL to totalPending
+                    PROGRESS_TOTAL to totalPending,
+                    // Read by the Active jobs list.
+                    "percent" to (done * 100 / totalPending.coerceAtLeast(1)).coerceIn(0, 100),
+                    "detail" to "Matching $done/$totalPending songs"
                 )
             )
 
             // Lote entero fallido: no es mala suerte, es que algo de fuera está caído o
             // limitando. Seguir sólo empeora la racha; se corta y se reintenta con la
             // espera exponencial de WorkManager.
-            if (results.isNotEmpty() && results.all { it.second.isFailure }) {
+            if (batchErrorCount == batch.size) {
                 Timber.w("SpotifyMatchWorker: lote completo fallido, se reintentará más tarde")
                 return@withContext Result.retry()
             }
@@ -161,7 +197,7 @@ class SpotifyMatchWorker @AssistedInject constructor(
         }
 
         Timber.i(
-            "SpotifyMatchWorker: $matched emparejadas, $failed sin resultado, " +
+            "SpotifyMatchWorker: ${matched.get()} emparejadas, ${failed.get()} sin resultado, " +
                 "$errored con error (de $totalPending)"
         )
 
@@ -173,7 +209,50 @@ class SpotifyMatchWorker @AssistedInject constructor(
             enqueueContinuation(applicationContext)
         }
 
-        Result.success(workDataOf(OUTPUT_MATCHED to matched, OUTPUT_FAILED to failed))
+        Result.success(workDataOf(OUTPUT_MATCHED to matched.get(), OUTPUT_FAILED to failed.get()))
+    }
+
+    /** A cached search result; [match] null means "searched, nothing acceptable". */
+    private class TrackMatchOrNone(val match: TrackMatch?)
+
+    /** ISRC identifies the recording; without one, title + artist + length (to the second). */
+    private fun cacheKeyOf(song: SpotifySongEntity): String =
+        song.isrc?.takeIf { it.isNotBlank() }?.let { "isrc:$it" }
+            ?: "t:${song.title.lowercase()}|${song.artist.lowercase()}|${song.durationMs / 1000}"
+
+    /**
+     * The matcher's own rate limiting: a minimum gap between the start of two song searches,
+     * shared by every task in flight, that doubles (up to [MAX_GAP_MS]) while searches are
+     * failing and relaxes back after successes. It keeps a rate-limited YouTube from being
+     * hit harder precisely when it is complaining.
+     */
+    private class SearchPacer {
+        private val lock = Mutex()
+        private var nextStartAtMs = 0L
+
+        @Volatile
+        private var gapMs = MIN_GAP_MS
+
+        suspend fun await() {
+            lock.withLock {
+                val wait = nextStartAtMs - System.currentTimeMillis()
+                if (wait > 0) delay(wait)
+                nextStartAtMs = System.currentTimeMillis() + gapMs
+            }
+        }
+
+        fun onSuccess() {
+            gapMs = (gapMs * 3 / 4).coerceAtLeast(MIN_GAP_MS)
+        }
+
+        fun onFailure() {
+            gapMs = (gapMs * 2).coerceAtMost(MAX_GAP_MS)
+        }
+
+        private companion object {
+            const val MIN_GAP_MS = 60L
+            const val MAX_GAP_MS = 2_000L
+        }
     }
 
     companion object {
@@ -184,10 +263,10 @@ class SpotifyMatchWorker @AssistedInject constructor(
         const val OUTPUT_FAILED = "output_failed"
         const val INPUT_RETRY_FAILED = "input_retry_failed"
 
-        private const val BATCH_SIZE = 48
-        private const val CONCURRENCY_IDLE = 4
+        private const val BATCH_SIZE = 40
+        private const val CONCURRENCY_IDLE = 5
         private const val CONCURRENCY_PLAYING = 2
-        private const val BETWEEN_BATCHES_MS = 250L
+        private const val BETWEEN_BATCHES_MS = 150L
 
         /**
          * Margen con el que se para sola una ejecución: WorkManager mata el worker a los
