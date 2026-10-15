@@ -15,6 +15,9 @@ import coil.ImageLoader
 import coil.ImageLoaderFactory
 import com.theveloper.pixelplay.data.preferences.UserPreferencesRepository
 import com.theveloper.pixelplay.data.diagnostics.AdvancedPerformanceDiagnosticsController
+import com.theveloper.pixelplay.data.diagnostics.DiagnosticsLog
+import com.theveloper.pixelplay.data.diagnostics.DiagnosticsTree
+import com.theveloper.pixelplay.data.diagnostics.DiagnosticsWatchers
 import com.theveloper.pixelplay.data.repository.ArtistImageRepository
 import com.theveloper.pixelplay.presentation.viewmodel.LibraryStateHolder
 import com.theveloper.pixelplay.presentation.viewmodel.ThemeStateHolder
@@ -128,12 +131,24 @@ class PixelPlayApplication : Application(), ImageLoaderFactory, Configuration.Pr
             CrashHandler.install(this)
         }
 
+        // Shareable diagnostics log (Settings > About > Diagnostics): redacted WARN+ lines and key events in a
+        // ~1 MB rotating file, in release too. Initialised after CrashHandler so its crash hook runs first
+        // and hands on to the crash dialog's handler.
+        DiagnosticsLog.init(this)
+        Timber.plant(DiagnosticsTree())
+
         if (BuildConfig.DEBUG) {
             Timber.plant(Timber.DebugTree())
         } else {
             // Release tree: only WARN/ERROR/WTF - no DEBUG/VERBOSE/INFO
             Timber.plant(ReleaseTree())
         }
+        DiagnosticsLog.event(
+            "App",
+            "start version=${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE}) commit=${BuildConfig.GIT_SHA} " +
+                "built=${BuildConfig.BUILD_DATE} type=${BuildConfig.BUILD_TYPE} sdk=${Build.VERSION.SDK_INT} " +
+                "device=${Build.MANUFACTURER} ${Build.MODEL}"
+        )
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
@@ -154,8 +169,9 @@ class PixelPlayApplication : Application(), ImageLoaderFactory, Configuration.Pr
         // Keystore/Tink setup is one of the costliest things at a cold start. Reading
         // isLoggedIn here warms it before any screen asks.
         startupScope.launch {
-            spotifyRepository.get().isLoggedIn
+            DiagnosticsWatchers.watchSpotifySession(this, spotifyRepository.get().isLoggedIn)
         }
+        DiagnosticsWatchers.watchWork(this, startupScope)
         // Same for the YouTube session (cookie + visitorData live in EncryptedSharedPreferences).
         startupScope.launch {
             runCatching { youTubeAuthManager.get().cookie }

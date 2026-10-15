@@ -326,3 +326,29 @@
     public static int d(...);
     public static int i(...);
 }
+
+
+# =============================================================================
+# SWEEP 2026-10-14 (release-only risks found by reading, not by a crash report)
+# =============================================================================
+# Gson reads/writes these nested classes by their field NAMES and they are persisted to disk. They sit
+# outside data.model / data.network, so R8 renamed their fields: stats, taste and engagement files written
+# by one build were unreadable by the next (and by the same build after R8 renamed differently), silently
+# resetting listening history. Keep names stable.
+-keep class com.theveloper.pixelplay.data.DailyMixManager$SongEngagementStats { <fields>; <init>(...); }
+-keep class com.theveloper.pixelplay.data.recommendation.MusicRecommendationEngine$Signal { <fields>; <init>(...); }
+-keep class com.theveloper.pixelplay.data.stats.PlaybackStatsRepository$PlaybackEvent { <fields>; <init>(...); }
+-keep class com.theveloper.pixelplay.data.recommendation.HomeCatalogEntry { <fields>; <init>(...); }
+-keep class com.theveloper.pixelplay.data.recommendation.HomeCatalogSnapshot { <fields>; <init>(...); }
+-keep class com.theveloper.pixelplay.data.spotify.connect.SpotifyConnectResolution { <fields>; <init>(...); }
+
+# NewPipeExtractor (YouTube stream resolution): it evaluates YouTube's player JavaScript with Rhino, which
+# loads its runtime classes reflectively, and it ships no consumer rules. Without these, resolving a stream
+# in a release build can throw instead of returning a URL while the debug build works.
+-keep class org.mozilla.javascript.** { *; }
+-keep class org.mozilla.classfile.ClassFileWriter
+-dontwarn org.mozilla.javascript.tools.**
+-keep class org.schabi.newpipe.extractor.timeago.patterns.** { *; }
+
+# NOTE: the Timber/Log -assumenosideeffects rules above delete Timber.i / Log.i call sites in release.
+# The shareable diagnostics log therefore uses DiagnosticsLog.event(...) for INFO-level facts.

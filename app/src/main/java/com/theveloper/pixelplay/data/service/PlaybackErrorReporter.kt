@@ -1,5 +1,7 @@
 package com.theveloper.pixelplay.data.service
 
+import com.theveloper.pixelplay.data.diagnostics.DiagnosticsLog
+import com.theveloper.pixelplay.data.diagnostics.DiagnosticsRedactor
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -21,6 +23,13 @@ object PlaybackErrorReporter {
 
     fun report(info: PlaybackErrorInfo) {
         _lastError.value = info
+        // Diagnostics log: the reason only. The track title is replaced by an opaque id, the URI
+        // keeps scheme/host/path (the redactor drops any query string).
+        DiagnosticsLog.event(
+            "Playback",
+            "failed track=${DiagnosticsRedactor.opaqueId(info.trackTitle)} code=${info.errorCodeName} " +
+                "uri=${info.failingUri ?: "none"} cause=${info.causeChain.take(500)}"
+        )
     }
 
     fun clear() {
