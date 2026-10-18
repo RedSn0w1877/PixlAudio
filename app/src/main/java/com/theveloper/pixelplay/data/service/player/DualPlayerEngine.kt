@@ -228,7 +228,8 @@ class DualPlayerEngine @Inject constructor(
     @param:ApplicationContext private val context: Context,
     private val connectivityStateHolder: com.theveloper.pixelplay.presentation.viewmodel.ConnectivityStateHolder,
     private val spotifyStreamProxy: com.theveloper.pixelplay.data.spotify.SpotifyStreamProxy,
-    private val audioCacheManager: com.theveloper.pixelplay.data.cache.AudioCacheManager
+    private val audioCacheManager: com.theveloper.pixelplay.data.cache.AudioCacheManager,
+    private val musicHaptics: com.theveloper.pixelplay.data.haptics.MusicHapticsEngine
 ) {
     private companion object {
         private const val AUDIO_OFFLOAD_STALL_FALLBACK_MS = 4_000L
@@ -1107,7 +1108,9 @@ class DualPlayerEngine @Inject constructor(
                         DefaultAudioSink.DefaultAudioProcessorChain(
                             HiResSampleRateCapAudioProcessor(),
                             SurroundDownmixProcessor(),
-                            MidSideVocalProcessor { vocalAttenuation }
+                            MidSideVocalProcessor { vocalAttenuation },
+                            // Analysis only (music haptics): passes the audio through unchanged.
+                            androidx.media3.exoplayer.audio.TeeAudioProcessor(musicHaptics.createPcmSink())
                         )
                     )
                     .build()
@@ -1272,7 +1275,18 @@ class DualPlayerEngine @Inject constructor(
     private var exactTimingSessions = 0
     private var pauseAtEndBeforeExactTiming = false
 
-    private val offloadAllowed: Boolean get() = audioOffloadEnabled && exactTimingSessions == 0
+    /** Music haptics needs the decoded PCM, which a compressed offload path never exposes. */
+    private var pcmAnalysisActive = false
+
+    private val offloadAllowed: Boolean get() = audioOffloadEnabled && exactTimingSessions == 0 && !pcmAnalysisActive
+
+    fun setPcmAnalysisActive(active: Boolean) {
+        if (pcmAnalysisActive == active) return
+        pcmAnalysisActive = active
+        if (!::playerA.isInitialized) return
+        applyOffloadMode(playerA, enabled = offloadAllowed)
+        playerB?.let { applyOffloadMode(it, enabled = offloadAllowed) }
+    }
 
     private fun applyOffloadMode(player: ExoPlayer, enabled: Boolean) {
         val preferences = TrackSelectionParameters.AudioOffloadPreferences.Builder()
@@ -1301,8 +1315,8 @@ class DualPlayerEngine @Inject constructor(
         if (exactTimingSessions == 0) return
         exactTimingSessions--
         if (exactTimingSessions > 0 || !::playerA.isInitialized) return
-        applyOffloadMode(playerA, enabled = audioOffloadEnabled)
-        playerB?.let { applyOffloadMode(it, enabled = audioOffloadEnabled) }
+        applyOffloadMode(playerA, enabled = offloadAllowed)
+        playerB?.let { applyOffloadMode(it, enabled = offloadAllowed) }
         playerA.pauseAtEndOfMediaItems = pauseAtEndBeforeExactTiming
     }
 

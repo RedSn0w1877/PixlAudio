@@ -91,6 +91,7 @@ import com.theveloper.pixelplay.data.service.wear.WearStatePublisher
 import com.theveloper.pixelplay.presentation.viewmodel.ColorSchemePair
 import com.theveloper.pixelplay.shared.WearIntents
 import com.theveloper.pixelplay.utils.ArtworkTransportSanitizer
+import com.theveloper.pixelplay.data.diagnostics.DiagnosticsLog
 import com.theveloper.pixelplay.utils.MediaItemBuilder
 import com.theveloper.pixelplay.di.AppScope
 import com.theveloper.pixelplay.presentation.viewmodel.ListeningStatsTracker
@@ -188,6 +189,10 @@ class MusicService : MediaLibraryService() {
     lateinit var spotifyConnectController: com.theveloper.pixelplay.data.spotify.connect.SpotifyConnectController
     @Inject
     lateinit var mediaSessionTokenHolder: MediaSessionTokenHolder
+    @Inject
+    lateinit var blockedArtistsRepository: com.theveloper.pixelplay.data.blocking.BlockedArtistsRepository
+    @Inject
+    lateinit var musicHaptics: com.theveloper.pixelplay.data.haptics.MusicHapticsEngine
 
     /**
      * The MediaSession's player while a Spotify Connect session runs (wrapping the local player,
@@ -421,10 +426,12 @@ class MusicService : MediaLibraryService() {
                 spotifyConnectController
             )
             connectSessionPlayer = wrapper
+            musicHaptics.setRemoteOutput(true)
             publishMediaSessionPlayer(wrapper, "Spotify Connect session player published.")
         } else {
             val wrapper = connectSessionPlayer ?: return
             connectSessionPlayer = null
+            musicHaptics.setRemoteOutput(false)
             publishMediaSessionPlayer(engine.masterPlayer, "Local player published after Spotify Connect.")
             wrapper.release()
         }
@@ -518,6 +525,9 @@ class MusicService : MediaLibraryService() {
 
         engine.masterPlayer.addListener(playerListener)
         registerSystemVolumeObserver()
+        // Music haptics: listens to the PCM the player decodes; the player keeps PCM output only while it is on.
+        musicHaptics.attach(serviceScope) { wantsPcm -> engine.setPcmAnalysisActive(wantsPcm) }
+        serviceScope.launch { engine.activeAudioSessionId.collect { musicHaptics.onAudioSessionChanged(it) } }
 
         // Handle player swaps (crossfade) to keep MediaSession in sync
         engine.setOnPlayerAboutToBeReleasedListener { oldPlayer ->
@@ -1471,6 +1481,60 @@ class MusicService : MediaLibraryService() {
         }
     }
 
+    private val blockedSkipGuard = com.theveloper.pixelplay.data.blocking.BlockedSkipGuard()
+    private var blockedGuardLastIndex = -1
+
+    /**
+     * The single enforcement point for blocked artists. Every way an item can become current (auto
+     * advance, skip, a saved queue, Android Auto, Wear, the lock screen) ends in this player, so the
+     * check lives here instead of in each caller. A blocked song is skipped in the direction the
+     * queue was moving; a song the owner chose with "Play anyway" is let through.
+     */
+    private fun enforceBlockedArtists(reason: Int?) {
+        if (isRestoringPlaybackSnapshot) return
+        val index = blockedArtistsRepository.current
+        if (index.isEmpty) {
+            blockedSkipGuard.reset()
+            return
+        }
+        val player = mediaSession?.player ?: engine.masterPlayer
+        val item = player.currentMediaItem ?: return
+        val allowedId = blockedArtistsRepository.allowedMediaId
+        if (allowedId != null && allowedId != item.mediaId) blockedArtistsRepository.clearAllowance()
+        val blocked = index.isBlockedItem(
+            item.mediaMetadata.extras?.getLongArray(MediaItemBuilder.EXTRA_ARTIST_IDS),
+            item.mediaMetadata.artist?.toString()
+        )
+        val currentIndex = player.currentMediaItemIndex
+        val forward = reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO ||
+            player.shuffleModeEnabled ||
+            blockedGuardLastIndex < 0 ||
+            currentIndex >= blockedGuardLastIndex
+        val action = blockedSkipGuard.decide(
+            blocked = blocked,
+            allowedByUser = allowedId != null && allowedId == item.mediaId,
+            forward = forward,
+            hasNeighbour = if (forward) player.hasNextMediaItem() else player.hasPreviousMediaItem(),
+            queueSize = player.mediaItemCount
+        )
+        when (action) {
+            com.theveloper.pixelplay.data.blocking.BlockedSkipGuard.Action.NONE -> blockedGuardLastIndex = currentIndex
+            com.theveloper.pixelplay.data.blocking.BlockedSkipGuard.Action.SKIP_FORWARD -> {
+                DiagnosticsLog.event("BlockedArtists", "skipped a blocked-artist song (forward)")
+                player.seekToNextMediaItem()
+            }
+            com.theveloper.pixelplay.data.blocking.BlockedSkipGuard.Action.SKIP_BACKWARD -> {
+                DiagnosticsLog.event("BlockedArtists", "skipped a blocked-artist song (back)")
+                player.seekToPreviousMediaItem()
+            }
+            com.theveloper.pixelplay.data.blocking.BlockedSkipGuard.Action.PAUSE -> {
+                DiagnosticsLog.event("BlockedArtists", "nothing left to play that is not blocked; paused")
+                blockedGuardLastIndex = currentIndex
+                player.pause()
+            }
+        }
+    }
+
     private val playerListener = object : Player.Listener {
         override fun onVolumeChanged(volume: Float) {
             replayGainProcessor.onPlayerVolumeChanged(volume)
@@ -1486,6 +1550,7 @@ class MusicService : MediaLibraryService() {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             val player = mediaSession?.player ?: engine.masterPlayer
             Timber.tag(TAG).d("onIsPlayingChanged: $isPlaying. Duration: ${player.duration}, Seekable: ${player.isCurrentMediaItemSeekable}")
+            if (!isPlaying) musicHaptics.stopNow()
             // Surface playback state to background workers so they can defer
             // non-urgent work (AI generation, incremental sync) while audio
             // is producing — keeps thermal headroom and battery for playback.
@@ -1518,6 +1583,7 @@ class MusicService : MediaLibraryService() {
             // While a Spotify Connect device plays, the reported playWhenReady is the device's: the
             // local instrumental shadow must not start playing on the phone.
             instrumentalCrossfadeController.onPlayWhenReadyChanged(playWhenReady && connectSessionPlayer == null)
+            if (playWhenReady) enforceBlockedArtists(null)
             // Play pressed (notification, lock screen, Wear, headset) on a player that stopped after
             // a failed song or was restored paused: prepare it, or the press would do nothing.
             if (playWhenReady && !isRestoringPlaybackSnapshot && connectSessionPlayer == null) {
@@ -1579,6 +1645,7 @@ class MusicService : MediaLibraryService() {
         ) {
             if (reason == Player.DISCONTINUITY_REASON_SEEK) {
                 reviveIdlePlayerAfterNavigation()
+                musicHaptics.stopNow()
                 instrumentalCrossfadeController.onMainSeek(newPosition.positionMs)
             }
             if (reason == Player.DISCONTINUITY_REASON_AUTO_TRANSITION ||
@@ -1599,6 +1666,7 @@ class MusicService : MediaLibraryService() {
         }
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            enforceBlockedArtists(reason)
             if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_SEEK) reviveIdlePlayerAfterNavigation()
             automaticStudioManager.onSongChanged(mediaItem?.mediaId)
             updateNextStreamPrefetch()
@@ -1752,6 +1820,7 @@ class MusicService : MediaLibraryService() {
         stopStreamPreparation()
         listeningCacheJob?.cancel()
         PlaybackActivityTracker.setPlaybackActive(false)
+        musicHaptics.release()
         listeningStatsTracker.finalizeCurrentSession(forceSynchronousPersistence = true)
         playbackSnapshotPersistJob?.cancel()
         mediaSessionButtonRefreshJob?.cancel()
