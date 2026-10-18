@@ -275,6 +275,10 @@ class PlayerViewModelTest {
             mockCastTransferStateHolder,
             mockConnectivityStateHolder,
             mockThemeStateHolder,
+            io.mockk.mockk<com.theveloper.pixelplay.data.blocking.BlockedArtistsRepository>(relaxed = true).also {
+                io.mockk.every { it.current } returns com.theveloper.pixelplay.data.blocking.BlockedArtistIndex.EMPTY
+                io.mockk.every { it.allowedMediaId } returns null
+            },
             mockContext
         )
         // Real controller-sync holder wired to the same mocks, so existing tests
