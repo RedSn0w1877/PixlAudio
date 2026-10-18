@@ -15,6 +15,10 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.MutatorMutex
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
+import com.theveloper.pixelplay.presentation.utils.horizontalIntentSwipe
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -495,6 +499,11 @@ fun UnifiedPlayerSheetV2(
     )
 
     val hapticFeedback = LocalHapticFeedback.current
+    val miniGestures = com.theveloper.pixelplay.presentation.utils.LocalPlayerGestures.current
+    val gestureHost = com.theveloper.pixelplay.presentation.utils.LocalPlayerGestureHost.current
+    val miniLabelNext = androidx.compose.ui.res.stringResource(com.theveloper.pixelplay.R.string.player_gesture_action_next)
+    val miniLabelPrevious = androidx.compose.ui.res.stringResource(com.theveloper.pixelplay.R.string.player_gesture_action_previous)
+    val miniLabelMore = androidx.compose.ui.res.stringResource(com.theveloper.pixelplay.R.string.player_gesture_action_more)
     val miniDismissGestureHandler = rememberMiniPlayerDismissGestureHandler(
         scope = scope,
         density = density,
@@ -504,6 +513,12 @@ fun UnifiedPlayerSheetV2(
         onDismissPlaylistAndShowUndo = { playerViewModel.dismissPlaylistAndShowUndo() },
         onDismissStarted = { playerViewModel.setMiniPlayerDismissing(true) }
     )
+
+    // Long-press on the artwork or the mini player asks for the song's options (share, add to
+    // playlist, go to artist, block artist): the sheet that already holds those actions.
+    LaunchedEffect(gestureHost) {
+        gestureHost?.songOptionsRequests?.collect { sheetActionHandlers.onSelectedSongForInfoChange(it) }
+    }
 
     QueueSheetRuntimeEffects(
         queueSheetController = queueSheetController,
@@ -771,23 +786,48 @@ fun UnifiedPlayerSheetV2(
                                     placeable.placeRelative(xOffset, 0)
                                 }
                             }
+                            .horizontalIntentSwipe(
+                                enabled = currentSheetContentState == PlayerSheetState.COLLAPSED && miniGestures.miniSwipeSkip && gestureHost != null,
+                                threshold = 56.dp,
+                                onCommit = { direction ->
+                                    hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    // Swipe left = next, right = previous; both go through PlayerTransport.
+                                    if (direction < 0) playerViewModel.nextSong() else playerViewModel.previousSong()
+                                }
+                            )
                             .miniPlayerDismissHorizontalGesture(
-                                enabled = currentSheetContentState == PlayerSheetState.COLLAPSED,
+                                enabled = currentSheetContentState == PlayerSheetState.COLLAPSED && !miniGestures.miniSwipeSkip,
                                 handler = miniDismissGestureHandler
                             )
                             .playerSheetVerticalDragGesture(
                                 enabled = sheetInteractionState.canDragSheet,
                                 handler = sheetInteractionState.sheetVerticalDragGestureHandler
                             )
-                            .clickable(
+                            .combinedClickable(
                                 enabled = tapBackgroundClosesPlayer || currentSheetContentState == PlayerSheetState.COLLAPSED,
                                 interactionSource = miniPressSource,
-                                indication = null
+                                indication = null,
+                                onLongClick = if (currentSheetContentState == PlayerSheetState.COLLAPSED && miniGestures.miniLongPressActions && gestureHost != null && currentSong != null) {
+                                    {
+                                        hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        gestureHost.requestSongOptions(currentSong)
+                                    }
+                                } else null
                             ) {
                                 playerViewModel.togglePlayerSheetState()
                             }
                             .semantics {
                                 contentDescription = playerSheetSemanticsDescription
+                                if (currentSheetContentState == PlayerSheetState.COLLAPSED && gestureHost != null) {
+                                    customActions = listOf(
+                                        CustomAccessibilityAction(miniLabelNext) { gestureHost.skipNext(); true },
+                                        CustomAccessibilityAction(miniLabelPrevious) { gestureHost.skipPrevious(); true },
+                                        CustomAccessibilityAction(miniLabelMore) {
+                                            currentSong?.let { gestureHost.requestSongOptions(it) }
+                                            true
+                                        }
+                                    )
+                                }
                             }
                     val cardContent: @Composable BoxScope.() -> Unit = {
                         UnifiedPlayerMiniAndFullLayers(
