@@ -989,6 +989,9 @@ fun SettingsCategoryScreen(
                             }
                         }
                     }
+                    item(key = "playback_extras", contentType = "settings_subsection") {
+                        PlaybackExtrasSettings(navController = navController)
+                    }
                 }
                 SettingsCategory.BEHAVIOR -> {
                     item(key = "behavior_gestures", contentType = "settings_subsection") {

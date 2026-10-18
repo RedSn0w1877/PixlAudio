@@ -2511,6 +2511,9 @@ class PlayerViewModel @Inject constructor(
 
     fun addSongNextToQueue(song: Song) = playbackDispatchStateHolder.addSongNextToQueue(song)
 
+    fun queueSongIfAbsent(song: Song, playNext: Boolean): Boolean =
+        playbackDispatchStateHolder.queueSongIfAbsent(song, playNext)
+
     // =====================================================
     // Multi-Selection Batch Operations — delegated to
     // [MultiSelectionStateHolder]; the ViewModel only supplies the

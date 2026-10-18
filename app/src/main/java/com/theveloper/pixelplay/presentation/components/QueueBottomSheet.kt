@@ -1970,6 +1970,23 @@ fun QueuePlaylistSongItem(
     isFromPlaylist: Boolean
 ) {
     val colors = MaterialTheme.colorScheme
+    // Blocked artist: dimmed with a badge; a tap offers "Play anyway".
+    val blockedUi = com.theveloper.pixelplay.presentation.utils.LocalBlockedArtistsUi.current
+    val isBlockedSong = remember(song.id, song.artist, song.artistId, blockedUi?.index) {
+        blockedUi?.index?.isBlocked(song) == true
+    }
+    var showPlayAnywayDialog by remember { mutableStateOf(false) }
+    if (showPlayAnywayDialog) {
+        PlayBlockedSongDialog(
+            song = song,
+            onPlayAnyway = {
+                showPlayAnywayDialog = false
+                blockedUi?.allowOnce?.invoke(song.id)
+                onClick()
+            },
+            onDismiss = { showPlayAnywayDialog = false }
+        )
+    }
 
     val cornerRadius by animateDpAsState(
         targetValue = if (isCurrentSong) 60.dp else 22.dp,
@@ -2081,6 +2098,7 @@ fun QueuePlaylistSongItem(
         Surface(
             modifier = Modifier
                 .graphicsLayer { translationX = currentOffsetPx }
+                .then(if (isBlockedSong) Modifier.graphicsLayer { alpha = 0.5f } else Modifier)
                 .onGloballyPositioned { coordinates ->
                     val h = coordinates.size.height.toFloat()
                     if (h != surfaceHeightPx) surfaceHeightPx = h
@@ -2092,7 +2110,7 @@ fun QueuePlaylistSongItem(
                     indication = LocalIndication.current,
                     enabled = currentOffsetPx == 0f
                 ) {
-                    onClick()
+                    if (isBlockedSong) showPlayAnywayDialog = true else onClick()
                 },
             shape = itemShape,
             color = backgroundColor,
@@ -2158,6 +2176,9 @@ fun QueuePlaylistSongItem(
                             style = MaterialTheme.typography.bodyMedium,
                             color = if (isCurrentSong) colors.primary.copy(alpha = 0.8f) else colors.onSurfaceVariant
                         )
+                        if (isBlockedSong) {
+                            BlockedBadge(modifier = Modifier.padding(top = 2.dp))
+                        }
                     }
 
                     if (isCurrentSong) {

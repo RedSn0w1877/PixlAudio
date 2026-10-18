@@ -57,6 +57,7 @@ class SearchStateHolder @Inject constructor(
     private val spotifyDao: SpotifyDao,
     private val trackMatcher: TrackMatcher,
     private val innerTubeClient: InnerTubeClient,
+    private val blockedArtists: com.theveloper.pixelplay.data.blocking.BlockedArtistsRepository,
     @param:ApplicationContext private val context: Context,
 ) {
     private companion object {
@@ -183,9 +184,10 @@ class SearchStateHolder @Inject constructor(
                         if (request.requestId != latestSearchRequestId.get()) return@collectLatest
 
                         youtubeMusicResultsByVideoId.clear()
-                        results.forEach { youtubeMusicResultsByVideoId[it.videoId] = it }
+                        val allowedResults = results.filterNot { blockedArtists.current.isBlockedItem(null, it.artist) }
+                        allowedResults.forEach { youtubeMusicResultsByVideoId[it.videoId] = it }
 
-                        _youtubeMusicResults.value = results
+                        _youtubeMusicResults.value = allowedResults
                             .map { SearchResultItem.YouTubeMusicItem(it.toYouTubeMusicTrack()) }
                             .toImmutableList()
                     } catch (_: CancellationException) {
@@ -284,6 +286,7 @@ class SearchStateHolder @Inject constructor(
                         val fresh = results.tracks
                             .asSequence()
                             .filter { !it.id.isNullOrBlank() && it.id !in alreadyOwned }
+                            .filterNot { track -> blockedArtists.current.isBlockedAnyName(track.artists.orEmpty().map { it.name }) }
                             .take(CATALOG_RESULT_LIMIT)
                             .toList()
 

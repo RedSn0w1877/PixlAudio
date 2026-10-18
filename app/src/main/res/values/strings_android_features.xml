@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Blocked artists -->
+    <string name="blocked_badge">Blocked</string>
+    <string name="blocked_play_anyway_title">Blocked artist</string>
+    <string name="blocked_play_anyway_message">%1$s is blocked. Play this song anyway?</string>
+    <string name="blocked_play_anyway">Play anyway</string>
+    <string name="blocked_block_artist">Block artist</string>
+    <string name="blocked_unblock_artist">Unblock artist</string>
+    <string name="blocked_block_named">Block %1$s</string>
+    <string name="blocked_unblock_named">Unblock %1$s</string>
+    <string name="blocked_item_supporting">Songs by this artist are skipped and left out of mixes</string>
+    <string name="blocked_artist_toast_blocked">%1$s blocked</string>
+    <string name="blocked_artist_toast_unblocked">%1$s unblocked</string>
+    <string name="blocked_artists_nothing_to_play">Every song here is by a blocked artist</string>
+    <string name="blocked_unblock">Unblock</string>
+    <string name="settings_blocked_artists_title">Blocked artists</string>
+    <string name="settings_blocked_artists_none">No artists blocked</string>
+    <plurals name="settings_blocked_artists_count">
+        <item quantity="one">%d artist blocked</item>
+        <item quantity="other">%d artists blocked</item>
+    </plurals>
+    <string name="blocked_artists_empty_title">No blocked artists</string>
+    <string name="blocked_artists_empty_body">Block an artist from their page or a song\'s menu. Their songs are skipped and left out of your mixes.</string>
+    <string name="blocked_artists_search_hint">Search blocked artists</string>
+    <string name="blocked_artists_no_match">No blocked artist matches</string>
+    <string name="blocked_artists_unknown_name">Unknown artist</string>
+    <plurals name="blocked_artists_unblock_all">
+        <item quantity="one">Unblock all (%d)</item>
+        <item quantity="other">Unblock all (%d)</item>
+    </plurals>
+    <string name="blocked_artists_unblock_all_title">Unblock all artists?</string>
+    <string name="blocked_artists_unblock_all_body">Their songs will play and appear in mixes again.</string>
+
+    <!-- Find in list -->
+    <string name="find_in_list_label">Find in this list</string>
+    <string name="find_in_list_no_matches">No matches for \"%1$s\"</string>
+
+    <!-- Gestures -->
+    <string name="settings_gestures_section">Gestures</string>
+    <string name="settings_gesture_player_swipe_title">Swipe the cover to change song</string>
+    <string name="settings_gesture_player_swipe_subtitle">Full player: swipe the artwork left or right</string>
+    <string name="settings_gesture_player_double_tap_title">Double-tap the cover to like</string>
+    <string name="settings_gesture_player_double_tap_subtitle">Full player: double-tap the artwork to like or unlike</string>
+    <string name="settings_gesture_player_long_press_title">Long-press the cover for actions</string>
+    <string name="settings_gesture_player_long_press_subtitle">Full player: add to playlist, share, go to artist, block artist</string>
+    <string name="settings_gesture_mini_swipe_title">Swipe the mini player to skip</string>
+    <string name="settings_gesture_mini_swipe_subtitle">Left is next, right is previous. Replaces swipe-to-dismiss</string>
+    <string name="settings_gesture_mini_swipe_up_title">Swipe the mini player up</string>
+    <string name="settings_gesture_mini_swipe_up_subtitle">Opens the full player. Always available</string>
+    <string name="settings_gesture_mini_long_press_title">Long-press the mini player for actions</string>
+    <string name="settings_gesture_mini_long_press_subtitle">Opens the song\'s quick actions</string>
+    <string name="settings_gesture_row_swipe_title">Swipe a song row</string>
+    <string name="settings_gesture_row_swipe_subtitle">Right plays next, left adds to the queue. Takes over sideways swipes on song rows</string>
+    <string name="player_gesture_action_next">Next song</string>
+    <string name="player_gesture_action_previous">Previous song</string>
+    <string name="player_gesture_action_like">Like or unlike</string>
+    <string name="player_gesture_action_more">More actions</string>
+    <string name="row_action_play_next">Play next</string>
+    <string name="row_action_add_to_queue">Add to queue</string>
+    <string name="row_swipe_already_in_queue">Already in the queue</string>
+
+    <!-- Music haptics -->
+    <string name="settings_music_haptics_section">Music haptics</string>
+    <string name="settings_music_haptics_title">Vibrate with the music</string>
+    <string name="settings_music_haptics_subtitle">The phone buzzes along with kicks, snares and bass while a song plays in the app</string>
+    <string name="settings_music_haptics_unsupported">Not supported on this device</string>
+    <string name="settings_music_haptics_strength_title">Strength</string>
+    <string name="settings_music_haptics_follows_title">Follows</string>
+    <string name="settings_music_haptics_follows_subtitle">What the vibration reacts to</string>
+    <string name="settings_music_haptics_follows_everything">Everything</string>
+    <string name="settings_music_haptics_follows_beat">Beat</string>
+    <string name="settings_music_haptics_follows_bass">Bass</string>
+    <string name="settings_music_haptics_engine_title">Engine</string>
+    <string name="settings_music_haptics_engine_subtitle">App analysis follows Strength and Follows. The system engine is experimental and ignores them</string>
+    <string name="settings_music_haptics_engine_app">App analysis</string>
+    <string name="settings_music_haptics_engine_system">System (experimental)</string>
+</resources>

@@ -97,6 +97,7 @@ class PlaybackDispatchStateHolder @Inject constructor(
     private val castTransferStateHolder: CastTransferStateHolder,
     private val connectivityStateHolder: ConnectivityStateHolder,
     private val themeStateHolder: ThemeStateHolder,
+    private val blockedArtists: com.theveloper.pixelplay.data.blocking.BlockedArtistsRepository,
     @param:ApplicationContext private val context: Context,
 ) {
 
@@ -778,7 +779,18 @@ class PlaybackDispatchStateHolder @Inject constructor(
         return true
     }
 
-    suspend fun internalPlaySongs(songsToPlay: List<Song>, startSong: Song, queueName: String = "None", playlistId: String? = null) {
+    suspend fun internalPlaySongs(requestedSongs: List<Song>, requestedStart: Song, queueName: String = "None", playlistId: String? = null) {
+        // Blocked artists never play automatically: they are dropped from the queue, unless the
+        // owner just chose that very song with "Play anyway".
+        val blockedIndex = blockedArtists.current
+        val allowedId = blockedArtists.allowedMediaId
+        val songsToPlay = if (blockedIndex.isEmpty) requestedSongs else
+            requestedSongs.filter { it.id == allowedId || !blockedIndex.isBlocked(it) }
+        val startSong = if (songsToPlay.any { it.id == requestedStart.id }) requestedStart
+            else songsToPlay.firstOrNull() ?: requestedStart
+        if (songsToPlay.isEmpty() && requestedSongs.isNotEmpty()) {
+            cb.emitToast(context.getString(R.string.blocked_artists_nothing_to_play))
+        }
         if (songsToPlay.isEmpty()) {
             clearPreparingSongIfMatching()
             return
@@ -949,6 +961,19 @@ class PlaybackDispatchStateHolder @Inject constructor(
                 controller.play()
             }
         }
+    }
+
+    /**
+     * Adds [song] to the live queue unless it is already in it (row swipe: "Play next" /
+     * "Add to queue"). Returns true when it was added.
+     */
+    fun queueSongIfAbsent(song: Song, playNext: Boolean): Boolean {
+        val controller = cb.getController() ?: return false
+        for (i in 0 until controller.mediaItemCount) {
+            if (controller.getMediaItemAt(i).mediaId == song.id) return false
+        }
+        if (playNext) addSongNextToQueue(song) else addSongToQueue(song)
+        return true
     }
 
     fun addSongToQueue(song: Song) {

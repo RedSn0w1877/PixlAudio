@@ -44,10 +44,19 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.semantics
+import com.theveloper.pixelplay.presentation.utils.horizontalIntentSwipe
+import com.theveloper.pixelplay.presentation.components.BlockedBadge
+import com.theveloper.pixelplay.presentation.components.PlayBlockedSongDialog
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp as lerpColor
 import androidx.compose.ui.input.pointer.pointerInput
@@ -186,6 +195,38 @@ fun EnhancedSongListItem(
         SpotifyMatchStateCache.states.map { it[spotifyId] }.distinctUntilChanged()
     }.collectAsState(initial = null).value
 
+    // Blocked artist: the row stays visible but dimmed with a badge, and a tap offers "Play anyway".
+    val blockedUi = com.theveloper.pixelplay.presentation.utils.LocalBlockedArtistsUi.current
+    val isBlockedSong = remember(song.id, song.artist, song.artistId, blockedUi?.index) { blockedUi?.index?.isBlocked(song) == true }
+    val isBlockedSongState = androidx.compose.runtime.rememberUpdatedState(isBlockedSong)
+    var showPlayAnywayDialog by remember { mutableStateOf(false) }
+
+    // Row swipe (Settings > Playback > Gestures): right = Play next, left = Add to queue. Off by default.
+    val rowGestures = com.theveloper.pixelplay.presentation.utils.LocalPlayerGestures.current
+    val gestureHost = com.theveloper.pixelplay.presentation.utils.LocalPlayerGestureHost.current
+    val rowSwipeEnabled = rowGestures.rowSwipeQueue && gestureHost != null && !isSelectionMode && !isLoading
+    var rowSwipeDx by remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
+    val latestSong by androidx.compose.runtime.rememberUpdatedState(song)
+    val toastPlayingNext = stringResource(R.string.library_toast_playing_next)
+    val toastAddedToQueue = stringResource(R.string.library_toast_added_to_queue)
+    val toastAlreadyQueued = stringResource(R.string.row_swipe_already_in_queue)
+    val queueSong: (Boolean) -> Unit = { playNext ->
+        val host = gestureHost
+        if (host != null) {
+            val added = host.queueSongIfAbsent(latestSong, playNext)
+            host.showToast(
+                when {
+                    !added -> toastAlreadyQueued
+                    playNext -> toastPlayingNext
+                    else -> toastAddedToQueue
+                }
+            )
+        }
+    }
+    val rowHaptics = androidx.compose.ui.platform.LocalHapticFeedback.current
+    val actionLabelPlayNext = stringResource(R.string.row_action_play_next)
+    val actionLabelAddToQueue = stringResource(R.string.row_action_add_to_queue)
+
     val isHighlighted = isCurrentSong && !isLoading
     val transition = updateTransition(
         targetState = EnhancedSongAnimationTarget(
@@ -264,6 +305,18 @@ fun EnhancedSongListItem(
     )
     val showSelectionDecoration = selectionVisualProgress > 0.001f
 
+    if (showPlayAnywayDialog) {
+        PlayBlockedSongDialog(
+            song = song,
+            onPlayAnyway = {
+                showPlayAnywayDialog = false
+                blockedUi?.allowOnce?.invoke(song.id)
+                onClick()
+            },
+            onDismiss = { showPlayAnywayDialog = false }
+        )
+    }
+
     if (isLoading) {
         // Shimmer Placeholder Layout
         Surface(
@@ -340,6 +393,31 @@ fun EnhancedSongListItem(
                         Modifier
                     }
                 )
+                .then(if (isBlockedSong) Modifier.graphicsLayer { alpha = 0.5f } else Modifier)
+                .then(if (rowSwipeEnabled) Modifier.graphicsLayer { translationX = rowSwipeDx } else Modifier)
+                .horizontalIntentSwipe(
+                    enabled = rowSwipeEnabled,
+                    threshold = 72.dp,
+                    onDrag = { dx -> rowSwipeDx = (dx / 3f).coerceIn(-96f, 96f) },
+                    onCancel = { rowSwipeDx = 0f },
+                    onCommit = { direction ->
+                        rowSwipeDx = 0f
+                        rowHaptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                        queueSong(direction > 0)
+                    }
+                )
+                .then(
+                    if (rowSwipeEnabled) {
+                        Modifier.semantics {
+                            customActions = listOf(
+                                CustomAccessibilityAction(actionLabelPlayNext) { queueSong(true); true },
+                                CustomAccessibilityAction(actionLabelAddToQueue) { queueSong(false); true }
+                            )
+                        }
+                    } else {
+                        Modifier
+                    }
+                )
                 .pointerInput(isSelectionMode) {
                     detectTapGestures(
                         onTap = { 
@@ -347,7 +425,7 @@ fun EnhancedSongListItem(
                                 // In selection mode, tap toggles selection
                                 onLongPress()
                             } else {
-                                onClick() 
+                                if (isBlockedSongState.value) showPlayAnywayDialog = true else onClick()
                             }
                         },
                         onLongPress = {
@@ -446,6 +524,10 @@ fun EnhancedSongListItem(
                 
                 val showPlayingIndicator = isCurrentSong && !isSelectionMode
                 val showTrailingAction = showMoreOptionsButton && !isSelectionMode
+
+                if (isBlockedSong && !isSelectionMode) {
+                    BlockedBadge(modifier = Modifier.padding(start = 8.dp))
+                }
 
                 if (!isSelectionMode) {
                     SongAvailabilityBadge(
