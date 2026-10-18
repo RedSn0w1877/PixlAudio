@@ -348,6 +348,9 @@
 -keep class org.mozilla.javascript.** { *; }
 -keep class org.mozilla.classfile.ClassFileWriter
 -dontwarn org.mozilla.javascript.tools.**
+# Rhino's optimizer references jdk.dynalink (a JDK-only invokedynamic linker that Android does not have).
+# Rhino never takes that path on Android, so R8 may ignore the missing classes.
+-dontwarn jdk.dynalink.**
 -keep class org.schabi.newpipe.extractor.timeago.patterns.** { *; }
 
 # NOTE: the Timber/Log -assumenosideeffects rules above delete Timber.i / Log.i call sites in release.

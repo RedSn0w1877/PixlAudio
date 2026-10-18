@@ -378,6 +378,8 @@ class LyricsRepositoryImpl @Inject constructor(
         cacheKey: String,
         forceRefresh: Boolean
     ): Lyrics? {
+        // The same opaque id the caller logs (titles never go into the diagnostics log).
+        val diagId = DiagnosticsRedactor.opaqueId(song.title)
         // Define source fetchers (matching Rhythm pattern)
         val fetchFromLocal: suspend () -> Lyrics? = {
             findLocalLyricsFile(song)
@@ -447,7 +449,7 @@ class LyricsRepositoryImpl @Inject constructor(
         // No lyrics found from any source
         Log.d(TAG, "No lyrics found from any source for: ${song.displayArtist} - ${song.title}")
         DiagnosticsLog.event("Lyrics", "lookup track=$diagId result=none preference=$sourcePreference")
-        return@withContext null
+        return null
     }
 
     override suspend fun getStoredLyrics(song: Song): Pair<Lyrics, String>? = withContext(Dispatchers.IO) {
