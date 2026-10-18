@@ -91,6 +91,8 @@ object MediaItemBuilder {
     const val EXTERNAL_EXTRA_DATE_ADDED = EXTERNAL_EXTRA_PREFIX + "DATE_ADDED"
     const val EXTERNAL_EXTRA_FILE_PATH = EXTERNAL_EXTRA_PREFIX + "FILE_PATH"
     const val EXTERNAL_EXTRA_SPOTIFY_ID = EXTERNAL_EXTRA_PREFIX + "SPOTIFY_ID"
+    /** Long[] of every credited artist id; read by the blocked-artists guard in the service. */
+    const val EXTRA_ARTIST_IDS = EXTERNAL_EXTRA_PREFIX + "ARTIST_IDS"
 
     fun build(song: Song): MediaItem {
         return MediaItem.Builder()
@@ -288,6 +290,7 @@ object MediaItemBuilder {
             putLong(EXTERNAL_EXTRA_DATE_ADDED, song.dateAdded)
             putString(EXTERNAL_EXTRA_FILE_PATH, song.path)
             song.spotifyId?.let { putString(EXTERNAL_EXTRA_SPOTIFY_ID, it) }
+            putLongArray(EXTRA_ARTIST_IDS, (song.artists.map { it.id } + song.artistId).distinct().toLongArray())
         }
 
         metadataBuilder.setExtras(extras)

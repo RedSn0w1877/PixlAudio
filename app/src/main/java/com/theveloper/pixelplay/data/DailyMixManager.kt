@@ -27,7 +27,8 @@ import javax.inject.Singleton
 class DailyMixManager @Inject constructor(
     @ApplicationContext private val context: Context,
     private val engagementDao: EngagementDao,
-    private val tasteRepository: com.theveloper.pixelplay.data.recommendation.MusicTasteRepository
+    private val tasteRepository: com.theveloper.pixelplay.data.recommendation.MusicTasteRepository,
+    private val blockedArtists: com.theveloper.pixelplay.data.blocking.BlockedArtistsRepository
 ) {
 
     private val gson = Gson()
@@ -417,9 +418,11 @@ class DailyMixManager @Inject constructor(
     }
 
     suspend fun personalizedPicks(
-        allSongs: List<Song>, favoriteSongIds: Set<String>, limit: Int = 30,
+        allSongsIncludingBlocked: List<Song>, favoriteSongIds: Set<String>, limit: Int = 30,
         seed: Long = java.time.LocalDate.now().toEpochDay()
     ): List<com.theveloper.pixelplay.data.recommendation.MusicRecommendationEngine.Pick> {
+        // Blocked artists never appear in mixes (Daily, Your mix, AI candidates).
+        val allSongs = blockedArtists.current.filterAllowed(allSongsIncludingBlocked)
         if (allSongs.isEmpty() || limit <= 0) return emptyList()
         val history = readEngagements().mapValues { (_, stats) ->
             com.theveloper.pixelplay.data.recommendation.MusicRecommendationEngine.History(

@@ -50,7 +50,8 @@ data class SpotifyBrowseUiState(
 @HiltViewModel
 class SpotifyBrowseViewModel @Inject constructor(
     @param:ApplicationContext private val context: Context,
-    private val repository: SpotifyRepository
+    private val repository: SpotifyRepository,
+    private val blockedArtists: com.theveloper.pixelplay.data.blocking.BlockedArtistsRepository
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(SpotifyBrowseUiState())
@@ -72,6 +73,7 @@ class SpotifyBrowseViewModel @Inject constructor(
             _uiState.update { it.copy(isLoading = true) }
 
             val topTracks = runCatching { repository.getMyTopTracks() }.getOrElse { emptyList() }
+                .filterNot { track -> blockedArtists.current.isBlockedAnyName(track.artists.orEmpty().map { it.name }) }
             val topArtists = runCatching { repository.getMyTopArtists() }.getOrElse { emptyList() }
 
             _uiState.update {

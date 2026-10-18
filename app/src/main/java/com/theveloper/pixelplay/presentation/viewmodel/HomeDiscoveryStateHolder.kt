@@ -56,7 +56,8 @@ class HomeDiscoveryStateHolder @Inject constructor(
     private val music: MusicRepository,
     private val engagement: EngagementDao,
     private val taste: MusicTasteRepository,
-    private val catalog: HomeCatalogRepository
+    private val catalog: HomeCatalogRepository,
+    private val blockedArtists: com.theveloper.pixelplay.data.blocking.BlockedArtistsRepository
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     // The ranking/planning passes are pure CPU over the whole library: run them on one Default
@@ -87,7 +88,8 @@ class HomeDiscoveryStateHolder @Inject constructor(
         refreshJob = scope.launch {
             mutableState.update { it.copy(isRefreshing = true) }
             try {
-                val library = music.getAllSongsOnce()
+                // Blocked artists never reach Home recommendations.
+                val library = blockedArtists.current.filterAllowed(music.getAllSongsOnce())
                 lastRefreshHadLibrary = library.isNotEmpty()
                 val favorites = music.getFavoriteSongIdsOnce()
                 val storedSignals = taste.signals()
@@ -109,8 +111,8 @@ class HomeDiscoveryStateHolder @Inject constructor(
                     val planned = withContext(planningDispatcher) {
                         HomeRecommendationPlanner.plan(
                             library, favorites, signals, history,
-                            discoveries = snapshot.discoveries.map { it.song },
-                            releases = snapshot.releases.filter { HomeRecommendationPlanner.isRecentRelease(it.releaseDate, LocalDate.now()) }.map { it.song },
+                            discoveries = blockedArtists.current.filterAllowed(snapshot.discoveries.map { it.song }),
+                            releases = blockedArtists.current.filterAllowed(snapshot.releases.filter { HomeRecommendationPlanner.isRecentRelease(it.releaseDate, LocalDate.now()) }.map { it.song }),
                             nowMs = now, seed = LocalDate.now().toEpochDay(), variant = variant
                         )
                     }

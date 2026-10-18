@@ -105,6 +105,8 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.coerceAtLeast
@@ -985,11 +987,33 @@ private fun FullPlayerAlbumCoverSection(
         animationSpec = tween(durationMillis = 260, easing = FastOutSlowInEasing),
         label = "AlbumArtScale"
     )
+    val artworkGestures = com.theveloper.pixelplay.presentation.utils.LocalPlayerGestures.current
+    val gestureHost = com.theveloper.pixelplay.presentation.utils.LocalPlayerGestureHost.current
+    val artworkHaptics = LocalHapticFeedback.current
+    var heartTrigger by remember { androidx.compose.runtime.mutableIntStateOf(0) }
+    val labelNext = stringResource(R.string.player_gesture_action_next)
+    val labelPrevious = stringResource(R.string.player_gesture_action_previous)
+    val labelLike = stringResource(R.string.player_gesture_action_like)
+    val labelMore = stringResource(R.string.player_gesture_action_more)
 
     BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
             .padding(vertical = 8.dp)
+            .semantics {
+                val actions = mutableListOf<androidx.compose.ui.semantics.CustomAccessibilityAction>()
+                if (gestureHost != null) {
+                    actions += androidx.compose.ui.semantics.CustomAccessibilityAction(labelNext) { gestureHost.skipNext(); true }
+                    actions += androidx.compose.ui.semantics.CustomAccessibilityAction(labelPrevious) { gestureHost.skipPrevious(); true }
+                    if (artworkGestures.playerDoubleTapLike) {
+                        actions += androidx.compose.ui.semantics.CustomAccessibilityAction(labelLike) { gestureHost.toggleFavoriteCurrent(); true }
+                    }
+                    if (artworkGestures.playerLongPressActions) {
+                        actions += androidx.compose.ui.semantics.CustomAccessibilityAction(labelMore) { gestureHost.requestSongOptions(song); true }
+                    }
+                }
+                customActions = actions
+            }
     ) {
         val carouselHeight = when (carouselStyle) {
             CarouselStyle.NO_PEEK -> maxWidth
@@ -1055,9 +1079,27 @@ private fun FullPlayerAlbumCoverSection(
                         scaleY = albumArtScale
                     },
                 albumArtQuality = albumArtQuality,
-                itemCornerRadius = 18.dp
+                itemCornerRadius = 18.dp,
+                swipeEnabled = artworkGestures.playerSwipeSkip,
+                onDoubleTap = if (artworkGestures.playerDoubleTapLike && gestureHost != null) {
+                    {
+                        gestureHost.toggleFavoriteCurrent()
+                        heartTrigger++
+                        artworkHaptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                    }
+                } else null,
+                onLongPress = if (artworkGestures.playerLongPressActions && gestureHost != null) {
+                    { pressedSong ->
+                        artworkHaptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        gestureHost.requestSongOptions(pressedSong)
+                    }
+                } else null
             )
         }
+        com.theveloper.pixelplay.presentation.utils.HeartBurst(
+            trigger = heartTrigger,
+            modifier = Modifier.align(Alignment.Center)
+        )
     }
 }
 

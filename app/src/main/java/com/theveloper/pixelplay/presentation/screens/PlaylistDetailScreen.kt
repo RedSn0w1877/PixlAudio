@@ -61,6 +61,11 @@ import androidx.compose.material.icons.rounded.DragIndicator
 import androidx.compose.material.icons.rounded.FileDownload
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Shuffle
+import androidx.compose.material.icons.rounded.Search
+import com.theveloper.pixelplay.presentation.components.FindInListBar
+import com.theveloper.pixelplay.presentation.components.FindInListEmpty
+import com.theveloper.pixelplay.presentation.components.rememberFindInList
+import com.theveloper.pixelplay.presentation.components.rememberFindPullConnection
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -240,6 +245,8 @@ fun PlaylistDetailScreen(
     var localReorderableSongs by remember(playlistId) { mutableStateOf(songsInPlaylist) }
 
     val listState = rememberAppListState()
+    val findState = rememberFindInList(localReorderableSongs)
+    val findPullConnection = rememberFindPullConnection(findState, listState)
     val scope = rememberCoroutineScope()
     val view = LocalView.current
     val appHapticsConfig = LocalAppHapticsConfig.current
@@ -316,6 +323,9 @@ fun PlaylistDetailScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = { if (findState.visible) findState.hide() else findState.show() }) {
+                        Icon(Icons.Rounded.Search, contentDescription = stringResource(R.string.find_in_list_label))
+                    }
                     IconButton(
                         onClick = {
                             playerViewModel.showSortingSheet() 
@@ -695,6 +705,11 @@ fun PlaylistDetailScreen(
                         }
                     }
                 } else {
+                    FindInListBar(findState)
+                    val shownSongs = findState.displayed(localReorderableSongs)
+                    if (findState.isFiltering && shownSongs.isEmpty()) {
+                        FindInListEmpty(findState.query, Modifier.weight(1f))
+                    } else
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
@@ -705,6 +720,7 @@ fun PlaylistDetailScreen(
                             state = listState,
                             modifier = Modifier
                                 .fillMaxSize()
+                                .nestedScroll(findPullConnection)
                                 .clip(
                                     AbsoluteSmoothCornerShape(
                                         cornerRadiusTR = 32.dp,
@@ -730,12 +746,13 @@ fun PlaylistDetailScreen(
                             }
                         ) {
                             itemsIndexed(
-                                localReorderableSongs,
+                                shownSongs,
                                 key = { _, item -> item.id },
                                 contentType = { _, _ -> "playlist_song" }) { _, song ->
                                 ReorderableItem(
                                     state = reorderableState,
                                     key = song.id,
+                                    enabled = !findState.isFiltering,
                                 ) { isDragging ->
                                     val scale by animateFloatAsState(
                                         if (isDragging) 1.05f else 1f,
@@ -752,7 +769,7 @@ fun PlaylistDetailScreen(
                                             },
                                         onClick = {
                                             playerViewModel.playSongs(
-                                                localReorderableSongs,
+                                                shownSongs,
                                                 song,
                                                 currentPlaylist.name,
                                                 currentPlaylist.id
@@ -771,7 +788,7 @@ fun PlaylistDetailScreen(
                                         },
                                         isFromPlaylist = true,
                                         isReorderModeEnabled = isReorderModeEnabled,
-                                        isDragHandleVisible = isReorderModeEnabled,
+                                        isDragHandleVisible = isReorderModeEnabled && !findState.isFiltering,
                                         isRemoveButtonVisible = isRemoveModeEnabled,
                                         onMoreOptionsClick = stableOnMoreOptionsClick,
                                         dragHandle = {

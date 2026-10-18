@@ -1101,6 +1101,7 @@ private fun SharedArtistTopBarProbe(
                             expanded = showImageMenu,
                             onDismissRequest = { showImageMenu = false }
                         ) {
+                            com.theveloper.pixelplay.presentation.components.BlockArtistMenuItem(artist.id, artist.name) { showImageMenu = false }
                             DropdownMenuItem(
                                 text = { Text(stringResource(R.string.artist_action_change_photo)) },
                                 leadingIcon = {
@@ -1301,6 +1302,7 @@ private fun CustomCollapsingTopBar(
                                 expanded = showImageMenu,
                                 onDismissRequest = { showImageMenu = false }
                             ) {
+                            com.theveloper.pixelplay.presentation.components.BlockArtistMenuItem(artist.id, artist.name) { showImageMenu = false }
                                 DropdownMenuItem(
                                     text = { Text(stringResource(R.string.artist_action_change_photo)) },
                                     leadingIcon = { Icon(Icons.Rounded.AddAPhoto, contentDescription = null) },

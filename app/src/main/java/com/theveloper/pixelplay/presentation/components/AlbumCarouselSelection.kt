@@ -5,7 +5,8 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.*
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import com.theveloper.pixelplay.presentation.utils.blockHorizontalDrags
 import androidx.compose.foundation.interaction.DragInteraction
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
@@ -57,7 +58,13 @@ fun AlbumCarouselSection(
      * warm, hidden full player): the carousel then jumps to the new item instead of running a
      * scroll animation nobody sees.
      */
-    animateProgrammaticScroll: () -> Boolean = { true }
+    animateProgrammaticScroll: () -> Boolean = { true },
+    /** Settings > Playback > Gestures: false turns the sideways swipe off (taps still work). */
+    swipeEnabled: Boolean = true,
+    /** Double-tap on the focused artwork (like). */
+    onDoubleTap: (() -> Unit)? = null,
+    /** Long-press on the focused artwork (quick actions). */
+    onLongPress: ((Song) -> Unit)? = null
 ) {
     if (queue.isEmpty()) return
 
@@ -187,7 +194,7 @@ fun AlbumCarouselSection(
 
     val corner = itemCornerRadius//lerp(36.dp, 15.dp, expansionFraction.coerceIn(0f, 1f))
 
-    BoxWithConstraints(modifier = modifier) {
+    BoxWithConstraints(modifier = modifier.blockHorizontalDrags(!swipeEnabled)) {
         val availableWidth = this.maxWidth
 
         RoundedHorizontalMultiBrowseCarousel(
@@ -209,11 +216,13 @@ fun AlbumCarouselSection(
                     Modifier
                         .fillMaxSize()
                         .aspectRatio(1f)
-                        .clickable(
-                            enabled = isFocusedItem && song.albumId != -1L,
+                        .combinedClickable(
+                            enabled = isFocusedItem,
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null,
-                            onClick = { onAlbumClick(song) }
+                            onClick = { if (song.albumId != -1L) onAlbumClick(song) },
+                            onDoubleClick = onDoubleTap,
+                            onLongClick = onLongPress?.let { handler -> { handler(song) } }
                         )
                 ) { // Enforce 1:1 aspect ratio for the item itself
                     OptimizedAlbumArt(

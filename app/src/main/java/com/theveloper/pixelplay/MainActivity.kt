@@ -200,6 +200,8 @@ class MainActivity : ComponentActivity() {
     @Inject
     lateinit var themeStateHolder: ThemeStateHolder
     @Inject
+    lateinit var blockedArtistsRepository: com.theveloper.pixelplay.data.blocking.BlockedArtistsRepository
+    @Inject
     lateinit var syncManager: SyncManager
     @Inject
     lateinit var appUpdateManager: com.theveloper.pixelplay.data.update.AppUpdateManager
@@ -298,6 +300,34 @@ class MainActivity : ComponentActivity() {
             // Settings › Appearance › Accent Color; null (still loading, or the default Dynamic)
             // leaves Material You in place.
             val appAccent by accentScheme.collectAsStateWithLifecycle()
+            // Blocked artists, gesture switches and the player actions the gesture layers use,
+            // provided once so any row, menu or sheet can read them (see PlayerExtrasLocals).
+            val blockedUiScope = androidx.compose.runtime.rememberCoroutineScope()
+            val blockedIndex by blockedArtistsRepository.index.collectAsStateWithLifecycle()
+            val blockedUi = remember(blockedIndex) {
+                com.theveloper.pixelplay.presentation.utils.BlockedArtistsUi(
+                    index = blockedIndex,
+                    allowOnce = { blockedArtistsRepository.allowOnce(it) },
+                    block = { id, name -> blockedUiScope.launch { blockedArtistsRepository.block(id, name) } },
+                    unblock = { id, name -> blockedUiScope.launch { blockedArtistsRepository.unblock(id, name) } }
+                )
+            }
+            val playerGestures by userPreferencesRepository.playerGesturesFlow.collectAsStateWithLifecycle(
+                initialValue = com.theveloper.pixelplay.data.preferences.PlayerGestureSettings()
+            )
+            val gestureHost = remember {
+                com.theveloper.pixelplay.presentation.utils.PlayerGestureHost(
+                    songOptionsRequests = kotlinx.coroutines.flow.MutableSharedFlow(
+                        extraBufferCapacity = 1,
+                        onBufferOverflow = kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST
+                    ),
+                    toggleFavoriteCurrent = { playerViewModel.toggleFavorite() },
+                    skipNext = { playerViewModel.nextSong() },
+                    skipPrevious = { playerViewModel.previousSong() },
+                    queueSongIfAbsent = { song, next -> playerViewModel.queueSongIfAbsent(song, next) },
+                    showToast = { playerViewModel.sendToast(it) }
+                )
+            }
             val useDarkTheme = when (appThemeMode) {
                 AppThemeMode.DARK -> true
                 AppThemeMode.LIGHT -> false
@@ -343,7 +373,10 @@ class MainActivity : ComponentActivity() {
             }
 
             CompositionLocalProvider(
-                LocalShowScrollbar provides showScrollbar
+                LocalShowScrollbar provides showScrollbar,
+                com.theveloper.pixelplay.presentation.utils.LocalBlockedArtistsUi provides blockedUi,
+                com.theveloper.pixelplay.presentation.utils.LocalPlayerGestures provides playerGestures,
+                com.theveloper.pixelplay.presentation.utils.LocalPlayerGestureHost provides gestureHost
             ) {
                 PixelPlayTheme(
                     darkTheme = useDarkTheme,
@@ -698,6 +731,7 @@ class MainActivity : ComponentActivity() {
                 Screen.EditTransition.route,
                 Screen.Experimental.route,
                 Screen.ArtistSettings.route,
+                Screen.BlockedArtists.route,
                 Screen.Equalizer.route,
                 Screen.SettingsCategory.route,
                 Screen.DelimiterConfig.route,

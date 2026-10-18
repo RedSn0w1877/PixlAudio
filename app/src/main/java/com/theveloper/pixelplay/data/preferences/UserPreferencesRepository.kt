@@ -325,6 +325,24 @@ class UserPreferencesRepository @Inject constructor(
         val REPLAYGAIN_USE_ALBUM_GAIN = booleanPreferencesKey("replaygain_use_album_gain")
         val PAUSE_ON_VOLUME_ZERO = booleanPreferencesKey("pause_on_volume_zero")
         val SHOW_SCROLLBAR = booleanPreferencesKey("show_scrollbar")
+
+        // Blocked artists (stored as "<id>|<name>" entries, backed up with the other settings)
+        val BLOCKED_ARTISTS = stringSetPreferencesKey("blocked_artists")
+
+        // Player gestures
+        val GESTURE_PLAYER_SWIPE = booleanPreferencesKey("gesture_player_swipe_skip")
+        val GESTURE_PLAYER_DOUBLE_TAP = booleanPreferencesKey("gesture_player_double_tap_like")
+        val GESTURE_PLAYER_LONG_PRESS = booleanPreferencesKey("gesture_player_long_press_actions")
+        val GESTURE_MINI_SWIPE = booleanPreferencesKey("gesture_mini_swipe_skip")
+        val GESTURE_MINI_SWIPE_UP = booleanPreferencesKey("gesture_mini_swipe_up_open")
+        val GESTURE_MINI_LONG_PRESS = booleanPreferencesKey("gesture_mini_long_press_actions")
+        val GESTURE_ROW_SWIPE = booleanPreferencesKey("gesture_row_swipe_queue")
+
+        // Music haptics
+        val MUSIC_HAPTICS_ENABLED = booleanPreferencesKey("music_haptics_enabled")
+        val MUSIC_HAPTICS_STRENGTH = intPreferencesKey("music_haptics_strength_percent")
+        val MUSIC_HAPTICS_FOLLOWS = stringPreferencesKey("music_haptics_follows")
+        val MUSIC_HAPTICS_ENGINE = stringPreferencesKey("music_haptics_engine")
     }
 
     // ─── Private helpers ─────────────────────────────────────────────────────
@@ -819,6 +837,98 @@ class UserPreferencesRepository @Inject constructor(
             preferences[PreferencesKeys.DIRECTORY_RULES_VERSION] =
                 incrementWrapped(preferences[PreferencesKeys.DIRECTORY_RULES_VERSION])
         }
+    }
+
+    // ─── Blocked artists ──────────────────────────────────────────────────────
+
+    val blockedArtistsFlow: Flow<List<com.theveloper.pixelplay.data.blocking.BlockedArtist>> =
+        pref { it[PreferencesKeys.BLOCKED_ARTISTS] ?: emptySet() }.map { raw ->
+            raw.mapNotNull(com.theveloper.pixelplay.data.blocking.BlockedArtistCodec::decode)
+        }.distinctUntilChanged()
+
+    suspend fun blockArtist(artist: com.theveloper.pixelplay.data.blocking.BlockedArtist) {
+        dataStore.edit { preferences ->
+            val current = preferences[PreferencesKeys.BLOCKED_ARTISTS] ?: emptySet()
+            // One entry per artist id: re-blocking refreshes the stored name.
+            val kept = current.filterNot {
+                com.theveloper.pixelplay.data.blocking.BlockedArtistCodec.decode(it)?.id == artist.id
+            }
+            preferences[PreferencesKeys.BLOCKED_ARTISTS] =
+                (kept + com.theveloper.pixelplay.data.blocking.BlockedArtistCodec.encode(artist)).toSet()
+        }
+    }
+
+    suspend fun unblockArtist(artistId: Long, name: String? = null) {
+        val foldedName = com.theveloper.pixelplay.data.text.FoldedText.fold(name)
+        dataStore.edit { preferences ->
+            val current = preferences[PreferencesKeys.BLOCKED_ARTISTS] ?: return@edit
+            preferences[PreferencesKeys.BLOCKED_ARTISTS] = current.filterNot {
+                com.theveloper.pixelplay.data.blocking.BlockedArtistCodec.decode(it)?.let { entry -> entry.id == artistId || (foldedName.isNotEmpty() && com.theveloper.pixelplay.data.text.FoldedText.fold(entry.name) == foldedName) } == true
+            }.toSet()
+        }
+    }
+
+    suspend fun unblockAllArtists() {
+        dataStore.edit { it.remove(PreferencesKeys.BLOCKED_ARTISTS) }
+    }
+
+    // ─── Player gestures ──────────────────────────────────────────────────────
+
+    val playerGesturesFlow: Flow<PlayerGestureSettings> = pref { p ->
+        val d = PlayerGestureSettings()
+        PlayerGestureSettings(
+            playerSwipeSkip = p[PreferencesKeys.GESTURE_PLAYER_SWIPE] ?: d.playerSwipeSkip,
+            playerDoubleTapLike = p[PreferencesKeys.GESTURE_PLAYER_DOUBLE_TAP] ?: d.playerDoubleTapLike,
+            playerLongPressActions = p[PreferencesKeys.GESTURE_PLAYER_LONG_PRESS] ?: d.playerLongPressActions,
+            miniSwipeSkip = p[PreferencesKeys.GESTURE_MINI_SWIPE] ?: d.miniSwipeSkip,
+            miniSwipeUpOpen = p[PreferencesKeys.GESTURE_MINI_SWIPE_UP] ?: d.miniSwipeUpOpen,
+            miniLongPressActions = p[PreferencesKeys.GESTURE_MINI_LONG_PRESS] ?: d.miniLongPressActions,
+            rowSwipeQueue = p[PreferencesKeys.GESTURE_ROW_SWIPE] ?: d.rowSwipeQueue,
+        )
+    }
+
+    suspend fun setPlayerGesture(gesture: PlayerGesture, enabled: Boolean) {
+        val key = when (gesture) {
+            PlayerGesture.PLAYER_SWIPE_SKIP -> PreferencesKeys.GESTURE_PLAYER_SWIPE
+            PlayerGesture.PLAYER_DOUBLE_TAP_LIKE -> PreferencesKeys.GESTURE_PLAYER_DOUBLE_TAP
+            PlayerGesture.PLAYER_LONG_PRESS -> PreferencesKeys.GESTURE_PLAYER_LONG_PRESS
+            PlayerGesture.MINI_SWIPE_SKIP -> PreferencesKeys.GESTURE_MINI_SWIPE
+            PlayerGesture.MINI_SWIPE_UP -> PreferencesKeys.GESTURE_MINI_SWIPE_UP
+            PlayerGesture.MINI_LONG_PRESS -> PreferencesKeys.GESTURE_MINI_LONG_PRESS
+            PlayerGesture.ROW_SWIPE_QUEUE -> PreferencesKeys.GESTURE_ROW_SWIPE
+        }
+        dataStore.edit { it[key] = enabled }
+    }
+
+    // ─── Music haptics ────────────────────────────────────────────────────────
+
+    val musicHapticsFlow: Flow<MusicHapticsSettings> = pref { p ->
+        MusicHapticsSettings(
+            enabled = p[PreferencesKeys.MUSIC_HAPTICS_ENABLED] ?: false,
+            strengthPercent = (p[PreferencesKeys.MUSIC_HAPTICS_STRENGTH] ?: MusicHapticsSettings.DEFAULT_STRENGTH)
+                .coerceIn(MusicHapticsSettings.MIN_STRENGTH, MusicHapticsSettings.MAX_STRENGTH),
+            follows = MusicHapticsFollows.fromKey(p[PreferencesKeys.MUSIC_HAPTICS_FOLLOWS]),
+            engine = MusicHapticsEngineChoice.fromKey(p[PreferencesKeys.MUSIC_HAPTICS_ENGINE]),
+        )
+    }
+
+    suspend fun setMusicHapticsEnabled(enabled: Boolean) {
+        dataStore.edit { it[PreferencesKeys.MUSIC_HAPTICS_ENABLED] = enabled }
+    }
+
+    suspend fun setMusicHapticsStrength(percent: Int) {
+        dataStore.edit {
+            it[PreferencesKeys.MUSIC_HAPTICS_STRENGTH] =
+                percent.coerceIn(MusicHapticsSettings.MIN_STRENGTH, MusicHapticsSettings.MAX_STRENGTH)
+        }
+    }
+
+    suspend fun setMusicHapticsEngine(engine: MusicHapticsEngineChoice) {
+        dataStore.edit { it[PreferencesKeys.MUSIC_HAPTICS_ENGINE] = engine.key }
+    }
+
+    suspend fun setMusicHapticsFollows(follows: MusicHapticsFollows) {
+        dataStore.edit { it[PreferencesKeys.MUSIC_HAPTICS_FOLLOWS] = follows.key }
     }
 
     // ─── Library sync ─────────────────────────────────────────────────────────

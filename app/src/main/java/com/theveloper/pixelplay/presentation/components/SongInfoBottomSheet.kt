@@ -40,6 +40,7 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Block
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.automirrored.rounded.PlaylistAdd
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
@@ -671,6 +672,34 @@ fun SongInfoBottomSheet(
                                                     }
                                                 },
                                             )
+
+                                            // Block / unblock each credited artist (Settings > Playback > Blocked artists lists them all).
+                                            com.theveloper.pixelplay.presentation.utils.LocalBlockedArtistsUi.current?.let { blockedUi ->
+                                                song.artists.ifEmpty { listOf(song.primaryArtist) }.take(4).forEach { credit ->
+                                                    val creditBlocked = blockedUi.index.contains(credit.id, credit.name)
+                                                    val toastText = stringResource(
+                                                        if (creditBlocked) R.string.blocked_artist_toast_unblocked
+                                                        else R.string.blocked_artist_toast_blocked,
+                                                        credit.name
+                                                    )
+                                                    SongInfoSegmentedListItem(
+                                                        headline = stringResource(
+                                                            if (creditBlocked) R.string.blocked_unblock_named else R.string.blocked_block_named,
+                                                            credit.name
+                                                        ),
+                                                        supporting = stringResource(R.string.blocked_item_supporting),
+                                                        icon = Icons.Rounded.Block,
+                                                        iconDescription = stringResource(R.string.blocked_block_artist),
+                                                        shape = infoSegmentItemShape,
+                                                        onClick = {
+                                                            if (creditBlocked) blockedUi.unblock(credit.id, credit.name)
+                                                            else blockedUi.block(credit.id, credit.name)
+                                                            Toast.makeText(context, toastText, Toast.LENGTH_SHORT).show()
+                                                            onDismiss()
+                                                        },
+                                                    )
+                                                }
+                                            }
 
                                             if (!audioMetaLabel.isNullOrEmpty()) {
                                                 SongInfoSegmentedListItem(
