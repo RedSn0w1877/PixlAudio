@@ -1,0 +1,232 @@
+package com.theveloper.pixelplay.data.stream
+
+import io.ktor.http.HttpStatusCode
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+
+/**
+ * Lightweight validation utilities shared by cloud streaming proxies.
+ *
+ * The checks are intentionally cheap (string/number validation only) so they
+ * can run on every request without adding measurable overhead.
+ */
+object CloudStreamSecurity {
+    const val MAX_STREAM_CONTENT_LENGTH_BYTES: Long = 2L * 1024L * 1024L * 1024L
+
+    private const val MAX_RANGE_HEADER_LENGTH = 64
+    private const val MAX_RANGE_VALUE_BYTES = 8L * 1024L * 1024L * 1024L
+
+    // Los ids de Spotify son base62 de 22 caracteres; los de vídeo de YouTube, 11.
+    private val SPOTIFY_TRACK_ID_REGEX = Regex("^[A-Za-z0-9]{22}$")
+    private val YOUTUBE_VIDEO_ID_REGEX = Regex("^[A-Za-z0-9_-]{11}$")
+    private val FORBIDDEN_HOSTS = setOf("localhost", "127.0.0.1", "0.0.0.0", "::1", "[::1]")
+
+    // DNS suffixes that only resolve on a local network: mDNS (.local), common
+    // router defaults (.lan, .home), ICANN private-use (.internal), and the
+    // RFC 8375 home network domain (.home.arpa).
+    private val LOCAL_DNS_SUFFIXES = listOf(".local", ".lan", ".home", ".internal", ".home.arpa")
+    private val EXTRA_ALLOWED_AUDIO_TYPES = setOf(
+        "application/octet-stream",
+        "binary/octet-stream",
+        "application/mp4",
+        "video/mp4"
+    )
+
+    data class RangeHeaderValidation(
+        val isValid: Boolean,
+        val normalizedHeader: String? = null,
+        val startInclusive: Long? = null,
+        val endInclusive: Long? = null,
+        val isSuffixRange: Boolean = false
+    )
+
+    fun validateSpotifyTrackId(trackId: String): Boolean = SPOTIFY_TRACK_ID_REGEX.matches(trackId)
+
+    fun validateYouTubeVideoId(videoId: String): Boolean = YOUTUBE_VIDEO_ID_REGEX.matches(videoId)
+
+    fun validateRangeHeader(rawHeader: String?): RangeHeaderValidation {
+        if (rawHeader.isNullOrBlank()) {
+            return RangeHeaderValidation(isValid = true)
+        }
+
+        val header = rawHeader.trim()
+        if (header.length > MAX_RANGE_HEADER_LENGTH) {
+            return RangeHeaderValidation(isValid = false)
+        }
+        if (!header.startsWith("bytes=") || header.contains(",")) {
+            return RangeHeaderValidation(isValid = false)
+        }
+
+        val payload = header.removePrefix("bytes=")
+        val dashIndex = payload.indexOf('-')
+        if (dashIndex <= -1 || payload.indexOf('-', dashIndex + 1) != -1) {
+            return RangeHeaderValidation(isValid = false)
+        }
+
+        val startPart = payload.substring(0, dashIndex).trim()
+        val endPart = payload.substring(dashIndex + 1).trim()
+
+        if (startPart.isEmpty() && endPart.isEmpty()) {
+            return RangeHeaderValidation(isValid = false)
+        }
+        if (startPart.isNotEmpty() && !startPart.all(Char::isDigit)) {
+            return RangeHeaderValidation(isValid = false)
+        }
+        if (endPart.isNotEmpty() && !endPart.all(Char::isDigit)) {
+            return RangeHeaderValidation(isValid = false)
+        }
+
+        val start = startPart.toLongOrNull()
+        val end = endPart.toLongOrNull()
+
+        if ((startPart.isNotEmpty() && start == null) || (endPart.isNotEmpty() && end == null)) {
+            return RangeHeaderValidation(isValid = false)
+        }
+        if (start == null && end == 0L) return RangeHeaderValidation(isValid = false)
+        if (start != null && (start < 0 || start > MAX_RANGE_VALUE_BYTES)) {
+            return RangeHeaderValidation(isValid = false)
+        }
+        if (end != null && (end < 0 || end > MAX_RANGE_VALUE_BYTES)) {
+            return RangeHeaderValidation(isValid = false)
+        }
+        if (start != null && end != null && start > end) {
+            return RangeHeaderValidation(isValid = false)
+        }
+
+        return RangeHeaderValidation(
+            isValid = true,
+            normalizedHeader = "bytes=$startPart-$endPart",
+            startInclusive = start,
+            endInclusive = end,
+            isSuffixRange = start == null && end != null
+        )
+    }
+
+    fun isSupportedAudioContentType(contentTypeHeader: String?): Boolean {
+        if (contentTypeHeader.isNullOrBlank()) {
+            return true
+        }
+        val normalized = contentTypeHeader.substringBefore(';').trim().lowercase()
+        if (normalized.startsWith("audio/")) {
+            return true
+        }
+        return normalized in EXTRA_ALLOWED_AUDIO_TYPES
+    }
+
+    fun isAcceptableContentLength(contentLengthHeader: String?): Boolean {
+        if (contentLengthHeader.isNullOrBlank()) {
+            return true
+        }
+        val parsed = contentLengthHeader.toLongOrNull() ?: return false
+        return parsed in 0..MAX_STREAM_CONTENT_LENGTH_BYTES
+    }
+
+    fun isSafeRemoteStreamUrl(
+        url: String,
+        allowedHostSuffixes: Set<String> = emptySet(),
+        allowHttpForAllowedHosts: Boolean = false
+    ): Boolean {
+        val httpUrl = url.toHttpUrlOrNull() ?: return false
+        val host = httpUrl.host.lowercase()
+
+        // Ya no hay servidores auto-alojados entre las fuentes, así que ninguna URL de
+        // stream debería apuntar a la red local: rechazamos siempre.
+        if (host in FORBIDDEN_HOSTS) return false
+        if (host.endsWith(".local")) return false
+        if (isPrivateIpv4Literal(host)) return false
+
+        if (httpUrl.username.isNotEmpty() || httpUrl.password.isNotEmpty()) return false
+
+        val hostAllowed = hostMatchesAllowedSuffix(host, allowedHostSuffixes)
+        if (!hostAllowed) return false
+
+        return when (httpUrl.scheme.lowercase()) {
+            "https" -> true
+            "http" -> allowHttpForAllowedHosts && allowedHostSuffixes.isNotEmpty()
+            else -> false
+        }
+    }
+
+    fun mapUpstreamStatusToProxyStatus(code: Int): HttpStatusCode {
+        return when (code) {
+            401 -> HttpStatusCode.Unauthorized
+            403 -> HttpStatusCode.Forbidden
+            404 -> HttpStatusCode.NotFound
+            408 -> HttpStatusCode.RequestTimeout
+            416 -> HttpStatusCode(416, "Range Not Satisfiable")
+            429 -> HttpStatusCode(429, "Too Many Requests")
+            in 500..599 -> HttpStatusCode.BadGateway
+            else -> HttpStatusCode.BadGateway
+        }
+    }
+
+    private fun hostMatchesAllowedSuffix(host: String, allowedHostSuffixes: Set<String>): Boolean {
+        if (allowedHostSuffixes.isEmpty()) return true
+        return allowedHostSuffixes.any { suffix ->
+            val normalized = suffix.lowercase()
+            host == normalized || host.endsWith(".$normalized")
+        }
+    }
+
+    /**
+     * Returns true when [host] points at a local network or private address,
+     * where cleartext HTTP is acceptable for self-hosted media servers
+     * (Navidrome/Subsonic, Jellyfin).
+     *
+     * Covers loopback names, local-only DNS suffixes, single-label LAN
+     * hostnames, private and carrier-grade-NAT IPv4 ranges (the latter used by
+     * Tailscale-style VPNs), and loopback/link-local/unique-local IPv6 literals.
+     */
+    internal fun isLocalOrPrivateHost(host: String): Boolean {
+        val normalized = host.lowercase().removePrefix("[").removeSuffix("]")
+        if (normalized.isEmpty()) return false
+        if (normalized == "localhost") return true
+        if (LOCAL_DNS_SUFFIXES.any { normalized.endsWith(it) }) return true
+        if (isPrivateIpv4Literal(normalized)) return true
+        if (isCgnatIpv4Literal(normalized)) return true
+        if (normalized.contains(':')) return isPrivateIpv6Literal(normalized)
+        // Single-label hostnames have no public DNS meaning; they only resolve
+        // via the local resolver (router DNS, hosts file, NetBIOS).
+        return !normalized.contains('.')
+    }
+
+    internal fun isPrivateIpv4Literal(host: String): Boolean {
+        val parts = host.split('.')
+        if (parts.size != 4) return false
+
+        val octets = parts.map { it.toIntOrNull() ?: return false }
+        if (octets.any { it !in 0..255 }) return false
+
+        val first = octets[0]
+        val second = octets[1]
+
+        return first == 0 ||
+            first == 10 ||
+            first == 127 ||
+            (first == 169 && second == 254) ||
+            (first == 172 && second in 16..31) ||
+            (first == 192 && second == 168)
+    }
+
+    // 100.64.0.0/10 — carrier-grade NAT space (RFC 6598), assigned to clients
+    // by Tailscale and similar overlay VPNs.
+    private fun isCgnatIpv4Literal(host: String): Boolean {
+        val parts = host.split('.')
+        if (parts.size != 4) return false
+
+        val octets = parts.map { it.toIntOrNull() ?: return false }
+        if (octets.any { it !in 0..255 }) return false
+
+        return octets[0] == 100 && octets[1] in 64..127
+    }
+
+    // ::1 loopback, fe80::/10 link-local, fc00::/7 unique-local.
+    private fun isPrivateIpv6Literal(host: String): Boolean {
+        if (host == "::1" || host == "0:0:0:0:0:0:0:1") return true
+        if (host.startsWith("fe8") || host.startsWith("fe9") ||
+            host.startsWith("fea") || host.startsWith("feb")
+        ) {
+            return true
+        }
+        return host.startsWith("fc") || host.startsWith("fd")
+    }
+}
