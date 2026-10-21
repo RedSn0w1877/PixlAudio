@@ -97,8 +97,13 @@ class SpotifyStreamProxy @Inject constructor(
     // background match wins at once. Timeouts and network failures are not remembered.
     private val noMatchUntilMs = java.util.concurrent.ConcurrentHashMap<String, Long>()
 
+    // A track whose matched video turned out unplayable is re-matched once (to the next-best
+    // candidate) and not again for a while, so a second failure can't loop.
+    private val rematchedAtMs = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
     private companion object {
         const val NO_MATCH_MEMORY_MS = 10 * 60_000L
+        const val REMATCH_MEMORY_MS = 30 * 60_000L
     }
 
     override fun onUpstreamFailure(id: String, url: String, status: Int) {
@@ -186,6 +191,9 @@ class SpotifyStreamProxy @Inject constructor(
         }
         val excluded = excludedStrategies(id)
         val resolved = streamResolver.resolveStream(videoId, validate = false, excludedStrategies = excluded)
+        // Read right away: the flag belongs to this resolve (two clients said the video itself is
+        // unplayable, none said OK; the bot wall is not counted).
+        val videoUnavailable = resolved == null && streamResolver.lastResolveVideoUnavailable
         if (resolved != null) {
             rememberUserAgent(resolved.url, resolved.userAgent, resolved.strategyName)
             reportResolved(resolved.url, resolved.strategyName, resolved.nTransformMs)
@@ -208,6 +216,25 @@ class SpotifyStreamProxy @Inject constructor(
             return newPipeResolved.url
         }
         Timber.d("NewPipeExtractor no resolvió $videoId (${newPipeStreamResolver.lastDetail})")
+
+        // The matched video itself won't play (region lock, age gate, removed): try the next-best
+        // match once instead of skipping this song every time. A manual pick is never replaced.
+        val lastRematch = rematchedAtMs[id]
+        if (videoUnavailable && (lastRematch == null || System.currentTimeMillis() - lastRematch > REMATCH_MEMORY_MS)) {
+            val song = spotifyDao.getSongBySpotifyId(id)
+            if (song != null && song.matchState != SpotifyMatchState.MANUAL) {
+                if (rematchedAtMs.size > 256) rematchedAtMs.clear()
+                rematchedAtMs[id] = System.currentTimeMillis()
+                val replacement = withTimeoutOrNull(25_000L) { trackMatcher.findMatchFanOut(song, setOf(videoId)) }
+                if (replacement != null && replacement.videoId != videoId &&
+                    CloudStreamSecurity.validateYouTubeVideoId(replacement.videoId)
+                ) {
+                    Timber.d("Video $videoId unplayable; re-matched $id to ${replacement.videoId}")
+                    spotifyDao.updateMatch(id, replacement.videoId, replacement.score, SpotifyMatchState.MATCHED)
+                    return resolveStreamUrl(id)
+                }
+            }
+        }
         return null
     }
 }
