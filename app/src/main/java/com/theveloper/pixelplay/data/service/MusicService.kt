@@ -145,6 +145,33 @@ suspend fun loadArtworkBytesViaCoil(context: Context, uri: Uri): ByteArray? {
     }
 }
 
+/**
+ * The direction a blocked-artist song is skipped in. A queue that was just replaced (or lost its
+ * current item) lands on an index unrelated to the previous one, so comparing indices would send
+ * a freshly started queue backwards (and pause it at index 0): those transitions always go forward.
+ */
+internal fun isBlockedSkipForward(
+    reason: Int?,
+    shuffleEnabled: Boolean,
+    lastIndex: Int,
+    currentIndex: Int
+): Boolean =
+    reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO ||
+        reason == Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED ||
+        shuffleEnabled ||
+        lastIndex < 0 ||
+        currentIndex >= lastIndex
+
+/**
+ * Whether the restored queue starts playing. A play press that reached the still-empty player
+ * before the restore (widget, headset button on a cold start) is the user's latest intent and
+ * wins over the state the queue was saved in.
+ */
+internal fun shouldPlayRestoredQueue(
+    snapshotWasPlaying: Boolean,
+    keepPlayingInBackground: Boolean,
+    playPressedBeforeRestore: Boolean
+): Boolean = (snapshotWasPlaying && keepPlayingInBackground) || playPressedBeforeRestore
 
 @UnstableApi
 @AndroidEntryPoint
@@ -691,6 +718,9 @@ class MusicService : MediaLibraryService() {
                     MusicNotificationProvider.CUSTOM_COMMAND_SET_SHUFFLE_STATE,
                     MusicNotificationProvider.CUSTOM_COMMAND_CYCLE_REPEAT_MODE,
                     MusicNotificationProvider.CUSTOM_COMMAND_COUNTED_PLAY,
+                    // Sent by SleepTimerStateHolder.cancelCountedPlay(); a command that is not
+                    // offered here is answered with ERROR_PERMISSION_DENIED and never arrives.
+                    MusicNotificationProvider.CUSTOM_COMMAND_CANCEL_COUNTED_PLAY,
                     MusicNotificationProvider.CUSTOM_COMMAND_SET_SLEEP_TIMER_DURATION,
                     MusicNotificationProvider.CUSTOM_COMMAND_SET_SLEEP_TIMER_END_OF_TRACK,
                     MusicNotificationProvider.CUSTOM_COMMAND_CANCEL_SLEEP_TIMER,
@@ -1015,7 +1045,7 @@ class MusicService : MediaLibraryService() {
         if (temporaryForegroundStartedInOnCreate) {
             serviceScope.launch {
                 delay(2_000L)
-                if (mediaSession?.player?.hasForegroundPlaybackIntent() != true) {
+                if (mediaSession?.player?.shouldKeepServiceForPlayback() != true) {
                     stopForeground(STOP_FOREGROUND_REMOVE)
                 }
             }
@@ -1025,7 +1055,21 @@ class MusicService : MediaLibraryService() {
         }
 
         serviceScope.launch {
-            restorePlaybackQueueSnapshotIfNeeded()
+            try {
+                restorePlaybackQueueSnapshotIfNeeded()
+            } finally {
+                playbackRestorePending = false
+            }
+            // A play press that arrived before the restore kept this service alive (see
+            // onStartCommand); with nothing to restore there is nothing to play, so let it go.
+            val restoredPlayer = engine.masterPlayerIfAlive
+            if (restoredPlayer != null && restoredPlayer.mediaItemCount == 0 && restoredPlayer.playWhenReady) {
+                restoredPlayer.playWhenReady = false
+                if (mediaSession?.player?.hasForegroundPlaybackIntent() != true) {
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    stopSelf()
+                }
+            }
             mediaSession?.let { refreshMediaSessionUi(it) }
             widgetUpdateManager.requestFullUpdate(true)
         }
@@ -1189,6 +1233,18 @@ class MusicService : MediaLibraryService() {
             playbackState != Player.STATE_ENDED
     }
 
+    // True until the saved queue has been put back (or found absent). A play press that reaches the
+    // still-empty player in that window (widget, headset button on a cold start) has no queue to
+    // play yet: the service must stay up until the restore starts it, not stop itself for lack of
+    // "playback intent" and take the restore down with it.
+    private var playbackRestorePending = true
+
+    private fun Player.isWaitingForRestoreToPlay(): Boolean =
+        playbackRestorePending && playWhenReady && mediaItemCount == 0
+
+    private fun Player.shouldKeepServiceForPlayback(): Boolean =
+        hasForegroundPlaybackIntent() || isWaitingForRestoreToPlay()
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val startedTemporaryForegroundInOnCreate = temporaryForegroundStartedInOnCreate
         temporaryForegroundStartedInOnCreate = false
@@ -1295,7 +1351,7 @@ class MusicService : MediaLibraryService() {
         }
         val startCommandResult = super.onStartCommand(intent, flags, startId)
         if (needsTemporaryForeground || startedTemporaryForegroundInOnCreate) {
-            if (mediaSession?.player?.hasForegroundPlaybackIntent() != true) {
+            if (mediaSession?.player?.shouldKeepServiceForPlayback() != true) {
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 if (needsTemporaryForeground) {
                     stopSelfResult(startId)
@@ -1506,10 +1562,12 @@ class MusicService : MediaLibraryService() {
             item.mediaMetadata.artist?.toString()
         )
         val currentIndex = player.currentMediaItemIndex
-        val forward = reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO ||
-            player.shuffleModeEnabled ||
-            blockedGuardLastIndex < 0 ||
-            currentIndex >= blockedGuardLastIndex
+        val forward = isBlockedSkipForward(
+            reason = reason,
+            shuffleEnabled = player.shuffleModeEnabled,
+            lastIndex = blockedGuardLastIndex,
+            currentIndex = currentIndex
+        )
         val action = blockedSkipGuard.decide(
             blocked = blocked,
             allowedByUser = allowedId != null && allowedId == item.mediaId,
@@ -1627,6 +1685,13 @@ class MusicService : MediaLibraryService() {
         }
 
         override fun onTimelineChanged(timeline: Timeline, reason: Int) {
+            // "Close" (or a task removal) unloads the queue and calls stopSelf(), but a bound
+            // controller (the app's UI) keeps this instance alive. A queue that arrives afterwards
+            // is a new playback: without this the snapshot writes, error recovery and idle-player
+            // revival stayed switched off for the rest of the instance's life.
+            if (isPlaybackUnloadInProgress && !timeline.isEmpty) {
+                isPlaybackUnloadInProgress = false
+            }
             updateNextStreamPrefetch()
             widgetUpdateManager.requestFullUpdate(true)
             schedulePlaybackSnapshotPersist(immediate = timeline.isEmpty)
@@ -1821,6 +1886,10 @@ class MusicService : MediaLibraryService() {
         listeningCacheJob?.cancel()
         PlaybackActivityTracker.setPlaybackActive(false)
         musicHaptics.release()
+        // release() drops the haptics callback without telling the engine, which is a singleton:
+        // a stale "PCM wanted" would keep audio offload off in the next service instance even
+        // after haptics were switched off in between (attach() only reports changes).
+        engine.setPcmAnalysisActive(false)
         listeningStatsTracker.finalizeCurrentSession(forceSynchronousPersistence = true)
         playbackSnapshotPersistJob?.cancel()
         mediaSessionButtonRefreshJob?.cancel()
@@ -2150,6 +2219,7 @@ class MusicService : MediaLibraryService() {
             }
         }
 
+        var restoredPlaying = shouldRestorePlaying
         withContext(Dispatchers.Main.immediate) {
             val player = engine.masterPlayer
             if (player.mediaItemCount > 0) {
@@ -2163,6 +2233,15 @@ class MusicService : MediaLibraryService() {
                 else -> Player.REPEAT_MODE_OFF
             }
 
+            // A fresh player is never "playing": a true here is a play press (widget, headset)
+            // that arrived while the queue was still being read, and the restore must not undo it.
+            val playNow = shouldPlayRestoredQueue(
+                snapshotWasPlaying = snapshot.playWhenReady,
+                keepPlayingInBackground = allowBackgroundPlayback,
+                playPressedBeforeRestore = player.playWhenReady
+            )
+            restoredPlaying = playNow
+
             isRestoringPlaybackSnapshot = true
             try {
                 player.setMediaItems(
@@ -2170,27 +2249,26 @@ class MusicService : MediaLibraryService() {
                     resolvedIndex,
                     snapshot.currentPositionMs.coerceAtLeast(0L)
                 )
-                if (shouldRestorePlaying || preparedItems.size <= PAUSED_RESTORE_PREPARE_QUEUE_LIMIT) {
+                if (playNow || preparedItems.size <= PAUSED_RESTORE_PREPARE_QUEUE_LIMIT) {
                     player.prepare()
                 }
                 player.repeatMode = safeRepeatMode
                 player.shuffleModeEnabled = false
                 isManualShuffleEnabled = snapshot.shuffleEnabled
-                if (shouldRestorePlaying) {
-                    player.playWhenReady = true
-                } else {
-                    player.playWhenReady = false
-                }
+                player.playWhenReady = playNow
             } finally {
                 isRestoringPlaybackSnapshot = false
             }
+            // The restore flag keeps enforcement out of the listener callbacks above, so a saved
+            // queue that resumes on a song whose artist was blocked since would otherwise play it.
+            if (playNow) enforceBlockedArtists(Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED)
         }
 
         Timber.tag(TAG).i(
             "Restored playback snapshot: items=%d index=%d playWhenReady=%s",
             restoredItems.size,
             snapshot.currentIndex,
-            shouldRestorePlaying
+            restoredPlaying
         )
         schedulePlaybackSnapshotPersist(immediate = true)
     }
