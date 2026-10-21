@@ -12,10 +12,12 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -43,6 +45,9 @@ class PoTokenWebView private constructor(
     private val webView = WebView(context)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val initDeferred = CompletableDeferred<Unit>()
+
+    @Volatile
+    private var closed = false
     private val poTokenDeferreds = mutableMapOf<String, CompletableDeferred<String>>()
     private lateinit var expirationInstant: Instant
 
@@ -156,6 +161,8 @@ class PoTokenWebView private constructor(
 
     /** Pide un poToken para [identifier] (el videoId, o el visitorData para el de streaming). */
     fun generatePoToken(identifier: String): String = runBlocking {
+        // A destroyed WebView never answers: waiting on it would block this thread for good.
+        if (closed) throw PoTokenException("PoToken generator is closed")
         val deferred = CompletableDeferred<String>()
         synchronized(poTokenDeferreds) { poTokenDeferreds[identifier] = deferred }
 
@@ -177,7 +184,14 @@ class PoTokenWebView private constructor(
                     }"""
             ) {}
         }
-        deferred.await()
+        // Bounded: the JS callback never arrives if the page died or a second request for the
+        // same identifier replaced this deferred, and this thread would wait for ever.
+        try {
+            withTimeout(TOKEN_TIMEOUT_MS) { deferred.await() }
+        } catch (e: TimeoutCancellationException) {
+            popPoTokenDeferred(identifier)
+            throw PoTokenException("Timed out waiting for a poToken")
+        }
     }
 
     @JavascriptInterface
@@ -197,7 +211,7 @@ class PoTokenWebView private constructor(
         deferred.complete(poToken)
     }
 
-    fun isExpired(): Boolean = Instant.now().isAfter(expirationInstant)
+    fun isExpired(): Boolean = closed || Instant.now().isAfter(expirationInstant)
 
     private fun popPoTokenDeferred(identifier: String): CompletableDeferred<String>? =
         synchronized(poTokenDeferreds) { poTokenDeferreds.remove(identifier) }
@@ -241,6 +255,8 @@ class PoTokenWebView private constructor(
     }
 
     private fun closeInternal() {
+        if (closed) return
+        closed = true
         scope.cancel()
         webView.clearHistory()
         webView.clearCache(true)
@@ -258,13 +274,20 @@ class PoTokenWebView private constructor(
         const val USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
             "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.3"
         private const val JS_INTERFACE = "PoTokenWebView"
+        private const val INIT_TIMEOUT_MS = 30_000L
+        private const val TOKEN_TIMEOUT_MS = 15_000L
 
         /** Crea e inicializa un generador. Bloquea el hilo llamante hasta terminar. */
         fun newPoTokenGenerator(context: Context, okHttpClient: OkHttpClient): PoTokenWebView =
             runBlocking(Dispatchers.Main) {
                 val instance = PoTokenWebView(context, okHttpClient)
-                instance.loadHtmlAndObtainBotguard(context)
-                instance.initDeferred.await()
+                try {
+                    instance.loadHtmlAndObtainBotguard(context)
+                    withTimeout(INIT_TIMEOUT_MS) { instance.initDeferred.await() }
+                } catch (e: TimeoutCancellationException) {
+                    instance.closeInternal()
+                    throw PoTokenException("Timed out starting BotGuard")
+                }
                 instance
             }
     }
