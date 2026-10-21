@@ -47,6 +47,9 @@ class PlaybackStatsRepository @Inject constructor(
     private val fileLock = Any()
     private var cachedEvents: List<PlaybackEvent>? = null  // guarded by fileLock
     private var logLineCount = 0  // guarded by fileLock
+    // The log may end in a partial line (power loss, or a short write on a full disk); the next
+    // append starts on a fresh line so it is not glued to that fragment. Guarded by fileLock.
+    private var logNeedsLeadingBreak = false
     private val eventsType = object : TypeToken<MutableList<PlaybackEvent>>() {}.type
     private val _refreshVersion = MutableStateFlow(0L)
     val refreshFlow: StateFlow<Long> = _refreshVersion.asStateFlow()
@@ -513,6 +516,7 @@ class PlaybackStatsRepository @Inject constructor(
             if (!isReadable(event)) null else runCatching { sanitizeEvent(event) }.getOrNull()
         }
         logLineCount = logged.size
+        logNeedsLeadingBreak = PlaybackHistoryLog.endsMidLine(logFile)
         val merged = PlaybackHistoryLog.merge(base, logged)
         cachedEvents = merged
         return merged
@@ -535,11 +539,14 @@ class PlaybackStatsRepository @Inject constructor(
             if (ok) {
                 logFile.delete()
                 logLineCount = 0
+                logNeedsLeadingBreak = false
                 cachedEvents = next
             }
             return@synchronized ok
         }
-        val ok = PlaybackHistoryLog.appendLine(logFile, gson, event)
+        val ok = PlaybackHistoryLog.appendLine(logFile, gson, event, leadingBreak = logNeedsLeadingBreak)
+        // A failed append may have left a fragment behind; a successful one ends in a newline.
+        logNeedsLeadingBreak = !ok
         if (ok) {
             logLineCount++
             cachedEvents = next
@@ -867,6 +874,7 @@ class PlaybackStatsRepository @Inject constructor(
         if (result) {
             logFile.delete()
             logLineCount = 0
+            logNeedsLeadingBreak = false
             cachedEvents = updatedEvents
         }
         result
@@ -1150,15 +1158,30 @@ enum class StatsTimeRange(val displayName: String) {
 internal object PlaybackHistoryLog {
     private val LINE_BREAK: String = 10.toChar().toString()
 
-    fun appendLine(file: File, gson: Gson, event: PlaybackStatsRepository.PlaybackEvent): Boolean =
+    fun appendLine(
+        file: File,
+        gson: Gson,
+        event: PlaybackStatsRepository.PlaybackEvent,
+        leadingBreak: Boolean = false
+    ): Boolean =
         runCatching {
             file.parentFile?.mkdirs()
             FileOutputStream(file, true).use { out ->
-                out.write((gson.toJson(event) + LINE_BREAK).toByteArray(Charsets.UTF_8))
+                val line = (if (leadingBreak) LINE_BREAK else "") + gson.toJson(event) + LINE_BREAK
+                out.write(line.toByteArray(Charsets.UTF_8))
                 out.fd.sync()
             }
             true
         }.onFailure { Timber.e(it, "Failed to append playback history") }.getOrDefault(false)
+
+    /** True when the log is non-empty and its last byte is not a newline (a torn last write). */
+    fun endsMidLine(file: File): Boolean = runCatching {
+        if (!file.isFile || file.length() == 0L) return@runCatching false
+        java.io.RandomAccessFile(file, "r").use { raf ->
+            raf.seek(raf.length() - 1)
+            raf.read() != 10
+        }
+    }.getOrDefault(false)
 
     /** Unparseable lines (a torn last write after a crash) are skipped. */
     fun readLog(file: File, gson: Gson): List<PlaybackStatsRepository.PlaybackEvent> {
