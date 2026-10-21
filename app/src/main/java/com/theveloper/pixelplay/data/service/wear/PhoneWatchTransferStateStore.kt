@@ -166,9 +166,9 @@ class PhoneWatchTransferStateStore @Inject constructor() {
 
     fun markSongPresentOnWatch(nodeId: String, songId: String) {
         if (nodeId.isBlank() || songId.isBlank()) return
-        val existingSongIds = watchSongIdsByNodeId[nodeId].orEmpty()
-        if (songId in existingSongIds) return
-        watchSongIdsByNodeId[nodeId] = existingSongIds + songId
+        // Atomic per node: two transfers finishing together each read the same set and the later
+        // write dropped the other's song, so it was offered for transfer again.
+        watchSongIdsByNodeId.compute(nodeId) { _, existing -> existing.orEmpty() + songId }
         _watchSongIds.value = watchSongIdsByNodeId.values.flatten().toSet()
     }
 

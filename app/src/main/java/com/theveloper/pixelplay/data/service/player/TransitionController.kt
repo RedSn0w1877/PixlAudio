@@ -18,6 +18,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
@@ -45,6 +46,21 @@ class TransitionController @Inject constructor(
     private var transitionListener: Player.Listener? = null
     private var transitionSchedulerJob: Job? = null
     private var currentObservedPlayer: Player? = null
+
+    private companion object {
+        /** How often a scheduler waiting out a pause checks whether playback was resumed. */
+        const val PAUSED_POLL_MS = 1_000L
+    }
+
+    /**
+     * The engine's current master. The scheduler reads it on every step instead of holding the
+     * player it started with: a rebuild (Hi-Fi toggle, offload fallback) replaces the master
+     * mid-song, and a held reference points at a released player whose position never advances,
+     * so the countdown would never fire while pauseAtEnd (copied onto the new player) stopped
+     * playback at the end of the song.
+     */
+    private val livePlayer: Player
+        get() = engine.masterPlayer
 
     private val swapListener: (Player) -> Unit = { newPlayer ->
         Timber.tag("TransitionDebug").d("Controller detected player swap. Moving listener.")
@@ -234,6 +250,10 @@ class TransitionController @Inject constructor(
             }.distinctUntilChanged() // Crucial: prevents restarting the job if the same settings are emitted again
             .collectLatest { (resolution, isEnabled) ->
 
+                // A settings change while the fade is already running must not touch it: the
+                // branches below cancel it or re-prepare (and so clear) the incoming player.
+                if (engine.isTransitionRunning()) return@collectLatest
+
                 val settings = resolution.settings
                 Timber.tag("TransitionDebug").d(
                     "Settings resolved: Mode=%s, Duration=%dms, GlobalEnabled=%s, Source=%s",
@@ -262,10 +282,10 @@ class TransitionController @Inject constructor(
                 engine.prepareNext(transitionTarget)
 
                 // Wait for the player to report a valid duration.
-                var duration = player.duration
+                var duration = livePlayer.duration
                 while ((duration == C.TIME_UNSET || duration <= 0) && isActive) {
                     delay(500)
-                    duration = player.duration
+                    duration = livePlayer.duration
                     Timber.tag("TransitionDebug").v("Waiting for duration... (%d)", duration)
                 }
 
@@ -298,8 +318,12 @@ class TransitionController @Inject constructor(
                 engine.setPauseAtEndOfMediaItems(shouldPause = true)
                 Timber.tag("TransitionDebug").d("Enabled pauseAtEndOfMediaItems to prevent auto-skip.")
 
-                if (transitionPoint <= player.currentPosition) {
-                    val remaining = (duration - player.currentPosition).coerceAtLeast(0L)
+                if (transitionPoint <= livePlayer.currentPosition) {
+                    // Paused inside the fade window (a scrub, a restored queue): wait for play
+                    // instead of un-pausing the user's playback.
+                    awaitPlayIntent()
+                    if (!isActive) return@collectLatest
+                    val remaining = (duration - livePlayer.currentPosition).coerceAtLeast(0L)
                     if (remaining > 0L) {
                         val adjustedDuration = remaining.coerceAtMost(effectiveDuration)
                         Timber.tag("TransitionDebug").w("Already past transition point! Triggering immediately.")
@@ -318,9 +342,9 @@ class TransitionController @Inject constructor(
                 // near-end cadence still lands the crossfade within ±125ms of the target —
                 // imperceptible for a multi-second overlap.
                 countdownWakeups.tryReceive() // drop a wake-up left over from before this song
-                while (player.currentPosition < transitionPoint && isActive) {
-                    val remaining = transitionPoint - player.currentPosition
-                    val speed = player.playbackParameters.speed.coerceAtLeast(0.1f)
+                while (livePlayer.currentPosition < transitionPoint && isActive) {
+                    val remaining = transitionPoint - livePlayer.currentPosition
+                    val speed = livePlayer.playbackParameters.speed.coerceAtLeast(0.1f)
                     val sleep = when {
                         remaining > 5000 -> ((remaining - 4000) / speed).toLong()
                         remaining > 1000 -> 250L
@@ -332,9 +356,12 @@ class TransitionController @Inject constructor(
                     withTimeoutOrNull(sleep) { countdownWakeups.receive() }
                 }
 
+                // A seek into the window while paused ends the countdown too: wait for play.
+                awaitPlayIntent()
+
                 // Final check to ensure the job wasn't cancelled while waiting.
                 if (isActive) {
-                    val remaining = (duration - player.currentPosition).coerceAtLeast(0L)
+                    val remaining = (duration - livePlayer.currentPosition).coerceAtLeast(0L)
                     if (remaining > 0L) {
                         val adjustedDuration = remaining.coerceAtMost(effectiveDuration)
                         Timber.tag("TransitionDebug").d("FIRING TRANSITION NOW!")
@@ -349,6 +376,13 @@ class TransitionController @Inject constructor(
                     engine.setPauseAtEndOfMediaItems(shouldPause = false)
                 }
             }
+        }
+    }
+
+    /** Suspends while the master is paused (playWhenReady off); returns at once when it is playing. */
+    private suspend fun awaitPlayIntent() {
+        while (!livePlayer.playWhenReady && currentCoroutineContext().isActive) {
+            delay(PAUSED_POLL_MS)
         }
     }
 

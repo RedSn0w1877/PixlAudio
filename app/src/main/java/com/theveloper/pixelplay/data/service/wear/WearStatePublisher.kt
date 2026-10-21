@@ -24,6 +24,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import java.util.concurrent.atomic.AtomicLong
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import timber.log.Timber
@@ -47,6 +50,11 @@ class WearStatePublisher @Inject constructor(
     }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val json = Json { ignoreUnknownKeys = true }
+
+    // Each publish is a full snapshot, but they run concurrently on IO and one can spend seconds
+    // downloading artwork: a pause published after a skip could land first, and the older
+    // "playing" state then overwrote it on the watch. One publish at a time, newest wins.
+    private val publishGate = LatestWinsGate()
 
     private val artworkCacheLock = Any()
     private var lastArtworkUri: String? = null
@@ -78,9 +86,10 @@ class WearStatePublisher @Inject constructor(
      * @param playerInfo The full player info from MusicService
      */
     fun publishState(songId: String?, playerInfo: PlayerInfo) {
+        val ticket = publishGate.newTicket()
         scope.launch {
             try {
-                publishStateInternal(songId, playerInfo)
+                publishGate.runIfLatest(ticket) { publishStateInternal(songId, playerInfo) }
             } catch (e: Exception) {
                 Timber.tag(TAG).w(e, "Failed to publish state to Wear Data Layer")
             }
@@ -92,15 +101,18 @@ class WearStatePublisher @Inject constructor(
      */
     fun clearState() {
         clearCache()
+        val ticket = publishGate.newTicket()
         scope.launch {
             try {
-                val request = PutDataMapRequest.create(WearDataPaths.PLAYER_STATE).apply {
-                    dataMap.putString(WearDataPaths.KEY_STATE_JSON, "")
-                    dataMap.putLong(WearDataPaths.KEY_TIMESTAMP, System.currentTimeMillis())
-                }.asPutDataRequest().setUrgent()
+                publishGate.runIfLatest(ticket) {
+                    val request = PutDataMapRequest.create(WearDataPaths.PLAYER_STATE).apply {
+                        dataMap.putString(WearDataPaths.KEY_STATE_JSON, "")
+                        dataMap.putLong(WearDataPaths.KEY_TIMESTAMP, System.currentTimeMillis())
+                    }.asPutDataRequest().setUrgent()
 
-                dataClient.putDataItem(request)
-                Timber.tag(TAG).d("Cleared Wear player state")
+                    dataClient.putDataItem(request)
+                    Timber.tag(TAG).d("Cleared Wear player state")
+                }
             } catch (e: Exception) {
                 Timber.tag(TAG).w(e, "Failed to clear Wear state")
             }
@@ -390,5 +402,27 @@ class WearStatePublisher @Inject constructor(
             .orEmpty()
 
         return WearLyrics(plain = plainLines).takeIf { it.hasLyrics }
+    }
+}
+
+/**
+ * Runs queued full-state publishes one at a time and drops the ones a newer request has
+ * superseded while they waited, so the Data Layer always ends on the latest snapshot.
+ */
+internal class LatestWinsGate {
+    private val latest = AtomicLong(0L)
+    private val mutex = Mutex()
+
+    /** Call synchronously when the request is made; the newest ticket is the only one that runs last. */
+    fun newTicket(): Long = latest.incrementAndGet()
+
+    /** Runs [block] under the lock unless a newer ticket exists. Returns whether it ran. */
+    suspend fun runIfLatest(ticket: Long, block: suspend () -> Unit): Boolean = mutex.withLock {
+        if (ticket != latest.get()) {
+            false
+        } else {
+            block()
+            true
+        }
     }
 }
