@@ -41,6 +41,14 @@ interface YouTubeStreamResolver {
      */
     val lastDetail: String?
         get() = null
+
+    /**
+     * `playabilityStatus` of the last player response ("OK", "UNPLAYABLE", "ERROR",
+     * "LOGIN_REQUIRED"...), or null when no response arrived. Lets the chain tell "this
+     * video is gone for everyone" from "this client was refused".
+     */
+    val lastPlayabilityStatus: String?
+        get() = null
 }
 
 /**
@@ -69,13 +77,19 @@ class PreSignedStreamResolver(
     var lastNTransformMs: Long? = null
         private set
 
+    @Volatile
+    override var lastPlayabilityStatus: String? = null
+        private set
+
     override suspend fun resolve(videoId: String): String? {
         lastNTransformMs = null
+        lastPlayabilityStatus = null
         val response = innerTubeClient.fetchPlayer(videoId, profile)
         if (response == null) {
             lastDetail = innerTubeClient.lastFailureReason ?: "no response"
             return null
         }
+        lastPlayabilityStatus = response.status
         if (!response.isPlayable) {
             lastDetail = "${response.status}${response.reason?.let { " — $it" }.orEmpty()}"
             Timber.d("$strategyName: vídeo no reproducible (${lastDetail})")
@@ -124,13 +138,19 @@ class CipheredStreamResolver(
     override var lastDetail: String? = null
         private set
 
+    @Volatile
+    override var lastPlayabilityStatus: String? = null
+        private set
+
     override suspend fun resolve(videoId: String): String? {
+        lastPlayabilityStatus = null
         val response = innerTubeClient.fetchPlayer(videoId, profile)
         if (response == null) {
             lastDetail = innerTubeClient.lastFailureReason ?: "no response"
             Timber.d("$strategyName: sin respuesta ($lastDetail)")
             return null
         }
+        lastPlayabilityStatus = response.status
         if (!response.isPlayable) {
             lastDetail = "${response.status}${response.reason?.let { " — $it" }.orEmpty()}"
             Timber.d("$strategyName: vídeo no reproducible ($lastDetail)")
@@ -257,6 +277,15 @@ class ChainedYouTubeStreamResolver @Inject constructor(
     override val lastDetail: String?
         get() = lastAttempts.joinToString("\n").ifBlank { null }
 
+    /**
+     * True when the last failed [resolveStream] was not a blocked client but a dead video:
+     * at least two clients answered and none of them said OK (see [isVideoUnavailable]).
+     * A caller can then match the song to a different video instead of retrying this one.
+     */
+    @Volatile
+    var lastResolveVideoUnavailable: Boolean = false
+        private set
+
     override suspend fun resolve(videoId: String): String? = resolveStream(videoId)?.url
 
     /**
@@ -282,6 +311,8 @@ class ChainedYouTubeStreamResolver @Inject constructor(
             remoteFlags.current()?.let { hedging -> return resolveHedged(videoId, strategies, hedging) }
         }
         val attempts = mutableListOf<String>()
+        val statuses = mutableListOf<String>()
+        lastResolveVideoUnavailable = false
 
         for (strategy in strategies) {
             val userAgent = strategy.userAgent()
@@ -294,6 +325,7 @@ class ChainedYouTubeStreamResolver @Inject constructor(
 
             if (url.isNullOrBlank()) {
                 attempts += "${strategy.strategyName}: ${strategy.lastDetail ?: "no URL"}"
+                strategy.lastPlayabilityStatus?.let(statuses::add)
                 continue
             }
 
@@ -324,10 +356,12 @@ class ChainedYouTubeStreamResolver @Inject constructor(
             }
 
             attempts += "${strategy.strategyName}: got URL but ${probe.describe()}"
+            strategy.lastPlayabilityStatus?.let(statuses::add)
         }
 
         lastAttempts = attempts
         lastSuccessfulStrategy = null
+        lastResolveVideoUnavailable = isVideoUnavailable(statuses)
         Timber.w("Ninguna estrategia pudo resolver el audio de $videoId: $attempts")
         return null
     }
@@ -345,6 +379,8 @@ class ChainedYouTubeStreamResolver @Inject constructor(
         hedging: StreamHedging
     ): ResolvedStream? {
         val attempts = mutableListOf<String>()
+        val statuses = mutableListOf<String>()
+        lastResolveVideoUnavailable = false
         val winner = HedgedRace.race(
             count = strategies.size,
             afterMs = hedging.afterMs,
@@ -352,6 +388,7 @@ class ChainedYouTubeStreamResolver @Inject constructor(
             attempt = { index -> strategies[index].resolve(videoId)?.takeIf { it.isNotBlank() } },
             onFinished = { index, url ->
                 val strategy = strategies[index]
+                if (url == null) strategy.lastPlayabilityStatus?.let(statuses::add)
                 attempts += if (url == null) {
                     "${strategy.strategyName}: ${strategy.lastDetail ?: "no URL"}"
                 } else {
@@ -362,6 +399,7 @@ class ChainedYouTubeStreamResolver @Inject constructor(
         lastAttempts = attempts
         if (winner == null) {
             lastSuccessfulStrategy = null
+            lastResolveVideoUnavailable = isVideoUnavailable(statuses)
             Timber.w("Ninguna estrategia (overlapped) pudo resolver el audio de $videoId: $attempts")
             return null
         }
@@ -381,6 +419,20 @@ class ChainedYouTubeStreamResolver @Inject constructor(
         is CipheredStreamResolver -> profile.userAgent
         else -> InnerTubeContexts.ANDROID_VR.userAgent
     }
+}
+
+/**
+ * True when the clients that answered agree the video itself cannot be played: at least two of
+ * them reported UNPLAYABLE or ERROR and none reported OK. LOGIN_REQUIRED is deliberately not
+ * counted (YouTube's bot check and age gates say it about a client, not about the video), and a
+ * single refusing client proves nothing.
+ */
+internal fun isVideoUnavailable(statuses: List<String>): Boolean {
+    if (statuses.any { it.equals("OK", ignoreCase = true) }) return false
+    val dead = statuses.count {
+        it.equals("UNPLAYABLE", ignoreCase = true) || it.equals("ERROR", ignoreCase = true)
+    }
+    return dead >= 2
 }
 
 /**

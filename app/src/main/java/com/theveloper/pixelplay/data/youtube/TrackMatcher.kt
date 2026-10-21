@@ -41,9 +41,12 @@ class TrackMatcher @Inject constructor(
      * SpotifyMatchWorker, where a few extra seconds cost nothing and fewer searches are kinder
      * to YouTube.
      */
-    suspend fun findMatch(song: SpotifySongEntity): TrackMatch? {
+    suspend fun findMatch(
+        song: SpotifySongEntity,
+        excludedVideoIds: Set<String> = emptySet()
+    ): TrackMatch? {
         val queries = buildQueries(song)
-        val fold = MatchFold(song)
+        val fold = MatchFold(song, excludedVideoIds)
         for (query in queries) {
             fold.consider(search(query, videos = false))
             fold.earlyAccepted?.let { return it }
@@ -63,9 +66,12 @@ class TrackMatcher @Inject constructor(
      * same early-accept, minimum-score and network-failure rules, so the chosen video is
      * identical. A failure only counts when [findMatch] would have reached that search.
      */
-    suspend fun findMatchFanOut(song: SpotifySongEntity): TrackMatch? = coroutineScope {
+    suspend fun findMatchFanOut(
+        song: SpotifySongEntity,
+        excludedVideoIds: Set<String> = emptySet()
+    ): TrackMatch? = coroutineScope {
         val queries = buildQueries(song)
-        val fold = MatchFold(song)
+        val fold = MatchFold(song, excludedVideoIds)
         fold.consider(search(queries.first(), videos = false))
         fold.earlyAccepted?.let { return@coroutineScope it }
 
@@ -101,7 +107,10 @@ class TrackMatcher @Inject constructor(
     }
 
     /** The scoring both matchers share: fed search outcomes in [findMatch]'s order. */
-    private inner class MatchFold(private val song: SpotifySongEntity) {
+    private inner class MatchFold(
+        private val song: SpotifySongEntity,
+        private val excludedVideoIds: Set<String> = emptySet()
+    ) {
         private var best: TrackMatch? = null
         private var lastNetworkFailure: IOException? = null
 
@@ -111,6 +120,9 @@ class TrackMatcher @Inject constructor(
                 return
             }
             outcome.candidates.forEach { candidate ->
+                // A video already tried and found unplayable (region lock, removed, ...) must
+                // not be chosen again; the next-best candidate takes its place.
+                if (candidate.videoId in excludedVideoIds) return@forEach
                 val score = score(song, candidate)
                 val current = best
                 if (current == null || score > current.score) {
@@ -136,11 +148,14 @@ class TrackMatcher @Inject constructor(
 
     private fun buildQueries(song: SpotifySongEntity): List<String> = buildList {
         val primaryArtist = song.artist.substringBefore(",").trim()
-        add("${song.title} $primaryArtist")
+        // "(feat. X)", "(with X)" and "- Remastered 2011" are Spotify's annotations; searching
+        // them verbatim pushes the plain studio upload down the results.
+        val title = stripTitleAnnotations(song.title)
+        add("$title $primaryArtist")
         if (song.album.isNotBlank() && !song.album.equals("Unknown Album", true)) {
-            add("${song.title} $primaryArtist ${song.album}")
+            add("$title $primaryArtist ${song.album}")
         }
-        add(song.title)
+        add(title)
     }.distinct()
 
     // ─── Puntuación ────────────────────────────────────────────────────
@@ -148,20 +163,32 @@ class TrackMatcher @Inject constructor(
     internal fun score(song: SpotifySongEntity, candidate: YouTubeSearchResult): Float {
         var score = 0f
 
-        val songTitle = normalize(song.title)
-        val normalizedArtist = normalize(song.artist.substringBefore(","))
+        // Spotify lists every credited artist ("A, B"); YouTube Music may show only some of
+        // them, in another order. Any credited artist can vouch for the candidate.
+        val sourceArtists = song.artist.split(",")
+            .map { normalize(it) }
+            .filter { it.isNotBlank() }
+            .ifEmpty { listOf(normalize(song.artist)) }
         val videoTitleParts = candidate.title.split(Regex("""\s*[-–—|:]\s*"""), limit = 2)
         val hasExactVideoArtist = candidate.isMusicVideo && videoTitleParts.size == 2 &&
-            normalize(videoTitleParts.first()) == normalizedArtist
-        val candidateTitle = if (hasExactVideoArtist) normalize(videoTitleParts[1]) else normalize(candidate.title)
-        val titleSimilarity = similarity(songTitle, candidateTitle)
+            normalize(videoTitleParts.first()).let { prefix ->
+                sourceArtists.any { artistSimilarity(it, prefix) >= 0.9f }
+            }
+        val rawCandidateTitle = if (hasExactVideoArtist) videoTitleParts[1] else candidate.title
+        // The variant check below must still see "live" or "remix", so it keeps the full text;
+        // the length comparison drops the credit/remaster annotations that only one side carries.
+        val songTitle = normalize(song.title)
+        val candidateTitle = normalize(rawCandidateTitle)
+        val titleSimilarity = maxOf(
+            similarity(songTitle, candidateTitle),
+            similarity(normalizeTitle(song.title), normalizeTitle(rawCandidateTitle))
+        )
         score += titleSimilarity * TITLE_WEIGHT
 
-        val songArtist = normalize(song.artist.substringBefore(","))
         val candidateArtist = normalize(candidate.artist)
             .removeSuffix(" topic").removeSuffix("vevo").trim()
         val artistScore = maxOf(
-            artistSimilarity(songArtist, candidateArtist),
+            sourceArtists.maxOf { artistSimilarity(it, candidateArtist) },
             if (hasExactVideoArtist) 0.9f else 0f
         )
         if (titleSimilarity < 0.55f || artistScore < 0.65f) return 0f
@@ -246,6 +273,45 @@ class TrackMatcher @Inject constructor(
             .replace(NON_ALPHANUMERIC, " ")
             .replace(WHITESPACE, " ")
             .trim()
+
+        // Annotations the streaming catalogues add around the real title, and that one source
+        // often carries while the other does not: "(feat. X)", "(with X)", "[ft. X]",
+        // "(Remastered 2011)", "(2013 Remaster)", "(Single Version)".
+        private const val CREDIT_BODY = """(?:feat|ft|featuring|with|prod)\b\.?[^)\]]*"""
+        private const val VERSION_BODY =
+            """(?:(?:\d{4}\s+)?(?:digital(?:ly)?\s+)?re-?master(?:ed)?(?:\s+\d{4})?(?:\s+version)?""" +
+                """|(?:single|album|mono|stereo|radio|original)\s+(?:version|edit|mix))\s*"""
+        private val BRACKETED_ANNOTATION = Regex(
+            """\s*[(\[]\s*(?:$CREDIT_BODY|$VERSION_BODY)[)\]]""",
+            RegexOption.IGNORE_CASE
+        )
+        private val DASHED_ANNOTATION = Regex(
+            """\s+[-–—]\s*$VERSION_BODY$""",
+            RegexOption.IGNORE_CASE
+        )
+        private val TRAILING_CREDIT = Regex(
+            """\s+(?:[-–—]\s*)?(?:feat|ft|featuring)\b\.?\s+.*$""",
+            RegexOption.IGNORE_CASE
+        )
+
+        /**
+         * The title without credit and remaster annotations, original casing kept (for search
+         * queries). Falls back to [raw] when nothing but annotations would be left.
+         */
+        internal fun stripTitleAnnotations(raw: String): String {
+            val stripped = raw
+                .replace(BRACKETED_ANNOTATION, "")
+                .replace(DASHED_ANNOTATION, "")
+                .replace(TRAILING_CREDIT, "")
+                .trim()
+            return stripped.ifBlank { raw.trim() }
+        }
+
+        /** [normalize] of [stripTitleAnnotations]: what two spellings of one title share. */
+        internal fun normalizeTitle(raw: String): String {
+            val stripped = normalize(stripTitleAnnotations(raw))
+            return stripped.ifBlank { normalize(raw) }
+        }
 
         /** Similitud 0..1 basada en distancia de edición. */
         internal fun similarity(a: String, b: String): Float {

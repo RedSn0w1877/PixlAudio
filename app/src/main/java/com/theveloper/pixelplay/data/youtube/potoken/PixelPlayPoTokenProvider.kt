@@ -124,9 +124,21 @@ class PixelPlayPoTokenProvider @Inject constructor(
                 // Cierra el WebView anterior fuera del lock no hace falta: close() ya se
                 // encarga de saltar al hilo principal por su cuenta.
                 webPoTokenGenerator?.close()
-                webPoTokenGenerator = PoTokenWebView.newPoTokenGenerator(context, okHttpClient)
+                // Nothing may keep pointing at the closed generator if the next steps fail:
+                // the following call would reuse a dead WebView (or find the streaming pot
+                // missing) instead of building a fresh one.
+                webPoTokenGenerator = null
+                webPoTokenStreamingPot = null
+                val generator = PoTokenWebView.newPoTokenGenerator(context, okHttpClient)
                 // El poToken de streaming hay que generarlo una vez, antes que cualquier otro.
-                webPoTokenStreamingPot = webPoTokenGenerator!!.generatePoToken(webPoTokenVisitorData!!)
+                val streamingPot = try {
+                    generator.generatePoToken(webPoTokenVisitorData!!)
+                } catch (t: Throwable) {
+                    generator.close()
+                    throw t
+                }
+                webPoTokenGenerator = generator
+                webPoTokenStreamingPot = streamingPot
             }
 
             Snapshot(webPoTokenGenerator!!, webPoTokenVisitorData!!, webPoTokenStreamingPot!!, shouldRecreate)
