@@ -161,30 +161,47 @@ class InstrumentalCrossfadeController(
         if (shadowPlayer !== shadow) return false
         shadow.seekTo(mainPlayer.currentPosition)
         shadow.playWhenReady = mainPlayer.playWhenReady
-        runCrossfade(from = mainPlayer, to = shadow, durationMs = durationMs)
+        var completed = false
+        try {
+            completed = rampCrossfade(
+                from = mainPlayer,
+                to = shadow,
+                durationMs = durationMs,
+                stepMs = CROSSFADE_STEP_MS
+            ) { shadowPlayer === shadow }
+        } finally {
+            if (!completed) {
+                // The song changed (or the scope was cancelled) mid-ramp: the ramp had already
+                // lowered the main player, and the next song must not start silent.
+                mainPlayer.volume = 1f
+                if (shadowPlayer === shadow) shadow.volume = 0f
+            }
+        }
+        if (!completed) return false
         isCrossfadedToInstrumental = true
         return true
     }
 
     suspend fun crossfadeToOriginal(mainPlayer: Player, durationMs: Long = DEFAULT_CROSSFADE_MS): Boolean {
         val shadow = shadowPlayer ?: return false
-        runCrossfade(from = shadow, to = mainPlayer, durationMs = durationMs)
+        var completed = false
+        try {
+            completed = rampCrossfade(
+                from = shadow,
+                to = mainPlayer,
+                durationMs = durationMs,
+                stepMs = CROSSFADE_STEP_MS
+            ) { shadowPlayer === shadow }
+        } finally {
+            // Whatever interrupted the ramp, the original is the one that must be audible.
+            if (!completed) mainPlayer.volume = 1f
+        }
+        if (!completed) return false
         isCrossfadedToInstrumental = false
         // The original is audible again; free the silent second player until the next toggle.
-        teardown()
+        // (Only this song's shadow: a track change during the ramp already tore it down.)
+        if (shadowPlayer === shadow) teardown()
         return true
-    }
-
-    private suspend fun runCrossfade(from: Player, to: Player, durationMs: Long) {
-        val steps = (durationMs / CROSSFADE_STEP_MS).toInt().coerceAtLeast(1)
-        for (i in 0..steps) {
-            val t = i.toFloat() / steps
-            from.volume = (1f - t).coerceIn(0f, 1f)
-            to.volume = t.coerceIn(0f, 1f)
-            delay(CROSSFADE_STEP_MS)
-        }
-        from.volume = 0f
-        to.volume = 1f
     }
 
     fun teardown() {
@@ -248,4 +265,30 @@ class InstrumentalCrossfadeController(
         private const val READY_TIMEOUT_MS = 600L
         private const val READY_POLL_MS = 10L
     }
+}
+
+/**
+ * Ramps [from] down and [to] up over [durationMs]. Returns false, leaving the volumes where they
+ * are, as soon as [stillValid] turns false: a track change releases the shadow player mid-ramp,
+ * and finishing the ramp then would leave the main player (now on the next song) at volume 0.
+ */
+internal suspend fun rampCrossfade(
+    from: Player,
+    to: Player,
+    durationMs: Long,
+    stepMs: Long,
+    stillValid: () -> Boolean
+): Boolean {
+    val steps = (durationMs / stepMs).toInt().coerceAtLeast(1)
+    for (i in 0..steps) {
+        if (!stillValid()) return false
+        val t = i.toFloat() / steps
+        from.volume = (1f - t).coerceIn(0f, 1f)
+        to.volume = t.coerceIn(0f, 1f)
+        delay(stepMs)
+    }
+    if (!stillValid()) return false
+    from.volume = 0f
+    to.volume = 1f
+    return true
 }
