@@ -517,19 +517,14 @@
         <item quantity="one">Downloading %d song…</item>
         <item quantity="other">Downloading %d songs…</item>
     </plurals>
-    <string name="playlist_sync_lyrics_all_none">All songs already have word-level lyric sync.</string>
-    <plurals name="playlist_sync_lyrics_all_queued">
-        <item quantity="one">Syncing lyrics for %d song…</item>
-        <item quantity="other">Syncing lyrics for %d songs…</item>
-    </plurals>
     <string name="playlist_download_all_label">Download all songs</string>
-    <string name="playlist_sync_lyrics_all_label">Sync lyrics for all songs</string>
-    <string name="playlist_instrumentalize_all_none">All songs already have a rendered instrumental.</string>
+    <string name="playlist_instrumentalize_all_none">Every song here already has an instrumental.</string>
     <plurals name="playlist_instrumentalize_all_queued">
-        <item quantity="one">Instrumentalizing %d song…</item>
-        <item quantity="other">Instrumentalizing %d songs…</item>
+        <item quantity="one">Making an instrumental for %d song…</item>
+        <item quantity="other">Making instrumentals for %d songs…</item>
     </plurals>
-    <string name="playlist_instrumentalize_all_label">Instrumentalize all songs</string>
+    <string name="playlist_instrumentalize_all_label">Process all on-device</string>
+    <string name="playlist_process_all_cloud_label">Process all in cloud</string>
 
     <!-- AlbumDetailViewModel -->
     <string name="album_detail_invalid_id">Invalid album ID</string>

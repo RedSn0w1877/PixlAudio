@@ -150,17 +150,23 @@ class BaselineProfileGenerator {
 
     private fun MacrobenchmarkScope.runSettingsSurfacesFlow() {
         val settingsDestinations = listOf(
-            "Music Management|Administraci[oó]n de m[uú]sica|Biblioteca|Library",
+            "Accounts|Cuentas",
             "Appearance|Apariencia",
             "Playback|Reproducci[oó]n",
-            "Behavior|Comportamiento",
-            "AI Integration|Integraci[oó]n",
-            "Backup|Restore|Copia|Restaurar",
-            "Developer Options|Opciones de desarrollador",
-            "Device Capabilities|Capacidades",
             "Equalizer|Ecualizador",
-            "Accounts|Cuentas",
-            "About|Acerca"
+            "Lyrics|Letras",
+            "Make instrumentals|Sing",
+            "Gestures|Behavior|Comportamiento",
+            "Library & storage|Music Management|Administraci[oó]n de m[uú]sica|Biblioteca|Library",
+            "AI features|AI Integration|Integraci[oó]n",
+            "Backup|Restore|Copia|Restaurar",
+            "About|Acerca",
+            // Developer and Device capabilities only exist once Developer mode is on: the row
+            // below turns it on, so the two after it are found (matched by their subtitles, as
+            // "Developer" alone would also match the switch row).
+            "Developer mode",
+            "Experiments and debugging|Developer Options|Opciones de desarrollador",
+            "Device capabilities|Capacidades"
         )
 
         if (!openSettingsFromHome()) return

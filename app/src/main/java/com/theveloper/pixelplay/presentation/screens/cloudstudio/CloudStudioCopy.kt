@@ -9,6 +9,7 @@ import com.theveloper.pixelplay.data.cloudstudio.CloudJobState
 import com.theveloper.pixelplay.data.cloudstudio.CloudLyricsMode
 import com.theveloper.pixelplay.data.cloudstudio.CloudNotice
 import com.theveloper.pixelplay.data.cloudstudio.CloudProgress
+import com.theveloper.pixelplay.data.cloudstudio.CloudSkipReason
 import com.theveloper.pixelplay.data.cloudstudio.CloudTask
 import kotlin.math.max
 
@@ -34,27 +35,50 @@ object CloudStudioCopy {
     val BUILT_IN_KEYS_DETAIL: String = "Nothing to fill in. Songs you send go to PixlAudio's own RunPod endpoint and R2 " +
         "bucket, up to ${CloudCost.format(CloudKeyChoice.BUILT_IN_MONTHLY_CAP_MICRO_USD)} a month from this phone."
 
-    /** The confirm sheet's line about where the songs go with the built-in keys. */
-    const val BUILT_IN_DESTINATION = "Songs go to PixlAudio's own RunPod GPU and Cloudflare R2 bucket, and are deleted " +
-        "from the bucket after import."
+    /** What "Process in cloud" says while Cloud processing is off (the switch lives under Sing). */
+    const val OFF_MESSAGE = "Cloud processing is off. Turn it on in Settings › Sing › Cloud processing."
 
-    fun notice(notice: CloudNotice): String = when (notice) {
-        CloudNotice.OFF -> "Cloud processing is off. Nothing leaves this phone until you switch it on."
+    /**
+     * The banner on the queue. [developerMode] keeps the exact wording that points at the keys and RunPod; without it the
+     * ones a listener can't act on say [UNAVAILABLE_MESSAGE] (or [CAP_MESSAGE]) instead.
+     */
+    fun notice(notice: CloudNotice, developerMode: Boolean = false): String = when {
+        !developerMode && notice in KEY_NOTICES -> UNAVAILABLE_MESSAGE
+        !developerMode && notice == CloudNotice.CAP_REACHED -> CAP_MESSAGE
+        else -> developerNotice(notice)
+    }
+
+    private val KEY_NOTICES = setOf(
+        CloudNotice.NOT_CONFIGURED,
+        CloudNotice.KEYS_MISSING,
+        CloudNotice.SECURE_STORAGE_UNAVAILABLE,
+        CloudNotice.RUNPOD_KEY_REFUSED,
+        CloudNotice.ENDPOINT_NOT_FOUND,
+        CloudNotice.ENDPOINT_PAUSED,
+    )
+
+    private fun developerNotice(notice: CloudNotice): String = when (notice) {
+        CloudNotice.OFF -> OFF_MESSAGE
         CloudNotice.NOT_CONFIGURED -> "Fill in the RunPod and storage fields in Cloud processing first."
         CloudNotice.KEYS_MISSING -> "Cloud keys missing — paste them again in Cloud processing."
         CloudNotice.SECURE_STORAGE_UNAVAILABLE ->
             "This phone's secure storage can't be opened, so the cloud keys can't be read. Paste them again in Cloud processing."
         CloudNotice.RUNPOD_KEY_REFUSED -> "RunPod refused the key. Check the Restricted key in Cloud processing."
         CloudNotice.ENDPOINT_NOT_FOUND -> "RunPod doesn't know this Endpoint ID. Check it in Cloud processing."
-        CloudNotice.RATE_LIMITED -> "RunPod asked to slow down. Sending continues in a minute."
+        CloudNotice.RATE_LIMITED -> "The cloud asked to slow down. Sending continues in a minute."
         CloudNotice.CAP_REACHED -> "This month's cloud budget is used up. Raise the monthly cap to send more."
         CloudNotice.ENDPOINT_PAUSED -> CloudEndpointWatch.PAUSED_MESSAGE
         CloudNotice.WAITING_FOR_WIFI -> "Uploads and downloads wait for Wi-Fi (Use mobile data is off)."
     }
 
-    /** Notices that point at the settings screen (the others aren't fixed there). */
-    fun noticeOpensSettings(notice: CloudNotice): Boolean = notice != CloudNotice.OFF &&
-        notice != CloudNotice.CAP_REACHED && notice != CloudNotice.ENDPOINT_PAUSED && notice != CloudNotice.RATE_LIMITED
+    /**
+     * Notices that point at the settings screen (the others aren't fixed there). Without [developerMode] the screen only
+     * holds the Wi-Fi switch, so only that notice sends the listener there.
+     */
+    fun noticeOpensSettings(notice: CloudNotice, developerMode: Boolean = false): Boolean =
+        if (!developerMode) notice == CloudNotice.WAITING_FOR_WIFI
+        else notice != CloudNotice.OFF && notice != CloudNotice.CAP_REACHED &&
+            notice != CloudNotice.ENDPOINT_PAUSED && notice != CloudNotice.RATE_LIMITED
 
     /** The softer tint (tertiary) for notices that aren't errors. */
     fun noticeIsSoft(notice: CloudNotice): Boolean = notice == CloudNotice.CAP_REACHED ||
@@ -65,6 +89,34 @@ object CloudStudioCopy {
         CloudBatchKind.MISSING_LYRICS -> "Songs without word-timed lyrics"
         CloudBatchKind.MISSING_INSTRUMENTAL -> "Songs without an instrumental"
     }
+
+    // ─── Starting straight from a button ────────────────────────────────────────────────────
+
+    /** The line under "Process on-device" / "Process in cloud" and on the playlist menu's cloud item. */
+    const val WIFI_HINT = "Cloud yields better results but requires a Wi-Fi connection."
+
+    const val PLAY_A_SONG_MESSAGE = "Play a song first."
+
+    /** The month's budget is spent; with the built-in keys the cap can't be raised, so no one is sent to a setting. */
+    const val CAP_MESSAGE = "This month's cloud budget is used up. Try again next month."
+
+    const val START_FAILED_MESSAGE = "Couldn't start cloud processing. Please try again."
+
+    /** Any problem with the keys or the cloud itself, for someone who has no keys to fix. */
+    const val UNAVAILABLE_MESSAGE = "Cloud processing isn't available right now. Try again later."
+
+    /** What a failed job says under its name when the cloud's own explanation is for developers. */
+    const val FAILED_DETAIL = "Something went wrong in the cloud. Tap Retry to try again."
+
+    fun startedMessage(count: Int, waitsForWifi: Boolean): String {
+        val base = if (count == 1) "Processing 1 song in the cloud" else "Processing $count songs in the cloud"
+        return if (waitsForWifi) "$base — it uploads when you're on Wi-Fi." else base
+    }
+
+    /** Why nothing was started: the first skip reason, in the engine's words ("Already waiting in the cloud queue"). */
+    fun nothingToProcessMessage(reason: CloudSkipReason?): String =
+        if (reason == null) "Nothing to process."
+        else "Nothing to process: ${reason.label.replaceFirstChar { it.lowercase() }}."
 
     fun dollars(microUsd: Long): String {
         val cents = (max(microUsd, 0) + 5_000) / 10_000
@@ -93,47 +145,61 @@ object CloudStudioCopy {
 
     // ─── Queue rows ─────────────────────────────────────────────────────────────────────────
 
-    fun status(record: CloudJobRecord, progress: Float?): String = when (record.state) {
+    private val STEM_STAGES = setOf("stems4", "stems")
+
+    /** [developerMode] adds what only a developer reads (the failure code, the GPU wait); the default is plain words. */
+    fun status(record: CloudJobRecord, progress: Float?, developerMode: Boolean = false): String = when (record.state) {
         CloudJobState.UPLOADING, CloudJobState.DOWNLOADING ->
             if (progress != null) "${record.state.label} ${(progress * 100).toInt()}%" else record.state.label
         CloudJobState.RUNNING -> {
             val stage = record.progressStage
             if (stage != null) {
-                val label = CloudProgress(stage, record.progressPercent).label
+                val label = when {
+                    // "Splitting stems" and "Encoding" are the worker's words, not a listener's.
+                    !developerMode && stage in STEM_STAGES -> "Separating the music"
+                    !developerMode && stage == "encode" -> "Finishing up"
+                    else -> CloudProgress(stage, record.progressPercent).label
+                }
                 record.progressPercent?.let { "$label $it%" } ?: label
             } else record.state.label
         }
-        CloudJobState.FAILED -> record.lastErrorCode?.let { "Failed · $it" } ?: record.state.label
+        CloudJobState.FAILED ->
+            record.lastErrorCode?.takeIf { developerMode }?.let { "Failed · $it" } ?: record.state.label
         CloudJobState.IMPORTED -> {
             val parts = mutableListOf<String>()
             if (record.importedInstrumental) parts += "instrumental"
             if (record.importedLyrics) parts += if (record.lyricsTranscribed) "AI-written lyrics" else "word-timed lyrics"
             if (parts.isEmpty()) "Done" else "Done · " + parts.joinToString(" + ")
         }
-        else -> if (record.nextAttemptAtMs != null && !record.lastError.isNullOrEmpty()) "Trying again soon" else record.state.label
+        else -> when {
+            record.nextAttemptAtMs != null && !record.lastError.isNullOrEmpty() -> "Trying again soon"
+            record.state == CloudJobState.SUBMITTED && !developerMode -> "Waiting in the cloud"
+            else -> record.state.label
+        }
     }
 
-    fun detail(record: CloudJobRecord): String? {
+    /** The cost, the GPU and the cloud's own warnings are for [developerMode] only. */
+    fun detail(record: CloudJobRecord, developerMode: Boolean = false): String? {
         val lines = mutableListOf<String>()
         val error = record.lastError
-        if ((record.state == CloudJobState.FAILED || record.state == CloudJobState.EXPIRED || record.nextAttemptAtMs != null) &&
-            !error.isNullOrEmpty()
-        ) lines += error
-        if (record.lowQualitySource) lines += "Low-quality source: only a low-bitrate stream was on offer."
+        val gaveUp = record.state == CloudJobState.FAILED || record.state == CloudJobState.EXPIRED
+        if (!error.isNullOrEmpty()) {
+            // The cloud's own explanation names RunPod, codes and keys: developers only.
+            if (developerMode) {
+                if (gaveUp || record.nextAttemptAtMs != null) lines += error
+            } else if (gaveUp) {
+                lines += FAILED_DETAIL
+            }
+        }
+        if (record.lowQualitySource) lines += "Low-quality source: only low-quality audio was on offer."
         if (record.state != CloudJobState.IMPORTED && record.lyricsMode == CloudLyricsMode.TRANSCRIBE &&
             CloudTask.LYRICS in record.tasks
         ) lines += "No lyrics yet: the cloud will write them (AI-written lyrics)."
-        if (record.state == CloudJobState.IMPORTED) {
+        if (record.state == CloudJobState.IMPORTED && developerMode) {
             val cost = listOfNotNull(record.costMicroUsd?.let(CloudCost::format), record.gpu)
             if (cost.isNotEmpty()) lines += cost.joinToString(" · ")
             lines += record.warnings
         }
         return lines.takeIf { it.isNotEmpty() }?.joinToString("\n")
-    }
-
-    fun sendLabel(count: Int): String = when (count) {
-        0 -> "Nothing to send"
-        1 -> "Send 1 song"
-        else -> "Send $count songs"
     }
 }

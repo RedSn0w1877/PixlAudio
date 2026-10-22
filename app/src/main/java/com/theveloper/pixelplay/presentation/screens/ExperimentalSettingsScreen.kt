@@ -4,7 +4,6 @@ import com.theveloper.pixelplay.presentation.components.CollapsingHeaderHeight
 import com.theveloper.pixelplay.presentation.components.AdaptivePressSurface
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.material3.Slider
 import androidx.annotation.OptIn
 import androidx.compose.animation.AnimatedVisibility
@@ -46,12 +45,10 @@ import androidx.compose.material.icons.outlined.PlayCircle
 import androidx.compose.material.icons.outlined.Style
 import androidx.compose.material.icons.rounded.LinearScale
 import androidx.compose.material.icons.rounded.Key
-import androidx.compose.material.icons.rounded.CloudUpload
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Rectangle
 import androidx.compose.material.icons.rounded.Title
 import androidx.compose.material.icons.rounded.ViewCarousel
-import androidx.compose.material.icons.rounded.BlurOn
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -65,10 +62,7 @@ import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.Stable
 import androidx.compose.runtime.State
-import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
@@ -100,7 +94,6 @@ import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 import androidx.compose.ui.res.stringResource
 import com.theveloper.pixelplay.R
-import com.theveloper.pixelplay.data.preferences.AlbumArtQuality
 import com.theveloper.pixelplay.data.preferences.TaisRoformerBackendType
 
 @androidx.annotation.OptIn(UnstableApi::class)
@@ -116,13 +109,12 @@ fun ExperimentalSettingsScreen(
     val taisVocalAttenuation by playerViewModel.vocalAttenuation.collectAsStateWithLifecycle()
     // Sliders that still apply every change live, but whose thumb (and value label) follow the
     // finger on the first frame instead of waiting for each DataStore write to round-trip.
-    val lyricsBlurLive = rememberLiveSliderValue(uiState.animatedLyricsBlurStrength)
-    val vocalAttenuationLive = rememberLiveSliderValue(taisVocalAttenuation)
-    val appearThresholdLive = rememberLiveSliderValue(
+    val vocalAttenuationLive = rememberSettingsLiveSliderValue(taisVocalAttenuation)
+    val appearThresholdLive = rememberSettingsLiveSliderValue(
         uiState.fullPlayerLoadingTweaks.contentAppearThresholdPercent.toFloat(),
         toStored = ::thresholdPercentStored
     )
-    val closeThresholdLive = rememberLiveSliderValue(
+    val closeThresholdLive = rememberSettingsLiveSliderValue(
         uiState.fullPlayerLoadingTweaks.contentCloseThresholdPercent.toFloat(),
         toStored = ::thresholdPercentStored
     )
@@ -253,96 +245,7 @@ fun ExperimentalSettingsScreen(
                             }
                             val canUseTriggerMode = isAnyDelayEnabled && placeholdersEnabled
 
-                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    SwitchSettingItem(
-                                        title = stringResource(R.string.settings_exp_lyrics_blur_title),
-                                        subtitle = stringResource(R.string.settings_exp_lyrics_blur_subtitle),
-                                        checked = uiState.animatedLyricsBlurEnabled,
-                                        onCheckedChange = settingsViewModel::setAnimatedLyricsBlurEnabled,
-                                        leadingIcon = {
-                                            Icon(
-                                                imageVector = Icons.Rounded.BlurOn,
-                                                contentDescription = null,
-                                                tint = MaterialTheme.colorScheme.secondary
-                                            )
-                                        }
-                                    )
-
-                                    AnimatedVisibility(
-                                        visible = uiState.animatedLyricsBlurEnabled,
-                                        enter = fadeIn() + expandVertically(),
-                                        exit = fadeOut() + shrinkVertically()
-                                    ) {
-                                        Surface(
-                                            color = MaterialTheme.colorScheme.surfaceContainer,
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .clip(RoundedCornerShape(10.dp))
-                                        ) {
-                                            Column(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .padding(16.dp),
-                                                verticalArrangement = Arrangement.spacedBy(12.dp)
-                                            ) {
-                                                Row(
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                                                ) {
-                                                    Icon(
-                                                        imageVector = Icons.Outlined.LinearScale,
-                                                        contentDescription = null,
-                                                        tint = MaterialTheme.colorScheme.secondary
-                                                    )
-
-                                                    Column(modifier = Modifier.weight(1f)) {
-                                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                                            Text(
-                                                                text = stringResource(R.string.settings_exp_lyrics_blur_strength_title),
-                                                                style = MaterialTheme.typography.titleMedium,
-                                                                color = MaterialTheme.colorScheme.onSurface,
-                                                                modifier = Modifier.padding(end = 8.dp)
-                                                            )
-                                                            Surface(
-                                                                color = MaterialTheme.colorScheme.secondaryContainer,
-                                                                shape = RoundedCornerShape(16.dp),
-                                                                modifier = Modifier.height(24.dp)
-                                                            ) {
-                                                                val strengthText = stringResource(
-                                                                    R.string.settings_exp_lyrics_blur_strength_value,
-                                                                    lyricsBlurLive.display(uiState.animatedLyricsBlurStrength)
-                                                                )
-                                                                Text(
-                                                                    text = strengthText,
-                                                                    style = MaterialTheme.typography.labelSmall,
-                                                                    color = MaterialTheme.colorScheme.onSecondaryContainer,
-                                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                                                )
-                                                            }
-                                                        }
-                                                        Text(
-                                                            text = stringResource(R.string.settings_exp_lyrics_blur_strength_subtitle),
-                                                            style = MaterialTheme.typography.bodyMedium,
-                                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                                        )
-                                                    }
-                                                }
-
-                                                Slider(
-                                                    value = lyricsBlurLive.display(uiState.animatedLyricsBlurStrength),
-                                                    onValueChange = {
-                                                        lyricsBlurLive.onChange(it)
-                                                        settingsViewModel.setAnimatedLyricsBlurStrength(it)
-                                                    },
-                                                    onValueChangeFinished = { lyricsBlurLive.onFinished() },
-                                                    valueRange = 0.1f..2.0f,
-                                                    steps = 10
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-
+                            // Lyric blur moved to Settings › Lyrics.
                             Surface(
                                 color = MaterialTheme.colorScheme.surfaceContainer,
                                 modifier = Modifier
@@ -391,7 +294,7 @@ fun ExperimentalSettingsScreen(
                                             Text(
                                                 text = "TAIS Engine 2's zero-latency vocal reducer — attenuates the " +
                                                 "center-panned mix instantly. This is separate from the real " +
-                                                    "AI separation model (see \"Remaster Song\" below), which does a " +
+                                                    "AI separation model (see \"Make an instrumental\" below), which does a " +
                                                     "separate vocal and instrumental tracks using MDX-Net. The active " +
                                                     "processor and benchmark are shown in Music Intelligence settings.",
                                                 style = MaterialTheme.typography.bodyMedium,
@@ -532,11 +435,6 @@ fun ExperimentalSettingsScreen(
                                 showRoformerTools = true,
                                 onInstrumentalReady = { instrumentalPath ->
                                     playerViewModel.switchToStudioInstrumental(instrumentalPath)
-                                },
-                                onLyricsReady = { wordSyncProduced ->
-                                    if (wordSyncProduced) {
-                                        playerViewModel.refreshLyricsFromCache()
-                                    }
                                 },
                                 onRoformerInstrumentalReady = { instrumentalPath ->
                                     playerViewModel.switchToStudioInstrumental(instrumentalPath)
@@ -961,138 +859,9 @@ fun ExperimentalSettingsScreen(
                     }
                 }
             }
-            
-            // Divider for new section
-            item(key = "divider_visuals") { 
-                Spacer(modifier = Modifier.height(8.dp))
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp)
-                ) {
-                     Text(
-                        text = stringResource(R.string.settings_exp_visual_quality),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.weight(1f)
-                    )
-                     androidx.compose.material3.HorizontalDivider(
-                        modifier = Modifier
-                            .weight(3f)
-                            .padding(start = 8.dp),
-                        color = MaterialTheme.colorScheme.outlineVariant
-                    )
-                }
-            }
 
-            item(key = "visual_tweaks_section") {
-                val albumArtQuality = uiState.albumArtQuality
-                
-                 SettingsSection(
-                    title = stringResource(R.string.settings_exp_album_art_resolution),
-                    icon = {
-                        Icon(
-                            imageVector = Icons.Rounded.MusicNote, // Or Image/Photo icon
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                ) {
-                    Surface(
-                        shape = RoundedCornerShape(24.dp),
-                        color = Color.Transparent,
-                        modifier = Modifier.padding(horizontal = 0.dp)
-                    ) {
-                        Column(
-                            modifier = Modifier.fillMaxSize(),
-                            verticalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                           // Quality Selector using a Dialog or a custom Picker?
-                           // Using a series of Radio Buttons or a clickable list item that opens a dialog is common.
-                           // For simplicity and quick access as requested ("selector or slider"), let's use a segmented style or a simple list of options.
-                           
-                           // Using a loop to create selectable items for each enum value
-                           AlbumArtQuality.entries.forEach { quality ->
-                               val isSelected = quality == albumArtQuality
-                               val qualityLine = albumArtQualityLine(quality)
-                               
-                               AdaptivePressSurface(
-                                   color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
-                                   shape = RoundedCornerShape(12.dp),
-                                   modifier = Modifier.fillMaxWidth(),
-                                   onClick = { settingsViewModel.setAlbumArtQuality(quality) }
-                               ) {
-                                   Row(
-                                       modifier = Modifier
-                                           .padding(horizontal = 16.dp, vertical = 12.dp)
-                                           .fillMaxWidth(),
-                                       verticalAlignment = Alignment.CenterVertically,
-                                       horizontalArrangement = Arrangement.SpaceBetween
-                                   ) {
-                                       Column(modifier = Modifier.weight(1f)) {
-                                           Text(
-                                               text = qualityLine.substringBefore(" - "),
-                                               style = MaterialTheme.typography.bodyLarge,
-                                               color = MaterialTheme.colorScheme.onSurface,
-                                               fontWeight = if (isSelected) androidx.compose.ui.text.font.FontWeight.Bold else androidx.compose.ui.text.font.FontWeight.Normal
-                                           )
-                                           qualityLine.substringAfter(" - ", "").takeIf { it.isNotEmpty() }?.let { desc ->
-                                                Text(
-                                                   text = desc,
-                                                   style = MaterialTheme.typography.bodySmall,
-                                                   color = MaterialTheme.colorScheme.onSurfaceVariant
-                                               )
-                                           }
-                                       }
-                                       
-                                       if (isSelected) {
-                                            Icon(
-                                                imageVector = Icons.Rounded.LinearScale, // Check icon
-                                                contentDescription = stringResource(R.string.common_selected),
-                                                tint = MaterialTheme.colorScheme.primary
-                                            )
-                                       }
-                                   }
-                               }
-                           }
-                        }
-                    }
-                }
-            }
-
-            item(key = "cloud_processing") {
-                // Cloud Studio: the owner's RunPod GPU for instrumentals and word-timed lyrics (iOS parity).
-                val cloud: com.theveloper.pixelplay.presentation.viewmodel.CloudStudioViewModel = hiltViewModel()
-                val cloudSettings by cloud.settings.collectAsStateWithLifecycle()
-                val cloudState by cloud.engineState.collectAsStateWithLifecycle()
-                val cloudSummary = remember(cloudState.jobs) { cloud.summaryLine() }
-                AdaptivePressSurface(
-                    onClick = { navController.navigate(com.theveloper.pixelplay.presentation.navigation.Screen.CloudProcessing.route) },
-                    shape = RoundedCornerShape(24.dp),
-                    color = MaterialTheme.colorScheme.surfaceContainer,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(16.dp),
-                        horizontalArrangement = Arrangement.spacedBy(14.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(androidx.compose.material.icons.Icons.Rounded.CloudUpload, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("Cloud processing", style = MaterialTheme.typography.titleMedium)
-                            Text(
-                                if (cloudSettings.enabled) {
-                                    cloudSummary ?: if (cloudSettings.usesBuiltInKeys) "On — instrumentals and word-timed lyrics in the cloud."
-                                    else "On — instrumentals and word-timed lyrics on your RunPod GPU."
-                                } else if (cloudSettings.usesBuiltInKeys) {
-                                    "Instrumentals and word-timed lyrics in the cloud, nothing to set up. Off."
-                                } else "Instrumentals and word-timed lyrics on your own RunPod GPU. Off until you set it up.",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                }
-            }
+            // Album art resolution moved to Settings › Appearance › Advanced, and the Cloud
+            // processing row to Settings › Sing.
 
             item(key = "plus_license_debug_tools") {
                 AdaptivePressSurface(
@@ -1148,54 +917,6 @@ fun ExperimentalSettingsScreen(
 private fun thresholdPercentStored(value: Float): Float = value.roundToInt().toFloat()
 
 /**
- * Lets a settings slider's thumb follow the finger locally. Every change is still written as it
- * happens (live-apply is unchanged); the slider just shows the local value from the first change
- * until the store has echoed the released value back, so it never waits on a DataStore write to
- * move and a late echo of an earlier drag value can't pull the thumb back.
- */
-@Stable
-private class LiveSliderValue {
-    private var local by mutableFloatStateOf(0f)
-    private var holding by mutableStateOf(false)
-
-    /** The value released at the end of the last drag, until the store reports it. */
-    var released by mutableStateOf<Float?>(null)
-        private set
-
-    fun display(stored: Float): Float = if (holding) local else stored
-
-    fun onChange(value: Float) {
-        local = value
-        holding = true
-        released = null
-    }
-
-    fun onFinished() {
-        if (holding) released = local
-    }
-
-    fun settle() {
-        holding = false
-        released = null
-    }
-}
-
-@Composable
-private fun rememberLiveSliderValue(
-    stored: Float,
-    toStored: (Float) -> Float = { it }
-): LiveSliderValue {
-    val live = remember { LiveSliderValue() }
-    val latestStored by rememberUpdatedState(stored)
-    val latestToStored by rememberUpdatedState(toStored)
-    LaunchedEffect(live) {
-        snapshotFlow { live.released?.let { latestToStored(it) == latestStored } == true }
-            .collect { settled -> if (settled) live.settle() }
-    }
-    return live
-}
-
-/**
  * The screen's collapsing top bar. It reads the per-frame header height and collapse fraction
  * itself, so only the bar recomposes while the header collapses — not the whole screen.
  */
@@ -1213,17 +934,6 @@ private fun ExperimentalSettingsTopBar(
         onBackClick = onBackClick
     )
 }
-
-@Composable
-private fun albumArtQualityLine(quality: AlbumArtQuality): String =
-    stringResource(
-        when (quality) {
-            AlbumArtQuality.LOW -> R.string.settings_exp_album_art_quality_low_line
-            AlbumArtQuality.MEDIUM -> R.string.settings_exp_album_art_quality_medium_line
-            AlbumArtQuality.HIGH -> R.string.settings_exp_album_art_quality_high_line
-            AlbumArtQuality.ORIGINAL -> R.string.settings_exp_album_art_quality_original_line
-        }
-    )
 
 @Composable
 private fun TriggerModeOptionCard(

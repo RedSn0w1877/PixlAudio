@@ -71,6 +71,8 @@ import com.theveloper.pixelplay.R
 import com.theveloper.pixelplay.data.backup.model.BackupSection
 import com.theveloper.pixelplay.data.backup.model.ModuleRestoreDetail
 import com.theveloper.pixelplay.data.backup.model.RestorePlan
+import com.theveloper.pixelplay.presentation.model.LocalDeveloperMode
+import com.theveloper.pixelplay.presentation.model.visibleBackupSections
 import com.theveloper.pixelplay.ui.theme.GoogleSansRounded
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -93,8 +95,13 @@ fun BackupModuleSelectionDialog(
     onConfirm: () -> Unit
 ) {
     val listState = rememberLazyListState()
-    val selectedCount = plan.selectedModules.size
-    val availableCount = plan.availableModules.size
+    // Technical sections are listed in Developer mode only; their selection is left as it is.
+    val developerMode = LocalDeveloperMode.current
+    val visibleModules = remember(plan.availableModules, developerMode) {
+        visibleBackupSections(plan.availableModules, developerMode)
+    }
+    val selectedCount = visibleModules.count { it in plan.selectedModules }
+    val availableCount = visibleModules.size
     val dateText = remember(plan.manifest.createdAt) {
         SimpleDateFormat("MMM d, yyyy 'at' h:mm a", Locale.getDefault())
             .format(Date(plan.manifest.createdAt))
@@ -316,20 +323,22 @@ fun BackupModuleSelectionDialog(
                                                 color = MaterialTheme.colorScheme.onSurface
                                             )
                                         }
-                                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                            Text(
-                                                text = stringResource(R.string.settings_backup_schema_label),
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                            Text(
-                                                text = stringResource(
-                                                    R.string.settings_backup_manifest_schema_v,
-                                                    plan.manifest.schemaVersion
-                                                ),
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurface
-                                            )
+                                        if (developerMode) {
+                                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                                Text(
+                                                    text = stringResource(R.string.settings_backup_schema_label),
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                                Text(
+                                                    text = stringResource(
+                                                        R.string.settings_backup_manifest_schema_v,
+                                                        plan.manifest.schemaVersion
+                                                    ),
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = MaterialTheme.colorScheme.onSurface
+                                                )
+                                            }
                                         }
                                         if (plan.manifest.deviceInfo.model.isNotBlank()) {
                                             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -410,7 +419,7 @@ fun BackupModuleSelectionDialog(
                                 contentPadding = PaddingValues(bottom = 18.dp),
                                 verticalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
-                                items(plan.availableModules.toList(), key = { it.key }) { section ->
+                                items(visibleModules, key = { it.key }) { section ->
                                     val isSelected = section in plan.selectedModules
                                     val detail = plan.moduleDetails[section]
                                     BackupSectionSelectableCardShared(

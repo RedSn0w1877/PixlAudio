@@ -129,10 +129,11 @@ import com.theveloper.pixelplay.R
 import com.theveloper.pixelplay.data.model.Song
 import com.theveloper.pixelplay.presentation.components.MiniPlayerHeight
 import com.theveloper.pixelplay.presentation.components.PlaylistBottomSheet
-import com.theveloper.pixelplay.presentation.components.tais.PlaylistLyricSyncCard
 import com.theveloper.pixelplay.presentation.components.QueuePlaylistSongItem
 import com.theveloper.pixelplay.presentation.components.SongPickerBottomSheet
 import com.theveloper.pixelplay.presentation.components.ExpressiveScrollBar
+import com.theveloper.pixelplay.presentation.screens.cloudstudio.CloudMessageToasts
+import com.theveloper.pixelplay.presentation.screens.cloudstudio.CloudStudioCopy
 import com.theveloper.pixelplay.ui.theme.LocalShowScrollbar
 import com.theveloper.pixelplay.presentation.components.SmartImage
 import com.theveloper.pixelplay.presentation.components.SongInfoBottomSheet
@@ -205,7 +206,7 @@ fun PlaylistDetailScreen(
     val isFolderPlaylist = currentPlaylist?.id?.startsWith(FOLDER_PLAYLIST_PREFIX) == true
     val songsInPlaylist = uiState.currentPlaylistSongs
     val cloudStudio: com.theveloper.pixelplay.presentation.viewmodel.CloudStudioViewModel = hiltViewModel()
-    val cloudSettings by cloudStudio.settings.collectAsStateWithLifecycle()
+    CloudMessageToasts(cloudStudio)
 
     LaunchedEffect(playlistId) {
         playlistViewModel.loadPlaylistDetails(playlistId)
@@ -681,13 +682,6 @@ fun PlaylistDetailScreen(
                     }
                 }
 
-                PlaylistLyricSyncCard(
-                    state = uiState.lyricSync,
-                    onCancel = playlistViewModel::cancelPlaylistLyricSync,
-                    onRetry = playlistViewModel::retryFailedPlaylistLyrics,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                )
-
                 if (localReorderableSongs.isEmpty()) {
                     Box(Modifier
                         .fillMaxSize()
@@ -933,14 +927,6 @@ fun PlaylistDetailScreen(
                     }
                 )
                 PlaylistActionItem(
-                    icon = painterResource(R.drawable.rounded_lyrics_24),
-                    label = stringResource(R.string.playlist_sync_lyrics_all_label),
-                    onClick = {
-                        showPlaylistOptionsSheet = false
-                        playlistViewModel.syncLyricsForAllSongsInCurrentPlaylist()
-                    }
-                )
-                PlaylistActionItem(
                     icon = rememberVectorPainter(Icons.Rounded.AutoAwesome),
                     label = stringResource(R.string.playlist_instrumentalize_all_label),
                     onClick = {
@@ -948,30 +934,20 @@ fun PlaylistDetailScreen(
                         playlistViewModel.instrumentalizeAllSongsInCurrentPlaylist()
                     }
                 )
-                // Cloud Studio: only once Cloud processing is switched on; the confirm sheet comes first (iOS parity).
-                if (cloudSettings.enabled) {
-                    PlaylistActionItem(
-                        icon = rememberVectorPainter(Icons.Rounded.CloudUpload),
-                        label = "Process all in the cloud",
-                        onClick = {
-                            showPlaylistOptionsSheet = false
-                            cloudStudio.requestBatch(
-                                songsInPlaylist,
-                                currentPlaylist?.name ?: fallbackPlaylistName,
-                                com.theveloper.pixelplay.presentation.viewmodel.CloudBatchOrigin.PLAYLIST,
-                            )
-                        }
-                    )
-                }
+                // Always offered; with Cloud processing off the toast says where to turn it on.
+                PlaylistActionItem(
+                    icon = rememberVectorPainter(Icons.Rounded.CloudUpload),
+                    label = stringResource(R.string.playlist_process_all_cloud_label),
+                    supportingText = CloudStudioCopy.WIFI_HINT,
+                    onClick = {
+                        showPlaylistOptionsSheet = false
+                        cloudStudio.startNow(songsInPlaylist, currentPlaylist?.name ?: fallbackPlaylistName)
+                    }
+                )
             }
             }
         }
     }
-
-    com.theveloper.pixelplay.presentation.screens.cloudstudio.CloudConfirmSheetHost(
-        origin = com.theveloper.pixelplay.presentation.viewmodel.CloudBatchOrigin.PLAYLIST,
-        viewModel = cloudStudio,
-    )
 
     if (showEditPlaylistDialog && currentPlaylist != null) {
         val initialShapeType = try {
@@ -1203,7 +1179,8 @@ fun PlaylistDetailScreen(
 private fun PlaylistActionItem(
     icon: Painter,
     label: String,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    supportingText: String? = null
 ) {
     Row(
         modifier = Modifier
@@ -1229,10 +1206,19 @@ private fun PlaylistActionItem(
             )
         }
         Spacer(modifier = Modifier.width(14.dp))
-        Text(
-            text = label,
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onSurface
-        )
+        Column {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            if (supportingText != null) {
+                Text(
+                    text = supportingText,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
     }
 }

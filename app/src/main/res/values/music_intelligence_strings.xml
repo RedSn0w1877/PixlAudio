@@ -13,7 +13,7 @@
     <string name="music_intelligence_refresh">Refresh discovery</string>
     <string name="music_intelligence_copy_report">Copy recommendation report</string>
     <string name="music_intelligence_reset">Reset learned taste</string>
-    <string name="music_intelligence_reset_description">Clear the new learning signals. Your songs, downloads, favorites and existing play history will stay.</string>
+    <string name="music_intelligence_reset_description">Forget what the app has learned about your taste. Your songs, downloads, favorites and play history will stay.</string>
     <string name="music_intelligence_reset_confirm">Reset learning</string>
     <string name="music_intelligence_model_title">Instrumental engine</string>
     <string name="music_intelligence_model_timing">Last chunk: %1$d ms · %2$d inferences this session</string>
