@@ -39,15 +39,15 @@
     <!-- Gestures -->
     <string name="settings_gestures_section">Gestures</string>
     <string name="settings_gesture_player_swipe_title">Swipe the cover to change song</string>
-    <string name="settings_gesture_player_swipe_subtitle">Full player: swipe the artwork left or right</string>
+    <string name="settings_gesture_player_swipe_subtitle">Swipe the artwork left or right</string>
     <string name="settings_gesture_player_double_tap_title">Double-tap the cover to like</string>
-    <string name="settings_gesture_player_double_tap_subtitle">Full player: double-tap the artwork to like or unlike</string>
+    <string name="settings_gesture_player_double_tap_subtitle">Double-tap the artwork to like or unlike</string>
     <string name="settings_gesture_player_long_press_title">Long-press the cover for actions</string>
-    <string name="settings_gesture_player_long_press_subtitle">Full player: add to playlist, share, go to artist, block artist</string>
+    <string name="settings_gesture_player_long_press_subtitle">Add to playlist, share, go to artist, block artist</string>
     <string name="settings_gesture_mini_swipe_title">Swipe the mini player to skip</string>
     <string name="settings_gesture_mini_swipe_subtitle">Left is next, right is previous. Replaces swipe-to-dismiss</string>
     <string name="settings_gesture_mini_swipe_up_title">Swipe the mini player up</string>
-    <string name="settings_gesture_mini_swipe_up_subtitle">Opens the full player. Always available</string>
+    <string name="settings_gesture_mini_swipe_up_subtitle">Opens the full player</string>
     <string name="settings_gesture_mini_long_press_title">Long-press the mini player for actions</string>
     <string name="settings_gesture_mini_long_press_subtitle">Opens the song\'s quick actions</string>
     <string name="settings_gesture_row_swipe_title">Swipe a song row</string>

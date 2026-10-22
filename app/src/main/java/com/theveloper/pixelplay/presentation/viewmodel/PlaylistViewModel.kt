@@ -7,8 +7,6 @@ import android.widget.Toast
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.work.WorkManager
-import androidx.work.WorkInfo
-import androidx.work.ExistingWorkPolicy
 import com.theveloper.pixelplay.data.DailyMixManager
 import com.theveloper.pixelplay.data.cache.AudioCacheManager
 import com.theveloper.pixelplay.data.model.Playlist
@@ -17,13 +15,10 @@ import com.theveloper.pixelplay.data.model.Song
 import com.theveloper.pixelplay.data.model.SortOption
 import com.theveloper.pixelplay.data.playlist.M3uManager
 import com.theveloper.pixelplay.data.playlist.mergePlaylistOrder
-import com.theveloper.pixelplay.data.tais.lyrics.TaisLyricsAligner
 import com.theveloper.pixelplay.data.tais.TaisInstrumentalIndex
 import com.theveloper.pixelplay.data.preferences.PlaylistPreferencesRepository
-import com.theveloper.pixelplay.data.repository.LyricsRepository
 import com.theveloper.pixelplay.data.repository.MusicRepository
 import com.theveloper.pixelplay.data.worker.StemSeparatorWorker
-import com.theveloper.pixelplay.data.worker.TaisStudioWorker
 import com.theveloper.pixelplay.data.worker.AUTO_STUDIO_WORK_TAG
 import com.theveloper.pixelplay.data.worker.enqueueSequentialBatch
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -59,24 +54,12 @@ import java.util.UUID
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 
-data class PlaylistLyricSyncState(
-    val isRunning: Boolean = false,
-    val total: Int = 0,
-    val completed: Int = 0,
-    val synced: Int = 0,
-    val skipped: Int = 0,
-    val failedSongIds: List<String> = emptyList(),
-    val detail: String? = null,
-    val progress: Float = 0f
-)
-
 data class PlaylistUiState(
     val playlists: List<Playlist> = emptyList(),
     val currentPlaylistSongs: List<Song> = emptyList(),
     val currentPlaylistDetails: Playlist? = null,
     val isLoading: Boolean = false,
     val playlistNotFound: Boolean = false,
-    val lyricSync: PlaylistLyricSyncState = PlaylistLyricSyncState(),
 
     //Sort option
     val currentPlaylistSortOption: SortOption = SortOption.PlaylistNameAZ,
@@ -102,18 +85,13 @@ class PlaylistViewModel @Inject constructor(
     private val aiPlaylistGenerator: AiPlaylistGenerator,
     private val m3uManager: M3uManager,
     private val audioCacheManager: AudioCacheManager,
-    private val lyricsRepository: LyricsRepository,
-    private val lyricsAligner: TaisLyricsAligner,
     private val workManager: WorkManager,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
 
     private var playlistDetailsJob: Job? = null
-    private var lyricBatchObservation: Job? = null
-    private var observedLyricPlaylistId: String? = null
     private val reorderMutex = Mutex()
     private var pendingPlaylistOrder: List<String>? = null
-    private var isEnqueuingLyrics = false
     private val _uiState = MutableStateFlow(PlaylistUiState())
     val uiState: StateFlow<PlaylistUiState> = _uiState.asStateFlow()
 
@@ -180,7 +158,6 @@ class PlaylistViewModel @Inject constructor(
     }
 
     fun loadPlaylistDetails(playlistId: String) {
-        observeLyricBatch(playlistId)
         playlistDetailsJob?.cancel()
         playlistDetailsJob = viewModelScope.launch {
             val shouldKeepExisting = _uiState.value.currentPlaylistDetails?.id == playlistId
@@ -1297,120 +1274,16 @@ class PlaylistViewModel @Inject constructor(
         ).show()
     }
 
-    fun syncLyricsForAllSongsInCurrentPlaylist() = enqueuePlaylistLyrics(onlyFailed = false)
-
-    fun retryFailedPlaylistLyrics() = enqueuePlaylistLyrics(onlyFailed = true)
-
-    fun cancelPlaylistLyricSync() {
-        val playlistId = _uiState.value.currentPlaylistDetails?.id ?: return
-        workManager.cancelUniqueWork(TaisStudioWorker.playlistWorkName(playlistId))
-    }
-
-    private fun enqueuePlaylistLyrics(onlyFailed: Boolean) {
-        val state = _uiState.value
-        val playlistId = state.currentPlaylistDetails?.id ?: return
-        if (isEnqueuingLyrics || state.lyricSync.isRunning) {
-            Toast.makeText(context, "This playlist is already syncing.", Toast.LENGTH_SHORT).show()
-            return
-        }
-        // Capture this playlist before suspending; navigating away must not enqueue a different one.
-        val retryIds = state.lyricSync.failedSongIds.toSet()
-        val songs = state.currentPlaylistSongs.distinctBy { it.id }
-            .filter { !onlyFailed || it.id in retryIds }
-        isEnqueuingLyrics = true
-        viewModelScope.launch {
-            try {
-                val pending = withContext(Dispatchers.IO) {
-                    songs.filter { song ->
-                        try {
-                            val stored = lyricsRepository.getStoredLyrics(song)?.first
-                            lyricsAligner.alignmentStateFor(stored) != TaisLyricsAligner.AlignmentState.WordSynced
-                        } catch (e: CancellationException) {
-                            throw e
-                        } catch (e: Exception) {
-                            // A damaged cached lyric must not prevent every other song from
-                            // even reaching WorkManager. This song reports its own result there.
-                            Log.w("PlaylistVM", "Couldn't read cached lyrics for ${song.id}", e)
-                            true
-                        }
-                    }
-                }
-                val batchCreatedAt = System.currentTimeMillis()
-                val requests = pending.mapIndexed { index, song ->
-                    TaisStudioWorker.buildRequest(song.id, song.contentUriString, batchCreatedAt, index + 1, pending.size)
-                }
-                if (requests.isNotEmpty()) {
-                    // A deliberate user request always preempts quiet maintenance work.
-                    workManager.cancelAllWorkByTag(AUTO_STUDIO_WORK_TAG)
-                    workManager.enqueueSequentialBatch(
-                        TaisStudioWorker.playlistWorkName(playlistId), requests, ExistingWorkPolicy.KEEP
-                    )
-                }
-                val message = if (requests.isEmpty()) context.getString(R.string.playlist_sync_lyrics_all_none)
-                else context.resources.getQuantityString(R.plurals.playlist_sync_lyrics_all_queued, requests.size, requests.size)
-                Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                Toast.makeText(context, "Couldn't queue lyric sync. Please try again.", Toast.LENGTH_LONG).show()
-            } finally {
-                isEnqueuingLyrics = false
-            }
-        }
-    }
-
-    private fun observeLyricBatch(playlistId: String) {
-        if (observedLyricPlaylistId == playlistId) return
-        observedLyricPlaylistId = playlistId
-        lyricBatchObservation?.cancel()
-        _uiState.update { it.copy(lyricSync = PlaylistLyricSyncState()) }
-        lyricBatchObservation = viewModelScope.launch {
-            workManager.getWorkInfosForUniqueWorkFlow(TaisStudioWorker.playlistWorkName(playlistId)).collect { allInfos ->
-                val newestBatch = allInfos.flatMap { it.tags }.mapNotNull {
-                    it.takeIf { tag -> tag.startsWith(TaisStudioWorker.BATCH_CREATED_TAG) }
-                        ?.removePrefix(TaisStudioWorker.BATCH_CREATED_TAG)?.toLongOrNull()
-                }.maxOrNull()
-                val infos = allInfos.filter { TaisStudioWorker.BATCH_CREATED_TAG + newestBatch in it.tags }
-                val running = infos.firstOrNull { it.state == WorkInfo.State.RUNNING }
-                val completed = infos.count { it.state.isFinished }
-                val failed = infos.filter {
-                    it.state == WorkInfo.State.FAILED || it.state == WorkInfo.State.CANCELLED ||
-                        it.outputData.getString(TaisStudioWorker.OUTPUT_OUTCOME) == TaisStudioWorker.OUTCOME_FAILED
-                }
-                val failedIds = failed.mapNotNull { info ->
-                    info.outputData.getString(TaisStudioWorker.OUTPUT_SONG_ID)
-                        ?: info.tags.firstOrNull { it.startsWith(TaisStudioWorker.WORK_NAME_PREFIX) }
-                            ?.removePrefix(TaisStudioWorker.WORK_NAME_PREFIX)
-                }.distinct()
-                val active = infos.any { !it.state.isFinished }
-                val summary = PlaylistLyricSyncState(
-                    isRunning = active,
-                    total = infos.size,
-                    completed = completed,
-                    synced = infos.count { it.outputData.getString(TaisStudioWorker.OUTPUT_OUTCOME) == TaisStudioWorker.OUTCOME_SYNCED },
-                    skipped = infos.count { it.outputData.getString(TaisStudioWorker.OUTPUT_OUTCOME) == TaisStudioWorker.OUTCOME_SKIPPED },
-                    failedSongIds = failedIds,
-                    detail = running?.progress?.getString(TaisStudioWorker.PROGRESS_DETAIL)
-                        ?: if (active) "Waiting for the next song…" else failed.firstOrNull()?.outputData?.getString(TaisStudioWorker.OUTPUT_FAILURE_REASON),
-                    progress = if (infos.isEmpty()) 0f else
-                        ((completed + (running?.progress?.getInt(TaisStudioWorker.PROGRESS_PERCENT, 0) ?: 0) / 100f) / infos.size).coerceIn(0f, 1f)
-                )
-                _uiState.update { it.copy(lyricSync = summary) }
-            }
-        }
-    }
-
     /**
-     * Queues on-device stem separation ("Magic Instrumentalize") for every song in the current
+     * "Process all on-device": queues on-device stem separation for every song in the current
      * playlist that doesn't already have a rendered instrumental. Deliberately uses
      * [StemSeparatorWorker] (on-device, always available) rather than [BsRoformerRenderWorker]
      * (needs a configured cloud/local backend) as the bulk default — a per-song "Render Studio
-     * Master" option in the song's own Remaster card is still there for whoever wants that.
+     * Master" option in the Experimental card is still there for whoever wants that.
      *
      * Existing renders are looked up through the shared durable instrumental index.
      *
-     * Runs strictly one song at a time via [enqueueSequentialBatch] — see
-     * [syncLyricsForAllSongsInCurrentPlaylist]'s doc for why: running a whole playlist's
+     * Runs strictly one song at a time via [enqueueSequentialBatch]: running a whole playlist's
      * worth of [StemSeparatorWorker] jobs in parallel (WorkManager's default for distinct
      * per-song unique-work-names) floods YouTube audio resolution and starves live playback.
      */

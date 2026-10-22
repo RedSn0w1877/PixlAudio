@@ -68,6 +68,7 @@ import androidx.media3.common.util.UnstableApi
 import com.theveloper.pixelplay.data.preferences.AlbumArtColorAccuracy
 import com.theveloper.pixelplay.data.preferences.AlbumArtPaletteStyle
 import com.theveloper.pixelplay.presentation.components.MiniPlayerHeight
+import com.theveloper.pixelplay.presentation.model.LocalDeveloperMode
 import com.theveloper.pixelplay.presentation.viewmodel.ColorSchemePair
 import com.theveloper.pixelplay.presentation.viewmodel.PlayerViewModel
 import com.theveloper.pixelplay.presentation.viewmodel.SettingsViewModel
@@ -263,13 +264,16 @@ fun PaletteStyleSettingsScreen(
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(2.dp))
-                    PaletteAccuracySlider(
-                        scheme = previewScheme,
-                        value = pendingAccuracy,
-                        hapticsEnabled = uiState.hapticsEnabled,
-                        onValueChange = { pendingAccuracy = it }
-                    )
+                    // Fine-tuning for the nerdy: the slider keeps its stored value when hidden.
+                    if (LocalDeveloperMode.current) {
+                        Spacer(modifier = Modifier.height(2.dp))
+                        PaletteAccuracySlider(
+                            scheme = previewScheme,
+                            value = pendingAccuracy,
+                            hapticsEnabled = uiState.hapticsEnabled,
+                            onValueChange = { pendingAccuracy = it }
+                        )
+                    }
                 }
             }
 

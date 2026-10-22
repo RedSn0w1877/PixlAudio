@@ -7,6 +7,7 @@ import androidx.compose.material.icons.rounded.DeveloperMode
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.LibraryMusic
+import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -14,10 +15,14 @@ import com.theveloper.pixelplay.R
 
 /**
  * Declaration order here IS display order in [com.theveloper.pixelplay.presentation.screens.SettingsScreen]
- * (`SettingsCategory.entries` is iterated as-is) — user-facing categories first, DEVELOPER and
- * DEVICE_CAPABILITIES last since normal users have no reason to see diagnostic/debug settings
- * sitting mid-list among Appearance/Playback/Behavior. EQUALIZER sits right after PLAYBACK since
- * it's really a Playback sub-feature, not an unrelated sibling.
+ * (`SettingsCategory.entries` is iterated as-is), with the places the screen sets by hand:
+ * Accounts (not a category) goes first, ABOUT closes the everyday list, and DEVELOPER /
+ * DEVICE_CAPABILITIES only show once Developer mode is on, under its switch at the very end.
+ * EQUALIZER sits right after PLAYBACK since it's really a Playback sub-feature, not an
+ * unrelated sibling.
+ *
+ * BEHAVIOR (now "Gestures & haptics") and LIBRARY (now "Library & storage") keep their ids and
+ * string keys, so old routes and every translation still resolve; only the English text changed.
  */
 enum class SettingsCategory(
     val id: String,
@@ -26,12 +31,6 @@ enum class SettingsCategory(
     val icon: ImageVector? = null,
     val iconRes: Int? = null
 ) {
-    LIBRARY(
-        id = "library",
-        titleRes = R.string.settings_category_music_management_title,
-        subtitleRes = R.string.settings_category_music_management_subtitle,
-        icon = Icons.Rounded.LibraryMusic
-    ),
     APPEARANCE(
         id = "appearance",
         titleRes = R.string.settings_category_appearance_title,
@@ -50,11 +49,29 @@ enum class SettingsCategory(
         subtitleRes = R.string.settings_category_equalizer_subtitle,
         icon = Icons.Rounded.GraphicEq
     ),
+    LYRICS(
+        id = "lyrics",
+        titleRes = R.string.settings_category_lyrics_title,
+        subtitleRes = R.string.settings_category_lyrics_subtitle,
+        iconRes = R.drawable.rounded_lyrics_24
+    ),
+    SING(
+        id = "sing",
+        titleRes = R.string.settings_category_sing_title,
+        subtitleRes = R.string.settings_category_sing_subtitle,
+        icon = Icons.Rounded.Mic
+    ),
     BEHAVIOR(
         id = "behavior",
         titleRes = R.string.settings_category_behavior_title,
         subtitleRes = R.string.settings_category_behavior_subtitle,
         iconRes = R.drawable.rounded_touch_app_24
+    ),
+    LIBRARY(
+        id = "library",
+        titleRes = R.string.settings_category_music_management_title,
+        subtitleRes = R.string.settings_category_music_management_subtitle,
+        icon = Icons.Rounded.LibraryMusic
     ),
     AI_INTEGRATION(
         id = "ai",

@@ -11,6 +11,8 @@ import com.theveloper.pixelplay.presentation.components.ScreenChrome
 import com.theveloper.pixelplay.presentation.navigation.navigateSafely
 import com.theveloper.pixelplay.presentation.components.BackupModuleSelectionDialog
 import com.theveloper.pixelplay.data.preferences.AiPreferencesRepository
+import com.theveloper.pixelplay.data.preferences.AlbumArtQuality
+import androidx.annotation.StringRes
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.Date
@@ -83,6 +85,7 @@ import androidx.compose.material.icons.outlined.Style
 import androidx.compose.material.icons.outlined.Warning
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.BlurOff
+import androidx.compose.material.icons.rounded.BugReport
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Close
@@ -184,7 +187,9 @@ import com.theveloper.pixelplay.presentation.components.rememberCollapsingHeader
 import com.theveloper.pixelplay.presentation.components.ExpressiveTopBarContent
 import com.theveloper.pixelplay.presentation.components.FileExplorerDialog
 import com.theveloper.pixelplay.presentation.components.MiniPlayerHeight
+import com.theveloper.pixelplay.presentation.model.LocalDeveloperMode
 import com.theveloper.pixelplay.presentation.model.SettingsCategory
+import com.theveloper.pixelplay.presentation.model.visibleBackupSections
 import com.theveloper.pixelplay.presentation.navigation.Screen
 import com.theveloper.pixelplay.presentation.viewmodel.LyricsRefreshProgress
 import com.theveloper.pixelplay.presentation.viewmodel.PlayerViewModel
@@ -204,6 +209,9 @@ fun SettingsCategoryScreen(
 ) {
     val category = SettingsCategory.fromId(categoryId) ?: return
     val context = LocalContext.current
+    // Rows a normal listener wouldn't understand only show here, at the bottom of their category
+    // under "Advanced". Hiding one never changes the value behind it.
+    val developerMode = LocalDeveloperMode.current
 
     // Hoisted string resources (for use inside lambdas/callbacks)
     val toastLibrarySyncFinished = stringResource(R.string.settings_toast_library_sync_finished)
@@ -256,8 +264,7 @@ fun SettingsCategoryScreen(
     var showExplorerSheet by remember { mutableStateOf(false) }
     // Model tuning knobs (temperature/top-p/top-k/penalties), the token-usage
     // ledger, and the song-sampling controls are engineer-facing settings that
-    // most people never need to touch — collapsed by default so the screen a
-    // regular user sees is just "pick a provider, paste a key, done."
+    // most people never need to touch — Developer mode only, and collapsed even there.
     var showAdvancedAiSettings by remember { mutableStateOf(false) }
     var refreshRequested by remember { mutableStateOf(false) }
     var syncRequestObservedRunning by remember { mutableStateOf(false) }
@@ -339,13 +346,14 @@ fun SettingsCategoryScreen(
         }
     }
 
-    LaunchedEffect(category) {
-        if (category == SettingsCategory.AI_INTEGRATION) settingsViewModel.refreshOnDeviceAi()
+    // The on-device AI status and the cloud model list only show in Developer mode.
+    LaunchedEffect(category, developerMode) {
+        if (category == SettingsCategory.AI_INTEGRATION && developerMode) settingsViewModel.refreshOnDeviceAi()
     }
 
     // Auto-load models when entering the AI settings page or when provider/key changes
-    LaunchedEffect(category, aiProvider) {
-        if (category == SettingsCategory.AI_INTEGRATION) {
+    LaunchedEffect(category, aiProvider, developerMode) {
+        if (category == SettingsCategory.AI_INTEGRATION && developerMode) {
             // Small delay to let StateFlows settle after navigation
             kotlinx.coroutines.delay(200)
             settingsViewModel.loadModelsForCurrentProvider()
@@ -443,56 +451,15 @@ fun SettingsCategoryScreen(
             // on screen and a state change recomposes only the subsection that reads it.
             when (category) {
                 SettingsCategory.LIBRARY -> {
-                    item(key = "library_structure", contentType = "settings_subsection") {
-                        Column {
-                            SettingsSubsection(title = stringResource(R.string.settings_library_structure_section)) {
-                                SettingsItem(
-                                    title = stringResource(R.string.settings_artists_title),
-                                    subtitle = stringResource(R.string.settings_artists_subtitle),
-                                    leadingIcon = { Icon(Icons.Outlined.Person, null, tint = MaterialTheme.colorScheme.secondary) },
-                                    trailingIcon = { Icon(Icons.Rounded.ChevronRight, stringResource(R.string.settings_cd_open), tint = MaterialTheme.colorScheme.onSurfaceVariant) },
-                                    onClick = { navController.navigateSafely(Screen.ArtistSettings.route) }
-                                )
-                            }
-                        }
-                    }
-                    item(key = "library_filtering", contentType = "settings_subsection") {
-                        Column {
-                            SettingsSubsection(title = stringResource(R.string.settings_filtering_section)) {
-                                SliderSettingsItem(
-                                    label = stringResource(R.string.settings_min_tracks_per_album),
-                                    value = minTracksPerAlbumDraft,
-                                    valueRange = 1f..5f,
-                                    steps = 3, // 1, 2, 3, 4, 5
-                                    onValueChange = { minTracksPerAlbumDraft = it },
-                                    onValueChangeFinished = {
-                                        val selectedTracks = minTracksPerAlbumDraft.toInt()
-                                        if (selectedTracks != uiState.minTracksPerAlbum) {
-                                            settingsViewModel.setMinTracksPerAlbum(selectedTracks)
-                                        }
-                                    },
-                                    valueText = { value -> "${value.toInt()}" }
-                                )
-                                SliderSettingsItem(
-                                    label = stringResource(R.string.settings_album_art_cache_limit),
-                                    value = albumArtCacheLimitDraft,
-                                    valueRange = 50f..1500f,
-                                    steps = 28, // 50, 100, 150, ... 1500 (30 stops)
-                                    onValueChange = { albumArtCacheLimitDraft = it },
-                                    onValueChangeFinished = {
-                                        val selectedLimit = albumArtCacheLimitDraft.toInt()
-                                        if (selectedLimit != uiState.albumArtCacheLimitMb) {
-                                            settingsViewModel.setAlbumArtCacheLimitMb(selectedLimit)
-                                        }
-                                    },
-                                    valueText = { value -> "${value.toInt()} MB" }
-                                )
-                            }
-                        }
+                    item(key = "library_blocked_artists", contentType = "settings_subsection") {
+                        SettingsBlockedArtistsSection(navController = navController)
                     }
                     item(key = "library_storage", contentType = "settings_subsection") {
                         Column {
-                            SettingsSubsection(title = stringResource(R.string.settings_storage_section)) {
+                            SettingsSubsection(
+                                title = stringResource(R.string.settings_storage_section),
+                                addBottomSpace = developerMode
+                            ) {
                                 val storageUsage by settingsViewModel.storageUsage.collectAsStateWithLifecycle()
 
                                 val reclaimable = storageUsage?.autoCachedBytes ?: 0L
@@ -535,41 +502,49 @@ fun SettingsCategoryScreen(
                             }
                         }
                     }
-                    item(key = "library_lyrics", contentType = "settings_subsection") {
-                        Column {
-                            SettingsSubsection(
-                                title = stringResource(R.string.settings_lyrics_management_section),
-                                addBottomSpace = false
-                            ) {
-                                ThemeSelectorItem(
-                                    label = stringResource(R.string.settings_lyrics_source_priority_title),
-                                    description = stringResource(R.string.settings_lyrics_source_priority_subtitle),
-                                    options = mapOf(
-                                        LyricsSourcePreference.EMBEDDED_FIRST.name to stringResource(R.string.settings_lyrics_embedded_first),
-                                        LyricsSourcePreference.API_FIRST.name to stringResource(R.string.settings_lyrics_online_first),
-                                        LyricsSourcePreference.LOCAL_FIRST.name to stringResource(R.string.settings_lyrics_local_first)
-                                    ),
-                                    selectedKey = uiState.lyricsSourcePreference.name,
-                                    onSelectionChanged = { key ->
-                                        settingsViewModel.setLyricsSourcePreference(
-                                            LyricsSourcePreference.fromName(key)
-                                        )
-                                    },
-                                    leadingIcon = { Icon(painterResource(R.drawable.rounded_lyrics_24), null, tint = MaterialTheme.colorScheme.secondary) }
-                                )
-                                val lyricsTapOffsetMs by settingsViewModel.lyricsTapOffsetMs.collectAsStateWithLifecycle()
-                                SettingsItem(
-                                    title = stringResource(R.string.settings_lyrics_tap_timing),
-                                    subtitle = stringResource(R.string.settings_lyrics_tap_timing_sub, lyricsTapOffsetMs),
-                                    leadingIcon = { Icon(Icons.Rounded.TouchApp, null, tint = MaterialTheme.colorScheme.secondary) },
-                                    onClick = { showTapTimingDialog = true }
-                                )
-                                SettingsItem(
-                                    title = stringResource(R.string.settings_reset_imported_lyrics_title),
-                                    subtitle = stringResource(R.string.settings_reset_imported_lyrics_subtitle),
-                                    leadingIcon = { Icon(Icons.Outlined.ClearAll, null, tint = MaterialTheme.colorScheme.secondary) },
-                                    onClick = { showClearLyricsDialog = true }
-                                )
+                    if (developerMode) {
+                        item(key = "library_advanced", contentType = "settings_subsection") {
+                            Column {
+                                SettingsSubsection(
+                                    title = stringResource(R.string.settings_section_advanced),
+                                    addBottomSpace = false
+                                ) {
+                                    SettingsItem(
+                                        title = stringResource(R.string.settings_artists_title),
+                                        subtitle = stringResource(R.string.settings_artists_subtitle),
+                                        leadingIcon = { Icon(Icons.Outlined.Person, null, tint = MaterialTheme.colorScheme.secondary) },
+                                        trailingIcon = { Icon(Icons.Rounded.ChevronRight, stringResource(R.string.settings_cd_open), tint = MaterialTheme.colorScheme.onSurfaceVariant) },
+                                        onClick = { navController.navigateSafely(Screen.ArtistSettings.route) }
+                                    )
+                                    SliderSettingsItem(
+                                        label = stringResource(R.string.settings_min_tracks_per_album),
+                                        value = minTracksPerAlbumDraft,
+                                        valueRange = 1f..5f,
+                                        steps = 3, // 1, 2, 3, 4, 5
+                                        onValueChange = { minTracksPerAlbumDraft = it },
+                                        onValueChangeFinished = {
+                                            val selectedTracks = minTracksPerAlbumDraft.toInt()
+                                            if (selectedTracks != uiState.minTracksPerAlbum) {
+                                                settingsViewModel.setMinTracksPerAlbum(selectedTracks)
+                                            }
+                                        },
+                                        valueText = { value -> "${value.toInt()}" }
+                                    )
+                                    SliderSettingsItem(
+                                        label = stringResource(R.string.settings_album_art_cache_limit),
+                                        value = albumArtCacheLimitDraft,
+                                        valueRange = 50f..1500f,
+                                        steps = 28, // 50, 100, 150, ... 1500 (30 stops)
+                                        onValueChange = { albumArtCacheLimitDraft = it },
+                                        onValueChangeFinished = {
+                                            val selectedLimit = albumArtCacheLimitDraft.toInt()
+                                            if (selectedLimit != uiState.albumArtCacheLimitMb) {
+                                                settingsViewModel.setAlbumArtCacheLimitMb(selectedLimit)
+                                            }
+                                        },
+                                        valueText = { value -> "${value.toInt()} MB" }
+                                    )
+                                }
                             }
                         }
                     }
@@ -608,13 +583,6 @@ fun SettingsCategoryScreen(
                                     onSelect = settingsViewModel::setAccentColor
                                 )
                                 SwitchSettingItem(
-                                    title = stringResource(R.string.settings_smooth_corners_title),
-                                    subtitle = stringResource(R.string.settings_smooth_corners_subtitle),
-                                    checked = useSmoothCorners,
-                                    onCheckedChange = settingsViewModel::setUseSmoothCorners,
-                                    leadingIcon = { Icon(painterResource(R.drawable.rounded_rounded_corner_24), null, tint = MaterialTheme.colorScheme.secondary) }
-                                )
-                                SwitchSettingItem(
                                     title = stringResource(R.string.settings_disable_blur_all_over_title),
                                     subtitle = stringResource(R.string.settings_disable_blur_all_over_subtitle),
                                     checked = uiState.disableBlurAllOver,
@@ -627,6 +595,13 @@ fun SettingsCategoryScreen(
                                     checked = uiState.showScrollbar,
                                     onCheckedChange = { settingsViewModel.setShowScrollbar(it) },
                                     leadingIcon = { Icon(Icons.Rounded.UnfoldMore, null, tint = MaterialTheme.colorScheme.secondary) }
+                                )
+                                SwitchSettingItem(
+                                    title = stringResource(R.string.settings_smooth_corners_title),
+                                    subtitle = stringResource(R.string.settings_smooth_corners_subtitle),
+                                    checked = useSmoothCorners,
+                                    onCheckedChange = settingsViewModel::setUseSmoothCorners,
+                                    leadingIcon = { Icon(painterResource(R.drawable.rounded_rounded_corner_24), null, tint = MaterialTheme.colorScheme.secondary) }
                                 )
                             }
                         }
@@ -646,12 +621,21 @@ fun SettingsCategoryScreen(
                                     onSelectionChanged = { settingsViewModel.setPlayerThemePreference(it) },
                                     leadingIcon = { Icon(Icons.Outlined.PlayCircle, null, tint = MaterialTheme.colorScheme.secondary) }
                                 )
-                                SwitchSettingItem(
-                                    title = stringResource(R.string.settings_show_player_file_info_title),
-                                    subtitle = stringResource(R.string.settings_show_player_file_info_subtitle),
-                                    checked = uiState.showPlayerFileInfo,
-                                    onCheckedChange = { settingsViewModel.setShowPlayerFileInfo(it) },
-                                    leadingIcon = { Icon(painterResource(R.drawable.rounded_attach_file_24), null, tint = MaterialTheme.colorScheme.secondary) }
+                                ThemeSelectorItem(
+                                    label = stringResource(R.string.settings_player_ambient_effects_title),
+                                    description = stringResource(R.string.settings_player_ambient_effects_subtitle),
+                                    options = linkedMapOf(
+                                        PlayerAmbientStyle.OFF.name to stringResource(R.string.settings_player_ambient_style_off),
+                                        PlayerAmbientStyle.BLENDED_COVER.name to stringResource(R.string.settings_player_ambient_style_blended_cover),
+                                        PlayerAmbientStyle.FLOWING_GRADIENT.name to stringResource(R.string.settings_player_ambient_style_flowing_gradient),
+                                        PlayerAmbientStyle.LOW_POLY_MESH.name to stringResource(R.string.settings_player_ambient_style_low_poly_mesh),
+                                        PlayerAmbientStyle.AUDIO_WAVEFORM.name to stringResource(R.string.settings_player_ambient_style_audio_waveform)
+                                    ),
+                                    selectedKey = uiState.playerAmbientStyle.name,
+                                    onSelectionChanged = { key ->
+                                        runCatching { PlayerAmbientStyle.valueOf(key) }.getOrNull()?.let { settingsViewModel.setPlayerAmbientStyle(it) }
+                                    },
+                                    leadingIcon = { Icon(painterResource(R.drawable.rounded_align_justify_space_even_24), null, tint = MaterialTheme.colorScheme.secondary) }
                                 )
                                 SettingsItem(
                                     title = stringResource(R.string.settings_album_art_palette_title),
@@ -699,75 +683,9 @@ fun SettingsCategoryScreen(
                     }
                     item(key = "appearance_navigation", contentType = "settings_subsection") {
                         Column {
-                            SettingsSubsection(title = stringResource(R.string.settings_navigation_bar_section)) {
-                                ThemeSelectorItem(
-                                    label = stringResource(R.string.settings_navbar_style_title),
-                                    description = stringResource(R.string.settings_navbar_style_subtitle),
-                                    options = mapOf(
-                                        NavBarStyle.DEFAULT to stringResource(R.string.settings_navbar_style_default),
-                                        NavBarStyle.FULL_WIDTH to stringResource(R.string.settings_navbar_style_full_width)
-                                    ),
-                                    selectedKey = uiState.navBarStyle,
-                                    onSelectionChanged = { settingsViewModel.setNavBarStyle(it) },
-                                    leadingIcon = { Icon(Icons.Outlined.Style, null, tint = MaterialTheme.colorScheme.secondary) }
-                                )
-                                SwitchSettingItem(
-                                    title = stringResource(R.string.settings_compact_mode_title),
-                                    subtitle = stringResource(R.string.settings_compact_mode_subtitle),
-                                    checked = uiState.navBarCompactMode,
-                                    onCheckedChange = { settingsViewModel.setNavBarCompactMode(it) },
-                                    leadingIcon = {
-                                        Icon(
-                                            painterResource(R.drawable.rounded_view_week_24),
-                                            null,
-                                            tint = MaterialTheme.colorScheme.secondary
-                                        )
-                                    }
-                                )
-                                SettingsItem(
-                                    title = stringResource(R.string.settings_navbar_corner_title),
-                                    subtitle = stringResource(R.string.settings_navbar_corner_subtitle),
-                                    leadingIcon = { Icon(painterResource(R.drawable.rounded_rounded_corner_24), null, tint = MaterialTheme.colorScheme.secondary) },
-                                    trailingIcon = { Icon(Icons.Rounded.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant) },
-                                    onClick = { navController.navigateSafely("nav_bar_corner_radius") }
-                                )
-                            }
-                        }
-                    }
-                    item(key = "appearance_lyrics", contentType = "settings_subsection") {
-                        Column {
-                            SettingsSubsection(title = stringResource(R.string.settings_lyrics_screen_section)) {
-                                SwitchSettingItem(
-                                    title = stringResource(R.string.settings_immersive_lyrics_title),
-                                    subtitle = stringResource(R.string.settings_immersive_lyrics_subtitle),
-                                    checked = uiState.immersiveLyricsEnabled,
-                                    onCheckedChange = { settingsViewModel.setImmersiveLyricsEnabled(it) },
-                                    leadingIcon = { Icon(painterResource(R.drawable.rounded_lyrics_24), null, tint = MaterialTheme.colorScheme.secondary) }
-                                )
-
-                                if (uiState.immersiveLyricsEnabled) {
-                                    ThemeSelectorItem(
-                                        label = stringResource(R.string.settings_auto_hide_delay_title),
-                                        description = stringResource(R.string.settings_auto_hide_delay_subtitle),
-                                        options = mapOf(
-                                            "3000" to stringResource(R.string.settings_auto_hide_delay_3s),
-                                            "4000" to stringResource(R.string.settings_auto_hide_delay_4s),
-                                            "5000" to stringResource(R.string.settings_auto_hide_delay_5s),
-                                            "6000" to stringResource(R.string.settings_auto_hide_delay_6s)
-                                        ),
-                                        selectedKey = uiState.immersiveLyricsTimeout.toString(),
-                                        onSelectionChanged = { settingsViewModel.setImmersiveLyricsTimeout(it.toLong()) },
-                                        leadingIcon = { Icon(Icons.Rounded.Timer, null, tint = MaterialTheme.colorScheme.secondary) }
-                                    )
-                                }
-                            }
-                        }
-                    }
-                    item(key = "appearance_last", contentType = "settings_subsection") {
-                        Column {
                             SettingsSubsection(
-                                title = stringResource(R.string.settings_app_navigation_section),
-                                addBottomSpace = false
+                                title = stringResource(R.string.settings_navigation_section),
+                                addBottomSpace = developerMode
                             ) {
                                 ThemeSelectorItem(
                                     label = stringResource(R.string.settings_default_tab_title),
@@ -792,14 +710,172 @@ fun SettingsCategoryScreen(
                                     onSelectionChanged = { settingsViewModel.setLibraryNavigationMode(it) },
                                     leadingIcon = { Icon(painterResource(R.drawable.rounded_library_music_24), null, tint = MaterialTheme.colorScheme.secondary) }
                                 )
+                                ThemeSelectorItem(
+                                    label = stringResource(R.string.settings_navbar_style_title),
+                                    description = stringResource(R.string.settings_navbar_style_subtitle),
+                                    options = mapOf(
+                                        NavBarStyle.DEFAULT to stringResource(R.string.settings_navbar_style_default),
+                                        NavBarStyle.FULL_WIDTH to stringResource(R.string.settings_navbar_style_full_width)
+                                    ),
+                                    selectedKey = uiState.navBarStyle,
+                                    onSelectionChanged = { settingsViewModel.setNavBarStyle(it) },
+                                    leadingIcon = { Icon(Icons.Outlined.Style, null, tint = MaterialTheme.colorScheme.secondary) }
+                                )
+                                SwitchSettingItem(
+                                    title = stringResource(R.string.settings_compact_mode_title),
+                                    subtitle = stringResource(R.string.settings_compact_mode_subtitle),
+                                    checked = uiState.navBarCompactMode,
+                                    onCheckedChange = { settingsViewModel.setNavBarCompactMode(it) },
+                                    leadingIcon = {
+                                        Icon(
+                                            painterResource(R.drawable.rounded_view_week_24),
+                                            null,
+                                            tint = MaterialTheme.colorScheme.secondary
+                                        )
+                                    }
+                                )
+                            }
+                        }
+                    }
+                    if (developerMode) {
+                        item(key = "appearance_advanced", contentType = "settings_subsection") {
+                            Column {
+                                SettingsSubsection(
+                                    title = stringResource(R.string.settings_section_advanced),
+                                    addBottomSpace = false
+                                ) {
+                                    SwitchSettingItem(
+                                        title = stringResource(R.string.settings_show_player_file_info_title),
+                                        subtitle = stringResource(R.string.settings_show_player_file_info_subtitle),
+                                        checked = uiState.showPlayerFileInfo,
+                                        onCheckedChange = { settingsViewModel.setShowPlayerFileInfo(it) },
+                                        leadingIcon = { Icon(painterResource(R.drawable.rounded_attach_file_24), null, tint = MaterialTheme.colorScheme.secondary) }
+                                    )
+                                    // Moved here from Experimental.
+                                    ThemeSelectorItem(
+                                        label = stringResource(R.string.settings_exp_album_art_resolution),
+                                        description = stringResource(R.string.settings_exp_album_art_resolution_subtitle),
+                                        options = AlbumArtQuality.entries.associate { quality ->
+                                            quality.name to stringResource(albumArtQualityLineRes(quality))
+                                        },
+                                        selectedKey = uiState.albumArtQuality.name,
+                                        onSelectionChanged = { key ->
+                                            runCatching { AlbumArtQuality.valueOf(key) }.getOrNull()?.let { settingsViewModel.setAlbumArtQuality(it) }
+                                        },
+                                        leadingIcon = { Icon(painterResource(R.drawable.outline_high_quality_24), null, tint = MaterialTheme.colorScheme.secondary) }
+                                    )
+                                    SettingsItem(
+                                        title = stringResource(R.string.settings_navbar_corner_title),
+                                        subtitle = stringResource(R.string.settings_navbar_corner_subtitle),
+                                        leadingIcon = { Icon(painterResource(R.drawable.rounded_rounded_corner_24), null, tint = MaterialTheme.colorScheme.secondary) },
+                                        trailingIcon = { Icon(Icons.Rounded.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant) },
+                                        onClick = { navController.navigateSafely("nav_bar_corner_radius") }
+                                    )
+                                }
                             }
                         }
                     }
                 }
                 SettingsCategory.PLAYBACK -> {
+                    item(key = "playback_queue", contentType = "settings_subsection") {
+                        Column {
+                            SettingsSubsection(title = stringResource(R.string.settings_queue_transitions_section)) {
+                                ThemeSelectorItem(
+                                    label = stringResource(R.string.settings_crossfade_title),
+                                    description = stringResource(R.string.settings_crossfade_subtitle),
+                                    options = mapOf("true" to stringResource(R.string.settings_label_enabled), "false" to stringResource(R.string.settings_label_disabled)),
+                                    selectedKey = if (uiState.isCrossfadeEnabled) "true" else "false",
+                                    onSelectionChanged = { settingsViewModel.setCrossfadeEnabled(it.toBoolean()) },
+                                    leadingIcon = { Icon(painterResource(R.drawable.rounded_align_justify_space_even_24), null, tint = MaterialTheme.colorScheme.secondary) }
+                                )
+                                if (uiState.isCrossfadeEnabled) {
+                                    SliderSettingsItem(
+                                        label = stringResource(R.string.settings_crossfade_duration_title),
+                                        value = uiState.crossfadeDuration.toFloat(),
+                                        valueRange = 1000f..12000f,
+                                        steps= 10,
+                                        onValueChange = { settingsViewModel.setCrossfadeDuration(it.toInt()) },
+                                        valueText = { value -> "${(value / 1000).toInt()}s" }
+                                    )
+                                }
+                                SwitchSettingItem(
+                                    title = stringResource(R.string.settings_persistent_shuffle_title),
+                                    subtitle = stringResource(R.string.settings_persistent_shuffle_subtitle),
+                                    checked = uiState.persistentShuffleEnabled,
+                                    onCheckedChange = { settingsViewModel.setPersistentShuffleEnabled(it) },
+                                    leadingIcon = { Icon(painterResource(R.drawable.rounded_shuffle_24), null, tint = MaterialTheme.colorScheme.secondary) }
+                                )
+                                SwitchSettingItem(
+                                    title = stringResource(R.string.settings_show_queue_history_title),
+                                    subtitle = stringResource(R.string.settings_show_queue_history_subtitle),
+                                    checked = uiState.showQueueHistory,
+                                    onCheckedChange = { settingsViewModel.setShowQueueHistory(it) },
+                                    leadingIcon = { Icon(painterResource(R.drawable.rounded_queue_music_24), null, tint = MaterialTheme.colorScheme.secondary) }
+                                )
+                            }
+                        }
+                    }
+                    item(key = "playback_quality", contentType = "settings_subsection") {
+                        Column {
+                            SettingsSubsection(title = stringResource(R.string.settings_sound_section)) {
+                                ThemeSelectorItem(
+                                    label = stringResource(R.string.settings_audio_quality_title),
+                                    description = stringResource(R.string.settings_audio_quality_subtitle),
+                                    options = linkedMapOf(
+                                        AudioQuality.LOW.name to stringResource(R.string.settings_audio_quality_low),
+                                        AudioQuality.STANDARD.name to stringResource(R.string.settings_audio_quality_standard),
+                                        AudioQuality.HIGH.name to stringResource(R.string.settings_audio_quality_high),
+                                        AudioQuality.ULTRASOUND.name to stringResource(R.string.settings_audio_quality_ultrasound)
+                                    ),
+                                    selectedKey = uiState.audioQuality.name,
+                                    onSelectionChanged = { key ->
+                                        runCatching { AudioQuality.valueOf(key) }.getOrNull()?.let { settingsViewModel.setAudioQuality(it) }
+                                    },
+                                    leadingIcon = { Icon(painterResource(R.drawable.outline_high_quality_24), null, tint = MaterialTheme.colorScheme.secondary) }
+                                )
+                            }
+                        }
+                    }
+                    item(key = "playback_headphones_volume", contentType = "settings_subsection") {
+                        Column {
+                            SettingsSubsection(title = stringResource(R.string.settings_headphones_volume_section)) {
+                                SwitchSettingItem(
+                                    title = stringResource(R.string.settings_headphones_resume_title),
+                                    subtitle = stringResource(R.string.settings_headphones_resume_subtitle),
+                                    checked = uiState.resumeOnHeadsetReconnect,
+                                    onCheckedChange = { settingsViewModel.setResumeOnHeadsetReconnect(it) },
+                                    leadingIcon = { Icon(painterResource(R.drawable.rounded_headphones_24), null, tint = MaterialTheme.colorScheme.secondary) }
+                                )
+                                SwitchSettingItem(
+                                    title = stringResource(R.string.settings_pause_on_volume_zero),
+                                    subtitle = stringResource(R.string.settings_pause_on_volume_zero_desc),
+                                    checked = uiState.pauseOnVolumeZero,
+                                    onCheckedChange = { settingsViewModel.setPauseOnVolumeZero(it) },
+                                    leadingIcon = { Icon(painterResource(R.drawable.rounded_volume_down_24), null, tint = MaterialTheme.colorScheme.secondary) }
+                                )
+                            }
+                        }
+                    }
+                    item(key = "playback_cast", contentType = "settings_subsection") {
+                        Column {
+                            SettingsSubsection(title = stringResource(R.string.settings_cast_section)) {
+                                ThemeSelectorItem(
+                                    label = stringResource(R.string.settings_cast_autoplay_title),
+                                    description = stringResource(R.string.settings_cast_autoplay_subtitle),
+                                    options = mapOf("false" to stringResource(R.string.settings_label_enabled), "true" to stringResource(R.string.settings_label_disabled)),
+                                    selectedKey = if (uiState.disableCastAutoplay) "true" else "false",
+                                    onSelectionChanged = { settingsViewModel.setDisableCastAutoplay(it.toBoolean()) },
+                                    leadingIcon = { Icon(painterResource(R.drawable.rounded_cast_24), null, tint = MaterialTheme.colorScheme.secondary) }
+                                )
+                            }
+                        }
+                    }
                     item(key = "playback_background", contentType = "settings_subsection") {
                         Column {
-                            SettingsSubsection(title = stringResource(R.string.settings_background_playback_section)) {
+                            SettingsSubsection(
+                                title = stringResource(R.string.settings_background_playback_section),
+                                addBottomSpace = developerMode
+                            ) {
                                 ThemeSelectorItem(
                                     label = stringResource(R.string.settings_keep_playing_title),
                                     description = stringResource(R.string.settings_keep_playing_subtitle),
@@ -836,211 +912,186 @@ fun SettingsCategoryScreen(
                             }
                         }
                     }
-                    item(key = "playback_replaygain", contentType = "settings_subsection") {
-                        Column {
-                            SettingsSubsection(title = stringResource(R.string.settings_replaygain_section)) {
-                                SwitchSettingItem(
-                                    title = stringResource(R.string.settings_replaygain_enable_title),
-                                    subtitle = stringResource(R.string.settings_replaygain_enable_subtitle),
-                                    checked = uiState.replayGainEnabled,
-                                    onCheckedChange = { settingsViewModel.setReplayGainEnabled(it) },
-                                    leadingIcon = { Icon(painterResource(R.drawable.rounded_volume_down_24), null, tint = MaterialTheme.colorScheme.secondary) }
-                                )
-                                AnimatedVisibility(
-                                    visible = uiState.replayGainEnabled,
-                                    enter = expandVertically(animationSpec = spring(dampingRatio = 0.8f, stiffness = 400f)) + fadeIn(animationSpec = spring(stiffness = 400f)),
-                                    exit = shrinkVertically(animationSpec = spring(stiffness = 500f)) + fadeOut(animationSpec = spring(stiffness = 500f))
+                    if (developerMode) {
+                        item(key = "playback_advanced", contentType = "settings_subsection") {
+                            Column {
+                                SettingsSubsection(
+                                    title = stringResource(R.string.settings_section_advanced),
+                                    addBottomSpace = false
                                 ) {
-                                    ThemeSelectorItem(
-                                        label = stringResource(R.string.settings_gain_mode_title),
-                                        description = stringResource(R.string.settings_gain_mode_subtitle),
-                                        options = mapOf("track" to stringResource(R.string.settings_gain_mode_track), "album" to stringResource(R.string.settings_gain_mode_album)),
-                                        selectedKey = if (uiState.replayGainUseAlbumGain) "album" else "track",
-                                        onSelectionChanged = { settingsViewModel.setReplayGainUseAlbumGain(it == "album") },
+                                    SwitchSettingItem(
+                                        title = stringResource(R.string.settings_replaygain_enable_title),
+                                        subtitle = stringResource(R.string.settings_replaygain_enable_subtitle),
+                                        checked = uiState.replayGainEnabled,
+                                        onCheckedChange = { settingsViewModel.setReplayGainEnabled(it) },
                                         leadingIcon = { Icon(painterResource(R.drawable.rounded_volume_down_24), null, tint = MaterialTheme.colorScheme.secondary) }
                                     )
-                                }
-                            }
-                        }
-                    }
-                    item(key = "playback_cast", contentType = "settings_subsection") {
-                        Column {
-                            SettingsSubsection(title = stringResource(R.string.settings_cast_section)) {
-                                ThemeSelectorItem(
-                                    label = stringResource(R.string.settings_cast_autoplay_title),
-                                    description = stringResource(R.string.settings_cast_autoplay_subtitle),
-                                    options = mapOf("false" to stringResource(R.string.settings_label_enabled), "true" to stringResource(R.string.settings_label_disabled)),
-                                    selectedKey = if (uiState.disableCastAutoplay) "true" else "false",
-                                    onSelectionChanged = { settingsViewModel.setDisableCastAutoplay(it.toBoolean()) },
-                                    leadingIcon = { Icon(painterResource(R.drawable.rounded_cast_24), null, tint = MaterialTheme.colorScheme.secondary) }
-                                )
-                            }
-                        }
-                    }
-                    item(key = "playback_volume", contentType = "settings_subsection") {
-                        Column {
-                            SettingsSubsection(title = stringResource(R.string.settings_volume_section)) {
-                                SwitchSettingItem(
-                                    title = stringResource(R.string.settings_pause_on_volume_zero),
-                                    subtitle = stringResource(R.string.settings_pause_on_volume_zero_desc),
-                                    checked = uiState.pauseOnVolumeZero,
-                                    onCheckedChange = { settingsViewModel.setPauseOnVolumeZero(it) },
-                                    leadingIcon = { Icon(painterResource(R.drawable.rounded_volume_down_24), null, tint = MaterialTheme.colorScheme.secondary) }
-                                )
-                            }
-                        }
-                    }
-                    item(key = "playback_headphones", contentType = "settings_subsection") {
-                        Column {
-                            SettingsSubsection(title = stringResource(R.string.settings_headphones_section)) {
-                                SwitchSettingItem(
-                                    title = stringResource(R.string.settings_headphones_resume_title),
-                                    subtitle = stringResource(R.string.settings_headphones_resume_subtitle),
-                                    checked = uiState.resumeOnHeadsetReconnect,
-                                    onCheckedChange = { settingsViewModel.setResumeOnHeadsetReconnect(it) },
-                                    leadingIcon = { Icon(painterResource(R.drawable.rounded_headphones_24), null, tint = MaterialTheme.colorScheme.secondary) }
-                                )
-                            }
-                        }
-                    }
-                    item(key = "playback_quality", contentType = "settings_subsection") {
-                        Column {
-                            SettingsSubsection(title = stringResource(R.string.settings_audio_quality_title)) {
-                                ThemeSelectorItem(
-                                    label = stringResource(R.string.settings_audio_quality_title),
-                                    description = stringResource(R.string.settings_audio_quality_subtitle),
-                                    options = linkedMapOf(
-                                        AudioQuality.LOW.name to stringResource(R.string.settings_audio_quality_low),
-                                        AudioQuality.STANDARD.name to stringResource(R.string.settings_audio_quality_standard),
-                                        AudioQuality.HIGH.name to stringResource(R.string.settings_audio_quality_high),
-                                        AudioQuality.ULTRASOUND.name to stringResource(R.string.settings_audio_quality_ultrasound)
-                                    ),
-                                    selectedKey = uiState.audioQuality.name,
-                                    onSelectionChanged = { key ->
-                                        runCatching { AudioQuality.valueOf(key) }.getOrNull()?.let { settingsViewModel.setAudioQuality(it) }
-                                    },
-                                    leadingIcon = { Icon(painterResource(R.drawable.outline_high_quality_24), null, tint = MaterialTheme.colorScheme.secondary) }
-                                )
-                            }
-                        }
-                    }
-                    item(key = "playback_queue", contentType = "settings_subsection") {
-                        Column {
-                            SettingsSubsection(title = stringResource(R.string.settings_queue_transitions_section)) {
-                                ThemeSelectorItem(
-                                    label = stringResource(R.string.settings_crossfade_title),
-                                    description = stringResource(R.string.settings_crossfade_subtitle),
-                                    options = mapOf("true" to stringResource(R.string.settings_label_enabled), "false" to stringResource(R.string.settings_label_disabled)),
-                                    selectedKey = if (uiState.isCrossfadeEnabled) "true" else "false",
-                                    onSelectionChanged = { settingsViewModel.setCrossfadeEnabled(it.toBoolean()) },
-                                    leadingIcon = { Icon(painterResource(R.drawable.rounded_align_justify_space_even_24), null, tint = MaterialTheme.colorScheme.secondary) }
-                                )
-                                if (uiState.isCrossfadeEnabled) {
-                                    SliderSettingsItem(
-                                        label = stringResource(R.string.settings_crossfade_duration_title),
-                                        value = uiState.crossfadeDuration.toFloat(),
-                                        valueRange = 1000f..12000f,
-                                        steps= 10,
-                                        onValueChange = { settingsViewModel.setCrossfadeDuration(it.toInt()) },
-                                        valueText = { value -> "${(value / 1000).toInt()}s" }
+                                    AnimatedVisibility(
+                                        visible = uiState.replayGainEnabled,
+                                        enter = expandVertically(animationSpec = spring(dampingRatio = 0.8f, stiffness = 400f)) + fadeIn(animationSpec = spring(stiffness = 400f)),
+                                        exit = shrinkVertically(animationSpec = spring(stiffness = 500f)) + fadeOut(animationSpec = spring(stiffness = 500f))
+                                    ) {
+                                        ThemeSelectorItem(
+                                            label = stringResource(R.string.settings_gain_mode_title),
+                                            description = stringResource(R.string.settings_gain_mode_subtitle),
+                                            options = mapOf("track" to stringResource(R.string.settings_gain_mode_track), "album" to stringResource(R.string.settings_gain_mode_album)),
+                                            selectedKey = if (uiState.replayGainUseAlbumGain) "album" else "track",
+                                            onSelectionChanged = { settingsViewModel.setReplayGainUseAlbumGain(it == "album") },
+                                            leadingIcon = { Icon(painterResource(R.drawable.rounded_volume_down_24), null, tint = MaterialTheme.colorScheme.secondary) }
+                                        )
+                                    }
+                                    SwitchSettingItem(
+                                        title = stringResource(R.string.settings_hifi_mode_title),
+                                        subtitle = if (uiState.hiFiModeDeviceSupported)
+                                            stringResource(R.string.settings_hifi_mode_supported_subtitle)
+                                        else
+                                            stringResource(R.string.settings_hifi_mode_unsupported_subtitle),
+                                        checked = uiState.hiFiModeEnabled,
+                                        onCheckedChange = { settingsViewModel.setHiFiModeEnabled(it) },
+                                        enabled = uiState.hiFiModeDeviceSupported,
+                                        leadingIcon = { Icon(painterResource(R.drawable.outline_high_quality_24), null, tint = MaterialTheme.colorScheme.secondary) }
                                     )
                                 }
-                                SwitchSettingItem(
-                                    title = stringResource(R.string.settings_hifi_mode_title),
-                                    subtitle = if (uiState.hiFiModeDeviceSupported)
-                                        stringResource(R.string.settings_hifi_mode_supported_subtitle)
-                                    else
-                                        stringResource(R.string.settings_hifi_mode_unsupported_subtitle),
-                                    checked = uiState.hiFiModeEnabled,
-                                    onCheckedChange = { settingsViewModel.setHiFiModeEnabled(it) },
-                                    enabled = uiState.hiFiModeDeviceSupported,
-                                    leadingIcon = { Icon(painterResource(R.drawable.outline_high_quality_24), null, tint = MaterialTheme.colorScheme.secondary) }
-                                )
-                                ThemeSelectorItem(
-                                    label = stringResource(R.string.settings_player_ambient_effects_title),
-                                    description = stringResource(R.string.settings_player_ambient_effects_subtitle),
-                                    options = linkedMapOf(
-                                        PlayerAmbientStyle.OFF.name to stringResource(R.string.settings_player_ambient_style_off),
-                                        PlayerAmbientStyle.BLENDED_COVER.name to stringResource(R.string.settings_player_ambient_style_blended_cover),
-                                        PlayerAmbientStyle.FLOWING_GRADIENT.name to stringResource(R.string.settings_player_ambient_style_flowing_gradient),
-                                        PlayerAmbientStyle.LOW_POLY_MESH.name to stringResource(R.string.settings_player_ambient_style_low_poly_mesh),
-                                        PlayerAmbientStyle.AUDIO_WAVEFORM.name to stringResource(R.string.settings_player_ambient_style_audio_waveform)
-                                    ),
-                                    selectedKey = uiState.playerAmbientStyle.name,
-                                    onSelectionChanged = { key ->
-                                        runCatching { PlayerAmbientStyle.valueOf(key) }.getOrNull()?.let { settingsViewModel.setPlayerAmbientStyle(it) }
-                                    },
-                                    leadingIcon = { Icon(painterResource(R.drawable.rounded_align_justify_space_even_24), null, tint = MaterialTheme.colorScheme.secondary) }
-                                )
-                                SwitchSettingItem(
-                                    title = stringResource(R.string.settings_persistent_shuffle_title),
-                                    subtitle = stringResource(R.string.settings_persistent_shuffle_subtitle),
-                                    checked = uiState.persistentShuffleEnabled,
-                                    onCheckedChange = { settingsViewModel.setPersistentShuffleEnabled(it) },
-                                    leadingIcon = { Icon(painterResource(R.drawable.rounded_shuffle_24), null, tint = MaterialTheme.colorScheme.secondary) }
-                                )
-                                SwitchSettingItem(
-                                    title = stringResource(R.string.settings_show_queue_history_title),
-                                    subtitle = stringResource(R.string.settings_show_queue_history_subtitle),
-                                    checked = uiState.showQueueHistory,
-                                    onCheckedChange = { settingsViewModel.setShowQueueHistory(it) },
-                                    leadingIcon = { Icon(painterResource(R.drawable.rounded_queue_music_24), null, tint = MaterialTheme.colorScheme.secondary) }
-                                )
-                            }
-                        }
-                    }
-                    item(key = "playback_extras", contentType = "settings_subsection") {
-                        PlaybackExtrasSettings(navController = navController)
-                    }
-                }
-                SettingsCategory.BEHAVIOR -> {
-                    item(key = "behavior_gestures", contentType = "settings_subsection") {
-                        Column {
-                            SettingsSubsection(
-                                title = stringResource(R.string.settings_player_gestures_section)
-                            ) {
-                                SwitchSettingItem(
-                                    title = stringResource(R.string.settings_tap_bg_closes_title),
-                                    subtitle = stringResource(R.string.settings_tap_bg_closes_subtitle),
-                                    checked = uiState.tapBackgroundClosesPlayer,
-                                    onCheckedChange = { settingsViewModel.setTapBackgroundClosesPlayer(it) },
-                                    leadingIcon = { Icon(painterResource(R.drawable.rounded_touch_app_24), null, tint = MaterialTheme.colorScheme.secondary) }
-                                )
-                            }
-                        }
-                    }
-                    item(key = "behavior_haptics", contentType = "settings_subsection") {
-                        Column {
-                            SettingsSubsection(
-                                title = stringResource(R.string.settings_haptics_section),
-                                addBottomSpace = false
-                            ) {
-                                SwitchSettingItem(
-                                    title = stringResource(R.string.settings_haptic_feedback_title),
-                                    subtitle = stringResource(R.string.settings_haptic_feedback_subtitle),
-                                    checked = uiState.hapticsEnabled,
-                                    onCheckedChange = { settingsViewModel.setHapticsEnabled(it) },
-                                    leadingIcon = { Icon(painterResource(R.drawable.rounded_touch_app_24), null, tint = MaterialTheme.colorScheme.secondary) }
-                                )
                             }
                         }
                     }
                 }
-                SettingsCategory.AI_INTEGRATION -> {
-                    item(key = "ai_studio_card", contentType = "settings_subsection") {
+                SettingsCategory.LYRICS -> {
+                    item(key = "lyrics_screen", contentType = "settings_subsection") {
+                        Column {
+                            SettingsSubsection(
+                                title = stringResource(R.string.settings_lyrics_screen_section),
+                                addBottomSpace = developerMode
+                            ) {
+                                SwitchSettingItem(
+                                    title = stringResource(R.string.settings_immersive_lyrics_title),
+                                    subtitle = stringResource(R.string.settings_immersive_lyrics_subtitle),
+                                    checked = uiState.immersiveLyricsEnabled,
+                                    onCheckedChange = { settingsViewModel.setImmersiveLyricsEnabled(it) },
+                                    leadingIcon = { Icon(painterResource(R.drawable.rounded_lyrics_24), null, tint = MaterialTheme.colorScheme.secondary) }
+                                )
+
+                                if (uiState.immersiveLyricsEnabled) {
+                                    ThemeSelectorItem(
+                                        label = stringResource(R.string.settings_auto_hide_delay_title),
+                                        description = stringResource(R.string.settings_auto_hide_delay_subtitle),
+                                        options = mapOf(
+                                            "3000" to stringResource(R.string.settings_auto_hide_delay_3s),
+                                            "4000" to stringResource(R.string.settings_auto_hide_delay_4s),
+                                            "5000" to stringResource(R.string.settings_auto_hide_delay_5s),
+                                            "6000" to stringResource(R.string.settings_auto_hide_delay_6s)
+                                        ),
+                                        selectedKey = uiState.immersiveLyricsTimeout.toString(),
+                                        onSelectionChanged = { settingsViewModel.setImmersiveLyricsTimeout(it.toLong()) },
+                                        leadingIcon = { Icon(Icons.Rounded.Timer, null, tint = MaterialTheme.colorScheme.secondary) }
+                                    )
+                                }
+
+                                // Moved here from Experimental.
+                                LyricBlurSettingItems(
+                                    enabled = uiState.animatedLyricsBlurEnabled,
+                                    strength = uiState.animatedLyricsBlurStrength,
+                                    onEnabledChange = settingsViewModel::setAnimatedLyricsBlurEnabled,
+                                    onStrengthChange = settingsViewModel::setAnimatedLyricsBlurStrength
+                                )
+                            }
+                        }
+                    }
+                    if (developerMode) {
+                        item(key = "lyrics_advanced", contentType = "settings_subsection") {
+                            Column {
+                                SettingsSubsection(
+                                    title = stringResource(R.string.settings_section_advanced),
+                                    addBottomSpace = false
+                                ) {
+                                    ThemeSelectorItem(
+                                        label = stringResource(R.string.settings_lyrics_source_priority_title),
+                                        description = stringResource(R.string.settings_lyrics_source_priority_subtitle),
+                                        options = mapOf(
+                                            LyricsSourcePreference.EMBEDDED_FIRST.name to stringResource(R.string.settings_lyrics_embedded_first),
+                                            LyricsSourcePreference.API_FIRST.name to stringResource(R.string.settings_lyrics_online_first),
+                                            LyricsSourcePreference.LOCAL_FIRST.name to stringResource(R.string.settings_lyrics_local_first)
+                                        ),
+                                        selectedKey = uiState.lyricsSourcePreference.name,
+                                        onSelectionChanged = { key ->
+                                            settingsViewModel.setLyricsSourcePreference(
+                                                LyricsSourcePreference.fromName(key)
+                                            )
+                                        },
+                                        leadingIcon = { Icon(painterResource(R.drawable.rounded_lyrics_24), null, tint = MaterialTheme.colorScheme.secondary) }
+                                    )
+                                    val lyricsTapOffsetMs by settingsViewModel.lyricsTapOffsetMs.collectAsStateWithLifecycle()
+                                    SettingsItem(
+                                        title = stringResource(R.string.settings_lyrics_tap_timing),
+                                        subtitle = stringResource(R.string.settings_lyrics_tap_timing_sub, lyricsTapOffsetMs),
+                                        leadingIcon = { Icon(Icons.Rounded.TouchApp, null, tint = MaterialTheme.colorScheme.secondary) },
+                                        onClick = { showTapTimingDialog = true }
+                                    )
+                                    SettingsItem(
+                                        title = stringResource(R.string.settings_reset_imported_lyrics_title),
+                                        subtitle = stringResource(R.string.settings_reset_imported_lyrics_subtitle),
+                                        leadingIcon = { Icon(Icons.Outlined.ClearAll, null, tint = MaterialTheme.colorScheme.secondary) },
+                                        onClick = { showClearLyricsDialog = true }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+                SettingsCategory.SING -> {
+                    item(key = "sing_ready", contentType = "settings_subsection") {
                         Column {
                             com.theveloper.pixelplay.presentation.components.AutomaticStudioSettingsCard()
                             Spacer(Modifier.height(20.dp))
                         }
                     }
+                    item(key = "sing_cloud", contentType = "settings_subsection") {
+                        SettingsSingCloudSection(navController = navController)
+                    }
+                }
+                SettingsCategory.BEHAVIOR -> {
+                    item(key = "behavior_gestures_haptics", contentType = "settings_subsection") {
+                        SettingsGesturesAndHaptics(
+                            tapBackgroundClosesPlayer = uiState.tapBackgroundClosesPlayer,
+                            onTapBackgroundClosesPlayer = { settingsViewModel.setTapBackgroundClosesPlayer(it) },
+                            hapticFeedbackEnabled = uiState.hapticsEnabled,
+                            onHapticFeedbackEnabled = { settingsViewModel.setHapticsEnabled(it) }
+                        )
+                    }
+                }
+                SettingsCategory.AI_INTEGRATION -> {
                     item(key = "ai_intelligence_card", contentType = "settings_subsection") {
                         Column {
                             com.theveloper.pixelplay.presentation.components.MusicIntelligenceSettingsCard()
                             Spacer(Modifier.height(20.dp))
                         }
                     }
+                    item(key = "ai_prompt", contentType = "settings_subsection") {
+                        Column {
+                            // Prompt Behavior Section
+                            SettingsSubsection(
+                                title = stringResource(R.string.settings_prompt_behavior_section),
+                                addBottomSpace = developerMode
+                            ) {
+                                AiSystemPromptItem(
+                                    systemPrompt = currentAiSystemPrompt,
+                                    defaultPrompt = com.theveloper.pixelplay.data.preferences.AiPreferencesRepository.DEFAULT_SYSTEM_PROMPT,
+                                    onSystemPromptSave = { settingsViewModel.onAiSystemPromptChange(it) },
+                                    onReset = { settingsViewModel.resetAiSystemPrompt() },
+                                    title = stringResource(R.string.settings_system_prompt_title),
+                                    subtitle = stringResource(R.string.settings_system_prompt_subtitle)
+                                )
+                            }
+                        }
+                    }
                     val provider = com.theveloper.pixelplay.data.ai.provider.AiProvider.fromString(aiProvider)
                     val isCloudAssistantOn = provider != com.theveloper.pixelplay.data.ai.provider.AiProvider.ON_DEVICE
+                    // Everything below is Developer mode only (where the AI runs, keys, models, tuning),
+                    // so a normal listener's list ends with the personality card above.
+                    if (!developerMode) return@LazyColumn
+                    item(key = "ai_advanced_header", contentType = "settings_subsection") {
+                        SettingsAdvancedHeader()
+                    }
                     // On-device AI first: it is the default for every AI feature. Each row collects
                     // only the flows it shows.
                     item(key = "ai_on_device", contentType = "settings_subsection") {
@@ -1320,24 +1371,6 @@ fun SettingsCategoryScreen(
                             }
                         }
                     }
-                    item(key = "ai_prompt", contentType = "settings_subsection") {
-                        Column {
-                            // Prompt Behavior Section
-                            SettingsSubsection(
-                                title = stringResource(R.string.settings_prompt_behavior_section),
-                                addBottomSpace = false
-                            ) {
-                                AiSystemPromptItem(
-                                    systemPrompt = currentAiSystemPrompt,
-                                    defaultPrompt = com.theveloper.pixelplay.data.preferences.AiPreferencesRepository.DEFAULT_SYSTEM_PROMPT,
-                                    onSystemPromptSave = { settingsViewModel.onAiSystemPromptChange(it) },
-                                    onReset = { settingsViewModel.resetAiSystemPrompt() },
-                                    title = stringResource(R.string.settings_system_prompt_title),
-                                    subtitle = stringResource(R.string.settings_system_prompt_subtitle)
-                                )
-                            }
-                        }
-                    }
                     item(key = "ai_advanced_toggle", contentType = "settings_subsection") {
                         Column {
                             Spacer(modifier = Modifier.height(8.dp))
@@ -1357,7 +1390,7 @@ fun SettingsCategoryScreen(
                                     horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
                                     Text(
-                                        text = "Advanced",
+                                        text = "Generation and usage",
                                         style = MaterialTheme.typography.titleMedium,
                                         color = MaterialTheme.colorScheme.onSurface
                                     )
@@ -1640,7 +1673,7 @@ fun SettingsCategoryScreen(
                                     title = stringResource(R.string.settings_export_backup_title),
                                     subtitle = stringResource(
                                         R.string.settings_export_backup_subtitle,
-                                        buildBackupSelectionSummary(context, exportSections)
+                                        buildBackupSelectionSummary(context, exportSections, developerMode)
                                     ),
                                     icon = {
                                         Icon(
@@ -1742,6 +1775,13 @@ fun SettingsCategoryScreen(
                                 title = stringResource(R.string.settings_diagnostics_section),
                                 addBottomSpace = false
                             ) {
+                                SettingsItem(
+                                    title = stringResource(R.string.about_diagnostics_card_title),
+                                    subtitle = stringResource(R.string.about_diagnostics_card_subtitle),
+                                    leadingIcon = { Icon(Icons.Rounded.BugReport, null, tint = MaterialTheme.colorScheme.secondary) },
+                                    trailingIcon = { Icon(Icons.Rounded.ChevronRight, stringResource(R.string.settings_cd_open), tint = MaterialTheme.colorScheme.onSurfaceVariant) },
+                                    onClick = { navController.navigateSafely(Screen.Diagnostics.route) }
+                                )
                                 SettingsItem(
                                     title = stringResource(R.string.settings_trigger_crash_title),
                                     subtitle = stringResource(R.string.settings_trigger_crash_subtitle),
@@ -2077,13 +2117,19 @@ fun SettingsCategoryScreen(
     }
 }
 
-private fun buildBackupSelectionSummary(context: Context, selected: Set<BackupSection>): String {
-    if (selected.isEmpty()) return context.getString(R.string.settings_export_backup_none)
-    val total = BackupSection.entries.size
-    return if (selected.size == total) {
+private fun buildBackupSelectionSummary(
+    context: Context,
+    selected: Set<BackupSection>,
+    developerMode: Boolean
+): String {
+    // Counted over the sections the picker lists (the technical ones show in Developer mode only).
+    val listed = visibleBackupSections(BackupSection.entries, developerMode)
+    val count = listed.count { it in selected }
+    if (count == 0) return context.getString(R.string.settings_export_backup_none)
+    return if (count == listed.size) {
         context.getString(R.string.settings_export_backup_all)
     } else {
-        context.getString(R.string.settings_export_backup_partial, selected.size, total)
+        context.getString(R.string.settings_export_backup_partial, count, listed.size)
     }
 }
 
@@ -2163,8 +2209,14 @@ private fun BackupSectionSelectionDialog(
     onConfirm: () -> Unit
 ) {
     val listState = rememberLazyListState()
-    val selectedCount = selectedSections.size
-    val totalCount = BackupSection.entries.size
+    // Technical sections (transition rules, engagement stats, ...) are listed in Developer mode
+    // only; whether they are selected is left as it is.
+    val developerMode = LocalDeveloperMode.current
+    val listedSections = remember(developerMode) {
+        visibleBackupSections(BackupSection.entries, developerMode)
+    }
+    val selectedCount = listedSections.count { it in selectedSections }
+    val totalCount = listedSections.size
     val transitionState = remember { MutableTransitionState(false) }
     var shouldShowDialog by remember { mutableStateOf(true) }
     var onDialogHiddenAction by remember { mutableStateOf<(() -> Unit)?>(null) }
@@ -2391,7 +2443,7 @@ private fun BackupSectionSelectionDialog(
                                 contentPadding = PaddingValues(bottom = 18.dp),
                                 verticalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
-                                items(BackupSection.entries, key = { it.key }) { section ->
+                                items(listedSections, key = { it.key }) { section ->
                                     val isSelected = section in selectedSections
                                     BackupSectionSelectableCard(
                                         section = section,
@@ -3017,20 +3069,23 @@ private fun BackupHistoryCard(
                 }
             }
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                Text(
-                    text = stringResource(
-                        R.string.settings_backup_history_modules_line,
-                        moduleCount,
-                        entry.appVersion.ifEmpty { unknownShort },
-                        entry.schemaVersion
-                    ),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
-                )
+            // "N modules · vX · schema vN" is detail for the curious: Developer mode only.
+            if (LocalDeveloperMode.current) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(
+                        text = stringResource(
+                            R.string.settings_backup_history_modules_line,
+                            moduleCount,
+                            entry.appVersion.ifEmpty { unknownShort },
+                            entry.schemaVersion
+                        ),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                    )
+                }
             }
         }
     }
@@ -3192,36 +3247,15 @@ private fun PaletteRegenerateSongSheetContent(
     }
 }
 
-@Composable
-private fun SettingsSubsectionHeader(title: String) {
-    Text(
-        text = title,
-        style = MaterialTheme.typography.labelMedium,
-        color = MaterialTheme.colorScheme.primary,
-        modifier = Modifier.padding(start = 12.dp, top = 8.dp, bottom = 4.dp)
-    )
-}
-
-@Composable
-private fun SettingsSubsection(
-    title: String,
-    addBottomSpace: Boolean = true,
-    content: @Composable () -> Unit
-) {
-    SettingsSubsectionHeader(title)
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(24.dp))
-            .background(Color.Transparent),
-        verticalArrangement = Arrangement.spacedBy(2.dp)
-    ) {
-        content()
+/** "Low (256px) - Better performance" and friends: the Album art resolution picker's option labels. */
+@StringRes
+private fun albumArtQualityLineRes(quality: AlbumArtQuality): Int =
+    when (quality) {
+        AlbumArtQuality.LOW -> R.string.settings_exp_album_art_quality_low_line
+        AlbumArtQuality.MEDIUM -> R.string.settings_exp_album_art_quality_medium_line
+        AlbumArtQuality.HIGH -> R.string.settings_exp_album_art_quality_high_line
+        AlbumArtQuality.ORIGINAL -> R.string.settings_exp_album_art_quality_original_line
     }
-    if (addBottomSpace) {
-        Spacer(modifier = Modifier.height(10.dp))
-    }
-}
 
 /** Tamaños en el formato del sistema, para que respeten idioma y unidades del dispositivo. */
 private fun formatOfflineBytes(context: android.content.Context, bytes: Long): String =

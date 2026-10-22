@@ -36,6 +36,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.theveloper.pixelplay.R
+import com.theveloper.pixelplay.presentation.model.LocalDeveloperMode
 import com.theveloper.pixelplay.presentation.viewmodel.MusicIntelligenceViewModel
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
@@ -69,35 +70,40 @@ fun MusicIntelligenceSettingsCard(viewModel: MusicIntelligenceViewModel = hiltVi
                 stringResource(R.string.music_intelligence_learning_count, state.learnedSongs, state.completions, state.skips),
                 style = MaterialTheme.typography.bodySmall
             )
-            FilledTonalButton(onClick = { expanded = !expanded }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
-                Text(stringResource(if (expanded) R.string.music_intelligence_hide_tools else R.string.music_intelligence_tools))
-            }
-            AnimatedVisibility(expanded) {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(stringResource(R.string.music_intelligence_tools_description), style = MaterialTheme.typography.bodySmall)
-                    Button(onClick = viewModel::preview, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
-                        if (busy) LoadingIndicator(Modifier.size(24.dp))
-                        Text(stringResource(R.string.music_intelligence_preview))
+            // Understandable on its own, so it lives in the card for everyone (it used to sit in
+            // the debug block below).
+            TextButton(onClick = { resetDialog = true }) { Text(stringResource(R.string.music_intelligence_reset)) }
+            // Ranking previews, timings and the instrumental engine benchmark: Developer mode only.
+            if (LocalDeveloperMode.current) {
+                FilledTonalButton(onClick = { expanded = !expanded }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+                    Text(stringResource(if (expanded) R.string.music_intelligence_hide_tools else R.string.music_intelligence_tools))
+                }
+                AnimatedVisibility(expanded) {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text(stringResource(R.string.music_intelligence_tools_description), style = MaterialTheme.typography.bodySmall)
+                        Button(onClick = viewModel::preview, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
+                            if (busy) LoadingIndicator(Modifier.size(24.dp))
+                            Text(stringResource(R.string.music_intelligence_preview))
+                        }
+                        OutlinedButton(onClick = viewModel::refreshDiscovery, modifier = Modifier.fillMaxWidth()) {
+                            Text(stringResource(R.string.music_intelligence_refresh))
+                        }
+                        message?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                        Text(state.lastReport, style = MaterialTheme.typography.bodySmall)
+                        TextButton(onClick = { clipboard.setText(AnnotatedString(state.lastReport)) }) {
+                            Text(stringResource(R.string.music_intelligence_copy_report))
+                        }
+                        Text(stringResource(R.string.music_intelligence_model_title), style = MaterialTheme.typography.titleMedium)
+                        Text(modelStatus.backend, style = MaterialTheme.typography.titleSmall)
+                        Text(modelStatus.detail, style = MaterialTheme.typography.bodySmall)
+                        Text(
+                            stringResource(R.string.music_intelligence_model_timing, modelStatus.lastInferenceMs, modelStatus.inferenceCount),
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        OutlinedButton(onClick = viewModel::benchmarkInstrumentalModel, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
+                            Text(stringResource(R.string.music_intelligence_model_benchmark))
+                        }
                     }
-                    OutlinedButton(onClick = viewModel::refreshDiscovery, modifier = Modifier.fillMaxWidth()) {
-                        Text(stringResource(R.string.music_intelligence_refresh))
-                    }
-                    message?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
-                    Text(state.lastReport, style = MaterialTheme.typography.bodySmall)
-                    TextButton(onClick = { clipboard.setText(AnnotatedString(state.lastReport)) }) {
-                        Text(stringResource(R.string.music_intelligence_copy_report))
-                    }
-                    Text(stringResource(R.string.music_intelligence_model_title), style = MaterialTheme.typography.titleMedium)
-                    Text(modelStatus.backend, style = MaterialTheme.typography.titleSmall)
-                    Text(modelStatus.detail, style = MaterialTheme.typography.bodySmall)
-                    Text(
-                        stringResource(R.string.music_intelligence_model_timing, modelStatus.lastInferenceMs, modelStatus.inferenceCount),
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                    OutlinedButton(onClick = viewModel::benchmarkInstrumentalModel, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
-                        Text(stringResource(R.string.music_intelligence_model_benchmark))
-                    }
-                    TextButton(onClick = { resetDialog = true }) { Text(stringResource(R.string.music_intelligence_reset)) }
                 }
             }
         }

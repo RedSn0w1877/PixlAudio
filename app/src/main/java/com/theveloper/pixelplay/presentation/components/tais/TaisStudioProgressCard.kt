@@ -1,16 +1,17 @@
 package com.theveloper.pixelplay.presentation.components.tais
 
-import com.theveloper.pixelplay.presentation.components.AdaptiveAlertDialog
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AutoAwesome
@@ -25,6 +26,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -34,43 +36,50 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
-import com.theveloper.pixelplay.R
 import com.theveloper.pixelplay.data.model.Song
-import com.theveloper.pixelplay.data.repository.LyricsRepository
-import androidx.compose.material3.TextButton
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.ui.res.stringResource
-import dagger.hilt.EntryPoint
-import dagger.hilt.InstallIn
-import dagger.hilt.android.EntryPointAccessors
-import dagger.hilt.components.SingletonComponent
-import kotlinx.coroutines.launch
 import com.theveloper.pixelplay.data.worker.BsRoformerRenderWorker
 import com.theveloper.pixelplay.data.worker.StemSeparatorWorker
 import com.theveloper.pixelplay.data.worker.TaisStudioWorker
+import com.theveloper.pixelplay.presentation.screens.cloudstudio.CloudSongButton
+import com.theveloper.pixelplay.presentation.screens.cloudstudio.CloudSongStatus
+import com.theveloper.pixelplay.presentation.screens.cloudstudio.CloudStudioCopy
 
 /**
- * "Instrumental" and "Lyrics" trigger + progress card. These used to be one combined "Remaster
- * Song" button that always ran stem separation *and* lyric alignment sequentially — split so a
- * lyrics-only request doesn't pay for a full separation pass it doesn't need, and vice versa.
- * Each half is backed by its own worker ([StemSeparatorWorker] / [TaisStudioWorker]) and reads its
- * progress straight from WorkManager so this survives the screen being backgrounded mid-render.
+ * "Make an instrumental": one card, two ways to do it side by side — "Process on-device" ([StemSeparatorWorker]) and
+ * "Process in cloud" (Cloud Studio) — with the progress of each underneath. This used to be the "Remaster Song" card
+ * with a separate lyric-sync button; lyric syncing is no longer offered here. The on-device half reads its progress
+ * straight from WorkManager so this survives the screen being backgrounded mid-render.
  */
 @Composable
 fun TaisStudioProgressCard(
     song: Song?,
     modifier: Modifier = Modifier,
     // BS-RoFormer specifically is off for Beta 1 — that render pipeline is still flaky
-    // (processed songs can drop out and need reprocessing). Regular Instrumentalize
-    // (StemSeparator) and Sync Lyrics are unrelated and both stay on regardless.
+    // (processed songs can drop out and need reprocessing). Regular on-device processing
+    // (StemSeparator) is unrelated and stays on regardless.
     showRoformerTools: Boolean = false,
     onInstrumentalReady: (instrumentalPath: String) -> Unit = {},
-    onLyricsReady: (wordSyncProduced: Boolean) -> Unit = {},
+    // Not used any more (the card has no lyric-sync button); kept so existing call sites still compile.
+    @Suppress("UNUSED_PARAMETER") onLyricsReady: (wordSyncProduced: Boolean) -> Unit = {},
     onRoformerInstrumentalReady: (instrumentalPath: String) -> Unit = {}
 ) {
+    val context = LocalContext.current
+    val instrumental = rememberTaisJob(
+        song = song,
+        uniqueWorkName = StemSeparatorWorker::uniqueWorkName,
+        percentOf = { it.progress.getInt(StemSeparatorWorker.PROGRESS_PERCENT, 0) },
+        detailOf = { it.progress.getString(StemSeparatorWorker.PROGRESS_DETAIL) },
+        failureReasonOf = { it.outputData.getString(StemSeparatorWorker.OUTPUT_FAILURE_REASON) },
+        onSucceeded = { info ->
+            val path = info.outputData.getString(StemSeparatorWorker.OUTPUT_INSTRUMENTAL_PATH)
+            if (path != null) onInstrumentalReady(path)
+        }
+    )
+
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainer,
         modifier = modifier
@@ -94,38 +103,55 @@ fun TaisStudioProgressCard(
                 )
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "Remaster Song",
+                        text = "Make an instrumental",
                         style = MaterialTheme.typography.titleMedium,
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
-                        text = "Render an instrumental or sync the lyrics word-by-word for this " +
-                            "track — each runs on its own, so you don't have to wait on one to get " +
-                            "the other.",
+                        text = CloudStudioCopy.WIFI_HINT,
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
 
-            TaisJobRow(
-                song = song,
-                buttonLabel = "Render Instrumental",
-                readyLabel = "Instrumental ready.",
-                uniqueWorkName = StemSeparatorWorker::uniqueWorkName,
-                enqueue = { workManager, s -> StemSeparatorWorker.enqueue(workManager, s.id, s.contentUriString) },
-                percentOf = { it.progress.getInt(StemSeparatorWorker.PROGRESS_PERCENT, 0) },
-                detailOf = { it.progress.getString(StemSeparatorWorker.PROGRESS_DETAIL) },
-                failureReasonOf = { it.outputData.getString(StemSeparatorWorker.OUTPUT_FAILURE_REASON) },
-                onSucceeded = { info ->
-                    val path = info.outputData.getString(StemSeparatorWorker.OUTPUT_INSTRUMENTAL_PATH)
-                    if (path != null) onInstrumentalReady(path)
+            if (song == null) {
+                FilledTonalButton(onClick = {}, enabled = false, modifier = Modifier.fillMaxWidth()) {
+                    Text("Play a song first")
                 }
-            )
+            } else {
+                // Equal height even when one label wraps onto a second line on a narrow phone.
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(IntrinsicSize.Min)
+                ) {
+                    FilledTonalButton(
+                        onClick = {
+                            instrumental.markStarted()
+                            StemSeparatorWorker.enqueue(WorkManager.getInstance(context), song.id, song.contentUriString)
+                        },
+                        enabled = !instrumental.isRunning,
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
+                    ) {
+                        Text("Process on-device", textAlign = TextAlign.Center)
+                    }
+                    CloudSongButton(
+                        song = song,
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
+                    )
+                }
+            }
 
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            TaisJobStatus(instrumental, readyLabel = "Instrumental ready.")
 
-            LyricsSyncJobRow(song = song, onLyricsReady = onLyricsReady)
+            // The song's latest cloud job (only once it has one).
+            CloudSongStatus(song = song)
 
             if (showRoformerTools) {
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
@@ -145,98 +171,41 @@ fun TaisStudioProgressCard(
                     }
                 )
             }
-
-            // Cloud Studio: once Cloud processing is on, the song can go to the RunPod GPU from here (iOS parity).
-            com.theveloper.pixelplay.presentation.screens.cloudstudio.CloudSongRow(song = song)
         }
     }
 }
 
-@EntryPoint
-@InstallIn(SingletonComponent::class)
-internal interface LyricsSyncJobEntryPoint {
-    fun lyricsRepository(): LyricsRepository
+/** What WorkManager says about one job of one song: read by [TaisJobStatus] and by the job's button. */
+@Stable
+private class TaisJobState {
+    var isRunning by mutableStateOf(false)
+    var percent by mutableStateOf(0)
+    var detail by mutableStateOf<String?>(null)
+    var failureReason by mutableStateOf<String?>(null)
+    var succeeded by mutableStateOf(false)
+    var completionDetail by mutableStateOf<String?>(null)
+
+    /** The button was tapped: show the bar at once, before WorkManager reports the new work. */
+    fun markStarted() {
+        isRunning = true
+        percent = 0
+        succeeded = false
+        failureReason = null
+    }
 }
 
-/**
- * Explicit user action also works for lyrics which already contain word timings. A song the
- * user synced themselves ("Sync it yourself") asks first; "Replace" passes the override flag.
- */
+/** Follows [song]'s job through [WorkManager]'s unique-work flow; [TaisJobState] is what the screen reads. */
 @Composable
-fun LyricsSyncJobRow(song: Song?, onLyricsReady: (Boolean) -> Unit = {}) {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    val repository = remember(context) {
-        EntryPointAccessors.fromApplication(context.applicationContext, LyricsSyncJobEntryPoint::class.java)
-            .lyricsRepository()
-    }
-    var overrideUser by remember(song?.id) { mutableStateOf(false) }
-    var pendingStart by remember(song?.id) { mutableStateOf<(() -> Unit)?>(null) }
-
-    pendingStart?.let { start ->
-        AdaptiveAlertDialog(
-            onDismissRequest = { pendingStart = null },
-            text = { Text(stringResource(R.string.lyrics_sync_studio_replace_q)) },
-            confirmButton = {
-                TextButton(onClick = {
-                    pendingStart = null
-                    overrideUser = true
-                    start()
-                }) { Text(stringResource(R.string.lyrics_sync_replace)) }
-            },
-            dismissButton = {
-                TextButton(onClick = { pendingStart = null }) { Text(stringResource(R.string.lyrics_sync_keep_mine)) }
-            }
-        )
-    }
-
-    TaisJobRow(
-        song = song,
-        buttonLabel = "Sync / resync lyrics",
-        readyLabel = "Lyrics synced.",
-        uniqueWorkName = TaisStudioWorker::uniqueWorkName,
-        enqueue = { manager, track ->
-            TaisStudioWorker.enqueue(
-                manager, track.id, track.contentUriString, forceResync = true, overrideUser = overrideUser
-            )
-        },
-        interceptStart = { track, start ->
-            scope.launch {
-                overrideUser = false
-                if (repository.isUserSynced(track)) pendingStart = start else start()
-            }
-        },
-        percentOf = { it.progress.getInt(TaisStudioWorker.PROGRESS_PERCENT, 0) },
-        detailOf = { it.progress.getString(TaisStudioWorker.PROGRESS_DETAIL) },
-        failureReasonOf = { it.outputData.getString(TaisStudioWorker.OUTPUT_FAILURE_REASON) },
-        onSucceeded = { info ->
-            onLyricsReady(info.outputData.getBoolean(TaisStudioWorker.OUTPUT_LYRICS_UPDATED,
-                info.outputData.getBoolean(TaisStudioWorker.OUTPUT_WORD_SYNC_PRODUCED, false)))
-        }
-    )
-}
-
-/** One job's trigger button + progress/result state, driven entirely by [WorkManager]'s unique-work flow for [song]. */
-@Composable
-private fun TaisJobRow(
+private fun rememberTaisJob(
     song: Song?,
-    buttonLabel: String,
-    readyLabel: String,
     uniqueWorkName: (String) -> String,
-    enqueue: (WorkManager, Song) -> Unit,
     percentOf: (WorkInfo) -> Int,
     detailOf: (WorkInfo) -> String?,
     failureReasonOf: (WorkInfo) -> String?,
-    onSucceeded: (WorkInfo) -> Unit,
-    interceptStart: ((Song, start: () -> Unit) -> Unit)? = null
-) {
+    onSucceeded: (WorkInfo) -> Unit
+): TaisJobState {
     val context = LocalContext.current
-    var isRunning by remember(song?.id) { mutableStateOf(false) }
-    var percent by remember(song?.id) { mutableStateOf(0) }
-    var detail by remember(song?.id) { mutableStateOf<String?>(null) }
-    var failureReason by remember(song?.id) { mutableStateOf<String?>(null) }
-    var succeeded by remember(song?.id) { mutableStateOf(false) }
-    var completionDetail by remember(song?.id) { mutableStateOf<String?>(null) }
+    val job = remember(song?.id) { TaisJobState() }
 
     val currentOnSucceeded by rememberUpdatedState(onSucceeded)
     LaunchedEffect(song?.id) {
@@ -252,90 +221,108 @@ private fun TaisJobRow(
                     } ?: return@collect
                 when (info.state) {
                     WorkInfo.State.RUNNING, WorkInfo.State.ENQUEUED, WorkInfo.State.BLOCKED -> {
-                        isRunning = true
-                        succeeded = false
-                        percent = percentOf(info)
-                        detail = detailOf(info)
-                        failureReason = null
+                        job.isRunning = true
+                        job.succeeded = false
+                        job.percent = percentOf(info)
+                        job.detail = detailOf(info)
+                        job.failureReason = null
                     }
                     WorkInfo.State.SUCCEEDED -> {
-                        isRunning = false
-                        percent = 100
-                        failureReason = failureReasonOf(info)
-                        succeeded = failureReason == null
-                        completionDetail = info.outputData.getString(TaisStudioWorker.OUTPUT_DETAIL)
-                        if (succeeded && deliveredCompletion != info.id) {
+                        job.isRunning = false
+                        job.percent = 100
+                        job.failureReason = failureReasonOf(info)
+                        job.succeeded = job.failureReason == null
+                        job.completionDetail = info.outputData.getString(TaisStudioWorker.OUTPUT_DETAIL)
+                        if (job.succeeded && deliveredCompletion != info.id) {
                             deliveredCompletion = info.id
                             currentOnSucceeded(info)
                         }
                     }
                     WorkInfo.State.FAILED -> {
-                        isRunning = false
-                        succeeded = false
-                        failureReason = failureReasonOf(info) ?: "Unknown error"
+                        job.isRunning = false
+                        job.succeeded = false
+                        job.failureReason = failureReasonOf(info) ?: "Unknown error"
                     }
                     WorkInfo.State.CANCELLED -> {
-                        isRunning = false
-                        succeeded = false
-                        failureReason = "Cancelled — tap below to try again."
+                        job.isRunning = false
+                        job.succeeded = false
+                        job.failureReason = "Cancelled — tap below to try again."
                     }
                 }
             }
     }
+    return job
+}
+
+/** The job's progress bar while it runs, then its ready line or what went wrong; nothing at all while idle. */
+@Composable
+private fun ColumnScope.TaisJobStatus(job: TaisJobState, readyLabel: String) {
+    AnimatedVisibility(visible = job.isRunning, enter = fadeIn(), exit = fadeOut()) {
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            LinearProgressIndicator(
+                progress = { job.percent / 100f },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(6.dp)
+                    .clip(RoundedCornerShape(3.dp))
+            )
+            Text(
+                text = "${job.detail ?: "Starting…"} · ${job.percent}%",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+
+    AnimatedVisibility(visible = job.succeeded && !job.isRunning, enter = fadeIn(), exit = fadeOut()) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Icon(Icons.Rounded.CheckCircle, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+            Text(
+                text = job.completionDetail ?: readyLabel,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+
+    job.failureReason?.let { reason ->
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Icon(Icons.Rounded.ErrorOutline, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+            Text(
+                text = reason,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error
+            )
+        }
+    }
+}
+
+/** One job's full-width trigger button + progress/result state, driven by [WorkManager]'s unique-work flow for [song]. */
+@Composable
+private fun TaisJobRow(
+    song: Song?,
+    buttonLabel: String,
+    readyLabel: String,
+    uniqueWorkName: (String) -> String,
+    enqueue: (WorkManager, Song) -> Unit,
+    percentOf: (WorkInfo) -> Int,
+    detailOf: (WorkInfo) -> String?,
+    failureReasonOf: (WorkInfo) -> String?,
+    onSucceeded: (WorkInfo) -> Unit
+) {
+    val context = LocalContext.current
+    val job = rememberTaisJob(song, uniqueWorkName, percentOf, detailOf, failureReasonOf, onSucceeded)
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        AnimatedVisibility(visible = isRunning, enter = fadeIn(), exit = fadeOut()) {
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                LinearProgressIndicator(
-                    progress = { percent / 100f },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(6.dp)
-                        .clip(RoundedCornerShape(3.dp))
-                )
-                Text(
-                    text = "${detail ?: "Starting…"} · $percent%",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
-
-        AnimatedVisibility(visible = succeeded && !isRunning, enter = fadeIn(), exit = fadeOut()) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Icon(Icons.Rounded.CheckCircle, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                Text(
-                    text = completionDetail ?: readyLabel,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
-
-        failureReason?.let { reason ->
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Icon(Icons.Rounded.ErrorOutline, contentDescription = null, tint = MaterialTheme.colorScheme.error)
-                Text(
-                    text = reason,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error
-                )
-            }
-        }
+        TaisJobStatus(job, readyLabel)
 
         FilledTonalButton(
             onClick = {
                 val s = song ?: return@FilledTonalButton
-                val start = {
-                    isRunning = true
-                    percent = 0
-                    succeeded = false
-                    failureReason = null
-                    enqueue(WorkManager.getInstance(context), s)
-                }
-                interceptStart?.invoke(s, start) ?: start()
+                job.markStarted()
+                enqueue(WorkManager.getInstance(context), s)
             },
-            enabled = song != null && !isRunning,
+            enabled = song != null && !job.isRunning,
             modifier = Modifier.fillMaxWidth()
         ) {
             Text(if (song == null) "Play a song first" else buttonLabel)

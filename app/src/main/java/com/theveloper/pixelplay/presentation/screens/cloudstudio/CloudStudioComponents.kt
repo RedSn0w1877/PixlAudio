@@ -1,5 +1,6 @@
 package com.theveloper.pixelplay.presentation.screens.cloudstudio
 
+import android.widget.Toast
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
@@ -23,6 +24,14 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Cancel
 import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.ErrorOutline
+import androidx.compose.material.icons.rounded.GraphicEq
+import androidx.compose.material.icons.rounded.HourglassBottom
+import androidx.compose.material.icons.rounded.HourglassTop
+import androidx.compose.material.icons.rounded.Memory
+import androidx.compose.material.icons.rounded.Schedule
+import androidx.compose.material.icons.rounded.Upload
 import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material3.Icon
@@ -42,9 +51,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -53,12 +64,14 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.theveloper.pixelplay.data.cloudstudio.CloudCheck
+import com.theveloper.pixelplay.data.cloudstudio.CloudJobState
 import com.theveloper.pixelplay.presentation.components.CollapsibleCommonTopBar
 import com.theveloper.pixelplay.presentation.components.CollapsingHeaderHeight
 import com.theveloper.pixelplay.presentation.components.MiniPlayerHeight
 import com.theveloper.pixelplay.presentation.components.WithCollapsingHeader
 import com.theveloper.pixelplay.presentation.components.rememberCollapseFraction
 import com.theveloper.pixelplay.presentation.components.rememberCollapsingHeaderContentPadding
+import com.theveloper.pixelplay.presentation.viewmodel.CloudStudioViewModel
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 
@@ -233,4 +246,33 @@ internal fun CloudCaption(text: String, modifier: Modifier = Modifier) {
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = modifier.fillMaxWidth(),
     )
+}
+
+/**
+ * Shows what a "Process in cloud" did ("Processing 1 song in the cloud", why nothing started…) as a toast. Put it on
+ * every screen that can start songs; each message reaches one collector, so it shows once.
+ */
+@Composable
+internal fun CloudMessageToasts(viewModel: CloudStudioViewModel) {
+    val context = LocalContext.current
+    LaunchedEffect(viewModel) {
+        viewModel.messages.collect { message -> Toast.makeText(context, message, Toast.LENGTH_SHORT).show() }
+    }
+}
+
+/** The leading symbol of a job's state (the iOS `CloudJobStateIcon` in Material Symbols). */
+internal object CloudJobIcons {
+    fun icon(state: CloudJobState): ImageVector = when (state) {
+        CloudJobState.QUEUED -> Icons.Rounded.Schedule
+        CloudJobState.PREPARING -> Icons.Rounded.GraphicEq
+        CloudJobState.UPLOADING -> Icons.Rounded.Upload
+        CloudJobState.UPLOADED -> Icons.Rounded.HourglassTop
+        CloudJobState.SUBMITTED -> Icons.Rounded.HourglassBottom
+        CloudJobState.RUNNING -> Icons.Rounded.Memory
+        CloudJobState.RESULTS_READY, CloudJobState.DOWNLOADING -> Icons.Rounded.Download
+        CloudJobState.IMPORTED -> Icons.Rounded.CheckCircle
+        CloudJobState.FAILED -> Icons.Rounded.ErrorOutline
+        CloudJobState.CANCELLED -> Icons.Rounded.Cancel
+        CloudJobState.EXPIRED -> Icons.Rounded.Schedule
+    }
 }

@@ -579,20 +579,13 @@ fun SongInfoBottomSheet(
 
                                         // Only BS-RoFormer is hidden here (showRoformerTools defaults to
                                         // false) — that specific render pipeline is still flaky for Beta 1.
-                                        // Regular Instrumentalize and Sync Lyrics both stay on as normal.
+                                        // "Process on-device" and "Process in cloud" both stay on as normal.
                                         com.theveloper.pixelplay.presentation.components.tais.TaisStudioProgressCard(
                                             song = song,
                                             onInstrumentalReady = {
                                                 Toast.makeText(
                                                     context,
                                                     "Instrumental ready for ${song.title} — play it from the lyrics screen.",
-                                                    Toast.LENGTH_LONG
-                                                ).show()
-                                            },
-                                            onLyricsReady = {
-                                                Toast.makeText(
-                                                    context,
-                                                    "Lyrics synced for ${song.title}.",
                                                     Toast.LENGTH_LONG
                                                 ).show()
                                             }

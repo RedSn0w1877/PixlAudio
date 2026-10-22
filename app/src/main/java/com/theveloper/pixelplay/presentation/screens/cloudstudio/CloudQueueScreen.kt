@@ -41,6 +41,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -49,15 +50,16 @@ import com.theveloper.pixelplay.data.cloudstudio.CloudBatchKind
 import com.theveloper.pixelplay.data.cloudstudio.CloudJobRecord
 import com.theveloper.pixelplay.data.cloudstudio.CloudJobState
 import com.theveloper.pixelplay.data.model.Song
+import com.theveloper.pixelplay.presentation.model.LocalDeveloperMode
 import com.theveloper.pixelplay.presentation.screens.SettingsItem
-import com.theveloper.pixelplay.presentation.viewmodel.CloudBatchOrigin
 import com.theveloper.pixelplay.presentation.viewmodel.CloudStudioViewModel
 
 /**
  * The "process later" queue (design §7.3), ported from the iOS app's `CloudQueueView`: what is on its way to the
- * cloud, what came back, and what needs the person. Songs are added from here (Current song / Songs without
- * word-timed lyrics / Songs without an instrumental) through the confirm sheet. Rows are keyed lazy items whose text
- * is built once per change of their own record; progress comes from the engine in whole percents, never a timer.
+ * cloud, what came back, and what needs the person. In developer mode songs can also be added from here (Current
+ * song / Songs without word-timed lyrics / Songs without an instrumental); each starts straight away. Rows are keyed
+ * lazy items whose text is built once per change of their own record; progress comes from the engine in whole
+ * percents, never a timer.
  */
 @Composable
 fun CloudQueueScreen(
@@ -69,12 +71,13 @@ fun CloudQueueScreen(
     val state by viewModel.engineState.collectAsStateWithLifecycle()
     val ui by viewModel.ui.collectAsStateWithLifecycle()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
+    val developerMode = LocalDeveloperMode.current
     LaunchedEffect(Unit) { viewModel.onScreenShown() }
+    CloudMessageToasts(viewModel)
 
     val active = remember(state.jobs) { state.activeJobs }
     val attention = remember(state.jobs) { state.attentionJobs }
     val finished = remember(state.jobs) { state.finishedJobs }
-    val committed = remember(state.jobs, settings.effectivePricePerSecondMicroUsd) { viewModel.committedThisMonthMicroUsd() }
     val progress = state.transferProgress
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -88,10 +91,10 @@ fun CloudQueueScreen(
                         ) {
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Icon(Icons.Rounded.Warning, null, tint = MaterialTheme.colorScheme.onSurface)
-                                Text(CloudStudioCopy.notice(notice), style = MaterialTheme.typography.bodyMedium,
+                                Text(CloudStudioCopy.notice(notice, developerMode), style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurface)
                             }
-                            if (CloudStudioCopy.noticeOpensSettings(notice)) {
+                            if (CloudStudioCopy.noticeOpensSettings(notice, developerMode)) {
                                 FilledTonalButton(onClick = onOpenSettings, modifier = Modifier.fillMaxWidth()) {
                                     Text("Open Cloud processing")
                                 }
@@ -100,16 +103,16 @@ fun CloudQueueScreen(
                     }
                 }
             }
-            item(key = "add") {
+            if (developerMode) item(key = "add") {
                 CloudSection("Add songs") {
                     AddRow("Current song", "The song that's playing now.", Icons.Rounded.MusicNote) {
-                        viewModel.requestBatch(CloudBatchKind.CURRENT, currentSong(), CloudStudioCopy.batchTitle(CloudBatchKind.CURRENT))
+                        viewModel.startNow(CloudBatchKind.CURRENT, currentSong(), CloudStudioCopy.batchTitle(CloudBatchKind.CURRENT))
                     }
                     AddRow("Songs without word-timed lyrics", "Up to 200 songs from your library.", Icons.Rounded.Subtitles) {
-                        viewModel.requestBatch(CloudBatchKind.MISSING_LYRICS, null, CloudStudioCopy.batchTitle(CloudBatchKind.MISSING_LYRICS))
+                        viewModel.startNow(CloudBatchKind.MISSING_LYRICS, null, CloudStudioCopy.batchTitle(CloudBatchKind.MISSING_LYRICS))
                     }
                     AddRow("Songs without an instrumental", "Up to 200 songs from your library.", Icons.Rounded.GraphicEq) {
-                        viewModel.requestBatch(CloudBatchKind.MISSING_INSTRUMENTAL, null,
+                        viewModel.startNow(CloudBatchKind.MISSING_INSTRUMENTAL, null,
                             CloudStudioCopy.batchTitle(CloudBatchKind.MISSING_INSTRUMENTAL))
                     }
                 }
@@ -119,8 +122,7 @@ fun CloudQueueScreen(
                     Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
                         CloudPanel {
                             Text(
-                                "Nothing in the queue yet. Songs you send come back here with their instrumental and " +
-                                    "word-timed lyrics.",
+                                "Nothing in the queue yet. Songs you process in the cloud show up here until they come back.",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -142,7 +144,9 @@ fun CloudQueueScreen(
                     }
                 }
             }
-            item(key = "month") {
+            // What this month has cost and what happens when the app is closed: for developers.
+            if (developerMode) item(key = "month") {
+                val committed = remember(state.jobs, settings.effectivePricePerSecondMicroUsd) { viewModel.committedThisMonthMicroUsd() }
                 Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
                     CloudPanel {
                         Text(
@@ -173,7 +177,6 @@ fun CloudQueueScreen(
             }
         }
     }
-    CloudConfirmSheetHost(origin = CloudBatchOrigin.QUEUE, viewModel = viewModel)
 }
 
 private fun androidx.compose.foundation.lazy.LazyListScope.jobGroup(
@@ -229,8 +232,9 @@ internal fun CloudJobRow(
     onRemove: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val status = remember(record, progress) { CloudStudioCopy.status(record, progress) }
-    val detail = remember(record) { CloudStudioCopy.detail(record) }
+    val developerMode = LocalDeveloperMode.current
+    val status = remember(record, progress, developerMode) { CloudStudioCopy.status(record, progress, developerMode) }
+    val detail = remember(record, developerMode) { CloudStudioCopy.detail(record, developerMode) }
     var menu by remember { mutableStateOf(false) }
     val failed = record.state == CloudJobState.FAILED
     Surface(
@@ -288,37 +292,42 @@ internal fun CloudJobRow(
 }
 
 /**
- * The studio card's Cloud row (the iOS `CloudSongRow`): the song's latest cloud job, or the button that sends it
- * through the confirm sheet. Nothing at all while Cloud processing is off.
+ * The song card's "Process in cloud" button (the iOS `CloudSongRow` button): it starts the song straight away, or says
+ * why it can't (Cloud processing off, nothing to do, this month's budget used up). It waits while this song already has
+ * a job on its way or a start is being worked out. Always shown, even while Cloud processing is off.
  */
 @Composable
-fun CloudSongRow(song: Song?, viewModel: CloudStudioViewModel = hiltViewModel()) {
-    val settings by viewModel.settings.collectAsStateWithLifecycle()
-    if (!settings.enabled) return
+fun CloudSongButton(song: Song, modifier: Modifier = Modifier, viewModel: CloudStudioViewModel = hiltViewModel()) {
     val state by viewModel.engineState.collectAsStateWithLifecycle()
     val ui by viewModel.ui.collectAsStateWithLifecycle()
-    val job = remember(state.jobs, song?.id) { song?.let { s -> state.jobs.lastOrNull { it.songId == s.id } } }
-    val progress = job?.let { state.transferProgress[it.jobKey] }
-    val pending = job?.state?.isPending == true
-    androidx.compose.material3.HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        if (job != null) {
-            val status = remember(job, progress) { "Cloud: " + CloudStudioCopy.status(job, progress) }
-            val failed = job.state == CloudJobState.FAILED
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(CloudJobIcons.icon(job.state), null, modifier = Modifier.size(18.dp),
-                    tint = if (failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)
-                Text(status, style = MaterialTheme.typography.bodySmall,
-                    color = if (failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        }
-        FilledTonalButton(
-            onClick = { song?.let { viewModel.requestBatch(listOf(it), it.title, CloudBatchOrigin.STUDIO_CARD) } },
-            enabled = song != null && !pending && !ui.isPreviewing,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text(if (song == null) "Play a song first" else "Process in the cloud")
-        }
+    LaunchedEffect(Unit) { viewModel.loadJobs() }
+    CloudMessageToasts(viewModel)
+    val pending = remember(state.jobs, song.id) {
+        state.jobs.lastOrNull { it.songId == song.id }?.state?.isPending == true
     }
-    CloudConfirmSheetHost(origin = CloudBatchOrigin.STUDIO_CARD, viewModel = viewModel)
+    FilledTonalButton(
+        onClick = { viewModel.startNow(listOf(song), song.title) },
+        enabled = !pending && !ui.isPreviewing,
+        modifier = modifier,
+    ) {
+        Text("Process in cloud", textAlign = TextAlign.Center)
+    }
+}
+
+/** The song's latest cloud job as a "Cloud: <status>" line with its state icon; nothing while it has none. */
+@Composable
+fun CloudSongStatus(song: Song?, viewModel: CloudStudioViewModel = hiltViewModel()) {
+    if (song == null) return
+    val state by viewModel.engineState.collectAsStateWithLifecycle()
+    val developerMode = LocalDeveloperMode.current
+    val job = remember(state.jobs, song.id) { state.jobs.lastOrNull { it.songId == song.id } } ?: return
+    val progress = state.transferProgress[job.jobKey]
+    val status = remember(job, progress, developerMode) { "Cloud: " + CloudStudioCopy.status(job, progress, developerMode) }
+    val failed = job.state == CloudJobState.FAILED
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Icon(CloudJobIcons.icon(job.state), null, modifier = Modifier.size(18.dp),
+            tint = if (failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)
+        Text(status, style = MaterialTheme.typography.bodySmall,
+            color = if (failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
+    }
 }

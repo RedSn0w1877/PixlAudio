@@ -45,12 +45,14 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AccountCircle
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.ChevronRight
+import androidx.compose.material.icons.rounded.Code
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -72,6 +74,7 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -79,6 +82,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
+import androidx.core.view.HapticFeedbackConstantsCompat
 import com.theveloper.pixelplay.R
 import com.theveloper.pixelplay.presentation.components.CollapsibleCommonTopBar
 import com.theveloper.pixelplay.presentation.components.rememberCollapseFraction
@@ -87,6 +91,8 @@ import com.theveloper.pixelplay.presentation.components.ExpressiveTopBarContent
 import com.theveloper.pixelplay.presentation.components.MiniPlayerHeight
 import com.theveloper.pixelplay.presentation.model.SettingsCategory
 import com.theveloper.pixelplay.presentation.navigation.Screen
+import com.theveloper.pixelplay.presentation.utils.LocalAppHapticsConfig
+import com.theveloper.pixelplay.presentation.utils.performAppCompatHapticFeedback
 import com.theveloper.pixelplay.presentation.viewmodel.PlayerViewModel
 import com.theveloper.pixelplay.presentation.viewmodel.SettingsViewModel
 import kotlin.math.roundToInt
@@ -140,6 +146,7 @@ fun SettingsScreen(
     val uiState by settingsViewModel.uiState.collectAsStateWithLifecycle()
     val launchTab = uiState.launchTab
     val useSmoothCorners by settingsViewModel.useSmoothCorners.collectAsStateWithLifecycle()
+    val developerMode by settingsViewModel.developerMode.collectAsStateWithLifecycle()
 
     var showCornerRadiusOverlay by remember { mutableStateOf(false) }
 
@@ -221,55 +228,18 @@ fun SettingsScreen(
             item {
                 val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
                 ExpressiveSettingsGroup {
-                    // User-facing categories first, in SettingsCategory's declaration order
-                    // (Library/Appearance/Playback/Equalizer/Behavior/AI/Backup); Accounts
-                    // slots in right after those since it's just as everyday a setting, not
-                    // an "advanced" one. Developer Options and Device Capabilities — debug/
-                    // diagnostic surfaces normal users have no reason to see mid-list — are
-                    // pushed to the bottom, with About always last.
+                    // Everyday settings, top to bottom: Accounts first (the app is Spotify-only,
+                    // so signing in is the first thing to do), then SettingsCategory's
+                    // declaration order, About last. Developer mode and the two debug
+                    // categories it unlocks sit in their own group below.
                     val mainCategories = SettingsCategory.entries.filter {
                         it != SettingsCategory.ABOUT &&
                         it != SettingsCategory.DEVICE_CAPABILITIES &&
                         it != SettingsCategory.DEVELOPER
                     }
-                    val advancedCategories = listOf(
-                        SettingsCategory.DEVELOPER,
-                        SettingsCategory.DEVICE_CAPABILITIES
-                    )
 
-                    val totalItems = mainCategories.size + advancedCategories.size + 2 // Accounts + About
-                    fun shapeFor(index: Int) =
-                        when {
-                            totalItems == 1 -> RoundedCornerShape(24.dp)
-                            index == 0 -> RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp, bottomStart = 4.dp, bottomEnd = 4.dp)
-                            index == totalItems - 1 -> RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp, bottomStart = 24.dp, bottomEnd = 24.dp)
-                            else -> RoundedCornerShape(4.dp)
-                        }
-
+                    val totalItems = mainCategories.size + 2 // Accounts + About
                     var itemIndex = 0
-
-                    fun categoryClickHandler(category: SettingsCategory): () -> Unit = {
-                        if (category == SettingsCategory.EQUALIZER) {
-                            navController.navigateSafely(Screen.Equalizer.route)
-                        } else if (category == SettingsCategory.DEVICE_CAPABILITIES) {
-                            navController.navigateSafely(Screen.DeviceCapabilities.route)
-                        } else {
-                            navController.navigateSafely(Screen.SettingsCategory.createRoute(category.id))
-                        }
-                    }
-
-                    mainCategories.forEach { category ->
-                        ExpressiveCategoryItem(
-                            category = category,
-                            customColors = getCategoryColors(category, isDark),
-                            onClick = categoryClickHandler(category),
-                            shape = shapeFor(itemIndex)
-                        )
-                        if (itemIndex < totalItems - 1) {
-                            Spacer(modifier = Modifier.height(2.dp))
-                        }
-                        itemIndex++
-                    }
 
                     ExpressiveNavigationItem(
                         title = stringResource(R.string.settings_category_accounts_title),
@@ -277,32 +247,62 @@ fun SettingsScreen(
                         icon = Icons.Rounded.AccountCircle,
                         colors = getAccountsColors(isDark),
                         onClick = { navController.navigateSafely(Screen.Accounts.route) },
-                        shape = shapeFor(itemIndex)
+                        shape = settingsGroupShape(itemIndex, totalItems)
                     )
-                    if (itemIndex < totalItems - 1) {
-                        Spacer(modifier = Modifier.height(2.dp))
-                    }
+                    Spacer(modifier = Modifier.height(2.dp))
                     itemIndex++
 
-                    advancedCategories.forEach { category ->
+                    mainCategories.forEach { category ->
                         ExpressiveCategoryItem(
                             category = category,
                             customColors = getCategoryColors(category, isDark),
-                            onClick = categoryClickHandler(category),
-                            shape = shapeFor(itemIndex)
+                            onClick = { openSettingsCategory(navController, category) },
+                            shape = settingsGroupShape(itemIndex, totalItems)
                         )
-                        if (itemIndex < totalItems - 1) {
-                            Spacer(modifier = Modifier.height(2.dp))
-                        }
+                        Spacer(modifier = Modifier.height(2.dp))
                         itemIndex++
                     }
 
                     ExpressiveCategoryItem(
                         category = SettingsCategory.ABOUT,
                         customColors = getCategoryColors(SettingsCategory.ABOUT, isDark),
-                        onClick = { navController.navigateSafely("about") },
-                        shape = shapeFor(itemIndex)
+                        onClick = { openSettingsCategory(navController, SettingsCategory.ABOUT) },
+                        shape = settingsGroupShape(itemIndex, totalItems)
                     )
+                }
+            }
+            item {
+                val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
+                ExpressiveSettingsGroup {
+                    // The switch is always there; Developer and Device capabilities appear right
+                    // under it while it's on. Turning it off hides them (and every "Advanced"
+                    // subsection) without touching any stored value.
+                    val advancedCategories = listOf(
+                        SettingsCategory.DEVELOPER,
+                        SettingsCategory.DEVICE_CAPABILITIES
+                    )
+                    val totalItems = if (developerMode) 1 + advancedCategories.size else 1
+
+                    ExpressiveSwitchItem(
+                        title = stringResource(R.string.settings_developer_mode_title),
+                        subtitle = stringResource(R.string.settings_developer_mode_subtitle),
+                        icon = Icons.Rounded.Code,
+                        colors = getCategoryColors(SettingsCategory.DEVELOPER, isDark),
+                        checked = developerMode,
+                        onCheckedChange = settingsViewModel::setDeveloperMode,
+                        shape = settingsGroupShape(0, totalItems)
+                    )
+                    if (developerMode) {
+                        advancedCategories.forEachIndexed { index, category ->
+                            Spacer(modifier = Modifier.height(2.dp))
+                            ExpressiveCategoryItem(
+                                category = category,
+                                customColors = getCategoryColors(category, isDark),
+                                onClick = { openSettingsCategory(navController, category) },
+                                shape = settingsGroupShape(index + 1, totalItems)
+                            )
+                        }
+                    }
                 }
 
                 // for player active:
@@ -403,6 +403,95 @@ fun ExpressiveNavigationItem(
                     maxLines = 2
                 )
             }
+        }
+    }
+}
+
+/** The corner shape of row [index] in a settings group of [count] rows: round only at the group's ends. */
+private fun settingsGroupShape(index: Int, count: Int): androidx.compose.ui.graphics.Shape =
+    when {
+        count == 1 -> RoundedCornerShape(24.dp)
+        index == 0 -> RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp, bottomStart = 4.dp, bottomEnd = 4.dp)
+        index == count - 1 -> RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp, bottomStart = 24.dp, bottomEnd = 24.dp)
+        else -> RoundedCornerShape(4.dp)
+    }
+
+private fun openSettingsCategory(navController: NavController, category: SettingsCategory) {
+    when (category) {
+        // Equalizer, Device capabilities and About are screens of their own, not category pages.
+        SettingsCategory.EQUALIZER -> navController.navigateSafely(Screen.Equalizer.route)
+        SettingsCategory.DEVICE_CAPABILITIES -> navController.navigateSafely(Screen.DeviceCapabilities.route)
+        SettingsCategory.ABOUT -> navController.navigateSafely("about")
+        else -> navController.navigateSafely(Screen.SettingsCategory.createRoute(category.id))
+    }
+}
+
+/** A row styled like [ExpressiveNavigationItem], with a switch in place of the arrow. */
+@Composable
+fun ExpressiveSwitchItem(
+    title: String,
+    subtitle: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    colors: Pair<Color, Color>,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    shape: androidx.compose.ui.graphics.Shape = RoundedCornerShape(24.dp)
+) {
+    val view = LocalView.current
+    val appHapticsConfig = LocalAppHapticsConfig.current
+    val toggle = { newValue: Boolean ->
+        performAppCompatHapticFeedback(view, appHapticsConfig, HapticFeedbackConstantsCompat.GESTURE_START)
+        onCheckedChange(newValue)
+    }
+
+    AdaptiveClickableSurface(
+        onClick = { toggle(!checked) },
+        shape = shape,
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        modifier = Modifier.fillMaxWidth().height(88.dp)
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(16.dp).fillMaxSize()
+        ) {
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .size(56.dp)
+                    .clip(CircleShape)
+                    .background(colors.first)
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = colors.second,
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.width(16.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    overflow = TextOverflow.Ellipsis,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1
+                )
+                Text(
+                    text = subtitle,
+                    overflow = TextOverflow.Ellipsis,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
+                    maxLines = 2
+                )
+            }
+
+            Spacer(modifier = Modifier.width(8.dp))
+
+            Switch(checked = checked, onCheckedChange = toggle)
         }
     }
 }
@@ -520,7 +609,9 @@ private fun getCategoryColors(category: SettingsCategory, isDark: Boolean): Pair
             SettingsCategory.AI_INTEGRATION -> Color(0xFF004F58) to Color(0xFF88FAFF) 
             SettingsCategory.BACKUP_RESTORE -> Color(0xFF3B4869) to Color(0xFFD9E2FF)
             SettingsCategory.DEVELOPER -> Color(0xFF324F34) to Color(0xFFCBEFD0) 
-            SettingsCategory.EQUALIZER -> Color(0xFF6E4E13) to Color(0xFFFFDEAC) 
+            SettingsCategory.EQUALIZER -> Color(0xFF6E4E13) to Color(0xFFFFDEAC)
+            SettingsCategory.LYRICS -> Color(0xFF4A4458) to Color(0xFFE8DEF8)
+            SettingsCategory.SING -> Color(0xFF5C3B1E) to Color(0xFFFFDCC2)
             SettingsCategory.DEVICE_CAPABILITIES -> Color(0xFF004D61) to Color(0xFFACEFEE) // Custom teal/cyan mix
             SettingsCategory.ABOUT -> Color(0xFF3F474D) to Color(0xFFDEE3EB) 
         }
@@ -534,6 +625,8 @@ private fun getCategoryColors(category: SettingsCategory, isDark: Boolean): Pair
             SettingsCategory.BACKUP_RESTORE -> Color(0xFFD9E2FF) to Color(0xFF27304E)
             SettingsCategory.DEVELOPER -> Color(0xFFCBEFD0) to Color(0xFF042106)
             SettingsCategory.EQUALIZER -> Color(0xFFFFDEAC) to Color(0xFF281900)
+            SettingsCategory.LYRICS -> Color(0xFFE8DEF8) to Color(0xFF1D192B)
+            SettingsCategory.SING -> Color(0xFFFFDCC2) to Color(0xFF2D1600)
             SettingsCategory.DEVICE_CAPABILITIES -> Color(0xFFACEFEE) to Color(0xFF002022)
             SettingsCategory.ABOUT -> Color(0xFFEFF1F7) to Color(0xFF44474F)
         }

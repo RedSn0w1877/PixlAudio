@@ -7,10 +7,12 @@ import com.theveloper.pixelplay.data.cloudstudio.CloudConnectionReport
 import com.theveloper.pixelplay.data.cloudstudio.CloudSecrets
 import com.theveloper.pixelplay.data.cloudstudio.CloudSecretsState
 import com.theveloper.pixelplay.data.cloudstudio.CloudSettingsSnapshot
+import com.theveloper.pixelplay.data.cloudstudio.CloudSkipReason
 import com.theveloper.pixelplay.data.cloudstudio.CloudSong
 import com.theveloper.pixelplay.data.cloudstudio.CloudStudioEngine
 import com.theveloper.pixelplay.data.cloudstudio.CloudStudioSettings
 import com.theveloper.pixelplay.data.cloudstudio.CloudStudioState
+import com.theveloper.pixelplay.presentation.screens.cloudstudio.CloudStudioCopy
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.coroutines.cancellation.CancellationException
@@ -19,30 +21,27 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import timber.log.Timber
 
-/** Where a confirm sheet was asked for, so only that screen shows it. */
-enum class CloudBatchOrigin { QUEUE, PLAYLIST, STUDIO_CARD }
-
-/** A batch waiting on the confirm sheet. */
-data class CloudPendingBatch(val preview: CloudBatchPreview, val origin: CloudBatchOrigin)
-
 /** What the Cloud Studio screens show besides the engine's own state (the iOS `CloudStudio` observable fields). */
 data class CloudStudioUiState(
-    val pendingBatch: CloudPendingBatch? = null,
     val connectionReport: CloudConnectionReport? = null,
     val selftestCheck: CloudCheck? = null,
     val isTesting: Boolean = false,
+    /** A "Process in cloud" is being looked over or sent (its buttons wait; the queue shows "Looking through your library"). */
     val isPreviewing: Boolean = false,
-    val isSending: Boolean = false,
     /** The keys as typed (loaded from secure storage once, then edited here); null until loaded. */
     val draft: CloudSecrets? = null,
     val keysMissing: Boolean = false,
@@ -50,9 +49,9 @@ data class CloudStudioUiState(
 )
 
 /**
- * Cloud Studio's UI state (Settings › Cloud processing, the queue, the confirm sheet), process-scoped like the other
- * state holders: the confirm sheet can be asked for from the queue, a playlist and the studio card, and a test or a
- * batch preview keeps running when its screen goes away. Every engine call runs on [Dispatchers.Default] (the engine
+ * Cloud Studio's UI state (Settings › Sing › Cloud processing, the queue, the "Process in cloud" buttons),
+ * process-scoped like the other state holders: a song's card, a playlist and the queue can all start songs, and a test
+ * or a start keeps running when its screen goes away. Every engine call runs on [Dispatchers.Default] (the engine
  * itself does its disk and network work on IO): nothing here blocks the main thread.
  *
  * The keys are edited as a draft held only in memory (never in a saved-state bundle, which Android writes to disk)
@@ -73,6 +72,11 @@ class CloudStudioStateHolder @Inject constructor(
     val engineState: StateFlow<CloudStudioState> get() = engine.state
     val settingsState: StateFlow<CloudSettingsSnapshot> get() = settings.settings
 
+    // One line per start (see [startNow]). A channel rather than a shared flow, so a toast shows once even when two
+    // screens collect at the same time (the song sheet open over a playlist, say): each line goes to one collector.
+    private val _messages = Channel<String>(capacity = 4, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+    val messages: Flow<String> = _messages.receiveAsFlow()
+
     private var draftSave: Job? = null
     /** The draft was edited since it was last saved (closing a screen never rewrites keys nobody touched). */
     @Volatile private var draftDirty = false
@@ -84,6 +88,11 @@ class CloudStudioStateHolder @Inject constructor(
     fun onScreenShown() {
         scope.launch { engine.loadForDisplay() }
         scope.launch { loadSecrets() }
+    }
+
+    /** A song's card opened: only the stored jobs (so its Cloud line is right even while off); no keys are read. */
+    fun loadJobs() {
+        scope.launch { engine.loadForDisplay() }
     }
 
     private suspend fun loadSecrets() {
@@ -180,51 +189,51 @@ class CloudStudioStateHolder @Inject constructor(
         }
     }
 
-    // ─── Batches ────────────────────────────────────────────────────────────────────────────
+    // ─── Starting ───────────────────────────────────────────────────────────────────────────
 
-    /** The queue's Add choices. "Current song" without a song playing does nothing. */
-    fun requestBatch(kind: CloudBatchKind, currentSong: CloudSong?, title: String) = preview(CloudBatchOrigin.QUEUE) {
+    /** The queue's Add choices (developer mode). "Current song" without a song playing says so. */
+    fun startNow(kind: CloudBatchKind, currentSong: CloudSong?, title: String) = start {
         engine.preview(kind, currentSong, title)
     }
 
-    /** A playlist's ⋯ or the studio card's button. */
-    fun requestBatch(songs: List<CloudSong>, title: String, origin: CloudBatchOrigin) = preview(origin) {
+    /** A song's "Process in cloud" or a playlist's "Process all in cloud": no confirm step, the outcome is a message. */
+    fun startNow(songs: List<CloudSong>, title: String) = start {
         engine.preview(songs, title)
     }
 
-    private fun preview(origin: CloudBatchOrigin, make: suspend () -> CloudBatchPreview?) {
+    private fun start(make: suspend () -> CloudBatchPreview?) {
         if (_ui.value.isPreviewing) return
+        if (!settings.snapshot().enabled) {
+            _messages.trySend(CloudStudioCopy.OFF_MESSAGE)
+            return
+        }
         _ui.update { it.copy(isPreviewing = true) }
         scope.launch {
             try {
-                val batch = make()
-                _ui.update { it.copy(pendingBatch = batch?.let { preview -> CloudPendingBatch(preview, origin) }) }
+                _messages.trySend(sendAndReport(make()))
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
-                _ui.update { it.copy(pendingBatch = null) }
+                Timber.w("Cloud start failed: %s", error.javaClass.simpleName)
+                _messages.trySend(CloudStudioCopy.START_FAILED_MESSAGE)
             } finally {
                 _ui.update { it.copy(isPreviewing = false) }
             }
         }
     }
 
-    fun dismissBatch() {
-        if (!_ui.value.isSending) _ui.update { it.copy(pendingBatch = null) }
-    }
-
-    /** "Send N songs": the jobs are created, then the sheet closes (it follows [CloudStudioUiState.pendingBatch]). */
-    fun send() {
-        val batch = _ui.value.pendingBatch ?: return
-        if (_ui.value.isSending) return
-        _ui.update { it.copy(isSending = true) }
-        scope.launch {
-            try {
-                engine.send(batch.preview)
-            } finally {
-                _ui.update { it.copy(isSending = false, pendingBatch = null) }
-            }
-        }
+    /**
+     * Creates the jobs for [batch] and returns what to tell the person. The guards the confirm sheet used to apply live
+     * here: nothing to process (with the first reason why), and the month's budget; the engine checks them again.
+     */
+    private suspend fun sendAndReport(batch: CloudBatchPreview?): String {
+        if (batch == null) return CloudStudioCopy.PLAY_A_SONG_MESSAGE
+        if (batch.isEmpty) return CloudStudioCopy.nothingToProcessMessage(batch.skipped.firstOrNull()?.first)
+        if (!batch.estimate.fitsCap) return CloudStudioCopy.CAP_MESSAGE
+        val started = engine.send(batch)
+        // Nothing was added: every song got a job of its own in the meantime.
+        if (started == 0) return CloudStudioCopy.nothingToProcessMessage(CloudSkipReason.PENDING_JOB)
+        return CloudStudioCopy.startedMessage(started, waitsForWifi = !settings.snapshot().useCellular)
     }
 
     // ─── Jobs ───────────────────────────────────────────────────────────────────────────────

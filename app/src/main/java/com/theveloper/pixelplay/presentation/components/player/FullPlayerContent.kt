@@ -131,6 +131,7 @@ import com.theveloper.pixelplay.presentation.components.AutoScrollingTextOnDeman
 import com.theveloper.pixelplay.presentation.components.LocalMaterialTheme
 import com.theveloper.pixelplay.presentation.components.LyricsSheet
 import com.theveloper.pixelplay.presentation.components.subcomps.FetchLyricsDialog
+import com.theveloper.pixelplay.presentation.model.LocalDeveloperMode
 import com.theveloper.pixelplay.presentation.viewmodel.LyricsSearchUiState
 import com.theveloper.pixelplay.presentation.viewmodel.PlayerSheetState
 import com.theveloper.pixelplay.presentation.viewmodel.PlayerViewModel
@@ -906,7 +907,6 @@ fun FullPlayerContent(
             onBackClick = { showLyricsSheet = false },
             onSaveLyricsToFile = playerViewModel::saveLyricsToFile,
             onTranslateViaAi = { playerViewModel.translateLyricsViaAi() },
-            onLyricsReady = { produced -> if (produced) playerViewModel.refreshLyricsFromCache() },
             onSeekTo = { playerViewModel.seekTo(it) },
             onPlayPause = {
                 playerViewModel.playPause()
@@ -1240,7 +1240,9 @@ private fun FullPlayerProgressSection(
         audioBitrate = audioBitrate,
         audioSampleRate = audioSampleRate,
         audioQualityTierLabel = audioQualityTierLabel,
-        showAudioFileInfo = showPlayerFileInfo,
+        // Codec, bitrate and sample rate are jargon: only shown when the setting is on AND
+        // Developer mode is on (the setting itself is in Appearance › Advanced).
+        showAudioFileInfo = showPlayerFileInfo && LocalDeveloperMode.current,
         onSeek = onSeek,
         expansionFractionProvider = expansionFractionProvider,
         isPlayingProvider = isPlayingProvider,
