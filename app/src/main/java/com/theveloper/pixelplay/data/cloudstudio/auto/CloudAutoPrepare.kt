@@ -2,7 +2,6 @@ package com.theveloper.pixelplay.data.cloudstudio.auto
 
 import com.theveloper.pixelplay.data.cloudstudio.CloudBudget
 import com.theveloper.pixelplay.data.cloudstudio.CloudCost
-import com.theveloper.pixelplay.data.cloudstudio.CloudLyricsMode
 import com.theveloper.pixelplay.data.cloudstudio.CloudSeparationQuality
 import com.theveloper.pixelplay.data.cloudstudio.CloudSongPlan
 import com.theveloper.pixelplay.data.cloudstudio.CloudTask
@@ -72,6 +71,8 @@ data class AutoSelectionState(
     /** Songs that failed or dropped lately and rest ([AutomaticStudioCooldowns]). */
     val isCoolingDown: (String) -> Boolean = { false },
     val batchLimit: Int = CloudAutoPrepare.BATCH_SIZE,
+    /** How many jobs RunPod runs at once ([CloudSettingsSnapshot.parallelWorkers]): the batch pays a cold start for each. */
+    val parallelWorkers: Int = 1,
 )
 
 /** The songs picked for one run, with what the batch is estimated to cost. */
@@ -199,9 +200,9 @@ object CloudAutoPrepare {
             .toList()
     }
 
-    /** The plan of one picked song (instrumental, and aligned lyrics when Outputs ask for them), for the estimate. */
+    /** The plan of one picked song (its instrumental, the only thing the cloud makes), for the estimate. */
     fun planFor(facts: AutoCandidateFacts): CloudSongPlan = CloudSongPlan(
-        facts.songId, listOf(CloudTask.INSTRUMENTAL, CloudTask.LYRICS), CloudLyricsMode.ALIGN, facts.isStreamed, facts.durationMs,
+        facts.songId, listOf(CloudTask.INSTRUMENTAL), facts.isStreamed, facts.durationMs,
     )
 
     /**
@@ -219,7 +220,7 @@ object CloudAutoPrepare {
             val facts = candidate.facts
             if (!facts.audioCached || state.isCoolingDown(facts.songId)) continue
             val withThis = plans + planFor(facts)
-            val total = CloudCost.estimateMicroUsd(withThis, state.quality, state.pricePerSecondMicroUsd)
+            val total = CloudCost.estimateMicroUsd(withThis, state.quality, state.pricePerSecondMicroUsd, state.parallelWorkers)
             if (!CloudBudget.allowsAuto(total, state.autoBudgetMicroUsd, state.autoCommittedMicroUsd, state.capRemainingMicroUsd)) continue
             plans += planFor(facts)
             picks += candidate
@@ -232,10 +233,12 @@ object CloudAutoPrepare {
 
     /**
      * "About N songs a month" for a monthly budget: a typical 4-minute song's warm GPU seconds plus its share of the
-     * cold start (one per batch of [BATCH_SIZE]), at the default GPU price. An estimate from the bench numbers.
+     * cold starts of a batch of [BATCH_SIZE] (one for each of the [parallelWorkers] it wakes, [CloudCost.coldStarts]),
+     * at the default GPU price. An estimate from the bench numbers.
      */
-    fun songsPerMonth(budgetMicroUsd: Long): Int {
-        val seconds = CloudCost.WARM_SECONDS_STANDARD + CloudCost.COLD_START_SECONDS / BATCH_SIZE
+    fun songsPerMonth(budgetMicroUsd: Long, parallelWorkers: Int): Int {
+        val coldSeconds = CloudCost.COLD_START_SECONDS * CloudCost.coldStarts(BATCH_SIZE, parallelWorkers)
+        val seconds = CloudCost.WARM_SECONDS_STANDARD + coldSeconds / BATCH_SIZE
         val perSong = seconds * CloudCost.DEFAULT_PRICE_PER_SECOND_MICRO_USD
         if (perSong <= 0 || budgetMicroUsd <= 0) return 0
         return (budgetMicroUsd / perSong).toInt()

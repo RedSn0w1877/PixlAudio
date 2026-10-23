@@ -1,13 +1,12 @@
 package com.theveloper.pixelplay.data.cloudstudio
 
-import com.theveloper.pixelplay.data.model.LyricsDoc
 import java.io.File
 import java.io.FileInputStream
 import java.security.MessageDigest
 import kotlinx.coroutines.CoroutineScope
 
 // The seams of Cloud Studio's orchestrator ([CloudStudioEngine], design §7.1 and §7.6 "tests with fakes"): the app
-// around it (library, lyrics store, instrumental store, permanent downloads), the upload preparer, the job store,
+// around it (library, instrumental store, permanent downloads), the upload preparer, the job store,
 // settings and keys, and WorkManager. The live implementations are in this package (`Live*`, `CloudStudioModule`);
 // unit tests use fakes, so nothing here touches Android, the network or the disk unless a test asks it to.
 
@@ -24,31 +23,10 @@ data class CloudSong(
     val hasAudioSource: Boolean,
 )
 
-/** What the library knows about a song's lyrics, for selection and for the request's `lyrics` block. */
-data class CloudLyricsFacts(
-    val state: CloudLyricsState,
-    val lines: List<CloudLyricsInputLine>? = null,
-    val hasLineTimes: Boolean = false,
-    /** The lyrics' own idea of the song's length (a catalog's duration), when known. */
-    val referenceDurationMs: Long? = null,
-    val language: String? = null,
-) {
-    companion object {
-        val NONE = CloudLyricsFacts(CloudLyricsState.NONE)
-    }
-}
-
-/** What became of a lyrics import. */
-enum class CloudLyricsSaveOutcome {
-    SAVED,
-    /** The stored lyrics are as good or better (catalog word timing arrived meanwhile). */
-    KEPT_BETTER,
-    /** The person synced this song themselves and didn't ask to replace it. */
-    KEPT_USER_SYNCED,
-    UNUSABLE,
-}
-
-/** The app around the orchestrator: songs, their audio, the lyrics store and the instrumental store. */
+/**
+ * The app around the orchestrator: songs, their audio and the instrumental store. (Lyrics are no longer the cloud's,
+ * 2026-10-23: BiniLyrics and the other catalogs bring word timing, so nothing here reads or writes the lyrics store.)
+ */
 interface CloudStudioHost {
     suspend fun song(id: String): CloudSong?
     /** Every song in the library (the queue's "Add" filters). */
@@ -65,13 +43,10 @@ interface CloudStudioHost {
     suspend fun cachedAudioSource(song: CloudSong): String? = null
     /** The YouTube video a streamed song plays (a Spotify song's match), null for local songs. Re-checked on import. */
     suspend fun streamIdentity(song: CloudSong): String?
-    suspend fun lyricsFacts(song: CloudSong): CloudLyricsFacts
     suspend fun hasInstrumental(songId: String): Boolean
     /** Moves a verified result into the instrumental store atomically (and drops the other cloud variant). */
     suspend fun installInstrumental(staged: File, songId: String, flac: Boolean)
-    suspend fun saveLyrics(doc: LyricsDoc, song: CloudSong, replaceUserSynced: Boolean): CloudLyricsSaveOutcome
     fun instrumentalImported(songId: String)
-    fun lyricsImported(songId: String)
 
     /**
      * Keeps a Sing's verified preview clip, which starts at [clipStartMs] of the song, as a transient file (the caches,
@@ -138,10 +113,6 @@ data class CloudSettingsSnapshot(
     /** As typed: `https://<account-id>.r2.cloudflarestorage.com` or the bare account ID. */
     val r2Endpoint: String = "",
     val bucket: String = CloudConfig.DEFAULT_BUCKET,
-    val wantsInstrumental: Boolean = true,
-    val wantsLyrics: Boolean = true,
-    /** "Write lyrics when none are found (AI transcription)". */
-    val transcribeWhenMissing: Boolean = true,
     val quality: CloudSeparationQuality = CloudSeparationQuality.STANDARD,
     /** "Use mobile data" (off: uploads and downloads wait for an unmetered network). */
     val useCellular: Boolean = false,
@@ -163,13 +134,13 @@ data class CloudSettingsSnapshot(
     /** Most songs it starts in a day. */
     val autoPrepareDailyCap: Int = CloudAutoPrepareDefaults.DAILY_CAP,
 ) {
-    val selectionOptions: CloudSelectionOptions
-        get() = CloudSelectionOptions(wantsInstrumental, wantsLyrics, transcribeWhenMissing)
-
     /** Whose keys jobs go out with now. */
     val keySource: CloudKeySource get() = CloudKeyChoice.source(useOwnKeys, builtInAvailable)
 
     val usesBuiltInKeys: Boolean get() = keySource == CloudKeySource.BUILT_IN
+
+    /** How many jobs may run at RunPod at once with these keys ([CloudKeyChoice.parallelWorkers]). */
+    val parallelWorkers: Int get() = CloudKeyChoice.parallelWorkers(keySource)
 
     /** The cap the money guards use: the field's, but never above $3 a month with the built-in keys. */
     val effectiveMonthlyCapMicroUsd: Long get() = CloudKeyChoice.effectiveMonthlyCap(monthlyCapMicroUsd, keySource)

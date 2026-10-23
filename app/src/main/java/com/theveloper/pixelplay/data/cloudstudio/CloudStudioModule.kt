@@ -8,12 +8,9 @@ import com.theveloper.pixelplay.data.cache.AudioCacheManager
 import com.theveloper.pixelplay.data.cloudstudio.auto.CloudAutoConditions
 import com.theveloper.pixelplay.data.cloudstudio.auto.LiveCloudAutoEnvironment
 import com.theveloper.pixelplay.data.database.SpotifyDao
-import com.theveloper.pixelplay.data.repository.LyricsRepository
 import com.theveloper.pixelplay.data.repository.MusicRepository
 import com.theveloper.pixelplay.data.spotify.SpotifyStreamProxy
 import com.theveloper.pixelplay.data.tais.TaisInstrumentalIndex
-import com.theveloper.pixelplay.data.worker.AutomaticStudioManager
-import dagger.Lazy
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -84,12 +81,10 @@ object CloudStudioModule {
         settings: CloudStudioSettings,
         @CloudStudioHttpClient client: OkHttpClient,
         musicRepository: MusicRepository,
-        lyricsRepository: LyricsRepository,
         audioCacheManager: AudioCacheManager,
         spotifyStreamProxy: SpotifyStreamProxy,
         spotifyDao: SpotifyDao,
         instrumentalIndex: TaisInstrumentalIndex,
-        automaticStudioManager: Lazy<AutomaticStudioManager>,
         workManager: WorkManager,
         builtIn: CloudBuiltInConfig,
     ): CloudStudioEngine {
@@ -103,12 +98,10 @@ object CloudStudioModule {
         val host = LiveCloudStudioHost(
             context = context,
             musicRepository = musicRepository,
-            lyricsRepository = lyricsRepository,
             audioCacheManager = audioCacheManager,
             spotifyStreamProxy = spotifyStreamProxy,
             spotifyDao = spotifyDao,
             instrumentalIndex = instrumentalIndex,
-            onLyricsUpdated = { songId -> automaticStudioManager.get().noteLyricsUpdated(songId) },
             scope = scope,
         )
         val autoEnvironment = LiveCloudAutoEnvironment(context)

@@ -1,6 +1,5 @@
 package com.theveloper.pixelplay.data.cloudstudio
 
-import com.theveloper.pixelplay.data.model.LyricsDoc
 import com.theveloper.pixelplay.data.tais.TaisInstrumentalIndex
 import java.io.File
 import java.nio.file.Path
@@ -8,6 +7,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.yield
 import kotlinx.serialization.encodeToString
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -20,9 +20,10 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 
 /**
- * The orchestrator end to end with fakes (design §7.6): a local song from Send to the imported instrumental and
- * lyrics, plus the three fixes the iOS review asked for (a restart never erases stored jobs, a retried worker error
- * isn't re-read as the new run's answer, streamed songs go up decoded) and the failure paths.
+ * The orchestrator end to end with fakes (design §7.6): a local song from Send to the imported instrumental, plus the
+ * three fixes the iOS review asked for (a restart never erases stored jobs, a retried worker error isn't re-read as
+ * the new run's answer, streamed songs go up decoded), several songs at once (3 workers, 3 phone steps) and the
+ * failure paths.
  */
 class CloudStudioEngineTest {
     @TempDir lateinit var directory: Path
@@ -78,28 +79,31 @@ class CloudStudioEngineTest {
         return engine.state.value.jobs.last()
     }
 
-    @Test fun `a local song goes from Send to an imported instrumental and word-timed lyrics`() = runBlocking {
+    @Test fun `a local song goes from Send to an imported instrumental`() = runBlocking {
         val engine = engine()
         val record = sendOne(engine)
-        assertEquals(listOf(CloudTask.INSTRUMENTAL, CloudTask.LYRICS), record.tasks)
+        // The cloud makes the instrumental only: no lyrics task, whatever lyrics the song has.
+        assertEquals(listOf(CloudTask.INSTRUMENTAL), record.tasks)
+        assertNull(record.lyricsMode)
         assertTrue(scheduler.passRequests > 0)
         engine.workerPass(now + PASS_MS)
         val done = engine.job(record.jobKey)!!
         assertEquals(CloudJobState.IMPORTED, done.state, "last error: ${done.lastError}")
-        assertTrue(done.importedInstrumental && done.importedLyrics)
+        assertTrue(done.importedInstrumental)
+        assertFalse(done.importedLyrics)
         assertEquals(false, preparer.forceDecodes.single())
-        // The /run body: FLAC input from the preparer, URLs signed for the worker, the song's lyrics.
+        // The /run body: FLAC input from the preparer, URLs signed for the worker, the instrumental and nothing else.
         val input = runpod.runs.single().input
         assertEquals("flac", input.audio?.ext)
         assertEquals(preparer.sha, input.audio?.sha256)
         assertEquals(CloudSchema.CLIENT_APP, input.client?.app)
-        assertEquals("align", input.lyrics?.mode)
-        assertEquals(listOf("first line", "second line"), input.lyrics?.lines?.map { it.text })
+        assertEquals(listOf("instrumental"), input.tasks)
+        assertNull(input.lyrics)
+        assertEquals(listOf("instrumental", "manifest"), input.output?.put?.keys?.toList())
         assertTrue(done.costMicroUsd!! > 0)
-        // Results went into the stores, and every object of the job left the bucket.
+        // The result went into the instrumental store, and every object of the job left the bucket.
         assertEquals(record.songId to false, host.installed.single().let { it.second to it.third })
         assertEquals(listOf(record.songId), host.instrumentalNotes)
-        assertEquals(CloudLyrics.SOURCE, host.savedLyrics.single().metadata.source)
         assertTrue(bucket.objects.isEmpty(), "left behind: ${bucket.objects.keys}")
         assertFalse(preparer.hasUpload(record.jobKey))
         assertEquals(1, scheduler.watchCancels)
@@ -219,6 +223,83 @@ class CloudStudioEngineTest {
         assertEquals(listOf(false, true), runpod.runs.map { it.input.isLastInBatch })
         assertEquals(CloudNotice.CAP_REACHED, engine.state.value.notice)
         assertEquals(CloudJobState.UPLOADED, engine.job(keys[2])!!.state)
+    }
+
+    // ─── Three workers at once (the built-in endpoint) ──────────────────────────────────────
+
+    /** PixlAudio's built-in keys: the endpoint runs three jobs at once. */
+    private fun useBuiltInKeys() {
+        builtIn = FixedBuiltIn(builtInConfig)
+        settings.snapshot = CloudSettingsSnapshot(enabled = true, builtInAvailable = true, useOwnKeys = false)
+        assertEquals(3, settings.snapshot.parallelWorkers)
+    }
+
+    @Test fun `with three workers each of the last three jobs asks its worker to stop, and a smaller burst marks every job`() = runBlocking {
+        useBuiltInKeys()
+        host = FakeHost(threeSongs)
+        runpod.finishImmediately = false
+        val engine = engine()
+        assertEquals(3, engine.send(engine.preview(threeSongs, "Three")))
+        engine.workerPass(now + PASS_MS)
+        // The three went out together once all were up; each lands on its own worker, which stops after it.
+        assertEquals(engine.state.value.jobs.map { it.jobKey }, runpod.runs.map { it.input.jobKey })
+        assertEquals(listOf(true, true, true), runpod.runs.map { it.input.isLastInBatch })
+
+        // Two songs: fewer than three workers, so both are the last.
+        store.saved = emptyList()
+        runpod.runs.clear()
+        host = FakeHost(fourSongs)
+        val two = engine()
+        assertEquals(2, two.send(two.preview(fourSongs.take(2), "Two")))
+        two.workerPass(now + PASS_MS)
+        assertEquals(listOf(true, true), runpod.runs.map { it.input.isLastInBatch })
+    }
+
+    @Test fun `with three workers the batch goes out once three songs are up, while the rest still upload`() = runBlocking {
+        useBuiltInKeys()
+        host = FakeHost(fourSongs)
+        runpod.finishImmediately = false
+        val engine = engine()
+        assertEquals(4, engine.send(engine.preview(fourSongs, "Four")))
+        val keys = engine.state.value.jobs.map { it.jobKey }
+        // The third and fourth uploads fail this time: two of four are up, and the gate waits (two minutes at most).
+        bucket.failingKeys += keys.drop(2)
+        engine.workerPass(now + PASS_MS)
+        assertTrue(runpod.runs.isEmpty(), "two uploads are not enough for three workers")
+        // A minute later both upload again: the third opens the gate while the fourth is still on its way, so none of
+        // the first three stops a worker; the fourth, the last of the batch, does.
+        bucket.failingKeys.clear()
+        now = engine.job(keys[2])!!.nextAttemptAtMs!! + 1
+        engine.workerPass(now + PASS_MS)
+        assertEquals(keys, runpod.runs.map { it.input.jobKey })
+        assertEquals(listOf(false, false, false, true), runpod.runs.map { it.input.isLastInBatch })
+    }
+
+    @Test fun `the phone prepares and uploads up to three songs at once, a Sing first`() = runBlocking {
+        val songs = listOf("a", "b", "c", "d", "e").map { CloudSong(it, "Song $it", "Artist", "Album", 240_000, false, true) }
+        host = FakeHost(songs)
+        runpod.finishImmediately = false
+        val engine = engine()
+        assertEquals(4, engine.send(engine.preview(songs.take(4), "Four")))
+        val sing = sing(engine, songs[4])
+        var preparing = 0
+        var most = 0
+        preparer.duringPrepare = {
+            preparing++
+            most = maxOf(most, preparing)
+            // Long enough for the others to start meanwhile.
+            yield()
+            yield()
+            preparing--
+        }
+        engine.workerPass(now + PASS_MS)
+        assertEquals(3, most, "three at once, never more")
+        assertEquals(listOf("e", "a", "b", "c", "d"), host.audioSourceCalls, "the Sing is taken first")
+        assertEquals(sing.jobKey, runpod.runs.first().input.jobKey)
+        // Each went out as soon as it was up; only the very last one, with nothing behind it, asks its worker to stop.
+        assertEquals(5, runpod.runs.size)
+        assertEquals(listOf(false, false, false, false, true), runpod.runs.map { it.input.isLastInBatch })
+        assertTrue(engine.state.value.jobs.all { it.state.isAtRunPod }, "states: ${engine.state.value.jobs.map { it.state }}")
     }
 
     // ─── Review fixes ───────────────────────────────────────────────────────────────────────
@@ -373,7 +454,6 @@ class CloudStudioEngineTest {
         assertEquals(CloudOutputCodec.FLAC, job.outputCodec)
         assertTrue(job.flacRedone)
         assertEquals(CloudJobState.QUEUED, job.state)
-        assertTrue(job.importedLyrics)
         assertEquals(listOf(CloudTask.INSTRUMENTAL), job.tasks)
         // The redo still doesn't line up: it stops instead of looping.
         now += CloudTiming.STATUS_POLL_INTERVAL_MS + 1
@@ -417,16 +497,54 @@ class CloudStudioEngineTest {
     }
 
     @Test fun `previews skip what is done or pending and count the rest`() = runBlocking {
-        host.lyrics[localSong.id] = CloudLyricsFacts(CloudLyricsState.WORD_SYNCED)
         host.instrumentals += localSong.id
         val engine = engine()
-        val preview = engine.preview(CloudBatchKind.MISSING_LYRICS, null, "Missing lyrics")!!
+        val preview = engine.preview(CloudBatchKind.MISSING_INSTRUMENTAL, null, "Missing instrumentals")!!
         assertEquals(listOf(streamedSong.id), preview.plans.map { it.songId })
+        assertEquals(listOf(CloudTask.INSTRUMENTAL), preview.plans.single().tasks)
         assertNull(engine.preview(CloudBatchKind.CURRENT, null, "Current"))
         val done = engine.preview(listOf(localSong), "x")
         assertTrue(done.isEmpty)
         assertEquals(listOf(CloudSkipReason.ALREADY_DONE to 1), done.skipped)
         assertEquals("Cloud: 1 waiting", run { sendOne(engine, streamedSong); engine.summaryLine() })
+    }
+
+    @Test fun `jobs stored with the lyrics task go out for the instrumental only, and one already at RunPod still finishes`() = runBlocking {
+        host = FakeHost(fourSongs)
+        runpod.finishImmediately = false
+        val (atRunPod, queued, lyricsOnly) = listOf(keys.removeFirst(), keys.removeFirst(), keys.removeFirst())
+        // Stored by an earlier build, when the cloud still timed lyrics (storedJob asks for both).
+        val sent = storedJob(atRunPod, fourSongs[0], CloudJobState.SUBMITTED, runpodId = "rp-old", submittedAt = now)
+        store.saved = listOf(
+            sent,
+            storedJob(queued, fourSongs[1], CloudJobState.QUEUED),
+            storedJob(lyricsOnly, fourSongs[2], CloudJobState.UPLOADED).copy(tasks = listOf(CloudTask.LYRICS)),
+        )
+        // The job at RunPod went out with lyrics: its worker writes a lyrics file next to the instrumental.
+        val lyricsRequest = CloudJobBuilder.lyricsRequest(CloudLyricsMode.ALIGN,
+            listOf(CloudLyricsInputLine(1_000, 2_000, "first line")), true, null, null, 240_000)
+        runpod.complete(CloudJobBuilder.request(sent, "test (1)", lyricsRequest) { method, key, seconds ->
+            bucket.presignedUrl(method, key, seconds)
+        }!!)
+        assertTrue(bucket.objects.containsKey(CloudKeys.lyrics(atRunPod)))
+        val engine = engine()
+        engine.workerPass(now + PASS_MS)
+        // Its instrumental is imported and the job finishes; the lyrics file is never read, and leaves with the rest.
+        val done = engine.job(atRunPod)!!
+        assertEquals(CloudJobState.IMPORTED, done.state, "last error: ${done.lastError}")
+        assertFalse(done.importedLyrics)
+        assertEquals(listOf(fourSongs[0].id), host.instrumentalNotes)
+        assertFalse(bucket.objects.keys.any { atRunPod in it }, "left behind: ${bucket.objects.keys}")
+        // The queued one asks for its instrumental only.
+        val job = engine.job(queued)!!
+        assertEquals(listOf(CloudTask.INSTRUMENTAL), job.tasks)
+        assertNull(job.lyricsMode)
+        val run = runpod.runs.single()
+        assertEquals(queued, run.input.jobKey)
+        assertEquals(listOf("instrumental"), run.input.tasks)
+        assertNull(run.input.lyrics)
+        // The one that only wanted lyrics has nothing left to do: it leaves the list.
+        assertNull(engine.job(lyricsOnly))
     }
 
     // ─── Built-in keys ──────────────────────────────────────────────────────────────────────
@@ -535,15 +653,13 @@ class CloudStudioEngineTest {
         return engine().startSing(song)
     }
 
-    @Test fun `a Sing asks for the instrumental even when Outputs has it off, and the cloud makes it`() = runBlocking {
-        settings.snapshot = settings.snapshot.copy(wantsInstrumental = false)
+    @Test fun `a Sing asks for the instrumental, and the cloud makes it`() = runBlocking {
         val engine = engine()
         assertNull(engine.singAvailability(localSong.durationMs), "usable")
         val job = engine.job(sing(engine, localSong).jobKey)!!
         assertEquals(CloudJobOrigin.SING, job.origin)
         assertTrue(job.isPriority)
-        // The lyrics follow Outputs (on); the instrumental is forced on.
-        assertEquals(listOf(CloudTask.INSTRUMENTAL, CloudTask.LYRICS), job.tasks)
+        assertEquals(listOf(CloudTask.INSTRUMENTAL), job.tasks)
         assertEquals(1, scheduler.urgentRequests, "the phone is asked to start right away")
         assertTrue(engine.hasPriorityPhoneWork())
         runpod.finishImmediately = false
@@ -645,7 +761,9 @@ class CloudStudioEngineTest {
         engine.workerPass(now + PASS_MS)
         assertEquals(listOf("d", "a", "b", "c"), host.audioSourceCalls)
         assertEquals(listOf(sing.jobKey), runpod.runs.take(1).map { it.input.jobKey })
-        assertEquals(CloudJobInputPolicy(lastInBatch = true), runpod.runs.first().input.policy, "alone in its burst, so it is the last")
+        // The batch was still coming behind it, so the Sing doesn't stop its worker; the batch's last job does.
+        assertNull(runpod.runs.first().input.policy, "more of this phone's jobs were on their way")
+        assertEquals(listOf(false, false, false, true), runpod.runs.map { it.input.isLastInBatch })
     }
 
     @Test fun `a one-song Process in cloud goes ahead of a batch the same way, with an urgent pass`() = runBlocking {
@@ -909,6 +1027,21 @@ class CloudStudioEngineTest {
         assertTrue(events.none { it.startsWith("DELETE") && (b in it || c in it) }, "events: $events")
     }
 
+    @Test fun `with three workers the Sing and the jobs that stepped aside for it are the last three, one stop each`() = runBlocking {
+        useBuiltInKeys()
+        host = FakeHost(fourSongs)
+        val (p, b, c) = listOf(keys.removeFirst(), keys.removeFirst(), keys.removeFirst())
+        store.saved = listOf(
+            pausedJob(b, fourSongs[1], waitingFor = p), pausedJob(c, fourSongs[2], waitingFor = p),
+            storedJob(p, fourSongs[3], CloudJobState.QUEUED, origin = CloudJobOrigin.SING, priority = true),
+        )
+        runpod.finishImmediately = false
+        engine().workerPass(now + PASS_MS)
+        // Still one burst behind the Sing; with three workers each of the three stops the worker it lands on.
+        assertEquals(listOf(p, b, c), runpod.runs.map { it.input.jobKey })
+        assertEquals(listOf(true, true, true), runpod.runs.map { it.input.isLastInBatch })
+    }
+
     @Test fun `the hold ends by itself, so a Sing stuck on Wi-Fi never freezes the queue`() = runBlocking {
         host = FakeHost(fourSongs)
         unmetered = false // the Sing is prepared but its upload waits for Wi-Fi
@@ -990,7 +1123,7 @@ class CloudStudioEngineTest {
         assertEquals(1, engine.sendAuto(listOf(localSong)))
         val job = engine.state.value.jobs.single()
         assertEquals(CloudJobOrigin.AUTO, job.origin)
-        assertEquals(listOf(CloudTask.INSTRUMENTAL, CloudTask.LYRICS), job.tasks)
+        assertEquals(listOf(CloudTask.INSTRUMENTAL), job.tasks)
         // The audio was evicted before the job's turn: nothing is downloaded for it, and the job just goes away.
         host.cachedIds.clear()
         engine.workerPass(now + PASS_MS)
@@ -1038,10 +1171,10 @@ class CloudStudioEngineTest {
         assertEquals(2, capped.sendAuto(fourSongs), "a new day starts the count again")
         // Their own share of the month ($0.005) is smaller than one song.
         assertEquals(0, fresh { it.copy(autoPrepareEnabled = true, autoPrepareMonthlyBudgetMicroUsd = 5_000) }.sendAuto(fourSongs))
-        // Room for one song (a cold start and 38 s at 192 µ$ a second) but not for two: as many as fit are made.
+        // Room for one song (a cold start and 33 s at 192 µ$ a second) but not for two: as many as fit are made.
         val oneSong = CloudCost.estimateMicroUsd(
-            listOf(CloudSongPlan("a", listOf(CloudTask.INSTRUMENTAL, CloudTask.LYRICS), CloudLyricsMode.ALIGN, false, 240_000)),
-            CloudSeparationQuality.STANDARD, 192,
+            listOf(CloudSongPlan("a", listOf(CloudTask.INSTRUMENTAL), false, 240_000)),
+            CloudSeparationQuality.STANDARD, 192, parallelWorkers = 1,
         )
         assertEquals(1, fresh { it.copy(autoPrepareEnabled = true, autoPrepareMonthlyBudgetMicroUsd = oneSong) }.sendAuto(fourSongs))
         // The shared cap has less room than one song, though their own share has plenty.
@@ -1184,8 +1317,8 @@ class CloudStudioEngineTest {
     @Test fun `no clip near the end of the song, or when the month only has room for the song`() = runBlocking {
         assertTrue(singWithPlayhead(230_000) is CloudSingStart.Started)
         assertTrue(store.saved.none { it.isClip }, "within 20 s of the end")
-        // The song alone is (15 + 38) s at 192 µ$; with the clip it is 10 s more: a cap in between takes the song only.
-        assertTrue(singWithPlayhead(60_000) { it.copy(monthlyCapMicroUsd = 11_000) } is CloudSingStart.Started)
+        // The song alone is (15 + 33) s at 192 µ$; with the clip it is 9 s more: a cap in between takes the song only.
+        assertTrue(singWithPlayhead(60_000) { it.copy(monthlyCapMicroUsd = 10_000) } is CloudSingStart.Started)
         assertTrue(store.saved.none { it.isClip }, "no room for the clip")
         assertTrue(store.saved.single().isPriority)
         assertTrue(singWithPlayhead(60_000) is CloudSingStart.Started)
@@ -1247,13 +1380,11 @@ class CloudStudioEngineTest {
 
     private inner class FakeHost(songs: List<CloudSong>) : CloudStudioHost {
         val songs = songs.associateBy { it.id }
-        val lyrics = HashMap<String, CloudLyricsFacts>()
         val instrumentals = HashSet<String>()
         val videoIds = HashMap<String, String>()
         val audioSourceCalls = mutableListOf<String>()
         val installed = mutableListOf<Triple<File, String, Boolean>>()
         val instrumentalNotes = mutableListOf<String>()
-        val savedLyrics = mutableListOf<LyricsDoc>()
         override suspend fun song(id: String) = songs[id]
         override suspend fun librarySongs() = songs.values.toList()
         override suspend fun audioSource(song: CloudSong): String { audioSourceCalls += song.id; return "content://${song.id}" }
@@ -1261,22 +1392,12 @@ class CloudStudioEngineTest {
         val cachedIds = HashSet<String>()
         override suspend fun cachedAudioSource(song: CloudSong): String? = "content://${song.id}".takeIf { song.id in cachedIds }
         override suspend fun streamIdentity(song: CloudSong) = videoIds[song.id]
-        override suspend fun lyricsFacts(song: CloudSong) = lyrics[song.id] ?: CloudLyricsFacts(
-            CloudLyricsState.TEXT_OR_LINE_SYNCED,
-            listOf(CloudLyricsInputLine(1_000, 2_000, "first line"), CloudLyricsInputLine(2_000, 3_000, "second line")),
-            hasLineTimes = true,
-        )
         override suspend fun hasInstrumental(songId: String) = songId in instrumentals
         override suspend fun installInstrumental(staged: File, songId: String, flac: Boolean) {
             installed += Triple(staged, songId, flac)
             staged.delete()
         }
-        override suspend fun saveLyrics(doc: LyricsDoc, song: CloudSong, replaceUserSynced: Boolean): CloudLyricsSaveOutcome {
-            savedLyrics += doc
-            return CloudLyricsSaveOutcome.SAVED
-        }
         override fun instrumentalImported(songId: String) { instrumentalNotes += songId }
-        override fun lyricsImported(songId: String) = Unit
         /** Preview clips kept (song, start, FLAC), and songs whose clips were let go. */
         val installedClips = mutableListOf<Triple<String, Long, Boolean>>()
         val discardedClips = mutableListOf<String>()
@@ -1290,11 +1411,14 @@ class CloudStudioEngineTest {
     private class FakePreparer(private val dir: File) : CloudAudioPreparing {
         val forceDecodes = mutableListOf<Boolean>()
         var onPrepare: () -> Unit = {}
+        /** Runs inside each prepare, so a test can hold it open while other songs start (several at once). */
+        var duringPrepare: suspend () -> Unit = {}
         val sha = "ab".repeat(32)
         val frames = 10_584_000L // 240 s at 44.1 kHz
         override suspend fun prepare(source: String, jobKey: String, forceDecode: Boolean): CloudPreparedAudio {
             forceDecodes += forceDecode
             onPrepare()
+            duringPrepare()
             dir.mkdirs()
             val file = File(dir, "$jobKey.flac").apply { writeBytes(ByteArray(1_000) { 7 }) }
             return CloudPreparedAudio(file, "flac", file.length(), sha, 240_000, frames, 44_100)
@@ -1333,11 +1457,14 @@ class CloudStudioEngineTest {
         }
         private fun keyOf(url: String) = url.removePrefix("https://bucket.test/").substringBefore('?')
         var failUploads = 0
+        /** Jobs (by key) whose uploads fail while they are listed here. */
+        val failingKeys = HashSet<String>()
         override suspend fun upload(file: File, url: String, contentType: String, onProgress: (Float) -> Unit): CloudTransferResult {
             if (failUploads > 0) {
                 failUploads--
                 return CloudTransferResult.Failed("connection reset")
             }
+            if (failingKeys.any { it in url }) return CloudTransferResult.Failed("connection reset")
             objects[keyOf(url)] = file.readBytes()
             onProgress(1f)
             return CloudTransferResult.Ok

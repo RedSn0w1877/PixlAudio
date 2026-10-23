@@ -235,7 +235,14 @@ data class CloudJobRecord(
 
     /** The job as a selection plan (cost estimates): its tasks at its prepared, else library, length. */
     val plan: CloudSongPlan
-        get() = CloudSongPlan(songId, tasks, lyricsMode, isStreamed, durationMs ?: songDurationMs ?: CloudCost.REFERENCE_SONG_MS)
+        get() = CloudSongPlan(songId, tasks, isStreamed, durationMs ?: songDurationMs ?: CloudCost.REFERENCE_SONG_MS)
+
+    /**
+     * The job without the lyrics task (2026-10-23: the cloud no longer times lyrics). A job RunPod doesn't have yet goes
+     * out with its instrumental only; one that only wanted lyrics is left with no task at all.
+     */
+    fun withoutLyrics(): CloudJobRecord =
+        if (CloudTask.LYRICS in tasks || lyricsMode != null) copy(tasks = tasks - CloudTask.LYRICS, lyricsMode = null) else this
 
     /** RunPod holds this job now and hasn't finished the run (a redo after an earlier result counts again). */
     val isRunningAtRunPod: Boolean
@@ -245,8 +252,10 @@ data class CloudJobRecord(
             return (submittedAtMs ?: 0) > completed
         }
 
-    /** Every result this job asked for has been imported. */
+    /**
+     * Every result this job is waiting for has been imported: its instrumental. A lyrics file from a job sent before the
+     * cloud stopped timing lyrics is never fetched, so it holds nothing up.
+     */
     val isFullyImported: Boolean
-        get() = (CloudTask.INSTRUMENTAL !in tasks || importedInstrumental || outputs?.get("instrumental") == null) &&
-            (CloudTask.LYRICS !in tasks || importedLyrics || lyricsKey == null)
+        get() = CloudTask.INSTRUMENTAL !in tasks || importedInstrumental || outputs?.get("instrumental") == null
 }

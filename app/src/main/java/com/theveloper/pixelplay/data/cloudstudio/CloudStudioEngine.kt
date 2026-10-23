@@ -46,7 +46,7 @@ enum class CloudNotice {
 }
 
 /** Where a batch comes from (the queue's Add menu). */
-enum class CloudBatchKind { CURRENT, MISSING_LYRICS, MISSING_INSTRUMENTAL }
+enum class CloudBatchKind { CURRENT, MISSING_INSTRUMENTAL }
 
 /** One batch the person is about to send (the confirm sheet, design §7.3). */
 data class CloudBatchPreview(
@@ -57,7 +57,6 @@ data class CloudBatchPreview(
     val plans: List<CloudSongPlan>,
     val skipped: List<Pair<CloudSkipReason, Int>>,
     val estimate: CloudBatchEstimate,
-    val replaceUserSynced: Boolean,
 ) {
     val isEmpty: Boolean get() = plans.isEmpty()
 }
@@ -130,7 +129,8 @@ data class CloudPassOutcome(
 
 /**
  * Cloud Studio's orchestrator (design §1, §7, §8), ported from the iOS app's `CloudStudio.swift`: the per-song jobs
- * from "Send" to the imported instrumental and word-timed lyrics. It only sequences I/O; every rule (states, retries,
+ * from "Send" to the imported instrumental (the cloud no longer times lyrics, 2026-10-23: BiniLyrics and the other
+ * catalogs bring word timing). It only sequences I/O; every rule (states, retries,
  * caps, gates, checks) is in [CloudQueuePolicy]/[CloudJobBuilder], and every side effect goes through
  * [CloudStudioDependencies], so unit tests drive it with fakes.
  *
@@ -144,7 +144,9 @@ data class CloudPassOutcome(
  * - Android runs the work in passes instead of iOS's background URLSession: a WorkManager worker runs full passes
  *   (prepare → upload → submit → watch → collect), a periodic worker watches every 15 minutes while jobs are in
  *   flight, and while the app is on screen a light pass (submit → watch → collect) runs every 15 s, so results
- *   come back right away. Passes never overlap ([passLock]).
+ *   come back right away. Passes never overlap ([passLock]). Inside a full pass up to
+ *   [CloudLimits.PHONE_STEPS_AT_ONCE] songs are prepared and uploaded at once, so the endpoint's workers (3 with the
+ *   built-in keys) start while the phone keeps uploading.
  * - The job list is read before anything is saved, and every change is saved at once (a RunPod job id is on disk
  *   before the next `/run`), so a process the system killed and restarted never loses its queue.
  */
@@ -287,10 +289,11 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
         return null
     }
 
-    /** One more song (instrumental and aligned lyrics, at the length given) fits what is left of this month. */
+    /** One more song (its instrumental, at the length given) fits what is left of this month. */
     private fun fitsOneSong(durationMs: Long, settings: CloudSettingsSnapshot): Boolean {
-        val plan = CloudSongPlan("", listOf(CloudTask.INSTRUMENTAL, CloudTask.LYRICS), CloudLyricsMode.ALIGN, false, durationMs)
-        val estimate = CloudCost.estimateMicroUsd(listOf(plan), settings.quality, settings.effectivePricePerSecondMicroUsd)
+        val plan = CloudSongPlan("", listOf(CloudTask.INSTRUMENTAL), false, durationMs)
+        val estimate = CloudCost.estimateMicroUsd(listOf(plan), settings.quality, settings.effectivePricePerSecondMicroUsd,
+            settings.parallelWorkers)
         return CloudBudget.allows(estimate, settings.effectiveMonthlyCapMicroUsd, committedThisMonthMicroUsd())
     }
 
@@ -401,15 +404,13 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
     // ─── The person's actions ───────────────────────────────────────────────────────────────
 
     /**
-     * What sending [songs] would do (the confirm sheet). [onlyMissing] keeps the songs that lack that output (the Add
-     * menu's filters); gathering stops once a full batch of such songs is found, so a large library isn't read end
-     * to end.
+     * What sending [songs] would do (the confirm sheet). [onlyMissing] keeps the songs without an instrumental (the Add
+     * menu's filter); gathering stops once a full batch of such songs is found, so a large library isn't read end to end.
      */
     suspend fun preview(
         songs: List<CloudSong>,
         title: String,
-        onlyMissing: CloudTask? = null,
-        replaceUserSynced: Boolean = false,
+        onlyMissing: Boolean = false,
     ): CloudBatchPreview {
         loadForDisplay()
         val host = deps.host
@@ -418,34 +419,27 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
         val byId = LinkedHashMap<String, CloudSong>()
         for (song in songs) {
             if (byId.containsKey(song.id)) continue
-            if (onlyMissing != null && facts.size >= CloudLimits.MAX_SONGS_PER_BATCH) break
-            val lyrics = host.lyricsFacts(song)
+            if (onlyMissing && facts.size >= CloudLimits.MAX_SONGS_PER_BATCH) break
             val instrumental = host.hasInstrumental(song.id)
-            if (onlyMissing == CloudTask.LYRICS &&
-                (lyrics.state == CloudLyricsState.WORD_SYNCED || lyrics.state == CloudLyricsState.USER_SYNCED)
-            ) continue
-            if (onlyMissing == CloudTask.INSTRUMENTAL && instrumental) continue
-            if (onlyMissing != null && song.id in pending) continue
+            if (onlyMissing && (instrumental || song.id in pending)) continue
             byId[song.id] = song
-            facts += CloudSongFacts(song.id, song.durationMs, instrumental, lyrics.state, song.hasAudioSource,
-                song.isStreamed, song.id in pending)
+            facts += CloudSongFacts(song.id, song.durationMs, instrumental, song.hasAudioSource, song.isStreamed,
+                song.id in pending)
         }
         val settings = deps.settings.snapshot()
-        val selection = CloudSelector.select(facts, settings.selectionOptions.copy(replaceUserSynced = replaceUserSynced))
+        val selection = CloudSelector.select(facts)
         val estimate = CloudBatchEstimate.make(selection.plans, settings.quality, settings.effectivePricePerSecondMicroUsd,
-            committedThisMonthMicroUsd(), settings.effectiveMonthlyCapMicroUsd)
+            committedThisMonthMicroUsd(), settings.effectiveMonthlyCapMicroUsd, settings.parallelWorkers)
         return CloudBatchPreview(
             id = deps.newJobKey(), title = title, songs = selection.plans.mapNotNull { byId[it.songId] },
             plans = selection.plans, skipped = selection.skipCounts, estimate = estimate,
-            replaceUserSynced = replaceUserSynced,
         )
     }
 
     /** The confirm sheet for one of the queue's Add choices (null when there is no current song). */
     suspend fun preview(kind: CloudBatchKind, currentSong: CloudSong?, title: String): CloudBatchPreview? = when (kind) {
         CloudBatchKind.CURRENT -> currentSong?.let { preview(listOf(it), title) }
-        CloudBatchKind.MISSING_LYRICS -> preview(deps.host.librarySongs(), title, onlyMissing = CloudTask.LYRICS)
-        CloudBatchKind.MISSING_INSTRUMENTAL -> preview(deps.host.librarySongs(), title, onlyMissing = CloudTask.INSTRUMENTAL)
+        CloudBatchKind.MISSING_INSTRUMENTAL -> preview(deps.host.librarySongs(), title, onlyMissing = true)
     }
 
     /** The person confirmed the batch: one job per song, then everything runs on its own. */
@@ -465,9 +459,8 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
                 out += CloudJobRecord(
                     jobKey = CloudKeys.jobKey(deps.newJobKey()), songId = song.id, title = song.title,
                     artist = song.artist, songDurationMs = song.durationMs, batchId = preview.id,
-                    isStreamed = plan.isStreamed, tasks = plan.tasks, lyricsMode = plan.lyricsMode,
-                    quality = CloudSelector.quality(settings.quality, plan.durationMs),
-                    replaceUserSynced = preview.replaceUserSynced, createdAtMs = time,
+                    isStreamed = plan.isStreamed, tasks = plan.tasks,
+                    quality = CloudSelector.quality(settings.quality, plan.durationMs), createdAtMs = time,
                     priorityAtMs = time.takeIf { priority },
                 )
                 added++
@@ -485,9 +478,8 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
     }
 
     /**
-     * A tap on Sing: the cloud makes this song's instrumental (and its word-timed lyrics, as Outputs say) ahead of
-     * everything else. The tap is the consent for this one song, so there is no confirm step, and the instrumental is
-     * asked for even when Outputs has it off.
+     * A tap on Sing: the cloud makes this song's instrumental ahead of everything else. The tap is the consent for this
+     * one song, so there is no confirm step.
      *
      * A song that already has a job on its way is joined, not started again (an automatic job becomes a Sing, with a
      * batch of its own so the batch gate doesn't hold it). [CloudSingStart.Unavailable] says why the cloud can't take it
@@ -513,23 +505,22 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
         }
         if (!song.hasAudioSource) return CloudSingStart.Unavailable(CloudSingUnavailable.NO_AUDIO)
         if (deps.host.hasInstrumental(song.id)) return CloudSingStart.Unavailable(CloudSingUnavailable.ALREADY_HAS_INSTRUMENTAL)
-        val lyrics = deps.host.lyricsFacts(song)
-        val facts = CloudSongFacts(song.id, song.durationMs, hasInstrumental = false, lyrics = lyrics.state,
-            hasAudioSource = true, isStreamed = song.isStreamed, hasPendingJob = false)
-        val (plan, skip) = CloudSelector.plan(facts, settings.selectionOptions.copy(forceInstrumental = true))
+        val facts = CloudSongFacts(song.id, song.durationMs, hasInstrumental = false, hasAudioSource = true,
+            isStreamed = song.isStreamed, hasPendingJob = false)
+        val (plan, skip) = CloudSelector.plan(facts)
         if (plan == null) {
             return CloudSingStart.Unavailable(
                 if (skip == CloudSkipReason.TOO_LONG) CloudSingUnavailable.TOO_LONG else CloudSingUnavailable.NO_AUDIO
             )
         }
         val estimate = CloudBatchEstimate.make(listOf(plan), settings.quality, settings.effectivePricePerSecondMicroUsd,
-            committedThisMonthMicroUsd(), settings.effectiveMonthlyCapMicroUsd)
+            committedThisMonthMicroUsd(), settings.effectiveMonthlyCapMicroUsd, settings.parallelWorkers)
         if (!estimate.fitsCap) return CloudSingStart.Unavailable(CloudSingUnavailable.CAP_REACHED)
         val time = now
         val record = CloudJobRecord(
             jobKey = CloudKeys.jobKey(deps.newJobKey()), songId = song.id, title = song.title, artist = song.artist,
             songDurationMs = song.durationMs, batchId = deps.newJobKey(), isStreamed = plan.isStreamed,
-            tasks = plan.tasks, lyricsMode = plan.lyricsMode, quality = CloudSelector.quality(settings.quality, plan.durationMs),
+            tasks = plan.tasks, quality = CloudSelector.quality(settings.quality, plan.durationMs),
             createdAtMs = time, origin = CloudJobOrigin.SING, priorityAtMs = time,
         )
         // The preview clip, when the month has room for it on top of the song (the song itself always comes first).
@@ -538,6 +529,7 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
                 CloudBatchEstimate.make(
                     listOf(plan, CloudClipPlanner.plan(song.id, plan.isStreamed, range)), settings.quality,
                     settings.effectivePricePerSecondMicroUsd, committedThisMonthMicroUsd(), settings.effectiveMonthlyCapMicroUsd,
+                    settings.parallelWorkers,
                 ).fitsCap
             }
             ?.let { range -> clipRecord(song, plan.isStreamed, range, record.jobKey, time) }
@@ -595,6 +587,7 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
         val estimate = CloudBatchEstimate.make(
             listOf(CloudClipPlanner.plan(song.id, full.isStreamed, range)), settings.quality,
             settings.effectivePricePerSecondMicroUsd, committedThisMonthMicroUsd(), settings.effectiveMonthlyCapMicroUsd,
+            settings.parallelWorkers,
         )
         if (!estimate.fitsCap) return
         val clip = clipRecord(song, full.isStreamed, range, full.jobKey, now)
@@ -673,22 +666,18 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
         for (song in songs) {
             if (byId.containsKey(song.id)) continue
             byId[song.id] = song
-            facts += CloudSongFacts(song.id, song.durationMs, deps.host.hasInstrumental(song.id),
-                deps.host.lyricsFacts(song).state, song.hasAudioSource, song.isStreamed,
-                TaisInstrumentalIndex.canonicalSongId(song.id) in pending)
+            facts += CloudSongFacts(song.id, song.durationMs, deps.host.hasInstrumental(song.id), song.hasAudioSource,
+                song.isStreamed, TaisInstrumentalIndex.canonicalSongId(song.id) in pending)
         }
-        // The instrumental is what it is for; lyrics are only timed where the song has some (it never writes lyrics
-        // nobody asked for with the AI transcriber), which is also what the ranker's cost estimate assumes.
-        val options = settings.selectionOptions.copy(forceInstrumental = true, transcribeWhenMissing = false)
-        val wanted = CloudSelector.select(facts, options).plans.take(room)
+        val wanted = CloudSelector.select(facts).plans.take(room)
         if (wanted.isEmpty()) return 0
-        // As many of the picks, in order, as both budgets can take together (one cold start is shared by the batch).
+        // As many of the picks, in order, as both budgets can take together (a cold start for each worker they wake).
         val capRemaining = CloudBudget.remainingMicroUsd(settings.effectiveMonthlyCapMicroUsd, committedThisMonthMicroUsd())
         val autoCommitted = autoCommittedThisMonthMicroUsd()
         var count = wanted.size
         while (count > 0) {
             val estimate = CloudCost.estimateMicroUsd(
-                wanted.take(count), settings.quality, settings.effectivePricePerSecondMicroUsd,
+                wanted.take(count), settings.quality, settings.effectivePricePerSecondMicroUsd, settings.parallelWorkers,
             )
             if (CloudBudget.allowsAuto(estimate, settings.effectiveAutoBudgetMicroUsd, autoCommitted, capRemaining)) break
             count--
@@ -705,7 +694,7 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
                 out += CloudJobRecord(
                     jobKey = CloudKeys.jobKey(deps.newJobKey()), songId = song.id, title = song.title,
                     artist = song.artist, songDurationMs = song.durationMs, batchId = batchId,
-                    isStreamed = plan.isStreamed, tasks = plan.tasks, lyricsMode = plan.lyricsMode,
+                    isStreamed = plan.isStreamed, tasks = plan.tasks,
                     quality = CloudSelector.quality(settings.quality, plan.durationMs), createdAtMs = time,
                     origin = CloudJobOrigin.AUTO,
                 )
@@ -869,47 +858,21 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
             it.copy(notice = if (transient) null else it.notice, isWorking = true)
         }
         try {
-            settleInterruptedWork()
+            settleInterruptedWork(clients)
             var current = settings
-            sendReady(clients, current)
+            sendReady(clients, current, outOfTime(mode, deadlineMs))
             watchRunPod(clients)
             // Light passes (the app on screen) aren't stopped by WorkManager: their transfers have no window.
             val transferDeadline = if (mode == PassMode.FULL) deadlineMs else null
             collectResults(clients, current, transferDeadline)
-            if (mode == PassMode.FULL) {
-                val handled = HashSet<String>()
-                while (now < deadlineMs && currentCoroutineContext().isActive) {
-                    // The person can switch the feature (or mobile data) off, or leave Wi-Fi, mid-pass: read again
-                    // before every step, so nothing more is prepared, sent or spent after that.
-                    current = deps.settings.snapshot()
-                    if (!current.enabled) break
-                    val time = now
-                    val autoOk = deps.autoWorkAllowed()
-                    // The list is read again every step and a priority job (a Sing) comes first, so one added while
-                    // this pass runs is the next thing it prepares and uploads.
-                    val next = CloudPriorityLane.phoneOrder(jobs).firstOrNull { record ->
-                        record.jobKey !in handled && record.isDue(time) && isPhoneStep(record) && stepAllowed(record, current, autoOk)
-                    } ?: break
-                    handled += next.jobKey
-                    if (next.state == CloudJobState.QUEUED) prepare(next.jobKey, current)
-                    val afterPrepare = deps.settings.snapshot()
-                    if (job(next.jobKey)?.state == CloudJobState.UPLOADING && afterPrepare.enabled &&
-                        uploadAllowed(next, afterPrepare) && hasTransferWindow(deadlineMs)
-                    ) upload(next.jobKey, clients)
-                    current = deps.settings.snapshot()
-                    if (!current.enabled) break
-                    sendReady(clients, current)
-                    watchRunPod(clients)
-                    collectResults(clients, current, transferDeadline)
-                }
-            }
+            if (mode == PassMode.FULL) runPhoneSteps(clients, deadlineMs)
             current = deps.settings.snapshot()
             if (!current.enabled) {
                 setNotice(CloudNotice.OFF)
                 return outcome(current).copy(blocked = true)
             }
             // Jobs the watch just sent back (lost at RunPod, a worker error without a wait) go out in this pass.
-            sendReady(clients, current)
+            sendReady(clients, current, outOfTime(mode, deadlineMs))
             val result = outcome(current)
             if (result.waitingForUnmetered) setNotice(CloudNotice.WAITING_FOR_WIFI)
             return result
@@ -917,6 +880,78 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
             _state.update { it.copy(isWorking = false) }
         }
     }
+
+    /**
+     * The phone's steps of a full pass: up to [CloudLimits.PHONE_STEPS_AT_ONCE] songs prepared and uploaded at once,
+     * priority jobs (a Sing) first, each followed by a submit, a watch and a collect, so the GPUs start on the first
+     * uploads while the phone keeps going. The list is read again whenever a slot frees, so a job added meanwhile (a
+     * Sing) is the next one taken. Only this loop picks jobs; the steps after a job (submit, watch, collect) run one at
+     * a time, and every change to a job goes through [mutateJobs], which saves the whole list under one lock.
+     */
+    private suspend fun runPhoneSteps(clients: Clients, deadlineMs: Long) {
+        coroutineScope {
+            val handled = HashSet<String>()
+            val finished = Channel<Unit>(Channel.UNLIMITED)
+            val afterSteps = Mutex()
+            var running = 0
+            while (true) {
+                // The person can switch the feature (or mobile data) off, or leave Wi-Fi, mid-pass: read again before
+                // every pick, so nothing more is prepared, sent or spent after that.
+                val current = deps.settings.snapshot()
+                val next = if (running < CloudLimits.PHONE_STEPS_AT_ONCE && now < deadlineMs && isActive && current.enabled) {
+                    nextPhoneStep(handled, current)
+                } else null
+                if (next != null) {
+                    handled += next.jobKey
+                    running++
+                    launch {
+                        try {
+                            phoneSteps(next, clients, deadlineMs)
+                            afterSteps.withLock {
+                                val after = deps.settings.snapshot()
+                                if (after.enabled) {
+                                    sendReady(clients, after, outOfTime(PassMode.FULL, deadlineMs))
+                                    watchRunPod(clients)
+                                    collectResults(clients, after, deadlineMs)
+                                }
+                            }
+                        } finally {
+                            finished.trySend(Unit)
+                        }
+                    }
+                    continue
+                }
+                // Nothing to start now: wait for a running job to finish (it may free a slot, or bring more work), or stop.
+                if (running == 0) break
+                finished.receive()
+                running--
+            }
+        }
+    }
+
+    /** The next job whose phone step is due and allowed now, priority jobs first ([CloudPriorityLane.phoneOrder]). */
+    private fun nextPhoneStep(handled: Set<String>, settings: CloudSettingsSnapshot): CloudJobRecord? {
+        val time = now
+        val autoOk = deps.autoWorkAllowed()
+        return CloudPriorityLane.phoneOrder(jobs).firstOrNull { record ->
+            record.jobKey !in handled && record.isDue(time) && isPhoneStep(record) && stepAllowed(record, settings, autoOk)
+        }
+    }
+
+    /** One job's phone steps: prepare it (when queued), then upload it, each only while the feature is on and allowed. */
+    private suspend fun phoneSteps(record: CloudJobRecord, clients: Clients, deadlineMs: Long) {
+        // Picked a moment ago, while other songs were being prepared: the switch may have gone off since.
+        val current = deps.settings.snapshot()
+        if (!current.enabled) return
+        if (job(record.jobKey)?.state == CloudJobState.QUEUED) prepare(record.jobKey, current)
+        val afterPrepare = deps.settings.snapshot()
+        if (job(record.jobKey)?.state == CloudJobState.UPLOADING && afterPrepare.enabled &&
+            uploadAllowed(record, afterPrepare) && hasTransferWindow(deadlineMs)
+        ) upload(record.jobKey, clients)
+    }
+
+    /** A background pass with no time left to start an upload: what is still on the phone waits for a later pass. */
+    private fun outOfTime(mode: PassMode, deadlineMs: Long): Boolean = mode == PassMode.FULL && !hasTransferWindow(deadlineMs)
 
     private fun transfersAllowed(settings: CloudSettingsSnapshot): Boolean = settings.useCellular || deps.isUnmetered()
 
@@ -937,10 +972,13 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
     private fun downloadAllowed(record: CloudJobRecord, settings: CloudSettingsSnapshot): Boolean =
         if (record.origin == CloudJobOrigin.AUTO) deps.isUnmetered() else transfersAllowed(settings)
 
-    /** The priority lane makes room first, then the ready jobs go out as one burst. */
-    private suspend fun sendReady(clients: Clients, settings: CloudSettingsSnapshot) {
+    /**
+     * The priority lane makes room first, then the ready jobs go out as one burst. [outOfTime]: no more uploads in this
+     * pass, so the burst's last jobs are marked even while more wait on the phone ([CloudBurstMarks.moreComing]).
+     */
+    private suspend fun sendReady(clients: Clients, settings: CloudSettingsSnapshot, outOfTime: Boolean) {
         prioritizeQueue(clients, settings)
-        submitReadyBatches(clients, settings)
+        submitReadyBatches(clients, settings, outOfTime)
     }
 
     /**
@@ -1001,18 +1039,31 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
     /**
      * Preparing and downloading only happen inside a pass, and passes never overlap, so a job left in either state
      * was interrupted (the worker was stopped, the process was killed): it starts that step again.
+     *
+     * The cloud no longer times lyrics (2026-10-23): a job RunPod doesn't have yet loses the lyrics task and goes out
+     * for its instrumental only, and one that only wanted lyrics has nothing left to do and leaves the list. A job
+     * already at RunPod with the lyrics task is left alone: its instrumental is imported, its lyrics file never read.
      */
-    private suspend fun settleInterruptedWork() {
+    private suspend fun settleInterruptedWork(clients: Clients) {
         val time = now
-        mutateJobs { list ->
+        val settled = mutateJobs { list ->
             list.map { record ->
-                when (record.state) {
+                val next = when (record.state) {
                     CloudJobState.PREPARING -> record.on(CloudJobEvent.REQUEUE, time)
                     CloudJobState.DOWNLOADING -> record.on(CloudJobEvent.RESULTS_READY, time)
                     else -> record
                 }
+                if (next.state.isBeforeSubmit) next.withoutLyrics() else next
             }
         }
+        val nothingLeft = settled.filter { it.state.isBeforeSubmit && it.tasks.isEmpty() }
+        if (nothingLeft.isEmpty()) return
+        for (record in nothingLeft) {
+            cleanUpLocal(record.jobKey)
+            deleteRemote(CloudJobBuilder.objectKeys(record), clients)
+        }
+        val keys = nothingLeft.map { it.jobKey }.toSet()
+        removeJobs { it.jobKey in keys }
     }
 
     // ─── Prepare and upload ─────────────────────────────────────────────────────────────────
@@ -1261,18 +1312,23 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
 
     // ─── Submit ─────────────────────────────────────────────────────────────────────────────
 
-    private suspend fun submitReadyBatches(clients: Clients, settings: CloudSettingsSnapshot) {
+    private suspend fun submitReadyBatches(clients: Clients, settings: CloudSettingsSnapshot, outOfTime: Boolean) {
         val time = now
-        val open = jobs.filter { !it.state.isFinished }
+        val workers = settings.parallelWorkers
         val ready = mutableListOf<String>()
-        for ((_, members) in open.groupBy { it.batchId }) {
+        // Finished jobs count too: a batch whose first songs are already back has had its gate open.
+        for ((_, members) in jobs.groupBy { it.batchId }) {
             val uploaded = members.filter { it.state == CloudJobState.UPLOADED }
             if (uploaded.isEmpty()) continue
             val pendingUploads = members.count {
                 it.state == CloudJobState.QUEUED || it.state == CloudJobState.PREPARING || it.state == CloudJobState.UPLOADING
             }
+            // Uploads done so far: the ones waiting here and the ones already sent, so an open gate stays open.
+            val uploadsDone = members.count {
+                it.state == CloudJobState.UPLOADED || (!it.state.isBeforeSubmit && it.submittedAtMs != null)
+            }
             val firstDone = uploaded.mapNotNull { it.uploadedAtMs }.minOrNull()
-            ready += if (CloudBatchGate.shouldSubmit(pendingUploads, uploaded.size, firstDone, time)) {
+            ready += if (CloudBatchGate.shouldSubmit(pendingUploads, uploadsDone, firstDone, time, workers)) {
                 uploaded.map { it.jobKey }
             } else {
                 // A job sent before (lost at RunPod, a retry) doesn't wait for the rest of its batch.
@@ -1287,12 +1343,14 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
             val record = all.firstOrNull { it.jobKey == key }
             record != null && CloudPriorityLane.isHeld(record, all, goingOut, time)
         }
-        // The pass is one burst: its last job carries `policy.last_in_batch`, so the worker stops itself after it
-        // instead of staying up, idle and billed. Each job waits until the next one is ready (or the pass ends) to go
-        // out, since only then is it known whether it is the last ([CloudSubmitBurst], iOS d84f8f8). A priority job
-        // leads the burst and the jobs that stepped aside for it follow in their old order, so only the final one is
-        // the last, whichever of them the cap lets through.
-        val burst = CloudSubmitBurst<PendingSubmit>()
+        // The pass is one burst: its last jobs carry `policy.last_in_batch`, one for each worker RunPod runs at once, so
+        // every worker stops itself after its last job instead of staying up, idle and billed. The newest jobs wait
+        // until enough are ready behind them (or the pass ends) to go out, since only then is it known whether they are
+        // among the last ([CloudSubmitBurst], iOS d84f8f8). A priority job leads the burst and the jobs that stepped
+        // aside for it follow in their old order, so the last are the final ones, whichever of them the cap lets through.
+        val price = settings.effectivePricePerSecondMicroUsd
+        val monthStart = deps.monthStartMs(time)
+        val burst = CloudSubmitBurst<PendingSubmit>(workers)
         for (jobKey in CloudPriorityLane.submitOrder(ready, all)) {
             val record = job(jobKey) ?: continue
             if (record.state != CloudJobState.UPLOADED || !record.isDue(time)) continue
@@ -1300,37 +1358,27 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
                 update(jobKey) { it.on(CloudJobEvent.REQUEUE, now) }
                 continue
             }
-            val price = settings.effectivePricePerSecondMicroUsd
-            // The held job isn't at RunPod yet, but it will be: count it. Jobs taken off the list still count.
-            val monthStart = deps.monthStartMs(time)
+            // The held jobs aren't at RunPod yet, but they will be: count them. Jobs taken off the list still count.
             val held = burst.holding
             val committed = CloudBudget.committedMicroUsd(jobs, monthStart, price) +
-                deps.settings.removedSpendMicroUsd(monthStart) + (held?.estimateMicroUsd ?: 0)
+                deps.settings.removedSpendMicroUsd(monthStart) + held.sumOf { it.estimateMicroUsd }
             val estimate = CloudCost.estimatedSeconds(record.plan, record.quality) * price
             if (!CloudBudget.allows(estimate, settings.effectiveMonthlyCapMicroUsd, committed)) {
                 setNotice(CloudNotice.CAP_REACHED)
-                break // the job held so far still goes out, as the burst's last
+                break // the jobs held so far still go out, as the burst's last
             }
             clearNotice(CloudNotice.CAP_REACHED)
             if (record.origin == CloudJobOrigin.AUTO) {
                 // Automatic jobs also stay inside their own share of the month. One over it is left waiting (not failed,
                 // not the cap's notice) and the rest of the burst carries on: a Sing or a batch job is not held up by it.
                 val autoCommitted = CloudBudget.autoCommittedMicroUsd(jobs, monthStart, price, deps.settings.removedAutoSpendMicroUsd(monthStart)) +
-                    (held?.takeIf { it.origin == CloudJobOrigin.AUTO }?.estimateMicroUsd ?: 0)
+                    held.filter { it.origin == CloudJobOrigin.AUTO }.sumOf { it.estimateMicroUsd }
                 val capRemaining = CloudBudget.remainingMicroUsd(settings.effectiveMonthlyCapMicroUsd, committed)
                 if (!CloudBudget.allowsAuto(estimate, settings.effectiveAutoBudgetMicroUsd, autoCommitted, capRemaining)) continue
             }
-            var lyrics: CloudLyricsRequest? = null
-            if (CloudTask.LYRICS in record.tasks) {
-                val song = deps.host.song(record.songId)
-                val facts = song?.let { deps.host.lyricsFacts(it) } ?: CloudLyricsFacts.NONE
-                lyrics = CloudJobBuilder.lyricsRequest(
-                    mode = record.lyricsMode ?: CloudLyricsMode.AUTO, lines = facts.lines,
-                    hasLineTimes = facts.hasLineTimes, language = record.language ?: facts.language,
-                    lyricsReferenceDurationMs = facts.referenceDurationMs, audioDurationMs = record.durationMs ?: 0,
-                )
-            }
-            val request = CloudJobBuilder.request(record, deps.build, lyrics) { method, key, seconds ->
+            // The instrumental only: a job stored with the lyrics task before the cloud stopped timing lyrics doesn't ask
+            // for them (the pass's settling drops the task; this keeps the request right whatever the record says).
+            val request = CloudJobBuilder.request(record.withoutLyrics(), deps.build, lyrics = null) { method, key, seconds ->
                 clients.objects.presignedUrl(method, key, seconds)
             }
             if (request == null) {
@@ -1359,9 +1407,35 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
             val previous = burst.ready(PendingSubmit(jobKey, request, estimate, record.origin))
             if (previous != null && !submit(previous, lastInBatch = false, clients)) return
         }
-        // A preview clip that ends the burst while its song is still being uploaded leaves the worker up for the song,
-        // which then ends its own burst with the flag ([CloudPriorityLane.marksLastInBatch]).
-        burst.end()?.let { submit(it, lastInBatch = CloudPriorityLane.marksLastInBatch(job(it.jobKey), jobs), clients) }
+        val tail = burst.end()
+        if (tail.isEmpty()) return
+        // None of the last carries the flag while more of this phone's jobs are on their way (the workers stay up for
+        // them), and a preview clip whose song is still being uploaded leaves its worker up for the song, which then
+        // ends its own burst with the flag ([CloudBurstMarks]).
+        val room = CloudBudget.remainingMicroUsd(
+            settings.effectiveMonthlyCapMicroUsd,
+            CloudBudget.committedMicroUsd(jobs, monthStart, price) + deps.settings.removedSpendMicroUsd(monthStart) +
+                tail.sumOf { it.estimateMicroUsd },
+        )
+        val moreComing = CloudBurstMarks.moreComing(jobsOnTheWay(settings), room, price, outOfTime)
+        val marks = CloudBurstMarks.marks(tail.map { job(it.jobKey) }, jobs, moreComing)
+        for ((index, pending) in tail.withIndex()) {
+            if (!submit(pending, lastInBatch = marks[index], clients)) return
+        }
+    }
+
+    /**
+     * This phone's jobs that will reach RunPod soon: due, and being prepared, or waiting for a phone step it may take now
+     * (the same rules as the phone-step picker: Wi-Fi for the person's transfers, a charger and Wi-Fi for automatic jobs).
+     */
+    private fun jobsOnTheWay(settings: CloudSettingsSnapshot): List<CloudJobRecord> {
+        val time = now
+        val candidates = jobs.filter { it.isDue(time) && (it.state == CloudJobState.PREPARING || isPhoneStep(it)) }
+        if (candidates.isEmpty()) return emptyList()
+        // Asked only when an automatic job is among them: it reads the battery.
+        val autoOk = candidates.none { it.origin == CloudJobOrigin.AUTO && it.state != CloudJobState.PREPARING } ||
+            deps.autoWorkAllowed()
+        return candidates.filter { it.state == CloudJobState.PREPARING || stepAllowed(it, settings, autoOk) }
     }
 
     /** A job of the current submit pass that is ready to go out, held until the next one is ready. */
@@ -1611,8 +1685,8 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
     }
 
     /**
-     * Lyrics first (KB-sized, a normal request), so they show even while the instrumental waits for Wi-Fi; then the
-     * instrumental download, checked and moved into the instrumental store.
+     * The instrumental download, checked and moved into the instrumental store. A lyrics file from a job sent before the
+     * cloud stopped timing lyrics (2026-10-23) is never fetched; it is deleted with the job's other objects.
      */
     private suspend fun collect(jobKey: String, clients: Clients, transfersAllowed: Boolean) {
         val record = job(jobKey)?.takeIf { it.state == CloudJobState.RESULTS_READY } ?: return
@@ -1634,12 +1708,6 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
                 deleteRemote(keys, clients)
                 return
             }
-        }
-        val lyricsKey = record.lyricsKey
-        if (CloudTask.LYRICS in record.tasks && !record.importedLyrics && lyricsKey != null) {
-            importLyrics(jobKey, lyricsKey, song, clients)
-            // A lyrics failure waits out its retry before anything else of this job is fetched.
-            if (job(jobKey)?.isDue(now) == false) return
         }
         val current = job(jobKey)?.takeIf { it.state == CloudJobState.RESULTS_READY } ?: return
         val output = current.outputs?.get(INSTRUMENTAL_SLOT)
@@ -1680,53 +1748,6 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
             return
         }
         finishIfDone(jobKey, clients)
-    }
-
-    private suspend fun importLyrics(jobKey: String, key: String, song: CloudSong, clients: Clients) {
-        val record = job(jobKey) ?: return
-        if (!key.startsWith(CloudKeys.outputPrefix(jobKey)) || ".." in key) {
-            update(jobKey) { it.copy(importedLyrics = true) }
-            return
-        }
-        try {
-            val data = clients.objects.get(key)
-            if (data == null) {
-                update(jobKey) { it.copy(importedLyrics = true, warnings = it.warnings + "The lyrics file was gone from storage.") }
-                return
-            }
-            val summary = record.lyricsFile
-            if (summary != null) {
-                val bytesOk = summary.bytes?.let { it == data.size.toLong() } ?: true
-                val shaOk = summary.sha256?.let { it.equals(CloudDigest.sha256Hex(data), ignoreCase = true) } ?: true
-                if (!bytesOk || !shaOk) {
-                    fail(jobKey, "The lyrics file arrived damaged; it will be fetched again.", null, retryable = true)
-                    return
-                }
-            }
-            val cloud = try {
-                CloudJson.decodeFromString(CloudLyricsDocument.serializer(), data.toString(Charsets.UTF_8))
-            } catch (error: Exception) {
-                update(jobKey) { it.copy(importedLyrics = true, warnings = it.warnings + "The cloud lyrics file couldn't be read.") }
-                return
-            }
-            val duration = if (song.durationMs > 0) song.durationMs else record.durationMs ?: 0
-            val doc = CloudLyrics.lyricsDoc(cloud, duration, song.title, song.artist, song.album)
-            val outcome = if (doc != null) deps.host.saveLyrics(doc, song, record.replaceUserSynced) else CloudLyricsSaveOutcome.UNUSABLE
-            update(jobKey) { r ->
-                val warning = when (outcome) {
-                    CloudLyricsSaveOutcome.SAVED -> null
-                    CloudLyricsSaveOutcome.KEPT_BETTER -> "Kept the lyrics you already had (they were as good or better)."
-                    CloudLyricsSaveOutcome.KEPT_USER_SYNCED -> "Kept the lyrics you synced yourself."
-                    CloudLyricsSaveOutcome.UNUSABLE -> "The cloud lyrics had no usable timing."
-                }
-                r.copy(importedLyrics = true, warnings = if (warning != null) r.warnings + warning else r.warnings)
-            }
-            if (outcome == CloudLyricsSaveOutcome.SAVED) deps.host.lyricsImported(song.id)
-        } catch (error: CancellationException) {
-            throw error
-        } catch (error: Exception) {
-            fail(jobKey, "Lyrics: ${CloudRedaction.redact(error.message ?: "couldn't fetch them")}", null, retryable = true)
-        }
     }
 
     /**
@@ -1809,9 +1830,8 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
         val keys = CloudJobBuilder.objectKeys(record)
         if (record.outputCodec == CloudOutputCodec.AAC && !record.flacRedone) {
             update(jobKey) { r ->
-                r.copy(
+                r.withoutLyrics().copy(
                     flacRedone = true, outputCodec = CloudOutputCodec.FLAC,
-                    tasks = if (r.importedLyrics) r.tasks - CloudTask.LYRICS else r.tasks,
                     outputs = null, lyricsKey = null, lyricsFile = null,
                     warnings = r.warnings + "The AAC instrumental didn't line up with the song; asking for FLAC instead.",
                 ).on(CloudJobEvent.REQUEUE, now)
@@ -1830,7 +1850,7 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
         val record = job(jobKey) ?: return
         if (record.state != CloudJobState.RESULTS_READY && record.state != CloudJobState.DOWNLOADING) return
         if (!record.isFullyImported) {
-            // The instrumental is in but the lyrics wait for a retry: the next collect fetches them.
+            // The instrumental isn't in yet: the next collect fetches it.
             if (record.state == CloudJobState.DOWNLOADING) update(jobKey) { it.on(CloudJobEvent.RESULTS_READY, now) }
             return
         }

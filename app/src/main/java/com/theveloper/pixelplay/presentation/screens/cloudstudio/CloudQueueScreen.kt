@@ -19,7 +19,6 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Done
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.MusicNote
-import androidx.compose.material.icons.rounded.Subtitles
 import androidx.compose.material.icons.rounded.Warning
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -57,7 +56,7 @@ import com.theveloper.pixelplay.presentation.viewmodel.CloudStudioViewModel
 /**
  * The "process later" queue (design §7.3), ported from the iOS app's `CloudQueueView`: what is on its way to the
  * cloud, what came back, and what needs the person. In developer mode songs can also be added from here (Current
- * song / Songs without word-timed lyrics / Songs without an instrumental); each starts straight away. Rows are keyed
+ * song / Songs without an instrumental); each starts straight away. Rows are keyed
  * lazy items whose text is built once per change of their own record; progress comes from the engine in whole
  * percents, never a timer.
  */
@@ -107,9 +106,6 @@ fun CloudQueueScreen(
                 CloudSection("Add songs") {
                     AddRow("Current song", "The song that's playing now.", Icons.Rounded.MusicNote) {
                         viewModel.startNow(CloudBatchKind.CURRENT, currentSong(), CloudStudioCopy.batchTitle(CloudBatchKind.CURRENT))
-                    }
-                    AddRow("Songs without word-timed lyrics", "Up to 200 songs from your library.", Icons.Rounded.Subtitles) {
-                        viewModel.startNow(CloudBatchKind.MISSING_LYRICS, null, CloudStudioCopy.batchTitle(CloudBatchKind.MISSING_LYRICS))
                     }
                     AddRow("Songs without an instrumental", "Up to 200 songs from your library.", Icons.Rounded.GraphicEq) {
                         viewModel.startNow(CloudBatchKind.MISSING_INSTRUMENTAL, null,
