@@ -43,12 +43,12 @@ class CrossfadeRampTest {
         val sums = mutableListOf<Float>()
         val outs = mutableListOf<Float>()
         val ins = mutableListOf<Float>()
-        fun setOut(v: Float) {
+        fun writeOut(v: Float) {
             out = v
             outs += v
         }
 
-        fun setIn(v: Float) {
+        fun writeIn(v: Float) {
             inn = v
             ins += v
             sums += out + inn
@@ -62,7 +62,7 @@ class CrossfadeRampTest {
 
         val completed = CrossfadeRamp.ramp(
             durationMs = 500, outFrom = 0.6f, outTo = 0f, inFrom = 0f, inTo = 0.6f,
-            setOut = volumes::setOut, setIn = volumes::setIn,
+            setOut = volumes::writeOut, setIn = volumes::writeIn,
             stillValid = { true }, clock = { currentTime },
         )
 
@@ -79,7 +79,7 @@ class CrossfadeRampTest {
 
         CrossfadeRamp.ramp(
             durationMs = 700, outFrom = 0.6f, outTo = 0f, inFrom = 0f, inTo = 0.6f,
-            setOut = volumes::setOut, setIn = volumes::setIn,
+            setOut = volumes::writeOut, setIn = volumes::writeIn,
             stillValid = { true }, clock = { currentTime },
         )
 
@@ -93,7 +93,7 @@ class CrossfadeRampTest {
 
         CrossfadeRamp.ramp(
             durationMs = 300, outFrom = 1f, outTo = 0f, inFrom = 0f, inTo = 1f,
-            setOut = volumes::setOut, setIn = volumes::setIn,
+            setOut = volumes::writeOut, setIn = volumes::writeIn,
             stillValid = { true }, clock = { currentTime },
         )
 
@@ -108,7 +108,7 @@ class CrossfadeRampTest {
 
         val completed = CrossfadeRamp.ramp(
             durationMs = 400, outFrom = 0.5f, outTo = 0f, inFrom = 0.2f, inTo = 0.6f,
-            setOut = volumes::setOut, setIn = volumes::setIn,
+            setOut = volumes::writeOut, setIn = volumes::writeIn,
             stillValid = { true }, clock = { currentTime },
         )
 
@@ -123,7 +123,7 @@ class CrossfadeRampTest {
 
         val completed = CrossfadeRamp.ramp(
             durationMs = 700, outFrom = 1f, outTo = 0f, inFrom = 0f, inTo = 1f,
-            setOut = volumes::setOut, setIn = volumes::setIn,
+            setOut = volumes::writeOut, setIn = volumes::writeIn,
             // The song changes 200 ms in.
             stillValid = { currentTime < 200 }, clock = { currentTime },
         )
@@ -140,7 +140,7 @@ class CrossfadeRampTest {
 
         val completed = CrossfadeRamp.ramp(
             durationMs = 700, outFrom = 1f, outTo = 0f, inFrom = 0f, inTo = 1f,
-            setOut = volumes::setOut, setIn = volumes::setIn,
+            setOut = volumes::writeOut, setIn = volumes::writeIn,
             stillValid = { false }, clock = { currentTime },
         )
 
@@ -158,7 +158,7 @@ class CrossfadeRampTest {
 
         val completed = CrossfadeRamp.ramp(
             durationMs = 700, outFrom = 1f, outTo = 0f, inFrom = 0f, inTo = 1f,
-            setOut = volumes::setOut, setIn = volumes::setIn,
+            setOut = volumes::writeOut, setIn = volumes::writeIn,
             stillValid = { true },
             clock = {
                 looks++
