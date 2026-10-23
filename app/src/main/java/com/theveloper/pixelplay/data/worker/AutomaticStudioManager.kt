@@ -315,6 +315,9 @@ class AutomaticStudioManager @Inject constructor(
             if (cloudStudio.get().hasPendingJob(song.id)) continue
             val localAudio = AutomaticStudioEnvironment.localAudio(song, audioCacheManager)
             for (kind in allowedKinds) {
+                // Instrumentals the cloud's own auto-prepare looks after (the switch is on and the cloud is usable) aren't
+                // rendered here as well; the on-device studio takes them again when that switch goes off.
+                if (kind == AutomaticStudioKind.INSTRUMENTAL && cloudStudio.get().cloudAutoPrepareOwns(song.duration)) continue
                 val now = System.currentTimeMillis()
                 val key = ledgerKey(kind, song.id)
                 if (cooldowns.until(key) > now) continue

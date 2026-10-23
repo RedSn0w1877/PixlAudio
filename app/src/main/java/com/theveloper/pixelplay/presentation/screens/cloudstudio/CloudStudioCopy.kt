@@ -147,6 +147,9 @@ object CloudStudioCopy {
 
     private val STEM_STAGES = setOf("stems4", "stems")
 
+    /** A job that stepped aside, uploaded, so a song being sung is processed first ([CloudJobRecord.isPaused]). */
+    const val PAUSED_FOR_SING = "Paused for a song you're singing"
+
     /** [developerMode] adds what only a developer reads (the failure code, the GPU wait); the default is plain words. */
     fun status(record: CloudJobRecord, progress: Float?, developerMode: Boolean = false): String = when (record.state) {
         CloudJobState.UPLOADING, CloudJobState.DOWNLOADING ->
@@ -173,6 +176,8 @@ object CloudStudioCopy {
         }
         else -> when {
             record.nextAttemptAtMs != null && !record.lastError.isNullOrEmpty() -> "Trying again soon"
+            // Stepped aside in RunPod's queue for a song being sung: back on the phone, going out again right behind it.
+            record.isPaused && record.state == CloudJobState.UPLOADED -> PAUSED_FOR_SING
             record.state == CloudJobState.SUBMITTED && !developerMode -> "Waiting in the cloud"
             else -> record.state.label
         }

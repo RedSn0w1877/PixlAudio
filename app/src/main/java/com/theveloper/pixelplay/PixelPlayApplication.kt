@@ -72,6 +72,9 @@ class PixelPlayApplication : Application(), ImageLoaderFactory, Configuration.Pr
     lateinit var cloudStudioEngine: dagger.Lazy<com.theveloper.pixelplay.data.cloudstudio.CloudStudioEngine>
 
     @Inject
+    lateinit var cloudAutoPrepareScheduler: dagger.Lazy<com.theveloper.pixelplay.data.cloudstudio.auto.CloudAutoPrepareScheduler>
+
+    @Inject
     lateinit var appUpdateManager: dagger.Lazy<com.theveloper.pixelplay.data.update.AppUpdateManager>
 
     @Inject
@@ -107,6 +110,8 @@ class PixelPlayApplication : Application(), ImageLoaderFactory, Configuration.Pr
                 automaticStudioManager.get().setAppVisible(true)
                 // Cloud Studio watches its jobs every 15 s while the app is on screen (nothing while it's off).
                 cloudStudioEngine.get().setAppVisible(true)
+                // "Prepare songs ahead in the cloud": the 6-hourly worker follows the two switches (a no-op while off).
+                cloudAutoPrepareScheduler.get().sync()
             }
         }
         override fun onStop(owner: LifecycleOwner) {

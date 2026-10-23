@@ -1,14 +1,17 @@
 package com.theveloper.pixelplay.data.cloudstudio
 
 import com.theveloper.pixelplay.data.model.LyricsDoc
+import com.theveloper.pixelplay.data.tais.TaisInstrumentalIndex
 import java.io.File
 import java.nio.file.Path
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.encodeToString
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -36,6 +39,8 @@ class CloudStudioEngineTest {
     private lateinit var runpod: FakeRunPod
     private lateinit var scheduler: FakeScheduler
     private var unmetered = true
+    /** The phone is on a charger and Wi-Fi with a healthy battery: what automatic jobs need for their own steps. */
+    private var autoWork = true
     private var builtIn: CloudBuiltInConfig = NoBuiltInCloudConfig
     /** Every configuration the engine built RunPod clients from, in order. */
     private val configsSeen = mutableListOf<CloudConfigInput>()
@@ -62,7 +67,8 @@ class CloudStudioEngineTest {
             makeObjects = { if (it.hasStorage) bucket else null }, builtIn = builtIn,
             scheduler = scheduler, scope = CoroutineScope(Dispatchers.Unconfined), build = "test (1)",
             stagingDir = directory.resolve("staging").toFile(), isUnmetered = { unmetered },
-            nowMs = { now }, monthStartMs = { 0L }, newJobKey = { keys.removeFirst() },
+            nowMs = { now }, monthStartMs = { 0L }, dayStartMs = { CloudBudget.dayStartMs(it) },
+            newJobKey = { keys.removeFirst() }, autoWorkAllowed = { autoWork },
         )
     )
 
@@ -507,6 +513,597 @@ class CloudStudioEngineTest {
         assertEquals(5_000_000, second.committedThisMonthMicroUsd())
     }
 
+    // ─── Sing ───────────────────────────────────────────────────────────────────────────────
+
+    private val fourSongs = listOf("a", "b", "c", "d").map { CloudSong(it, "Song $it", "Artist", "Album", 240_000, false, true) }
+
+    private fun fourSongEngine(): CloudStudioEngine {
+        host = FakeHost(fourSongs)
+        return engine()
+    }
+
+    private suspend fun sing(engine: CloudStudioEngine, song: CloudSong): CloudSingStart.Started =
+        engine.startSing(song) as CloudSingStart.Started
+
+    /** The answer to a Sing tap with the settings changed by [change] (on top of a working setup) and nothing queued. */
+    private suspend fun singAnswer(
+        song: CloudSong = localSong,
+        change: (CloudSettingsSnapshot) -> CloudSettingsSnapshot = { it },
+    ): CloudSingStart {
+        settings.snapshot = change(CloudSettingsSnapshot(enabled = true, endpointId = "ep1", r2Endpoint = "0123456789abcdef0123456789abcdef"))
+        store.saved = emptyList()
+        return engine().startSing(song)
+    }
+
+    @Test fun `a Sing asks for the instrumental even when Outputs has it off, and the cloud makes it`() = runBlocking {
+        settings.snapshot = settings.snapshot.copy(wantsInstrumental = false)
+        val engine = engine()
+        assertNull(engine.singAvailability(localSong.durationMs), "usable")
+        val job = engine.job(sing(engine, localSong).jobKey)!!
+        assertEquals(CloudJobOrigin.SING, job.origin)
+        assertTrue(job.isPriority)
+        // The lyrics follow Outputs (on); the instrumental is forced on.
+        assertEquals(listOf(CloudTask.INSTRUMENTAL, CloudTask.LYRICS), job.tasks)
+        assertEquals(1, scheduler.urgentRequests, "the phone is asked to start right away")
+        assertTrue(engine.hasPriorityPhoneWork())
+        runpod.finishImmediately = false
+        engine.workerPass(now + PASS_MS)
+        assertFalse(engine.hasPriorityPhoneWork())
+        assertTrue(engine.isWaitingOnSing(), "at RunPod now: the worker keeps looking every few seconds")
+        runpod.completeAll()
+        now += CloudTiming.SING_POLL_INTERVAL_MS + 1
+        engine.workerPass(now + PASS_MS)
+        val done = engine.job(job.jobKey)!!
+        assertEquals(CloudJobState.IMPORTED, done.state, "last error: ${done.lastError}")
+        assertEquals(listOf(localSong.id), host.instrumentalNotes)
+        assertFalse(engine.isWaitingOnSing())
+    }
+
+    @Test fun `a second Sing tap joins the job already on its way`() = runBlocking {
+        val engine = engine()
+        val first = sing(engine, localSong)
+        assertEquals(CloudSingStart.Joined(first.jobKey), engine.startSing(localSong))
+        assertEquals(1, engine.state.value.jobs.size)
+        assertEquals(CloudJobOrigin.SING, engine.job(first.jobKey)!!.origin)
+        assertEquals(2, scheduler.urgentRequests)
+    }
+
+    @Test fun `a Sing promotes an automatic job that is already waiting`() = runBlocking {
+        settings.snapshot = settings.snapshot.copy(autoPrepareEnabled = true)
+        val engine = engine()
+        assertEquals(1, engine.sendAuto(listOf(localSong)))
+        val auto = engine.state.value.jobs.single()
+        assertEquals(CloudJobOrigin.AUTO, auto.origin)
+        assertFalse(auto.isPriority)
+        assertEquals(CloudSingStart.Joined(auto.jobKey), engine.startSing(localSong))
+        val promoted = engine.job(auto.jobKey)!!
+        assertEquals(CloudJobOrigin.SING, promoted.origin)
+        assertTrue(promoted.isPriority)
+        // Alone in its batch now, so the batch gate doesn't wait for the automatic jobs it came with.
+        assertNotEquals(auto.batchId, promoted.batchId)
+        assertEquals(1, engine.state.value.jobs.size)
+    }
+
+    @Test fun `an automatic job that had stepped aside for a Sing goes ahead as a Sing itself`() = runBlocking {
+        host = FakeHost(fourSongs)
+        val (p, x) = listOf(keys.removeFirst(), keys.removeFirst())
+        store.saved = listOf(
+            pausedJob(x, fourSongs[0], waitingFor = p).copy(origin = CloudJobOrigin.AUTO),
+            storedJob(p, fourSongs[3], CloudJobState.QUEUED, origin = CloudJobOrigin.SING, priority = true),
+        )
+        val engine = engine()
+        engine.loadForDisplay()
+        assertTrue(engine.job(x)!!.isPaused)
+        assertEquals(CloudSingStart.Joined(x), engine.startSing(fourSongs[0]))
+        val promoted = engine.job(x)!!
+        assertEquals(CloudJobOrigin.SING, promoted.origin)
+        assertTrue(promoted.isPriority)
+        // It is a priority job now, not one still waiting behind the other Sing; it keeps its upload and its history.
+        assertFalse(promoted.isPaused)
+        assertNull(promoted.pausedByJobKey)
+        assertEquals(CloudJobState.UPLOADED, promoted.state)
+        assertNotNull(promoted.submittedAtMs)
+        assertFalse(CloudPriorityLane.isHeld(promoted, engine.state.value.jobs, emptySet(), now))
+    }
+
+    @Test fun `a Sing says why the cloud can't take it, and the on-device render takes over`() = runBlocking {
+        fun unavailable(reason: CloudSingUnavailable) = CloudSingStart.Unavailable(reason)
+        assertEquals(unavailable(CloudSingUnavailable.OFF), singAnswer { it.copy(enabled = false) })
+        assertEquals(unavailable(CloudSingUnavailable.NOT_CONFIGURED), singAnswer { it.copy(endpointId = "") })
+        assertEquals(unavailable(CloudSingUnavailable.CAP_REACHED), singAnswer { it.copy(monthlyCapMicroUsd = 1_000) })
+        val long = CloudSong("long", "Long", "Artist", "Album", 960_000, isStreamed = false, hasAudioSource = true)
+        assertEquals(unavailable(CloudSingUnavailable.TOO_LONG), singAnswer(long))
+        val silent = CloudSong("silent", "Silent", "Artist", "Album", 240_000, isStreamed = false, hasAudioSource = false)
+        assertEquals(unavailable(CloudSingUnavailable.NO_AUDIO), singAnswer(silent))
+        settings.secretsState = CloudSecretsState(CloudSecrets.EMPTY, keysMissing = true)
+        assertEquals(unavailable(CloudSingUnavailable.KEYS_MISSING), singAnswer())
+        settings.secretsState = CloudSecretsState(CloudSecrets("rpa_key", "AKID", "SECRET"))
+        host.instrumentals += localSong.id
+        assertEquals(unavailable(CloudSingUnavailable.ALREADY_HAS_INSTRUMENTAL), singAnswer())
+        host.instrumentals -= localSong.id
+        // On mobile data with "Use mobile data" off the answer is a reason, not a job waiting for Wi-Fi.
+        unmetered = false
+        assertEquals(unavailable(CloudSingUnavailable.NOT_ON_WIFI), singAnswer())
+        assertEquals(CloudSingUnavailable.NOT_ON_WIFI, engine().singAvailability(240_000))
+        assertTrue(singAnswer { it.copy(useCellular = true) } is CloudSingStart.Started)
+    }
+
+    @Test fun `a refused key makes the cloud unavailable for a Sing`() = runBlocking {
+        val engine = engine()
+        sendOne(engine)
+        runpod.behaviour = { _, _ -> throw RunPodError.Unauthorized(401) }
+        engine.workerPass(now + PASS_MS)
+        assertEquals(CloudNotice.RUNPOD_KEY_REFUSED, engine.state.value.notice)
+        assertEquals(CloudSingUnavailable.KEYS_MISSING, engine.singAvailability(240_000))
+    }
+
+    @Test fun `a Sing is prepared and uploaded before a batch queued earlier, and goes to RunPod first`() = runBlocking {
+        val engine = fourSongEngine()
+        assertEquals(3, engine.send(engine.preview(fourSongs.take(3), "Three")))
+        val sing = sing(engine, fourSongs[3])
+        runpod.finishImmediately = false
+        engine.workerPass(now + PASS_MS)
+        assertEquals(listOf("d", "a", "b", "c"), host.audioSourceCalls)
+        assertEquals(listOf(sing.jobKey), runpod.runs.take(1).map { it.input.jobKey })
+        assertEquals(CloudJobInputPolicy(lastInBatch = true), runpod.runs.first().input.policy, "alone in its burst, so it is the last")
+    }
+
+    @Test fun `a one-song Process in cloud goes ahead of a batch the same way, with an urgent pass`() = runBlocking {
+        val engine = fourSongEngine()
+        val (_, b, c) = threeAtRunPod(engine)
+        assertEquals(0, scheduler.urgentRequests, "a batch asks for a plain pass")
+        val single = sendOne(engine, fourSongs[3])
+        assertEquals(CloudJobOrigin.MANUAL, single.origin)
+        assertTrue(single.isPriority)
+        assertEquals(1, scheduler.urgentRequests)
+        now += 1_000
+        engine.workerPass(now + PASS_MS)
+        assertEquals(listOf("rp-3", "rp-2"), runpod.cancelled)
+        assertEquals(listOf(single.jobKey, b, c), runpod.runs.drop(3).map { it.input.jobKey })
+    }
+
+    @Test fun `jobsFor lists a song's jobs under either of its ids`() = runBlocking {
+        val engine = engine()
+        engine.loadForDisplay()
+        sendOne(engine)
+        sendOne(engine, streamedSong)
+        assertEquals(listOf("101"), engine.jobsFor("101").first().map { it.songId })
+        assertEquals(listOf("spotify_x"), engine.jobsFor("spotify_x").first().map { it.songId })
+        // The unified library row of a Spotify song is the same song as its spotify_ alias.
+        assertEquals(listOf("spotify_x"), engine.jobsFor(TaisInstrumentalIndex.canonicalSongId("spotify_x")).first().map { it.songId })
+        assertTrue(engine.jobsFor("nothing").first().isEmpty())
+    }
+
+    // ─── Polling a Sing ─────────────────────────────────────────────────────────────────────
+
+    @Test fun `a Sing at RunPod is asked about every few seconds`() = runBlocking {
+        runpod.finishImmediately = false
+        runpod.statusFor = { id -> RunPodJob(id, "IN_QUEUE") }
+        val engine = engine()
+        val started = sing(engine, localSong)
+        engine.workerPass(now + PASS_MS)
+        val id = engine.job(started.jobKey)!!.runpodJobId!!
+        assertEquals(1, runpod.statusCalls.count { it == id }, "once, when it went out")
+        now += 1_000
+        engine.workerPass(now + 1)
+        assertEquals(1, runpod.statusCalls.count { it == id }, "one second later is too soon")
+        now += CloudTiming.SING_POLL_INTERVAL_MS
+        engine.workerPass(now + 1)
+        assertEquals(2, runpod.statusCalls.count { it == id }, "a few seconds later it is asked again, not 15")
+    }
+
+    @Test fun `a batch job is asked about no more often than every 15 seconds`() = runBlocking {
+        host = FakeHost(threeSongs)
+        runpod.finishImmediately = false
+        runpod.statusFor = { id -> RunPodJob(id, "IN_QUEUE") }
+        val engine = engine()
+        assertEquals(3, engine.send(engine.preview(threeSongs, "Three")))
+        engine.workerPass(now + PASS_MS)
+        assertEquals(1, runpod.statusCalls.count { it == "rp-1" })
+        now += CloudTiming.SING_POLL_INTERVAL_MS + 1
+        engine.workerPass(now + 1)
+        assertEquals(1, runpod.statusCalls.count { it == "rp-1" }, "a Sing's rhythm is not the batch's")
+        now += CloudTiming.STATUS_POLL_INTERVAL_MS
+        engine.workerPass(now + 1)
+        assertEquals(2, runpod.statusCalls.count { it == "rp-1" })
+    }
+
+    // ─── The priority lane ──────────────────────────────────────────────────────────────────
+
+    /** Three batch jobs at RunPod: the first is running, the other two still wait in RunPod's queue. Returns their keys. */
+    private suspend fun threeAtRunPod(engine: CloudStudioEngine): List<String> {
+        runpod.finishImmediately = false
+        runpod.statusFor = { id ->
+            if (id == "rp-1") RunPodJob(id, "IN_PROGRESS", outputText = "separate:40") else RunPodJob(id, "IN_QUEUE")
+        }
+        assertEquals(3, engine.send(engine.preview(fourSongs.take(3), "Three")))
+        val keys = engine.state.value.jobs.map { it.jobKey }
+        engine.workerPass(now + PASS_MS)
+        assertEquals(
+            listOf(CloudJobState.RUNNING, CloudJobState.SUBMITTED, CloudJobState.SUBMITTED),
+            keys.map { engine.job(it)!!.state },
+        )
+        assertEquals(listOf("rp-1", "rp-2", "rp-3"), keys.map { engine.job(it)!!.runpodJobId })
+        return keys
+    }
+
+    @Test fun `a Sing steps the queued jobs aside, goes out first, and they follow in the same burst`() = runBlocking {
+        val engine = fourSongEngine()
+        val (a, b, c) = threeAtRunPod(engine)
+        val sing = sing(engine, fourSongs[3])
+        now += 1_000
+        engine.workerPass(now + PASS_MS)
+        // Only the two jobs still in RunPod's queue were cancelled, the tail first; the running one was left alone.
+        assertEquals(listOf("rp-3", "rp-2"), runpod.cancelled)
+        assertEquals(CloudJobState.RUNNING, engine.job(a)!!.state)
+        assertEquals("rp-1", engine.job(a)!!.runpodJobId)
+        // One burst: the Sing, then the jobs that stepped aside in their old order; only the final one asks the worker to stop.
+        val burst = runpod.runs.drop(3)
+        assertEquals(listOf(sing.jobKey, b, c), burst.map { it.input.jobKey })
+        assertEquals(listOf(null, null, CloudJobInputPolicy(lastInBatch = true)), burst.map { it.input.policy })
+        // Back at RunPod behind the Sing, no mark left of having stepped aside, and no attempt used up.
+        listOf(b, c).forEach {
+            val job = engine.job(it)!!
+            assertTrue(job.state.isAtRunPod, "state ${job.state}")
+            assertFalse(job.isPaused)
+            assertNull(job.pauseIntentRunpodJobId)
+            assertEquals(0, job.attempts)
+            assertNull(job.lastError)
+        }
+        // They never began, so the stale-object clean-up (two deletes each) was skipped.
+        assertTrue(events.none { it == "DELETE ${CloudKeys.manifest(b)}" || it == "DELETE ${CloudKeys.manifest(c)}" }, "events: $events")
+        // The cancels came before the Sing went out.
+        assertTrue(events.indexOf("CANCEL rp-2") < events.lastIndexOf("RUN"), "events: $events")
+    }
+
+    @Test fun `a job that began meanwhile is left running, not cancelled`() = runBlocking {
+        val engine = fourSongEngine()
+        val (_, b, c) = threeAtRunPod(engine)
+        val sing = sing(engine, fourSongs[3])
+        // The second job reached the GPU between the last look and the Sing being ready.
+        runpod.statusFor = { id ->
+            when (id) {
+                "rp-1", "rp-2" -> RunPodJob(id, "IN_PROGRESS", outputText = "separate:40")
+                else -> RunPodJob(id, "IN_QUEUE")
+            }
+        }
+        now += 1_000
+        engine.workerPass(now + PASS_MS)
+        assertEquals(listOf("rp-3"), runpod.cancelled)
+        assertEquals(CloudJobState.RUNNING, engine.job(b)!!.state)
+        assertNull(engine.job(b)!!.pauseIntentRunpodJobId)
+        val burst = runpod.runs.drop(3)
+        assertEquals(listOf(sing.jobKey, c), burst.map { it.input.jobKey })
+        assertEquals(listOf(null, CloudJobInputPolicy(lastInBatch = true)), burst.map { it.input.policy })
+    }
+
+    @Test fun `a cancel that did not take the job out of the queue pauses nothing`() = runBlocking {
+        val engine = fourSongEngine()
+        val (_, b, c) = threeAtRunPod(engine)
+        val sing = sing(engine, fourSongs[3])
+        // RunPod answers that the last job is already in progress: too late.
+        runpod.cancelResult = { id -> if (id == "rp-3") RunPodJob(id, "IN_PROGRESS") else RunPodJob(id, "CANCELLED") }
+        now += 1_000
+        engine.workerPass(now + PASS_MS)
+        assertEquals(CloudJobState.SUBMITTED, engine.job(c)!!.state)
+        assertEquals("rp-3", engine.job(c)!!.runpodJobId)
+        assertFalse(engine.job(c)!!.isPaused)
+        assertEquals(listOf(sing.jobKey, b), runpod.runs.drop(3).map { it.input.jobKey })
+    }
+
+    @Test fun `a cancel that fails leaves the job queued with its intent saved, and the Sing still goes out`() = runBlocking {
+        val engine = fourSongEngine()
+        val (_, b, c) = threeAtRunPod(engine)
+        val sing = sing(engine, fourSongs[3])
+        runpod.cancelResult = { throw RunPodError.Network("connection reset") }
+        now += 1_000
+        engine.workerPass(now + PASS_MS)
+        listOf(b to "rp-2", c to "rp-3").forEach { (key, runId) ->
+            val job = engine.job(key)!!
+            assertEquals(CloudJobState.SUBMITTED, job.state)
+            assertEquals(runId, job.runpodJobId)
+            assertEquals(runId, job.pauseIntentRunpodJobId, "the intent stays, so a CANCELLED that did go through reads as a pause")
+            assertEquals(runId, store.saved.first { it.jobKey == key }.pauseIntentRunpodJobId, "and it is on disk")
+            assertEquals(0, job.attempts)
+        }
+        val burst = runpod.runs.drop(3)
+        assertEquals(listOf(sing.jobKey), burst.map { it.input.jobKey })
+        assertEquals(listOf(CloudJobInputPolicy(lastInBatch = true)), burst.map { it.input.policy })
+    }
+
+    @Test fun `a CANCELLED seen for a job with a pause intent finishes the pause, it is not a failure`() = runBlocking {
+        val engine = fourSongEngine()
+        val (_, _, c) = threeAtRunPod(engine)
+        // The phone began pausing the last job and was stopped before it heard RunPod's answer.
+        store.saved = store.saved.map { if (it.jobKey == c) it.beginningPause() else it }
+        runpod.statusFor = { id ->
+            when (id) {
+                "rp-1" -> RunPodJob(id, "IN_PROGRESS", outputText = "separate:40")
+                "rp-3" -> RunPodJob(id, "CANCELLED")
+                else -> RunPodJob(id, "IN_QUEUE")
+            }
+        }
+        now += CloudTiming.STATUS_POLL_INTERVAL_MS + 1
+        val restarted = engine()
+        restarted.workerPass(now + PASS_MS)
+        val job = restarted.job(c)!!
+        assertEquals(0, job.attempts, "a pause costs no attempt")
+        assertNull(job.lastError)
+        assertNull(job.nextAttemptAtMs, "and no backoff wait")
+        // Nobody is waiting for it to step aside any more, so it goes out again as a fresh run of the same job.
+        assertEquals("rp-4", job.runpodJobId)
+        assertTrue(job.state.isAtRunPod)
+        assertEquals(2, runpod.runs.count { it.input.jobKey == c })
+    }
+
+    @Test fun `when the month only has room for the Sing, it goes out as the last and the others follow later`() = runBlocking {
+        val engine = fourSongEngine()
+        val (_, b, c) = threeAtRunPod(engine)
+        val sing = sing(engine, fourSongs[3])
+        // Room for two songs (the one running and the Sing), not for the two that stepped aside.
+        val one = CloudCost.estimatedSeconds(engine.job(b)!!.plan, engine.job(b)!!.quality) * settings.snapshot.pricePerSecondMicroUsd
+        settings.snapshot = settings.snapshot.copy(monthlyCapMicroUsd = 2 * one)
+        now += 1_000
+        engine.workerPass(now + PASS_MS)
+        assertEquals(listOf("rp-3", "rp-2"), runpod.cancelled)
+        assertEquals(listOf(sing.jobKey), runpod.runs.drop(3).map { it.input.jobKey })
+        assertEquals(listOf(CloudJobInputPolicy(lastInBatch = true)), runpod.runs.drop(3).map { it.input.policy })
+        assertEquals(CloudNotice.CAP_REACHED, engine.state.value.notice)
+        listOf(b, c).forEach { assertEquals(CloudJobState.UPLOADED, engine.job(it)!!.state) }
+        // Room again (a raised cap): they go out together, and only the last of them asks the worker to stop.
+        settings.snapshot = settings.snapshot.copy(monthlyCapMicroUsd = 3_000_000)
+        now += 1_000
+        engine.workerPass(now + PASS_MS)
+        val second = runpod.runs.drop(4)
+        assertEquals(listOf(b, c), second.map { it.input.jobKey })
+        assertEquals(listOf(null, CloudJobInputPolicy(lastInBatch = true)), second.map { it.input.policy })
+        assertTrue(events.none { it == "DELETE ${CloudKeys.manifest(b)}" }, "they never began: nothing stale to clear")
+    }
+
+    @Test fun `a job that finished before its cancel landed is imported, not sent again`() = runBlocking {
+        val engine = fourSongEngine()
+        val (_, b, c) = threeAtRunPod(engine)
+        val sing = sing(engine, fourSongs[3])
+        // The GPU got to the second job just before RunPod's cancel: it finished and wrote its results.
+        runpod.cancelResult = { id ->
+            if (id == "rp-2") runpod.complete(runpod.runs[1])
+            RunPodJob(id, "CANCELLED")
+        }
+        now += 1_000
+        engine.workerPass(now + PASS_MS)
+        assertEquals(listOf("rp-3", "rp-2"), runpod.cancelled)
+        assertEquals(CloudJobState.IMPORTED, engine.job(b)!!.state, "last error: ${engine.job(b)!!.lastError}")
+        assertEquals(listOf(sing.jobKey, c), runpod.runs.drop(3).map { it.input.jobKey })
+        assertEquals(listOf(null, CloudJobInputPolicy(lastInBatch = true)), runpod.runs.drop(3).map { it.input.policy })
+        assertTrue("b" in host.instrumentalNotes)
+    }
+
+    /** A job as an earlier run left it on disk: its upload is in the bucket, the fields a send needs are filled. */
+    private fun storedJob(
+        key: String, song: CloudSong, state: CloudJobState, origin: CloudJobOrigin = CloudJobOrigin.MANUAL,
+        batch: String = key, runpodId: String? = null, submittedAt: Long? = null, priority: Boolean = false,
+    ) = CloudJobRecord(
+        jobKey = key, songId = song.id, title = song.title, artist = song.artist, songDurationMs = song.durationMs,
+        batchId = batch, tasks = listOf(CloudTask.INSTRUMENTAL, CloudTask.LYRICS), lyricsMode = CloudLyricsMode.ALIGN,
+        origin = origin, priorityAtMs = now.takeIf { priority }, state = state, runpodJobId = runpodId,
+        inputExt = "flac", sha256 = preparer.sha, bytes = 1_000, durationMs = song.durationMs,
+        decodedFrames = preparer.frames, sampleRate = 44_100, createdAtMs = now - 10_000,
+        uploadedAtMs = now.takeIf { state != CloudJobState.QUEUED }, submittedAtMs = submittedAt,
+    )
+
+    private fun pausedJob(key: String, song: CloudSong, waitingFor: String, pausedAt: Long = now) =
+        storedJob(key, song, CloudJobState.UPLOADED, batch = "stepped-aside", submittedAt = now - 5_000)
+            .copy(pausedByJobKey = waitingFor, pausedAtMs = pausedAt, pausedNeverStarted = true)
+
+    @Test fun `jobs that stepped aside wait for the Sing to be uploaded, then go out behind it in one burst`() = runBlocking {
+        host = FakeHost(fourSongs)
+        val (p, b, c) = listOf(keys.removeFirst(), keys.removeFirst(), keys.removeFirst())
+        store.saved = listOf(
+            pausedJob(b, fourSongs[1], waitingFor = p), pausedJob(c, fourSongs[2], waitingFor = p),
+            storedJob(p, fourSongs[3], CloudJobState.QUEUED, origin = CloudJobOrigin.SING, priority = true),
+        )
+        runpod.finishImmediately = false
+        engine().workerPass(now + PASS_MS)
+        assertEquals(listOf(p, b, c), runpod.runs.map { it.input.jobKey })
+        assertEquals(listOf(null, null, CloudJobInputPolicy(lastInBatch = true)), runpod.runs.map { it.input.policy })
+        assertTrue(events.none { it.startsWith("DELETE") && (b in it || c in it) }, "events: $events")
+    }
+
+    @Test fun `the hold ends by itself, so a Sing stuck on Wi-Fi never freezes the queue`() = runBlocking {
+        host = FakeHost(fourSongs)
+        unmetered = false // the Sing is prepared but its upload waits for Wi-Fi
+        val (p, b) = listOf(keys.removeFirst(), keys.removeFirst())
+        store.saved = listOf(
+            pausedJob(b, fourSongs[1], waitingFor = p, pausedAt = now - CloudTiming.PRIORITY_HOLD_MAX_MS - 1),
+            storedJob(p, fourSongs[3], CloudJobState.QUEUED, origin = CloudJobOrigin.SING, priority = true),
+        )
+        runpod.finishImmediately = false
+        val engine = engine()
+        engine.workerPass(now + PASS_MS)
+        assertEquals(listOf(b), runpod.runs.map { it.input.jobKey })
+        assertFalse(engine.job(b)!!.isPaused)
+        assertEquals(CloudJobState.UPLOADING, engine.job(p)!!.state, "the Sing is still waiting for Wi-Fi")
+    }
+
+    @Test fun `cancelling the Sing lets the jobs that waited for it go`() = runBlocking {
+        host = FakeHost(fourSongs)
+        val (p, b, c) = listOf(keys.removeFirst(), keys.removeFirst(), keys.removeFirst())
+        store.saved = listOf(
+            pausedJob(b, fourSongs[1], waitingFor = p), pausedJob(c, fourSongs[2], waitingFor = p),
+            storedJob(p, fourSongs[3], CloudJobState.QUEUED, origin = CloudJobOrigin.SING, priority = true),
+        )
+        runpod.finishImmediately = false
+        val engine = engine()
+        engine.loadForDisplay()
+        assertTrue(engine.job(b)!!.isPaused)
+        val before = scheduler.passRequests
+        engine.cancel(p)
+        assertEquals(CloudJobState.CANCELLED, engine.job(p)!!.state)
+        assertFalse(engine.job(b)!!.isPaused)
+        assertFalse(engine.job(c)!!.isPaused)
+        assertTrue(scheduler.passRequests > before, "a pass is asked for")
+        engine.workerPass(now + PASS_MS)
+        assertEquals(listOf(b, c), runpod.runs.map { it.input.jobKey })
+        assertEquals(listOf(null, CloudJobInputPolicy(lastInBatch = true)), runpod.runs.map { it.input.policy })
+    }
+
+    @Test fun `a Sing that failed lets the jobs that waited for it go`() = runBlocking {
+        host = FakeHost(fourSongs)
+        val (p, b, c) = listOf(keys.removeFirst(), keys.removeFirst(), keys.removeFirst())
+        store.saved = listOf(
+            pausedJob(b, fourSongs[1], waitingFor = p), pausedJob(c, fourSongs[2], waitingFor = p),
+            storedJob(p, fourSongs[3], CloudJobState.FAILED, origin = CloudJobOrigin.SING, priority = true),
+        )
+        runpod.finishImmediately = false
+        engine().workerPass(now + PASS_MS)
+        assertEquals(listOf(b, c), runpod.runs.map { it.input.jobKey })
+    }
+
+    // ─── Smart auto-prepare ─────────────────────────────────────────────────────────────────
+
+    @Test fun `an automatic job waits for a Sing that is still on the phone, then goes out behind it`() = runBlocking {
+        host = FakeHost(fourSongs)
+        val (x, p) = listOf(keys.removeFirst(), keys.removeFirst())
+        store.saved = listOf(
+            storedJob(x, fourSongs[0], CloudJobState.UPLOADED, origin = CloudJobOrigin.AUTO),
+            storedJob(p, fourSongs[3], CloudJobState.QUEUED, origin = CloudJobOrigin.SING, priority = true),
+        )
+        runpod.finishImmediately = false
+        engine().workerPass(now + PASS_MS)
+        assertEquals(listOf(p, x), runpod.runs.map { it.input.jobKey })
+        assertEquals(listOf(null, CloudJobInputPolicy(lastInBatch = true)), runpod.runs.map { it.input.policy })
+    }
+
+    @Test fun `without a Sing waiting, an uploaded automatic job goes out at once`() = runBlocking {
+        host = FakeHost(fourSongs)
+        val x = keys.removeFirst()
+        store.saved = listOf(storedJob(x, fourSongs[0], CloudJobState.UPLOADED, origin = CloudJobOrigin.AUTO))
+        runpod.finishImmediately = false
+        engine().workerPass(now + PASS_MS)
+        assertEquals(listOf(x), runpod.runs.map { it.input.jobKey })
+    }
+
+    @Test fun `an automatic job only prepares audio already on the phone, and quietly drops when it is gone`() = runBlocking {
+        settings.snapshot = settings.snapshot.copy(autoPrepareEnabled = true)
+        host.cachedIds += localSong.id
+        val engine = engine()
+        assertEquals(1, engine.sendAuto(listOf(localSong)))
+        val job = engine.state.value.jobs.single()
+        assertEquals(CloudJobOrigin.AUTO, job.origin)
+        assertEquals(listOf(CloudTask.INSTRUMENTAL, CloudTask.LYRICS), job.tasks)
+        // The audio was evicted before the job's turn: nothing is downloaded for it, and the job just goes away.
+        host.cachedIds.clear()
+        engine.workerPass(now + PASS_MS)
+        assertTrue(engine.state.value.jobs.isEmpty())
+        assertTrue(host.audioSourceCalls.isEmpty(), "never the downloading source")
+        assertTrue(preparer.forceDecodes.isEmpty())
+        assertTrue(runpod.runs.isEmpty())
+    }
+
+    @Test fun `an automatic job goes through on a charger and Wi-Fi, and waits when the phone isn't ready`() = runBlocking {
+        settings.snapshot = settings.snapshot.copy(autoPrepareEnabled = true)
+        host.cachedIds += localSong.id
+        val engine = engine()
+        assertEquals(1, engine.sendAuto(listOf(localSong)))
+        val key = engine.state.value.jobs.single().jobKey
+        autoWork = false
+        val waiting = engine.workerPass(now + PASS_MS)
+        assertEquals(CloudJobState.QUEUED, engine.job(key)!!.state)
+        assertTrue(preparer.forceDecodes.isEmpty(), "nothing is prepared on battery")
+        assertFalse(waiting.workBeforeSubmit, "and no pass is asked for in a loop")
+        assertEquals(0, scheduler.passRequests)
+        autoWork = true
+        engine.workerPass(now + PASS_MS)
+        val done = engine.job(key)!!
+        assertEquals(CloudJobState.IMPORTED, done.state, "last error: ${done.lastError}")
+        assertEquals(listOf(localSong.id), host.instrumentalNotes)
+        assertTrue(host.audioSourceCalls.isEmpty())
+    }
+
+    @Test fun `automatic jobs stop at the day's cap, at their own budget and at the shared cap`() = runBlocking {
+        host = FakeHost(fourSongs)
+        fun fresh(change: (CloudSettingsSnapshot) -> CloudSettingsSnapshot): CloudStudioEngine {
+            store.saved = emptyList()
+            settings.autoDays.clear()
+            settings.snapshot = change(CloudSettingsSnapshot(enabled = true, endpointId = "ep1", r2Endpoint = "0123456789abcdef0123456789abcdef"))
+            return engine()
+        }
+        // The switch is off: nothing is made.
+        assertEquals(0, fresh { it }.sendAuto(fourSongs))
+        // Two songs a day, and the day's count is kept apart from the list.
+        val capped = fresh { it.copy(autoPrepareEnabled = true, autoPrepareDailyCap = 2) }
+        assertEquals(2, capped.sendAuto(fourSongs))
+        assertEquals(0, capped.sendAuto(fourSongs), "the day is full")
+        now += 86_400_000
+        assertEquals(2, capped.sendAuto(fourSongs), "a new day starts the count again")
+        // Their own share of the month ($0.005) is smaller than one song.
+        assertEquals(0, fresh { it.copy(autoPrepareEnabled = true, autoPrepareMonthlyBudgetMicroUsd = 5_000) }.sendAuto(fourSongs))
+        // Room for one song (a cold start and 38 s at 192 µ$ a second) but not for two: as many as fit are made.
+        val oneSong = CloudCost.estimateMicroUsd(
+            listOf(CloudSongPlan("a", listOf(CloudTask.INSTRUMENTAL, CloudTask.LYRICS), CloudLyricsMode.ALIGN, false, 240_000)),
+            CloudSeparationQuality.STANDARD, 192,
+        )
+        assertEquals(1, fresh { it.copy(autoPrepareEnabled = true, autoPrepareMonthlyBudgetMicroUsd = oneSong) }.sendAuto(fourSongs))
+        // The shared cap has less room than one song, though their own share has plenty.
+        assertEquals(0, fresh { it.copy(autoPrepareEnabled = true, monthlyCapMicroUsd = 5_000) }.sendAuto(fourSongs))
+        // Cloud processing itself is off.
+        assertEquals(0, fresh { it.copy(autoPrepareEnabled = true, enabled = false) }.sendAuto(fourSongs))
+    }
+
+    @Test fun `clearing finished jobs gives back neither the day's count nor the month's automatic spend`() = runBlocking {
+        settings.snapshot = settings.snapshot.copy(autoPrepareEnabled = true)
+        host.cachedIds += localSong.id
+        val engine = engine()
+        assertEquals(1, engine.sendAuto(listOf(localSong)))
+        engine.workerPass(now + PASS_MS)
+        assertEquals(CloudJobState.IMPORTED, engine.state.value.jobs.single().state)
+        val spent = engine.autoCommittedThisMonthMicroUsd()
+        assertTrue(spent > 0)
+        engine.clearFinished()
+        assertTrue(engine.state.value.jobs.isEmpty())
+        assertEquals(spent, engine.autoCommittedThisMonthMicroUsd())
+        assertEquals(1, settings.autoDayCount(CloudBudget.dayStartMs(now)))
+    }
+
+    @Test fun `turning the switch off removes the automatic jobs still on the phone and leaves the person's own`() = runBlocking {
+        settings.snapshot = settings.snapshot.copy(autoPrepareEnabled = true)
+        host.cachedIds += localSong.id
+        val engine = engine()
+        assertEquals(1, engine.sendAuto(listOf(localSong)))
+        val manual = sendOne(engine, streamedSong)
+        engine.cancelPendingAuto()
+        assertEquals(listOf(manual.jobKey), engine.state.value.jobs.map { it.jobKey })
+    }
+
+    @Test fun `the on-device studio leaves a song to the cloud only while the switch is on and the cloud is usable`() = runBlocking {
+        val engine = engine()
+        assertFalse(engine.cloudAutoPrepareOwns(240_000), "the switch is off")
+        settings.snapshot = settings.snapshot.copy(autoPrepareEnabled = true)
+        assertTrue(engine.cloudAutoPrepareOwns(240_000))
+        assertTrue(engine.autoPrepareUsable())
+        assertFalse(engine.cloudAutoPrepareOwns(30_000), "too short for the cloud's picks")
+        assertFalse(engine.cloudAutoPrepareOwns(9 * 60_000), "too long for them")
+        settings.snapshot = settings.snapshot.copy(endpointId = "")
+        assertFalse(engine.cloudAutoPrepareOwns(240_000), "the cloud isn't set up, so nothing else would prepare it")
+        settings.snapshot = settings.snapshot.copy(endpointId = "ep1", enabled = false)
+        assertFalse(engine.cloudAutoPrepareOwns(240_000))
+        // Being off Wi-Fi right now is no reason for the on-device studio to step in.
+        unmetered = false
+        settings.snapshot = settings.snapshot.copy(enabled = true)
+        assertTrue(engine.cloudAutoPrepareOwns(240_000))
+    }
+
+    @Test fun `the person has work in the cloud only when something other than an automatic job is pending`() = runBlocking {
+        settings.snapshot = settings.snapshot.copy(autoPrepareEnabled = true)
+        host.cachedIds += localSong.id
+        val engine = engine()
+        assertFalse(engine.hasWorkForThePerson())
+        engine.sendAuto(listOf(localSong))
+        assertFalse(engine.hasWorkForThePerson(), "automatic jobs post no notification")
+        sendOne(engine, streamedSong)
+        assertTrue(engine.hasWorkForThePerson())
+    }
+
     // ─── Fakes ──────────────────────────────────────────────────────────────────────────────
 
     private class FakeSettings : CloudStudioSettingsSource {
@@ -514,6 +1111,18 @@ class CloudStudioEngineTest {
         override fun removedSpendMicroUsd(monthStartMs: Long) = removedSpend[monthStartMs] ?: 0L
         override fun addRemovedSpend(microUsd: Long, monthStartMs: Long) {
             if (microUsd > 0) removedSpend[monthStartMs] = (removedSpend[monthStartMs] ?: 0L) + microUsd
+        }
+
+        // The automatic jobs' ledger, kept apart from the job list like the real settings do.
+        val removedAutoSpend = HashMap<Long, Long>()
+        val autoDays = HashMap<Long, Int>()
+        override fun removedAutoSpendMicroUsd(monthStartMs: Long) = removedAutoSpend[monthStartMs] ?: 0L
+        override fun addRemovedAutoSpend(microUsd: Long, monthStartMs: Long) {
+            if (microUsd > 0) removedAutoSpend[monthStartMs] = (removedAutoSpend[monthStartMs] ?: 0L) + microUsd
+        }
+        override fun autoDayCount(dayStartMs: Long) = autoDays[dayStartMs] ?: 0
+        override fun addAutoDayCount(count: Int, dayStartMs: Long) {
+            if (count > 0) autoDays[dayStartMs] = (autoDays[dayStartMs] ?: 0) + count
         }
 
         var snapshot = CloudSettingsSnapshot(enabled = true, endpointId = "ep1", r2Endpoint = "0123456789abcdef0123456789abcdef")
@@ -543,6 +1152,9 @@ class CloudStudioEngineTest {
         override suspend fun song(id: String) = songs[id]
         override suspend fun librarySongs() = songs.values.toList()
         override suspend fun audioSource(song: CloudSong): String { audioSourceCalls += song.id; return "content://${song.id}" }
+        /** Songs whose audio is already on the phone; an automatic job only prepares from these. */
+        val cachedIds = HashSet<String>()
+        override suspend fun cachedAudioSource(song: CloudSong): String? = "content://${song.id}".takeIf { song.id in cachedIds }
         override suspend fun streamIdentity(song: CloudSong) = videoIds[song.id]
         override suspend fun lyricsFacts(song: CloudSong) = lyrics[song.id] ?: CloudLyricsFacts(
             CloudLyricsState.TEXT_OR_LINE_SYNCED,
@@ -635,10 +1247,23 @@ class CloudStudioEngineTest {
             return RunPodJob(id, "IN_QUEUE")
         }
 
-        override suspend fun status(jobId: String): RunPodJob =
-            statusFor?.invoke(jobId) ?: RunPodJob(jobId, "IN_PROGRESS", outputText = "separate:40")
+        /** Every `/status` asked, in order. */
+        val statusCalls = mutableListOf<String>()
 
-        override suspend fun cancel(jobId: String) { cancelled += jobId }
+        override suspend fun status(jobId: String): RunPodJob {
+            statusCalls += jobId
+            return statusFor?.invoke(jobId) ?: RunPodJob(jobId, "IN_PROGRESS", outputText = "separate:40")
+        }
+
+        /** What `/cancel` answers (it may also throw); by default the job was taken out of the queue. */
+        var cancelResult: ((String) -> RunPodJob?)? = null
+
+        override suspend fun cancel(jobId: String): RunPodJob? {
+            events += "CANCEL $jobId"
+            cancelled += jobId
+            val custom = cancelResult
+            return if (custom != null) custom(jobId) else RunPodJob(jobId, "CANCELLED")
+        }
 
         override suspend fun health() = RunPodHealth(idleWorkers = 1)
 
@@ -678,9 +1303,12 @@ class CloudStudioEngineTest {
 
     private class FakeScheduler : CloudWorkScheduler {
         var passRequests = 0
+        var urgentRequests = 0
         var unmeteredRequests = 0
         var watchCancels = 0
         override fun requestPass() { passRequests++ }
+        // An urgent pass is still a pass: the default of the real interface does the same.
+        override fun requestUrgentPass() { urgentRequests++; passRequests++ }
         override fun requestUnmeteredPass() { unmeteredRequests++ }
         override fun ensureWatch() = Unit
         override fun cancelWatch() { watchCancels++ }

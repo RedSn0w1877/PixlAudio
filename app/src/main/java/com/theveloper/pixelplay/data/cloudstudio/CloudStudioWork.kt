@@ -9,6 +9,7 @@ import androidx.work.ExistingWorkPolicy
 import androidx.work.ForegroundInfo
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.OutOfQuotaPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
@@ -46,7 +47,17 @@ class CloudStudioWorker @AssistedInject constructor(
 
     override suspend fun doWork(): Result {
         val started = System.currentTimeMillis()
-        val foreground = promoteToForeground()
+        // The stored jobs first: whether anything here is the person's (not just automatic preparing) decides whether
+        // the "Cloud processing" notification is worth showing at all.
+        val quiet = try {
+            engine.loadForDisplay()
+            !engine.hasWorkForThePerson()
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            false
+        }
+        val foreground = !quiet && promoteToForeground()
         val budgetEnd = started + if (foreground) FOREGROUND_BUDGET_MS else BACKGROUND_BUDGET_MS
         return try {
             while (true) {
@@ -55,10 +66,22 @@ class CloudStudioWorker @AssistedInject constructor(
                 reportProgress()
                 if (outcome.blocked || !outcome.pending) break
                 val now = System.currentTimeMillis()
+                // A Sing is at RunPod and the person is waiting for it: look again every few seconds while the pass has
+                // time, so the instrumental arrives without the app being open to poll for it.
+                if (engine.isWaitingOnSing() && now + CloudTiming.SING_POLL_INTERVAL_MS < budgetEnd) {
+                    delay(CloudTiming.SING_POLL_INTERVAL_MS)
+                    continue
+                }
                 val wake = outcome.nextWakeAtMs ?: break
                 val wait = wake - now
                 if (wait > MAX_INLINE_WAIT_MS || wake > budgetEnd - INLINE_WAIT_MARGIN_MS) break
-                delay(wait.coerceAtLeast(1_000))
+                // Slept in short steps: a Sing tapped meanwhile is picked up at once, not at the end of a batch gate.
+                var remaining = wait.coerceAtLeast(1_000)
+                while (remaining > 0 && !engine.hasPriorityPhoneWork()) {
+                    val step = minOf(remaining, PRIORITY_CHECK_STEP_MS)
+                    delay(step)
+                    remaining -= step
+                }
             }
             Result.success()
         } catch (error: CancellationException) {
@@ -99,12 +122,15 @@ class CloudStudioWorker @AssistedInject constructor(
         const val PASS_WORK = "cloud_studio_pass"
         const val WIFI_WORK = "cloud_studio_wifi"
         const val WATCH_WORK = "cloud_studio_watch"
+        /** An expedited pass for a priority job (a Sing); it carries [PASS_WORK] as a tag too, so it shows as Cloud processing. */
+        const val URGENT_WORK = "cloud_studio_urgent"
         private const val NOTIFICATION_ID = 4210
         /** A plain background job has 10 minutes; leave room to save and stop cleanly. */
         private const val BACKGROUND_BUDGET_MS = 8L * 60_000
         private const val FOREGROUND_BUDGET_MS = 45L * 60_000
         private const val MAX_INLINE_WAIT_MS = 3L * 60_000
         private const val INLINE_WAIT_MARGIN_MS = 60_000L
+        private const val PRIORITY_CHECK_STEP_MS = 2_000L
     }
 }
 
@@ -127,6 +153,31 @@ class CloudStudioScheduler(
                     .addTag(CloudStudioWorker.PASS_WORK)
                     .build()
                 workManager.enqueueUniqueWork(CloudStudioWorker.PASS_WORK, ExistingWorkPolicy.APPEND_OR_REPLACE, request)
+            }
+        }
+    }
+
+    override fun requestUrgentPass() {
+        scope.launch(Dispatchers.IO) {
+            runCatching {
+                // A pass that is already running re-reads the job list before every step and picks the priority job
+                // first, so it needs no second worker; only when none is running (or one waits for its turn) is an
+                // expedited one worth asking for. Out of expedited quota it runs as a plain pass, like requestPass.
+                val running = listOf(CloudStudioWorker.PASS_WORK, CloudStudioWorker.WIFI_WORK, CloudStudioWorker.WATCH_WORK)
+                    .any { name ->
+                        workManager.getWorkInfosForUniqueWork(name).get(5, TimeUnit.SECONDS).any { it.state == WorkInfo.State.RUNNING }
+                    }
+                val urgent = workManager.getWorkInfosForUniqueWork(CloudStudioWorker.URGENT_WORK).get(5, TimeUnit.SECONDS)
+                    .any { it.state == WorkInfo.State.ENQUEUED || it.state == WorkInfo.State.RUNNING || it.state == WorkInfo.State.BLOCKED }
+                if (running || urgent) return@runCatching
+                val request = OneTimeWorkRequestBuilder<CloudStudioWorker>()
+                    .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+                    .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
+                    .addTag(PIXELPLAY_JOB_TAG)
+                    .addTag(CloudStudioWorker.PASS_WORK)
+                    .addTag(CloudStudioWorker.URGENT_WORK)
+                    .build()
+                workManager.enqueueUniqueWork(CloudStudioWorker.URGENT_WORK, ExistingWorkPolicy.KEEP, request)
             }
         }
     }

@@ -58,6 +58,11 @@ interface CloudStudioHost {
      * Throws with a sentence the queue can show when there is none.
      */
     suspend fun audioSource(song: CloudSong): String
+    /**
+     * The song's audio only if it is already on this phone, with no download of any kind (null otherwise): what an
+     * automatic job prepares from, so Smart auto-prepare never starts a fresh YouTube download. The default says no.
+     */
+    suspend fun cachedAudioSource(song: CloudSong): String? = null
     /** The YouTube video a streamed song plays (a Spotify song's match), null for local songs. Re-checked on import. */
     suspend fun streamIdentity(song: CloudSong): String?
     suspend fun lyricsFacts(song: CloudSong): CloudLyricsFacts
@@ -128,6 +133,15 @@ data class CloudSettingsSnapshot(
     val useOwnKeys: Boolean = false,
     /** This build carries built-in keys that open (or haven't been opened yet). Set by [CloudStudioSettings], never saved. */
     val builtInAvailable: Boolean = false,
+    /**
+     * "Prepare songs ahead in the cloud" (Settings › Sing): the one way anything is sent without a tap. Off until the
+     * person turns it on; it only ever runs on Wi-Fi, on a charger, inside [autoPrepareMonthlyBudgetMicroUsd].
+     */
+    val autoPrepareEnabled: Boolean = false,
+    /** Its own share of the month, inside the shared cap (the slider: $0.00–$3.00 in $0.25 steps). */
+    val autoPrepareMonthlyBudgetMicroUsd: Long = CloudAutoPrepareDefaults.BUDGET_MICRO_USD,
+    /** Most songs it starts in a day. */
+    val autoPrepareDailyCap: Int = CloudAutoPrepareDefaults.DAILY_CAP,
 ) {
     val selectionOptions: CloudSelectionOptions
         get() = CloudSelectionOptions(wantsInstrumental, wantsLyrics, transcribeWhenMissing)
@@ -142,6 +156,25 @@ data class CloudSettingsSnapshot(
 
     /** The GPU price the estimates and the cap use: the field's, but never below the endpoint's own with the built-in keys. */
     val effectivePricePerSecondMicroUsd: Long get() = CloudKeyChoice.effectivePricePerSecond(pricePerSecondMicroUsd, keySource)
+
+    /** The automatic share of the month: what the slider says, but never more than the shared cap. */
+    val effectiveAutoBudgetMicroUsd: Long
+        get() = minOf(autoPrepareMonthlyBudgetMicroUsd.coerceAtLeast(0), effectiveMonthlyCapMicroUsd)
+}
+
+/** The defaults of Smart auto-prepare, here so the snapshot and the pure ranker share one set. */
+object CloudAutoPrepareDefaults {
+    const val BUDGET_MICRO_USD: Long = 1_000_000
+    const val MAX_BUDGET_MICRO_USD: Long = 3_000_000
+    const val DAILY_CAP = 12
+    const val MIN_DAILY_CAP = 1
+    const val MAX_DAILY_CAP = 30
+
+    /** The slider's range ($0.00–$3.00): nothing else may store a value outside it, whoever calls the settings. */
+    fun clampBudget(microUsd: Long): Long = microUsd.coerceIn(0, MAX_BUDGET_MICRO_USD)
+
+    /** The stepper's range (1–30 songs a day). */
+    fun clampDailyCap(songs: Int): Int = songs.coerceIn(MIN_DAILY_CAP, MAX_DAILY_CAP)
 }
 
 /** The three keys. `toString` never prints them. */
@@ -182,12 +215,27 @@ interface CloudStudioSettingsSource {
      */
     fun removedSpendMicroUsd(monthStartMs: Long): Long = 0L
     fun addRemovedSpend(microUsd: Long, monthStartMs: Long) {}
+
+    // The automatic jobs' ledger. It lives here, apart from the job list, so removing finished jobs ("Clear finished")
+    // can't reset the daily count or the month's automatic spend.
+
+    /** What automatic jobs taken off the list spent in the month starting at [monthStartMs] (0 for any other month). */
+    fun removedAutoSpendMicroUsd(monthStartMs: Long): Long = 0L
+    fun addRemovedAutoSpend(microUsd: Long, monthStartMs: Long) {}
+    /** Automatic jobs started in the day starting at [dayStartMs] (0 for any other day). */
+    fun autoDayCount(dayStartMs: Long): Int = 0
+    fun addAutoDayCount(count: Int, dayStartMs: Long) {}
 }
 
 /** WorkManager ([CloudStudioScheduler]): the background passes that make "process later" work. */
 interface CloudWorkScheduler {
     /** A full pass soon, on any network (at most one waits behind a running one). */
     fun requestPass()
+    /**
+     * A full pass right now for a priority job (a Sing): expedited work where the system allows it, so the song's
+     * prepare and upload don't wait for a batch window. The default is a plain [requestPass].
+     */
+    fun requestUrgentPass() = requestPass()
     /** A full pass once an unmetered network is there (transfers waiting for Wi-Fi). */
     fun requestUnmeteredPass()
     /** The periodic background watch (every 15 minutes) while jobs are in flight. */
@@ -216,9 +264,17 @@ class CloudStudioDependencies(
     val nowMs: () -> Long = System::currentTimeMillis,
     /** Start of the month containing a time (the phone's own calendar in the app). */
     val monthStartMs: (Long) -> Long = { CloudBudget.monthStartMs(it, java.time.ZoneId.systemDefault()) },
+    /** Start of the day containing a time (the daily cap on automatic jobs counts the phone's own days). */
+    val dayStartMs: (Long) -> Long = { CloudBudget.dayStartMs(it, java.time.ZoneId.systemDefault()) },
     val newJobKey: () -> String = { java.util.UUID.randomUUID().toString().lowercase() },
     /** The app's own keys, used while the person hasn't chosen their own ([CloudKeyChoice]). */
     val builtIn: CloudBuiltInConfig = NoBuiltInCloudConfig,
+    /**
+     * Conditions for an automatic job's own work (preparing and uploading): on a charger, battery not low, on an
+     * unmetered network. While false the phone-step picker leaves automatic jobs alone, so a pass never wakes the
+     * phone on battery for them. Everything else (the person's jobs, a Sing) is unaffected.
+     */
+    val autoWorkAllowed: () -> Boolean = { true },
 )
 
 /** SHA-256 and size of files and buffers (the import checks, design §7.5 step 1). */

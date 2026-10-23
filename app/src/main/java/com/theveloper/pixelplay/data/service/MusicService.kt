@@ -54,6 +54,7 @@ import com.theveloper.pixelplay.data.preferences.ThemePreferencesRepository
 import com.theveloper.pixelplay.data.preferences.UserPreferencesRepository
 import com.theveloper.pixelplay.data.stream.CloudStreamUris
 import com.theveloper.pixelplay.data.repository.MusicRepository
+import com.theveloper.pixelplay.data.service.player.CrossfadeRequest
 import com.theveloper.pixelplay.data.service.player.DualPlayerEngine
 import com.theveloper.pixelplay.data.service.player.PlaybackErrorSkipPolicy
 import com.theveloper.pixelplay.data.service.player.PlayerTransport
@@ -245,7 +246,12 @@ class MusicService : MediaLibraryService() {
     private val instrumentalCrossfadeController by lazy {
         com.theveloper.pixelplay.data.service.player.InstrumentalCrossfadeController(
             context = this,
-            scope = serviceScope
+            scope = serviceScope,
+            // Same audio session as the main player, so the equalizer and effects reach the instrumental.
+            audioSessionIdProvider = { engine.getAudioSessionId() },
+            // A next-song overlap fades the instrumental out with the incoming player.
+            isTransitionRunning = { engine.isTransitionRunning() },
+            incomingVolumeTarget = { engine.incomingTrackReplayGainVolume ?: 1f },
         )
     }
 
@@ -396,6 +402,9 @@ class MusicService : MediaLibraryService() {
 
     private val playerSwapListener: (Player) -> Unit = { newPlayer ->
         publishMediaSessionPlayer(newPlayer, "Swapped MediaSession player to new instance.")
+        // A rebuilt player (Hi-Fi toggle, offload fallback) must stay silent under a playing instrumental,
+        // before ReplayGain sets its level.
+        instrumentalCrossfadeController.onMainPlayerSwapped(mediaSession?.player ?: newPlayer)
         replayGainProcessor.prepareForTransition(newPlayer)
     }
 
@@ -408,6 +417,9 @@ class MusicService : MediaLibraryService() {
     }
 
     private val transitionFinishedListener: () -> Unit = {
+        // The next song took over: the instrumental of the one before has played out (before ReplayGain
+        // sets the new player's level, so that write is not taken for the instrumental's).
+        instrumentalCrossfadeController.onTransitionFinished(mediaSession?.player ?: engine.masterPlayer)
         replayGainProcessor.onTransitionFinished()
     }
 
@@ -856,9 +868,25 @@ class MusicService : MediaLibraryService() {
                     }
                     MusicNotificationProvider.CUSTOM_COMMAND_SET_STUDIO_AUDIO_OVERRIDE -> {
                         val path = args.getString(MusicNotificationProvider.EXTRA_STUDIO_AUDIO_PATH)
+                        val request = CrossfadeRequest(
+                            startAtPositionMs = if (args.containsKey(MusicNotificationProvider.EXTRA_STUDIO_CROSSFADE_AT_MS)) {
+                                args.getLong(MusicNotificationProvider.EXTRA_STUDIO_CROSSFADE_AT_MS)
+                            } else {
+                                null
+                            },
+                            fadeMs = args.getLong(
+                                MusicNotificationProvider.EXTRA_STUDIO_CROSSFADE_MS,
+                                CrossfadeRequest().fadeMs
+                            ),
+                        )
                         return serviceScope.future {
-                            applyStudioAudioOverride(session, path)
-                            SessionResult(SessionResult.RESULT_SUCCESS)
+                            // The result says whether the switch really happened, so the Sing button only shows
+                            // "Vocals off" when it did.
+                            val switched = applyStudioAudioOverride(session, path, request)
+                            SessionResult(
+                                if (switched) SessionResult.RESULT_SUCCESS else SessionResult.RESULT_ERROR_UNKNOWN,
+                                Bundle().apply { putBoolean(MusicNotificationProvider.EXTRA_STUDIO_CROSSFADED, switched) }
+                            )
                         }
                     }
                 }
@@ -1595,6 +1623,9 @@ class MusicService : MediaLibraryService() {
 
     private val playerListener = object : Player.Listener {
         override fun onVolumeChanged(volume: Float) {
+            // Sing silences the main player on purpose while the instrumental plays: its fades, and any
+            // write it absorbs, are neither the user's gestures nor "volume reached 0".
+            if (instrumentalCrossfadeController.onMainVolumeChanged(mediaSession?.player ?: engine.masterPlayer, volume)) return
             replayGainProcessor.onPlayerVolumeChanged(volume)
             if (pauseOnVolumeZeroEnabled && volume == 0f) {
                 val player = mediaSession?.player ?: engine.masterPlayer
@@ -1623,7 +1654,8 @@ class MusicService : MediaLibraryService() {
             // Re-apply the last known RG volume immediately when resuming playback.
             // After a pause, ExoPlayer may reset the audio track volume internally,
             // causing a brief full-volume spike before the IO coroutine finishes.
-            if (isPlaying) {
+            // (Not while Sing's instrumental is audible: that would bring the vocals back over it.)
+            if (isPlaying && !instrumentalCrossfadeController.ownsMasterVolume) {
                 replayGainProcessor.reapplyLastAppliedVolume(player)
             }
             // Push state immediately so the watch can foreground PixelPlay before
@@ -1721,8 +1753,15 @@ class MusicService : MediaLibraryService() {
                 val newMediaId = newPosition.mediaItem?.mediaId
                 if (oldMediaId != null && oldMediaId == newMediaId) {
                     // Same track (e.g. repeat, seek) — no IO needed, apply last known RG volume
-                    // immediately to avoid a spike while the coroutine reads tags again.
-                    replayGainProcessor.reapplyLastAppliedVolume(engine.masterPlayer)
+                    // immediately to avoid a spike while the coroutine reads tags again. (Not while Sing's
+                    // instrumental is audible: that would bring the vocals back over it.)
+                    if (!instrumentalCrossfadeController.ownsMasterVolume) {
+                        replayGainProcessor.reapplyLastAppliedVolume(engine.masterPlayer)
+                    }
+                    // A repeat starts the song over without a seek: the instrumental goes back with it.
+                    if (reason == Player.DISCONTINUITY_REASON_AUTO_TRANSITION) {
+                        instrumentalCrossfadeController.onMainSeek(newPosition.positionMs)
+                    }
                 } else {
                     // Different track — full recompute needed
                     replayGainProcessor.apply(currentItem)
@@ -3244,12 +3283,16 @@ class MusicService : MediaLibraryService() {
      * on the instrumental in lockstep with this one, so toggling is just a volume ramp between
      * two players already running in sync — no swap, no gap, no re-seek.
      */
-    private suspend fun applyStudioAudioOverride(session: MediaSession, overridePath: String?) {
+    private suspend fun applyStudioAudioOverride(
+        session: MediaSession,
+        overridePath: String?,
+        request: CrossfadeRequest,
+    ): Boolean {
         // ExoPlayer requires main-thread access.
-        withContext(Dispatchers.Main) {
+        return withContext(Dispatchers.Main) {
             val player = session.player
             if (overridePath != null) {
-                instrumentalCrossfadeController.crossfadeToInstrumental(player)
+                instrumentalCrossfadeController.crossfadeToInstrumental(player, request)
             } else {
                 instrumentalCrossfadeController.crossfadeToOriginal(player)
             }

@@ -1,6 +1,15 @@
 package com.theveloper.pixelplay.data.cloudstudio
 
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+
+/** What started a job: the person's own batch, the Sing button, or Smart auto-prepare. A record without one is a batch. */
+@Serializable
+enum class CloudJobOrigin {
+    @SerialName("manual") MANUAL,
+    @SerialName("sing") SING,
+    @SerialName("auto") AUTO,
+}
 
 /**
  * One Cloud Studio job as the phone remembers it (design §7.1 `CloudJobRecord`): identity, request, state, retries,
@@ -32,6 +41,18 @@ data class CloudJobRecord(
     val quality: CloudSeparationQuality = CloudSeparationQuality.STANDARD,
     val outputCodec: CloudOutputCodec = CloudOutputCodec.AAC,
     val replaceUserSynced: Boolean = false,
+
+    // Lane (who started it, who goes first, who stepped aside; optional, so an older file still decodes)
+    val origin: CloudJobOrigin = CloudJobOrigin.MANUAL,
+    /** Set on a job that goes ahead of the rest (a Sing, a one-song "Process in cloud"); null on the others. */
+    val priorityAtMs: Long? = null,
+    /** The priority job this one stepped aside for: it is back at `uploaded`, keeping its upload. */
+    val pausedByJobKey: String? = null,
+    val pausedAtMs: Long? = null,
+    /** The run RunPod cancelled never began (no `out/<jobKey>/` folder), so there is nothing stale to delete. */
+    val pausedNeverStarted: Boolean? = null,
+    /** The RunPod job a pause was begun for: on disk before the status check and the cancel, so a lost reply is recoverable. */
+    val pauseIntentRunpodJobId: String? = null,
 
     // State
     val state: CloudJobState = CloudJobState.QUEUED,
@@ -102,11 +123,58 @@ data class CloudJobRecord(
             CloudJobEvent.REQUEUE -> record.copy(
                 runpodJobId = null, progressStage = null, progressPercent = null, nextAttemptAtMs = null
             )
-            CloudJobEvent.RESUBMIT -> record.copy(runpodJobId = null, progressStage = null, progressPercent = null)
+            CloudJobEvent.RESUBMIT, CloudJobEvent.PAUSE ->
+                record.copy(runpodJobId = null, progressStage = null, progressPercent = null)
             else -> record
         }
+        // The pause fields only mean something while the job waits: at the phone (`uploaded`, paused) or in RunPod's
+        // queue (`submitted`, with an intent). Any other event ends them, so none outlives the wait.
+        if (event != CloudJobEvent.PAUSE && hasPauseFields) record = record.releasingPause().copy(pausedNeverStarted = null)
         return record
     }
+
+    // ─── The priority lane ──────────────────────────────────────────────────────────────────
+
+    /** A job that goes ahead of the rest: a Sing, or a one-song "Process in cloud". */
+    val isPriority: Boolean get() = origin == CloudJobOrigin.SING || priorityAtMs != null
+
+    /** The order work is picked in on the phone: priority jobs, then the person's batches, then automatic ones. */
+    val lane: Int
+        get() = when {
+            isPriority -> 0
+            origin == CloudJobOrigin.MANUAL -> 1
+            else -> 2
+        }
+
+    /** Stepped aside for a priority job and waiting, uploaded, to be sent again behind it. */
+    val isPaused: Boolean get() = pausedByJobKey != null
+
+    private val hasPauseFields: Boolean
+        get() = pausedByJobKey != null || pausedAtMs != null || pausedNeverStarted != null || pauseIntentRunpodJobId != null
+
+    /** A pause is under way for the job's current RunPod run (its status and cancel are still to be confirmed). */
+    val hasPauseIntent: Boolean
+        get() = pauseIntentRunpodJobId != null && pauseIntentRunpodJobId == runpodJobId
+
+    /** The intent to pause, to be saved before RunPod is asked anything. */
+    fun beginningPause(): CloudJobRecord = copy(pauseIntentRunpodJobId = runpodJobId)
+
+    /** The pause is off (the job started, finished, or the priority job went away): back to a plain submitted job. */
+    fun clearingPauseIntent(): CloudJobRecord = copy(pauseIntentRunpodJobId = null)
+
+    /**
+     * RunPod confirmed the cancel: `submitted` goes back to `uploaded`, keeping the upload. [waitingFor] is the priority job it
+     * waits for (null: no one is waiting, it just goes out again), [neverStarted] that nothing of the run reached the
+     * bucket. Null when the job isn't `submitted`.
+     */
+    fun completingPause(waitingFor: String?, neverStarted: Boolean, nowMs: Long): CloudJobRecord? =
+        applying(CloudJobEvent.PAUSE, nowMs)?.copy(
+            pausedByJobKey = waitingFor, pausedAtMs = if (waitingFor != null) nowMs else null, pausedNeverStarted = neverStarted,
+            pauseIntentRunpodJobId = null,
+        )
+
+    /** The wait is over (the priority job is on its way, or gone): no longer paused, but still the same unsent job. */
+    fun releasingPause(): CloudJobRecord = copy(pausedByJobKey = null, pausedAtMs = null, pauseIntentRunpodJobId = null)
 
     /** [applying], or this record unchanged when the event doesn't apply. */
     fun on(event: CloudJobEvent, nowMs: Long): CloudJobRecord = applying(event, nowMs) ?: this

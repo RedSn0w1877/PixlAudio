@@ -89,4 +89,22 @@ class CloudStudioCopyTest {
         assertEquals("Failed · lost", CloudStudioCopy.status(failed, progress = null, developerMode = true))
         assertFalse("RunPod" in CloudStudioCopy.FAILED_DETAIL)
     }
+
+    @Test
+    fun `a job that stepped aside for a song being sung says so`() {
+        val queued = CloudJobRecord(
+            jobKey = "job", songId = "song", state = CloudJobState.SUBMITTED, runpodJobId = "rp-1", submittedAtMs = 1,
+        )
+        assertEquals("Waiting in the cloud", CloudStudioCopy.status(queued, progress = null))
+        val paused = queued.completingPause("P", neverStarted = true, nowMs = 5)!!
+        assertEquals("Paused for a song you're singing", CloudStudioCopy.status(paused, progress = null))
+        assertEquals(CloudStudioCopy.PAUSED_FOR_SING, CloudStudioCopy.status(paused, progress = null, developerMode = true))
+        // Released (the Sing went out, or was cancelled), it is just an uploaded job again.
+        assertEquals("Uploaded", CloudStudioCopy.status(paused.releasingPause(), progress = null))
+        // A pause that is only an intent (the cancel isn't confirmed yet) still reads as waiting.
+        assertEquals("Waiting in the cloud", CloudStudioCopy.status(queued.beginningPause(), progress = null))
+        // A failure's retry wording wins over the pause.
+        val retrying = paused.copy(nextAttemptAtMs = 99, lastError = "x")
+        assertEquals("Trying again soon", CloudStudioCopy.status(retrying, progress = null))
+    }
 }

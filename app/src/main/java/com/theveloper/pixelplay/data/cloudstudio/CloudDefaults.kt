@@ -152,7 +152,8 @@ object CloudKeyChoice {
 
     /**
      * The consent switch before the person ever touched it: on when the build has built-in keys (jobs still only go
-     * when the person sends songs and confirms), off otherwise (nothing configured, as before).
+     * when the person taps "Process in cloud" or Sing, or, with "Prepare songs ahead in the cloud" turned on, as
+     * automatic jobs inside their own budget), off otherwise (nothing configured, as before).
      */
     fun defaultEnabled(builtInAvailable: Boolean): Boolean = builtInAvailable
 
