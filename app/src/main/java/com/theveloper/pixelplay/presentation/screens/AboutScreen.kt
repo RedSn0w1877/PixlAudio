@@ -107,6 +107,7 @@ import com.theveloper.pixelplay.presentation.components.AppUpdateCard
 import com.theveloper.pixelplay.presentation.components.CollapsibleCommonTopBar
 import com.theveloper.pixelplay.presentation.components.MiniPlayerHeight
 import com.theveloper.pixelplay.presentation.components.SmartImage
+import com.theveloper.pixelplay.presentation.model.LocalDeveloperMode
 import com.theveloper.pixelplay.presentation.navigation.Screen
 import com.theveloper.pixelplay.presentation.navigation.navigateSafely
 import com.theveloper.pixelplay.presentation.viewmodel.PlayerViewModel
@@ -146,6 +147,7 @@ fun AboutScreen(
     onNavigationIconClick: () -> Unit,
 ) {
     val context = LocalContext.current
+    val developerMode = LocalDeveloperMode.current
     val versionName: String = try {
         val packageInfo = context.packageManager.getPackageInfo(context.packageName, 0)
         packageInfo.versionName ?: "N/A"
@@ -312,24 +314,27 @@ fun AboutScreen(
                 )
             }
 
-            item(key = "support_title") {
-                AboutSectionHeader(
-                    title = stringResource(R.string.about_diagnostics_title),
-                    subtitle = stringResource(R.string.about_diagnostics_subtitle),
-                    modifier = Modifier.padding(top = 24.dp),
-                )
-            }
+            // Build info, crash exits and shareable logs: Developer mode only.
+            if (developerMode) {
+                item(key = "support_title") {
+                    AboutSectionHeader(
+                        title = stringResource(R.string.about_diagnostics_title),
+                        subtitle = stringResource(R.string.about_diagnostics_subtitle),
+                        modifier = Modifier.padding(top = 24.dp),
+                    )
+                }
 
-            item(key = "diagnostics") {
-                AboutLinkCard(
-                    title = stringResource(R.string.about_diagnostics_card_title),
-                    subtitle = stringResource(R.string.about_diagnostics_card_subtitle),
-                    icon = Icons.Rounded.BugReport,
-                    onClick = { navController.navigateSafely(Screen.Diagnostics.route) },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp),
-                )
+                item(key = "diagnostics") {
+                    AboutLinkCard(
+                        title = stringResource(R.string.about_diagnostics_card_title),
+                        subtitle = stringResource(R.string.about_diagnostics_card_subtitle),
+                        icon = Icons.Rounded.BugReport,
+                        onClick = { navController.navigateSafely(Screen.Diagnostics.route) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp),
+                    )
+                }
             }
 
             item(key = "bottom_spacer") {

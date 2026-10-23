@@ -143,7 +143,10 @@ class UserPreferencesRepository @Inject constructor(
         // switch would point at a file that isn't there (and a restore must not clear it either).
         AiPreferencesRepository.DOWNLOADED_MODEL_ENABLED_KEY,
         // Derived data (the generated accent scheme): rebuilt on demand, never worth exporting.
-        ThemePreferencesRepository.ACCENT_SCHEME_CACHE_KEY
+        ThemePreferencesRepository.ACCENT_SCHEME_CACHE_KEY,
+        // Device-local: whether this phone shows the advanced settings is not part of a backup,
+        // and a restore must not flip it either way.
+        PreferencesKeys.DEVELOPER_MODE.name
     )
 
     // ─── Preference keys ────────────────────────────────────────────────────
@@ -293,6 +296,7 @@ class UserPreferencesRepository @Inject constructor(
         val ALBUM_ART_CACHE_LIMIT_MB = intPreferencesKey("album_art_cache_limit_mb")
         val TAP_BACKGROUND_CLOSES_PLAYER = booleanPreferencesKey("tap_background_closes_player")
         val HAPTICS_ENABLED = booleanPreferencesKey("haptics_enabled")
+        val DEVELOPER_MODE = booleanPreferencesKey("developer_mode_enabled")
         val ADVANCED_PERFORMANCE_DIAGNOSTICS_ENABLED =
             booleanPreferencesKey("advanced_performance_diagnostics_enabled")
         val ADVANCED_PERFORMANCE_DIAGNOSTICS_STARTED_AT =
@@ -1617,6 +1621,17 @@ suspend fun markDirectoryRulesVersionApplied(version: Int) {
 
     suspend fun setHapticsEnabled(enabled: Boolean) {
         dataStore.edit { it[PreferencesKeys.HAPTICS_ENABLED] = enabled }
+    }
+
+    /**
+     * Shows the advanced settings and testing tools. Off by default; hiding a row never touches
+     * the value behind it, and the key stays out of backups (see [backupExcludedKeyNames]).
+     */
+    val developerModeFlow: Flow<Boolean> =
+        pref { it[PreferencesKeys.DEVELOPER_MODE] ?: false }
+
+    suspend fun setDeveloperMode(enabled: Boolean) {
+        dataStore.edit { it[PreferencesKeys.DEVELOPER_MODE] = enabled }
     }
 
     // ─── Backup / restore ─────────────────────────────────────────────────────

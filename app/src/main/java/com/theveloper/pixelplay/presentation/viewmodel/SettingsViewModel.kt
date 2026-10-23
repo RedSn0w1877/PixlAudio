@@ -1517,6 +1517,11 @@ class SettingsViewModel @Inject constructor(
     val tapBackgroundClosesPlayer: StateFlow<Boolean> = userPreferencesRepository.tapBackgroundClosesPlayerFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
 
+    // Its own flow (the Group1/Group2 combines cast by position). The rest of the app reads it
+    // through LocalDeveloperMode; this one drives the switch on the main Settings list.
+    val developerMode: StateFlow<Boolean> = userPreferencesRepository.developerModeFlow
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
     // "Sync it yourself" tap timing. Own flows on purpose: the Group1/Group2 combines above cast
     // by position, so a new flow there would shift every later index.
     val lyricsTapOffsetMs: StateFlow<Int> = userPreferencesRepository.lyricsTapOffsetSpeakerMsFlow
@@ -1578,6 +1583,12 @@ class SettingsViewModel @Inject constructor(
     fun setHapticsEnabled(enabled: Boolean) {
         viewModelScope.launch {
             userPreferencesRepository.setHapticsEnabled(enabled)
+        }
+    }
+
+    fun setDeveloperMode(enabled: Boolean) {
+        viewModelScope.launch {
+            userPreferencesRepository.setDeveloperMode(enabled)
         }
     }
 

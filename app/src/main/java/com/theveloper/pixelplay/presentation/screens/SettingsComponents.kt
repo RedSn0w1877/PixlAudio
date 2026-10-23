@@ -41,9 +41,11 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.DeleteForever
+import androidx.compose.material.icons.outlined.LinearScale
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Sync
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.rounded.BlurOn
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Clear
@@ -53,6 +55,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
@@ -69,10 +72,13 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -1007,6 +1013,211 @@ fun AiSystemPromptItem(
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.primary,
                         fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+internal fun SettingsSubsectionHeader(title: String) {
+    Text(
+        text = title,
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.padding(start = 12.dp, top = 8.dp, bottom = 4.dp)
+    )
+}
+
+/** A captioned group of rows. Every category screen is a stack of these. */
+@Composable
+internal fun SettingsSubsection(
+    title: String,
+    addBottomSpace: Boolean = true,
+    content: @Composable () -> Unit
+) {
+    SettingsSubsectionHeader(title)
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(24.dp))
+            .background(Color.Transparent),
+        verticalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        content()
+    }
+    if (addBottomSpace) {
+        Spacer(modifier = Modifier.height(10.dp))
+    }
+}
+
+/**
+ * Heads the Developer-mode-only end of a category when its advanced rows are several subsections
+ * of their own (AI features). The simple categories use a [SettingsSubsection] titled
+ * "Advanced" instead.
+ */
+@Composable
+internal fun SettingsAdvancedHeader() {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 4.dp)
+    ) {
+        Text(
+            text = stringResource(R.string.settings_section_advanced),
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.primary,
+            fontWeight = FontWeight.Bold
+        )
+        HorizontalDivider(
+            modifier = Modifier.weight(1f).padding(start = 12.dp),
+            color = MaterialTheme.colorScheme.outlineVariant
+        )
+    }
+}
+
+/**
+ * Lets a settings slider's thumb follow the finger locally. Every change is still written as it
+ * happens (live-apply is unchanged); the slider just shows the local value from the first change
+ * until the store has echoed the released value back, so it never waits on a DataStore write to
+ * move and a late echo of an earlier drag value can't pull the thumb back.
+ */
+@Stable
+internal class SettingsLiveSliderValue {
+    private var local by mutableFloatStateOf(0f)
+    private var holding by mutableStateOf(false)
+
+    /** The value released at the end of the last drag, until the store reports it. */
+    var released by mutableStateOf<Float?>(null)
+        private set
+
+    fun display(stored: Float): Float = if (holding) local else stored
+
+    fun onChange(value: Float) {
+        local = value
+        holding = true
+        released = null
+    }
+
+    fun onFinished() {
+        if (holding) released = local
+    }
+
+    fun settle() {
+        holding = false
+        released = null
+    }
+}
+
+@Composable
+internal fun rememberSettingsLiveSliderValue(
+    stored: Float,
+    toStored: (Float) -> Float = { it }
+): SettingsLiveSliderValue {
+    val live = remember { SettingsLiveSliderValue() }
+    val latestStored by rememberUpdatedState(stored)
+    val latestToStored by rememberUpdatedState(toStored)
+    LaunchedEffect(live) {
+        snapshotFlow { live.released?.let { latestToStored(it) == latestStored } == true }
+            .collect { settled -> if (settled) live.settle() }
+    }
+    return live
+}
+
+/** Settings › Lyrics: the lyric blur switch and, while it's on, its strength slider. */
+@Composable
+internal fun LyricBlurSettingItems(
+    enabled: Boolean,
+    strength: Float,
+    onEnabledChange: (Boolean) -> Unit,
+    onStrengthChange: (Float) -> Unit
+) {
+    val live = rememberSettingsLiveSliderValue(strength)
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        SwitchSettingItem(
+            title = stringResource(R.string.settings_exp_lyrics_blur_title),
+            subtitle = stringResource(R.string.settings_exp_lyrics_blur_subtitle),
+            checked = enabled,
+            onCheckedChange = onEnabledChange,
+            leadingIcon = {
+                Icon(
+                    imageVector = Icons.Rounded.BlurOn,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.secondary
+                )
+            }
+        )
+
+        AnimatedVisibility(
+            visible = enabled,
+            enter = fadeIn() + expandVertically(),
+            exit = fadeOut() + shrinkVertically()
+        ) {
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceContainer,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.LinearScale,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.secondary
+                        )
+
+                        Column(modifier = Modifier.weight(1f)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = stringResource(R.string.settings_exp_lyrics_blur_strength_title),
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.padding(end = 8.dp)
+                                )
+                                Surface(
+                                    color = MaterialTheme.colorScheme.secondaryContainer,
+                                    shape = RoundedCornerShape(16.dp),
+                                    modifier = Modifier.height(24.dp)
+                                ) {
+                                    Text(
+                                        text = stringResource(
+                                            R.string.settings_exp_lyrics_blur_strength_value,
+                                            live.display(strength)
+                                        ),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                    )
+                                }
+                            }
+                            Text(
+                                text = stringResource(R.string.settings_exp_lyrics_blur_strength_subtitle),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+
+                    Slider(
+                        value = live.display(strength),
+                        onValueChange = {
+                            live.onChange(it)
+                            onStrengthChange(it)
+                        },
+                        onValueChangeFinished = { live.onFinished() },
+                        valueRange = 0.1f..2.0f,
+                        steps = 10
                     )
                 }
             }

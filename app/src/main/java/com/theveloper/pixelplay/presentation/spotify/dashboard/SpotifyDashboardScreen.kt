@@ -76,6 +76,7 @@ import com.theveloper.pixelplay.data.spotify.SkipReason
 import com.theveloper.pixelplay.data.spotify.SkippedPlaylist
 import com.theveloper.pixelplay.data.service.PlaybackErrorInfo
 import com.theveloper.pixelplay.data.youtube.PlaybackDiagnosticsReport
+import com.theveloper.pixelplay.presentation.model.LocalDeveloperMode
 
 private val SpotifyBrandGreen = Color(0xFF1DB954)
 
@@ -92,6 +93,8 @@ fun SpotifyDashboardScreen(
     viewModel: SpotifyDashboardViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    // Playback tests, error cards and the YouTube account are testing tools: Developer mode only.
+    val developerMode = LocalDeveloperMode.current
 
     // Los contadores de emparejamiento son una consulta puntual, no un Flow: se refrescan
     // al entrar y cada vez que termina una importación.
@@ -123,6 +126,7 @@ fun SpotifyDashboardScreen(
                     uiState = uiState,
                     onSignIn = viewModel::signIn,
                     clientIdMissing = !viewModel.hasClientId(),
+                    developerMode = developerMode,
                     onSync = viewModel::syncNow,
                     onMatch = viewModel::matchNow,
                     onDiagnose = viewModel::runDiagnostics,
@@ -131,12 +135,14 @@ fun SpotifyDashboardScreen(
                 )
             }
 
-            item {
-                YouTubeAccountCard(
-                    isSignedIn = uiState.isYouTubeSignedIn,
-                    onConnect = onOpenYouTubeLogin,
-                    onDisconnect = viewModel::signOutYouTube
-                )
+            if (developerMode) {
+                item {
+                    YouTubeAccountCard(
+                        isSignedIn = uiState.isYouTubeSignedIn,
+                        onConnect = onOpenYouTubeLogin,
+                        onDisconnect = viewModel::signOutYouTube
+                    )
+                }
             }
 
             if (uiState.isLoggedIn) {
@@ -164,29 +170,31 @@ fun SpotifyDashboardScreen(
                 item { SkippedPlaylistsCard(uiState.skippedPlaylists) }
             }
 
-            uiState.lastPlaybackError?.let { error ->
-                item {
-                    PlaybackErrorCard(error = error, onDismiss = viewModel::clearPlaybackError)
+            if (developerMode) {
+                uiState.lastPlaybackError?.let { error ->
+                    item {
+                        PlaybackErrorCard(error = error, onDismiss = viewModel::clearPlaybackError)
+                    }
                 }
-            }
 
-            if (uiState.isDiagnosing || uiState.diagnosticsReport != null) {
-                item {
-                    DiagnosticsCard(
-                        isRunning = uiState.isDiagnosing,
-                        report = uiState.diagnosticsReport,
-                        onDismiss = viewModel::dismissDiagnostics
-                    )
+                if (uiState.isDiagnosing || uiState.diagnosticsReport != null) {
+                    item {
+                        DiagnosticsCard(
+                            isRunning = uiState.isDiagnosing,
+                            report = uiState.diagnosticsReport,
+                            onDismiss = viewModel::dismissDiagnostics
+                        )
+                    }
                 }
-            }
 
-            if (uiState.isDeepProbing || uiState.deepProbeReport != null) {
-                item {
-                    DeepProbeCard(
-                        isRunning = uiState.isDeepProbing,
-                        report = uiState.deepProbeReport,
-                        onDismiss = viewModel::dismissDeepProbe
-                    )
+                if (uiState.isDeepProbing || uiState.deepProbeReport != null) {
+                    item {
+                        DeepProbeCard(
+                            isRunning = uiState.isDeepProbing,
+                            report = uiState.deepProbeReport,
+                            onDismiss = viewModel::dismissDeepProbe
+                        )
+                    }
                 }
             }
 
@@ -368,6 +376,7 @@ private fun AccountCard(
     uiState: SpotifyDashboardUiState,
     onSignIn: () -> Unit,
     clientIdMissing: Boolean,
+    developerMode: Boolean,
     onSync: () -> Unit,
     onMatch: () -> Unit,
     onDiagnose: () -> Unit,
@@ -489,24 +498,26 @@ private fun AccountCard(
                 }
             }
 
-            OutlinedButton(
-                onClick = onDiagnose,
-                enabled = !uiState.isDiagnosing,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Icon(Icons.Rounded.BugReport, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(6.dp))
-                Text("Test playback")
-            }
+            if (developerMode) {
+                OutlinedButton(
+                    onClick = onDiagnose,
+                    enabled = !uiState.isDiagnosing,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Rounded.BugReport, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Test playback")
+                }
 
-            OutlinedButton(
-                onClick = onDeepProbe,
-                enabled = !uiState.isDeepProbing,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Icon(Icons.Rounded.BugReport, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(6.dp))
-                Text("Deep probe (debug)")
+                OutlinedButton(
+                    onClick = onDeepProbe,
+                    enabled = !uiState.isDeepProbing,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Rounded.BugReport, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Deep probe (debug)")
+                }
             }
 
             OutlinedButton(onClick = onLogout, modifier = Modifier.fillMaxWidth()) {

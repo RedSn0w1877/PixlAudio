@@ -162,6 +162,7 @@ import javax.inject.Inject
 import kotlin.math.roundToInt
 
 import racra.compose.smooth_corner_rect_library.AbsoluteSmoothCornerShape
+import com.theveloper.pixelplay.presentation.model.LocalDeveloperMode
 import com.theveloper.pixelplay.presentation.utils.AppHapticsConfig
 import com.theveloper.pixelplay.presentation.utils.LocalAppHapticsConfig
 import com.theveloper.pixelplay.presentation.utils.NoOpHapticFeedback
@@ -770,6 +771,7 @@ class MainActivity : ComponentActivity() {
         val useSmoothCorners by playerViewModel.useSmoothCorners.collectAsStateWithLifecycle()
         val isMiniPlayerDismissing by playerViewModel.isMiniPlayerDismissing.collectAsStateWithLifecycle()
         val hapticsEnabled by playerViewModel.hapticsEnabled.collectAsStateWithLifecycle()
+        val developerMode by userPreferencesRepository.developerModeFlow.collectAsStateWithLifecycle(false)
         val disableBlurAllOver by playerViewModel.disableBlurAllOver.collectAsStateWithLifecycle()
         val predictiveBackCollapseFraction by playerViewModel.predictiveBackCollapseFraction.collectAsStateWithLifecycle()
 
@@ -887,6 +889,7 @@ class MainActivity : ComponentActivity() {
 
         CompositionLocalProvider(
             LocalAppHapticsConfig provides appHapticsConfig,
+            LocalDeveloperMode provides developerMode,
             LocalHapticFeedback provides scopedHapticFeedback,
             LocalHighContrastText provides highContrastText
         ) {

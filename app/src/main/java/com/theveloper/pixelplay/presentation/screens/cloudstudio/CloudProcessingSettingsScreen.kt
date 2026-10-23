@@ -50,15 +50,17 @@ import com.theveloper.pixelplay.data.cloudstudio.CloudCost
 import com.theveloper.pixelplay.data.cloudstudio.CloudKeyChoice
 import com.theveloper.pixelplay.data.cloudstudio.CloudSecrets
 import com.theveloper.pixelplay.data.cloudstudio.CloudSeparationQuality
+import com.theveloper.pixelplay.presentation.model.LocalDeveloperMode
 import com.theveloper.pixelplay.presentation.screens.SettingsItem
 import com.theveloper.pixelplay.presentation.screens.SwitchSettingItem
 import com.theveloper.pixelplay.presentation.viewmodel.CloudStudioViewModel
 
 /**
- * Settings › Experimental › Cloud processing (design §3.5 E, §7.2), ported from the iOS app's
- * `CloudProcessingSettingsView`: the consent switch, the RunPod endpoint and Restricted key, the R2 bucket and its key
- * pair (fields in the order of the owner's setup steps), Test connection (RunPod and storage reported on their own)
- * with the optional selftest, the outputs, mobile data, the GPU price and monthly cap, and the way to the queue.
+ * Settings › Sing › Cloud processing (design §3.5 E, §7.2), ported from the iOS app's `CloudProcessingSettingsView`:
+ * the consent switch, the RunPod endpoint and Restricted key, the R2 bucket and its key pair (fields in the order of
+ * the owner's setup steps), Test connection (RunPod and storage reported on their own) with the optional selftest, the
+ * outputs, mobile data, the GPU price and monthly cap, and the way to the queue. Everyone sees the consent switch,
+ * mobile data and the queue link; the rest (keys, testing, outputs, cost) shows in developer mode only.
  */
 @Composable
 fun CloudProcessingSettingsScreen(
@@ -69,6 +71,7 @@ fun CloudProcessingSettingsScreen(
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val ui by viewModel.ui.collectAsStateWithLifecycle()
     val engine by viewModel.engineState.collectAsStateWithLifecycle()
+    val developerMode = LocalDeveloperMode.current
     val draft = ui.draft ?: CloudSecrets.EMPTY
 
     LaunchedEffect(Unit) { viewModel.onScreenShown() }
@@ -96,27 +99,33 @@ fun CloudProcessingSettingsScreen(
             CloudSection("Consent") {
                 SwitchSettingItem(
                     title = if (builtIn) "Process songs in the cloud" else "Send songs to my RunPod account",
-                    subtitle = "Nothing leaves this phone until this is on, and only songs you send yourself go.",
+                    subtitle = "Nothing leaves this phone until you tap Process in cloud.",
                     checked = settings.enabled,
                     onCheckedChange = { on -> viewModel.updateSettings { it.copy(enabled = on) } },
                     leadingIcon = { Icon(Icons.Rounded.CloudUpload, null, tint = MaterialTheme.colorScheme.secondary) },
                 )
                 CloudPanel {
                     Text(
-                        if (builtIn) {
-                            "Separates vocals with BS-RoFormer and times lyrics word by word on PixlAudio's RunPod GPU. " +
-                                "Songs go to PixlAudio's Cloudflare R2 bucket and are deleted after import."
-                        } else {
-                            "Separates vocals with BS-RoFormer and times lyrics word by word on your own RunPod GPU. " +
-                                "Songs go to your Cloudflare R2 bucket and are deleted after import."
-                        },
+                        "Vocals are removed on a fast computer in the cloud. " +
+                            "Songs are deleted from the cloud after they come back.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    if (developerMode) {
+                        CloudCaption(
+                            if (builtIn) {
+                                "Separates vocals with BS-RoFormer and times lyrics word by word on PixlAudio's RunPod GPU. " +
+                                    "Songs go to PixlAudio's Cloudflare R2 bucket and are deleted after import."
+                            } else {
+                                "Separates vocals with BS-RoFormer and times lyrics word by word on your own RunPod GPU. " +
+                                    "Songs go to your Cloudflare R2 bucket and are deleted after import."
+                            }
+                        )
+                    }
                 }
             }
         }
-        if (!builtIn && (ui.keysMissing || ui.secureStorageUnavailable)) {
+        if (developerMode && !builtIn && (ui.keysMissing || ui.secureStorageUnavailable)) {
             item(key = "keys_missing") {
                 Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
                     CloudPanel(color = MaterialTheme.colorScheme.errorContainer) {
@@ -143,7 +152,7 @@ fun CloudProcessingSettingsScreen(
                 }
             }
         }
-        if (settings.builtInAvailable) {
+        if (developerMode && settings.builtInAvailable) {
             item(key = "keys") {
                 CloudSection("Keys") {
                     if (builtIn) {
@@ -171,7 +180,7 @@ fun CloudProcessingSettingsScreen(
                 }
             }
         }
-        if (!builtIn) item(key = "runpod") {
+        if (developerMode && !builtIn) item(key = "runpod") {
             CloudSection("RunPod") {
                 CloudPanel {
                     CloudTextField(
@@ -191,7 +200,7 @@ fun CloudProcessingSettingsScreen(
                 }
             }
         }
-        if (!builtIn) item(key = "storage") {
+        if (developerMode && !builtIn) item(key = "storage") {
             CloudSection("Storage (Cloudflare R2)") {
                 CloudPanel {
                     CloudTextField(
@@ -225,7 +234,7 @@ fun CloudProcessingSettingsScreen(
                 }
             }
         }
-        item(key = "test") {
+        if (developerMode) item(key = "test") {
             CloudSection("Test connection") {
                 CloudPanel {
                     if (problems.isNotEmpty()) {
@@ -265,7 +274,7 @@ fun CloudProcessingSettingsScreen(
                 }
             }
         }
-        item(key = "outputs") {
+        if (developerMode) item(key = "outputs") {
             CloudSection("Outputs") {
                 SwitchSettingItem(
                     title = "Instrumental",
@@ -309,14 +318,14 @@ fun CloudProcessingSettingsScreen(
             CloudSection("Network") {
                 SwitchSettingItem(
                     title = "Use mobile data",
-                    subtitle = "Off: uploads and downloads wait for Wi-Fi or another unmetered network.",
+                    subtitle = "Off: uploads and downloads wait for Wi-Fi.",
                     checked = settings.useCellular,
                     onCheckedChange = { on -> viewModel.updateSettings { it.copy(useCellular = on) } },
                     leadingIcon = { Icon(Icons.Rounded.NetworkCell, null, tint = MaterialTheme.colorScheme.secondary) },
                 )
             }
         }
-        item(key = "cost") {
+        if (developerMode) item(key = "cost") {
             CloudSection("Cost") {
                 CloudPanel {
                     CloudTextField(
@@ -365,7 +374,7 @@ fun CloudProcessingSettingsScreen(
             CloudSection("Queue") {
                 SettingsItem(
                     title = "Cloud queue",
-                    subtitle = summary ?: "Send songs and see what comes back.",
+                    subtitle = summary ?: "Songs you sent to the cloud",
                     leadingIcon = { Icon(Icons.AutoMirrored.Rounded.ListAlt, null, tint = MaterialTheme.colorScheme.secondary) },
                     trailingIcon = {
                         Icon(Icons.AutoMirrored.Rounded.ArrowForwardIos, null, modifier = Modifier.size(16.dp),
@@ -375,7 +384,7 @@ fun CloudProcessingSettingsScreen(
                 )
             }
         }
-        item(key = "promise") {
+        if (developerMode) item(key = "promise") {
             Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
                 CloudPanel {
                     CloudCaption(CloudStudioCopy.promise(builtIn))

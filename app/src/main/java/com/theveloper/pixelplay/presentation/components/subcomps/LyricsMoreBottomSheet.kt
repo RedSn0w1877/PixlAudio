@@ -59,6 +59,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import com.theveloper.pixelplay.R
 import com.theveloper.pixelplay.data.model.Lyrics
+import com.theveloper.pixelplay.presentation.model.LocalDeveloperMode
 import com.theveloper.pixelplay.presentation.components.ToggleSegmentButton
 import com.theveloper.pixelplay.presentation.components.player.BottomToggleRow
 import androidx.compose.ui.graphics.Shape
@@ -71,8 +72,6 @@ fun LyricsMoreBottomSheet(
     onDismissRequest: () -> Unit,
     sheetState: SheetState,
     lyrics: Lyrics?,
-    song: com.theveloper.pixelplay.data.model.Song?,
-    onLyricsReady: (Boolean) -> Unit,
     showSyncedLyrics: Boolean,
     isSyncControlsVisible: Boolean,
     onSaveLyricsAsLrc: () -> Unit,
@@ -113,6 +112,7 @@ fun LyricsMoreBottomSheet(
     onSyncYourself: (() -> Unit)? = null,
 ) {
     val paragraphBreak = "\n\n"
+    val developerMode = LocalDeveloperMode.current
     val isUserSynced = lyrics?.document?.metadata?.source == com.theveloper.pixelplay.data.lyrics.sync.LyricsTapSync.SOURCE_USER
     val hasWordTiming = lyrics?.synced.orEmpty().any { !it.words.isNullOrEmpty() }
     val navigationBarsPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
@@ -255,7 +255,11 @@ fun LyricsMoreBottomSheet(
                     },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(8.dp))
+                        .clip(
+                            // Last item of the group while the developer-only debug row below is hidden.
+                            if (developerMode) RoundedCornerShape(8.dp)
+                            else RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp, bottomStart = 18.dp, bottomEnd = 18.dp)
+                        )
                         .background(itemBackgroundColor)
                         .clickable {
                             showResetDialog = true
@@ -267,40 +271,30 @@ fun LyricsMoreBottomSheet(
                     )
                 )
 
-                // Debug: where did this song's lyrics come from, and is any of it word-synced.
-                // Always visible (even with lyrics == null) so "nothing loaded" is itself a
-                // visible diagnostic rather than a missing menu item.
-                ListItem(
-                    headlineContent = { Text(stringResource(R.string.lyrics_debug_info)) },
-                    leadingContent = {
-                        Icon(
-                            imageVector = Icons.Rounded.BugReport,
-                            contentDescription = null
+                // Debug (developer mode only): where did this song's lyrics come from, and is any of
+                // it word-synced. Always visible then (even with lyrics == null) so "nothing loaded"
+                // is itself a visible diagnostic rather than a missing menu item.
+                if (developerMode) {
+                    ListItem(
+                        headlineContent = { Text(stringResource(R.string.lyrics_debug_info)) },
+                        leadingContent = {
+                            Icon(
+                                imageVector = Icons.Rounded.BugReport,
+                                contentDescription = null
+                            )
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp, bottomStart = 18.dp, bottomEnd = 18.dp))
+                            .background(itemBackgroundColor)
+                            .clickable { showDebugDialog = true },
+                        colors = ListItemDefaults.colors(
+                            containerColor = Color.Transparent,
+                            headlineColor = rowContent,
+                            leadingIconColor = rowContent
                         )
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp, bottomStart = 18.dp, bottomEnd = 18.dp))
-                        .background(itemBackgroundColor)
-                        .clickable { showDebugDialog = true },
-                    colors = ListItemDefaults.colors(
-                        containerColor = Color.Transparent,
-                        headlineColor = rowContent,
-                        leadingIconColor = rowContent
                     )
-                )
-            }
-
-            if (song != null) {
-                com.theveloper.pixelplay.presentation.components.tais.LyricsSyncJobRow(
-                    song = song,
-                    onLyricsReady = onLyricsReady
-                )
-                Text(
-                    text = "Find matching pre-synced lyrics first. Audio alignment is the fallback; existing lyrics stay if it fails.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = rowContent.copy(alpha = 0.7f)
-                )
+                }
             }
 
             if (showResetDialog) {

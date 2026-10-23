@@ -275,7 +275,6 @@ fun LyricsSheet(
     onSetImmersiveTemporarilyDisabled: (Boolean) -> Unit,
     onSaveLyricsToFile: (Song, Lyrics, Boolean) -> Unit,
     onTranslateViaAi: () -> Unit,
-    onLyricsReady: (Boolean) -> Unit,
     // BottomToggleRow Params
     isShuffleEnabled: Boolean,
     repeatMode: Int,
@@ -1072,8 +1071,6 @@ fun LyricsSheet(
                     onDismissRequest = { showMoreSheet = false },
                     sheetState = moreSheetState,
                     lyrics = lyrics,
-                    song = currentSong,
-                    onLyricsReady = onLyricsReady,
                     showSyncedLyrics = showSyncedLyrics == true,
                     isSyncControlsVisible = showSyncControls,
                     onSaveLyricsAsLrc = { showSaveLyricsDialog = true },
