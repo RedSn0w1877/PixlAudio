@@ -181,6 +181,14 @@ class PixelPlayApplication : Application(), ImageLoaderFactory, Configuration.Pr
         startupScope.launch {
             runCatching { youTubeAuthManager.get().cookie }
         }
+        // Sing preview clips are transient: none outlives the process that played it.
+        startupScope.launch {
+            runCatching {
+                com.theveloper.pixelplay.data.tais.SingClipStore.clearAll(
+                    com.theveloper.pixelplay.data.tais.SingClipStore.directory(this@PixelPlayApplication)
+                )
+            }
+        }
 
         // On-device AI became the default: move setups that could never answer (a cloud
         // provider without its key, Ollama/Custom without a URL) to it, once.

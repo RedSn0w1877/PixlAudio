@@ -377,6 +377,88 @@ class CloudQueuePolicyTest {
         assertFalse(CloudPriorityLane.cancelConfirmed(null))
     }
 
+    // ─── Preview clip ───────────────────────────────────────────────────────────────────────
+
+    @Test fun `a preview clip covers the minute from 3 s before the playhead, inside the song`() {
+        assertEquals(CloudClipRange(57_000, 120_000), CloudClipPlanner.range(60_000, 240_000))
+        assertEquals(63_000, CloudClipPlanner.range(60_000, 240_000)!!.lengthMs)
+        // At the start of the song the clip starts at 0; near the end it stops at the end.
+        assertEquals(CloudClipRange(0, 61_000), CloudClipPlanner.range(1_000, 240_000))
+        assertEquals(CloudClipRange(0, 60_000), CloudClipPlanner.range(-500, 240_000))
+        assertEquals(CloudClipRange(187_000, 240_000), CloudClipPlanner.range(190_000, 240_000))
+    }
+
+    @Test fun `no clip for a short song or a playhead near the end`() {
+        assertNull(CloudClipPlanner.range(10_000, 74_999), "shorter than 75 s")
+        assertTrue(CloudClipPlanner.range(10_000, 75_000) != null)
+        // Within 20 s of the end: the full job alone.
+        assertNull(CloudClipPlanner.range(220_000, 240_000))
+        assertTrue(CloudClipPlanner.range(219_999, 240_000) != null)
+        assertNull(CloudClipPlanner.range(10_000, 0), "an unknown length")
+    }
+
+    @Test fun `a clip's plan is the instrumental only at the clip's length, and costs a small share of the song`() {
+        val clip = CloudClipPlanner.plan("s1", isStreamed = true, CloudClipRange(57_000, 120_000))
+        assertEquals(CloudSongPlan("s1", listOf(CloudTask.INSTRUMENTAL), null, true, 63_000), clip)
+        val song = CloudSongPlan("s1", listOf(CloudTask.INSTRUMENTAL, CloudTask.LYRICS), CloudLyricsMode.ALIGN, true, 240_000)
+        // 38 warm seconds for the song; the clip's 63 s are 10 more on the same warm worker (one cold start for both).
+        assertEquals(10, CloudCost.estimatedSeconds(clip, CloudSeparationQuality.STANDARD))
+        assertEquals((15 + 38 + 10) * 192L, CloudCost.estimateMicroUsd(listOf(clip, song), CloudSeparationQuality.STANDARD, 192))
+    }
+
+    @Test fun `the clip is cut sample-exactly out of the decode's buffers`() {
+        // Clip frames 1,000..3,000; buffers of 1,024 frames from the start of the song.
+        assertEquals(CloudFrameSlice(1_000, 1_024), CloudClipFrames.slice(0, 1_024, 1_000, 3_000))
+        assertEquals(CloudFrameSlice(0, 1_024), CloudClipFrames.slice(1_024, 1_024, 1_000, 3_000))
+        assertEquals(CloudFrameSlice(0, 952), CloudClipFrames.slice(2_048, 1_024, 1_000, 3_000))
+        assertNull(CloudClipFrames.slice(3_072, 1_024, 1_000, 3_000), "after the clip")
+        assertNull(CloudClipFrames.slice(0, 512, 1_000, 3_000), "before the clip")
+        // Every frame of the clip, exactly once.
+        val total = (0 until 4).mapNotNull { CloudClipFrames.slice(it * 1_024L, 1_024, 1_000, 3_000) }.sumOf { it.frames }
+        assertEquals(2_000, total)
+    }
+
+    private fun clipOf(key: String, full: String, state: CloudJobState = CloudJobState.UPLOADED) =
+        laneJob(key, state = state, origin = CloudJobOrigin.SING, runpodId = null, submittedAt = null)
+            .copy(tasks = listOf(CloudTask.INSTRUMENTAL), clipStartMs = 57_000, clipEndMs = 120_000, clipOfJobKey = full)
+
+    @Test fun `a clip goes ahead of the songs in the priority lane, on the phone and in the burst`() {
+        val full = laneJob("F", state = CloudJobState.UPLOADED, origin = CloudJobOrigin.SING, runpodId = null, submittedAt = null)
+        val clip = clipOf("C", "F")
+        val manual = laneJob("m", state = CloudJobState.UPLOADED, runpodId = null, submittedAt = null)
+        // The clip was added after its song (a Sing that joined), yet it goes first.
+        val jobs = listOf(manual, full, clip)
+        assertEquals(listOf("C", "F", "m"), CloudPriorityLane.phoneOrder(jobs).map { it.jobKey })
+        assertEquals(listOf("C", "F", "m"), CloudPriorityLane.submitOrder(setOf("m", "F", "C"), jobs))
+    }
+
+    @Test fun `a clip-then-song burst carries exactly one stop flag, on its last job`() {
+        val queuedFull = laneJob("F", state = CloudJobState.QUEUED, origin = CloudJobOrigin.SING, runpodId = null, submittedAt = null)
+        val clip = clipOf("C", "F")
+        // Both ready together: one burst [clip, song]; only the song is the last, as for any burst.
+        val readyFull = queuedFull.copy(state = CloudJobState.UPLOADED)
+        assertEquals(listOf("C", "F"), CloudPriorityLane.submitOrder(setOf("C", "F"), listOf(readyFull, clip)))
+        assertTrue(CloudPriorityLane.marksLastInBatch(readyFull, listOf(readyFull, clip)))
+        // The clip alone, its song still being uploaded: it doesn't stop the worker the song is coming to.
+        assertEquals(queuedFull, CloudPriorityLane.siblingStillComing(clip, listOf(queuedFull, clip)))
+        assertFalse(CloudPriorityLane.marksLastInBatch(clip, listOf(queuedFull, clip)))
+        // Once the song has gone out (or failed, or isn't a priority job) the clip is a normal last.
+        listOf(
+            queuedFull.copy(state = CloudJobState.SUBMITTED), queuedFull.copy(state = CloudJobState.FAILED),
+            queuedFull.copy(origin = CloudJobOrigin.MANUAL),
+        ).forEach { sibling -> assertTrue(CloudPriorityLane.marksLastInBatch(clip, listOf(sibling, clip)), "with $sibling") }
+        assertTrue(CloudPriorityLane.marksLastInBatch(clip, listOf(clip)), "its song is gone")
+        assertTrue(CloudPriorityLane.marksLastInBatch(null, emptyList()))
+    }
+
+    @Test fun `jobs that step aside for a clip wait for its song`() {
+        val full = laneJob("F", state = CloudJobState.UPLOADING, origin = CloudJobOrigin.SING, runpodId = null, submittedAt = null)
+        val clip = clipOf("C", "F")
+        assertEquals("F", CloudPriorityLane.waitTarget(clip, listOf(full, clip)))
+        assertEquals("C", CloudPriorityLane.waitTarget(clip, listOf(full.copy(state = CloudJobState.SUBMITTED), clip)))
+        assertEquals("F", CloudPriorityLane.waitTarget(full, listOf(full, clip)))
+    }
+
     @Test fun `ready jobs go out priority first, then in list order`() {
         val jobs = listOf(
             laneJob("a", state = CloudJobState.UPLOADED), laneJob("b", state = CloudJobState.UPLOADED),

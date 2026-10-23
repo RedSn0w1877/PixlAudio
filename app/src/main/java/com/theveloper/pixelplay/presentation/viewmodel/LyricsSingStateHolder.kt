@@ -6,6 +6,9 @@ import com.theveloper.pixelplay.R
 import com.theveloper.pixelplay.data.cloudstudio.CloudSingStart
 import com.theveloper.pixelplay.data.model.Lyrics
 import com.theveloper.pixelplay.data.model.Song
+import com.theveloper.pixelplay.data.service.player.SingClipEvents
+import com.theveloper.pixelplay.data.service.player.SingClipTimeline
+import com.theveloper.pixelplay.data.tais.SingClipWindow
 import com.theveloper.pixelplay.data.worker.CloudPhase
 import com.theveloper.pixelplay.data.worker.InstrumentalRenderJob
 import com.theveloper.pixelplay.data.worker.InstrumentalRenderJobs
@@ -134,6 +137,19 @@ data class CrossfadePlan(val startAtPositionMs: Long?, val fadeMs: Int)
 sealed interface SingRequest {
     /** Switch to the song's instrumental; [plan] places the fade at a word gap (null: at once, at the current position). */
     data class Instrumental(val path: String, val plan: CrossfadePlan? = null) : SingRequest
+
+    /**
+     * Switch to the cloud's preview clip of the song while its full instrumental is still on its way: the clip holds
+     * [window] of the song. [plan] places the fade in at a word gap, [returnPlan] the fade back to the vocals at a gap
+     * just before the clip runs out (the player does that on its own if the full instrumental hasn't landed by then).
+     */
+    data class Clip(
+        val path: String,
+        val window: SingClipWindow,
+        val plan: CrossfadePlan,
+        val returnPlan: CrossfadePlan,
+    ) : SingRequest
+
     data object Original : SingRequest
 }
 
@@ -155,6 +171,12 @@ sealed interface SingRequest {
  * cancels only the switch (the job keeps running and the file is kept for next time).
  * A cloud job that fails sends the next tap for that song to this phone. Cast and Spotify Connect play
  * elsewhere, where the local audio swap can't reach: Sing is off.
+ *
+ * Preview clips: a cloud Sing sends a short clip from the playhead ahead of the full song. When the clip lands
+ * first (the song still current, the wish still pending) the song fades to it at a word gap, and the button says
+ * "Vocals off"; the wish stays pending. Before the clip runs out the player brings the vocals back at a gap on its
+ * own ([SingClipEvents]) and the button says "Preparing…" again; when the full instrumental lands it takes over
+ * (from the clip at once, or from the vocals at a gap).
  */
 @Singleton
 class LyricsSingStateHolder @Inject constructor(
@@ -165,6 +187,7 @@ class LyricsSingStateHolder @Inject constructor(
     private val renderJobs: InstrumentalRenderJobs,
     private val lyricsState: LyricsStateHolder,
     private val onlineProbe: SingOnlineProbe,
+    private val clipEvents: SingClipEvents,
 ) {
     private val _active = MutableStateFlow(false)
     /** True while the current song plays through its instrumental (vocals off). */
@@ -210,6 +233,12 @@ class LyricsSingStateHolder @Inject constructor(
     private var routing = false
     /** Counts switches and song changes, so a switch being planned can tell it was overtaken. */
     private var switchToken = 0
+    /** The preview clip that plays now (vocals off, the full instrumental still awaited). */
+    private var onClip: SingClipWindow? = null
+    /** The preview clip the player was asked to switch to, until it answers. */
+    private var clipInFlight: SingClipWindow? = null
+    /** The song [followSong] follows, so the one left behind can take its preview clips with it. */
+    private var followedSongId: String? = null
 
     fun initialize(coroutineScope: CoroutineScope) {
         scope = coroutineScope
@@ -217,6 +246,9 @@ class LyricsSingStateHolder @Inject constructor(
         jobs.clear()
         jobs += coroutineScope.launch {
             remoteFlow().collect { remoteActive.value = it }
+        }
+        jobs += coroutineScope.launch {
+            clipEvents.left.collect { onClipLeft(it) }
         }
         jobs += coroutineScope.launch {
             combine(_available, _active, currentJob, remoteActive, wait) { available, active, job, remote, waiting ->
@@ -249,17 +281,41 @@ class LyricsSingStateHolder @Inject constructor(
         lastJobs = emptyList()
         switchToken++
         wait.value = SingWait.NONE
+        onClip = null
+        clipInFlight = null
         if (pendingSongId != songId) pendingSongId = null
+        val previous = followedSongId
+        followedSongId = songId
+        // The song left behind takes its preview clips with it (one still playing goes once the player lets go).
+        if (previous != null && previous != songId) discardClipsOf(previous)
         if (songId == null) return
         _available.value = renderJobs.bestAvailablePath(songId) != null
         renderJobs.jobsFor(songId).collect { list -> onJobs(songId, list) }
     }
 
+    private suspend fun discardClipsOf(songId: String) {
+        try {
+            renderJobs.discardClips(songId)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // App start clears whatever is left.
+            Timber.w(e, "Could not remove the Sing preview clips")
+        }
+    }
+
     internal fun onJobs(songId: String, list: List<InstrumentalRenderJob>) {
-        lastJobs = list
-        val job = pickJob(list)
+        // A preview clip is never the song's instrumental: the full jobs drive the button and the switch as before,
+        // and a clip only bridges the wait for them.
+        val (clips, full) = list.partition { it.isClip }
+        lastJobs = full
+        val job = pickJob(full)
         currentJob.value = job?.takeUnless { it.id in dismissedJobIds }
-        if (job == null) return
+        if (job != null) onFullJob(songId, job)
+        onClipJobs(songId, clips, fullReady = job?.state == RenderJobState.SUCCEEDED && job.instrumentalPath != null)
+    }
+
+    private fun onFullJob(songId: String, job: InstrumentalRenderJob) {
         val path = job.instrumentalPath
         when {
             job.state == RenderJobState.SUCCEEDED && path != null -> {
@@ -274,7 +330,8 @@ class LyricsSingStateHolder @Inject constructor(
                     if (remoteActive.value) {
                         wait.value = SingWait.NONE
                     } else {
-                        switchTo(songId, path, afterCloud = job.source == RenderSource.CLOUD)
+                        // From a playing preview clip the player swaps instrumentals at once (no gap to wait for).
+                        switchTo(songId, path, afterCloud = job.source == RenderSource.CLOUD && onClip == null)
                     }
                 }
             }
@@ -296,6 +353,71 @@ class LyricsSingStateHolder @Inject constructor(
                 }
             }
         }
+    }
+
+    /**
+     * A preview clip that landed before the full instrumental, for the song the person is waiting on: the song switches
+     * to it (each clip once). Never over an instrumental already playing, never for a song no longer waited on, never on
+     * a Cast or Connect speaker, and not once the full instrumental is here. A failed clip says nothing: the full job
+     * still comes.
+     */
+    private fun onClipJobs(songId: String, clips: List<InstrumentalRenderJob>, fullReady: Boolean) {
+        val landed = clips.filter { it.state == RenderJobState.SUCCEEDED && it.instrumentalPath != null && it.id !in answeredJobIds }
+            .maxByOrNull { it.createdAtMs } ?: return
+        val window = landed.clip ?: return
+        val path = landed.instrumentalPath ?: return
+        val waitedOn = pendingSongId == songId && wait.value == SingWait.CLOUD
+        if (!waitedOn || fullReady || _active.value || remoteActive.value) return
+        answeredJobIds += landed.id
+        switchToClip(songId, path, window)
+    }
+
+    /**
+     * Asks the player to switch to a preview clip at the next gap between sung words, with the way back planned too (a
+     * gap just before the clip runs out). The wish stays pending: the full instrumental takes over when it lands. A song
+     * already past the clip keeps waiting for the full one.
+     */
+    private fun switchToClip(songId: String, path: String, window: SingClipWindow) {
+        val scope = scope ?: return
+        val token = ++switchToken
+        wait.value = SingWait.SWITCHING_AFTER_CLOUD
+        scope.launch {
+            val prepared = settledLyrics()
+            val offsetMs = lyricsState.currentSongSyncOffset.value.toLong()
+            val nowPlayerMs = playbackStateHolder.exactPositionMs()
+            val plan = planFrom(prepared, offsetMs, nowPlayerMs + CROSSFADE_PREPARE_LEAD_MS)
+            val returnPlan = planFrom(prepared, offsetMs, SingClipTimeline.returnTriggerMs(window))
+            val overtaken = token != switchToken || pendingSongId != songId ||
+                playbackStateHolder.stablePlayerState.value.currentSong?.id != songId || remoteActive.value
+            if (overtaken) {
+                if (token == switchToken) wait.value = if (pendingSongId == songId) SingWait.CLOUD else SingWait.NONE
+                return@launch
+            }
+            if (!SingClipTimeline.canSwitchAt(window, plan.startAtPositionMs ?: nowPlayerMs)) {
+                wait.value = SingWait.CLOUD
+                return@launch
+            }
+            clipInFlight = window
+            _requests.tryEmit(SingRequest.Clip(path, window, plan, returnPlan))
+            // The player answers through onInstrumentalPlaying / onSwitchFailed; if it never does, keep waiting.
+            delay(SWITCH_ANSWER_TIMEOUT_MS)
+            if (token == switchToken && wait.value == SingWait.SWITCHING_AFTER_CLOUD) {
+                clipInFlight = null
+                wait.value = if (pendingSongId == songId) SingWait.CLOUD else SingWait.NONE
+            }
+        }
+    }
+
+    /**
+     * The player left the preview clip on its own (it was running out before the full instrumental landed, or a seek
+     * left it): the vocals are back, and the button says "Preparing…" again while the wish is pending.
+     */
+    internal fun onClipLeft(songId: String) {
+        if (onClip == null) return
+        if (playbackStateHolder.stablePlayerState.value.currentSong?.id != songId) return
+        onClip = null
+        _active.value = false
+        if (pendingSongId == songId) wait.value = SingWait.CLOUD
     }
 
     /** The tap on Sing. */
@@ -383,7 +505,8 @@ class LyricsSingStateHolder @Inject constructor(
         pendingSongId = song.id
         wait.value = SingWait.CLOUD
         val start = try {
-            renderJobs.startCloud(song)
+            // Where the song is now: the cloud makes a preview clip from here first.
+            renderJobs.startCloud(song, playbackStateHolder.exactPositionMs())
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -451,7 +574,12 @@ class LyricsSingStateHolder @Inject constructor(
         val offsetMs = lyricsState.currentSongSyncOffset.value.toLong()
         val nowPlayerMs = playbackStateHolder.exactPositionMs()
         // The instrumental player needs a moment to get in step before it can fade: plan from then.
-        val plan = VocalGapFinder.plan(prepared, nowPlayerMs + offsetMs + CROSSFADE_PREPARE_LEAD_MS)
+        return planFrom(prepared, offsetMs, nowPlayerMs + CROSSFADE_PREPARE_LEAD_MS)
+    }
+
+    /** The fade placed at the first gap between sung words from player position [fromPlayerMs], in player time. */
+    private fun planFrom(prepared: PreparedLyrics?, offsetMs: Long, fromPlayerMs: Long): CrossfadePlan {
+        val plan = VocalGapFinder.plan(prepared, fromPlayerMs + offsetMs)
         // The lyrics clock is the player position plus the sync offset, so take the offset back off.
         return CrossfadePlan(startAtPositionMs = plan.startAtLyricsMs - offsetMs, fadeMs = plan.fadeMs)
     }
@@ -466,15 +594,27 @@ class LyricsSingStateHolder @Inject constructor(
     private fun hasTimedLyrics(lyrics: Lyrics?): Boolean =
         lyrics != null && (!lyrics.synced.isNullOrEmpty() || lyrics.document?.lines?.any { it.text.isNotBlank() } == true)
 
-    /** MusicService now plays the instrumental (set by [PlayerViewModel.switchToStudioInstrumental]). */
+    /**
+     * MusicService now plays the instrumental (set by [PlayerViewModel.switchToStudioInstrumental]). A preview clip
+     * leaves the wish pending (the full instrumental takes over when it lands) and doesn't make the song's
+     * instrumental "available".
+     */
     fun onInstrumentalPlaying() {
+        onClip = clipInFlight
+        clipInFlight = null
         _active.value = true
-        _available.value = true
+        if (onClip == null) _available.value = true
         wait.value = SingWait.NONE
     }
 
     /** MusicService could not switch (no instrumental to play, or the song changed meanwhile). */
     fun onSwitchFailed() {
+        if (clipInFlight != null) {
+            // A preview clip that couldn't start (the song moved, the file went): quietly keep waiting for the full one.
+            clipInFlight = null
+            wait.value = if (pendingSongId != null) SingWait.CLOUD else SingWait.NONE
+            return
+        }
         wait.value = SingWait.NONE
         _messages.tryEmit(context.getString(R.string.lyrics_sing_switch_failed))
     }
@@ -482,6 +622,7 @@ class LyricsSingStateHolder @Inject constructor(
     /** MusicService is back on the original audio. */
     fun onOriginalPlaying() {
         _active.value = false
+        onClip = null
     }
 
     private fun pickJob(list: List<InstrumentalRenderJob>): InstrumentalRenderJob? =

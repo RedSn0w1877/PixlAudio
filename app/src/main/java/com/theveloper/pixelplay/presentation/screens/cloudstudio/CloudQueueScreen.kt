@@ -303,7 +303,7 @@ fun CloudSongButton(song: Song, modifier: Modifier = Modifier, viewModel: CloudS
     LaunchedEffect(Unit) { viewModel.loadJobs() }
     CloudMessageToasts(viewModel)
     val pending = remember(state.jobs, song.id) {
-        state.jobs.lastOrNull { it.songId == song.id }?.state?.isPending == true
+        state.visibleJobs.lastOrNull { it.songId == song.id }?.state?.isPending == true
     }
     FilledTonalButton(
         onClick = { viewModel.startNow(listOf(song), song.title) },
@@ -320,7 +320,8 @@ fun CloudSongStatus(song: Song?, viewModel: CloudStudioViewModel = hiltViewModel
     if (song == null) return
     val state by viewModel.engineState.collectAsStateWithLifecycle()
     val developerMode = LocalDeveloperMode.current
-    val job = remember(state.jobs, song.id) { state.jobs.lastOrNull { it.songId == song.id } } ?: return
+    // A Sing's preview clip is part of the song's Sing, not a line of its own.
+    val job = remember(state.jobs, song.id) { state.visibleJobs.lastOrNull { it.songId == song.id } } ?: return
     val progress = state.transferProgress[job.jobKey]
     val status = remember(job, progress, developerMode) { "Cloud: " + CloudStudioCopy.status(job, progress, developerMode) }
     val failed = job.state == CloudJobState.FAILED

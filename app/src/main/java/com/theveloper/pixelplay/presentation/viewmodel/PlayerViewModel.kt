@@ -938,6 +938,7 @@ class PlayerViewModel @Inject constructor(
             .onEach { request: SingRequest ->
                 when (request) {
                     is SingRequest.Instrumental -> switchToInstrumental(request.path, request.plan)
+                    is SingRequest.Clip -> switchToInstrumental(request.path, request.plan, clip = request)
                     SingRequest.Original -> switchToOriginalAudio()
                 }
             }
@@ -3119,8 +3120,10 @@ class PlayerViewModel @Inject constructor(
      * [switchToStudioInstrumental] with the fade placed by [plan] (a gap between sung words, for an
      * instrumental that arrives while the song plays). The Sing state only turns to "Vocals off" once the
      * service reports the switch really happened; if it did not, the person is told and can tap again.
+     * With [clip] the switch is to that Sing preview clip (the service plays it from where it sits in the song,
+     * and brings the vocals back at its return plan if the full instrumental hasn't landed by then).
      */
-    private fun switchToInstrumental(instrumentalPath: String, plan: CrossfadePlan?) {
+    private fun switchToInstrumental(instrumentalPath: String, plan: CrossfadePlan?, clip: SingRequest.Clip? = null) {
         // A render just landed on disk — the Library's "instrumentalized" filter needs to know
         // about it now, not next time the app happens to restart.
         libraryStateHolder.refreshInstrumentalIndex()
@@ -3134,6 +3137,12 @@ class PlayerViewModel @Inject constructor(
             putString(MusicNotificationProvider.EXTRA_STUDIO_AUDIO_PATH, instrumentalPath)
             plan?.startAtPositionMs?.let { putLong(MusicNotificationProvider.EXTRA_STUDIO_CROSSFADE_AT_MS, it) }
             plan?.let { putLong(MusicNotificationProvider.EXTRA_STUDIO_CROSSFADE_MS, it.fadeMs.toLong()) }
+            if (clip != null) {
+                putLong(MusicNotificationProvider.EXTRA_STUDIO_CLIP_START_MS, clip.window.startMs)
+                putLong(MusicNotificationProvider.EXTRA_STUDIO_CLIP_END_MS, clip.window.endMs)
+                clip.returnPlan.startAtPositionMs?.let { putLong(MusicNotificationProvider.EXTRA_STUDIO_CLIP_RETURN_AT_MS, it) }
+                putLong(MusicNotificationProvider.EXTRA_STUDIO_CLIP_RETURN_FADE_MS, clip.returnPlan.fadeMs.toLong())
+            }
         }
         viewModelScope.launch {
             val switched = controller.sendStudioAudioCommand(args)

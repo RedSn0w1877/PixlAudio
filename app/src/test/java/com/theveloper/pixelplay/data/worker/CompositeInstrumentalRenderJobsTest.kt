@@ -9,6 +9,7 @@ import com.theveloper.pixelplay.data.cloudstudio.CloudSingUnavailable
 import com.theveloper.pixelplay.data.cloudstudio.CloudStudioState
 import com.theveloper.pixelplay.data.cloudstudio.CloudTask
 import com.theveloper.pixelplay.data.model.Song
+import com.theveloper.pixelplay.data.tais.SingClipWindow
 import com.theveloper.pixelplay.presentation.viewmodel.CloudStudioStateHolder
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -169,5 +170,36 @@ class CompositeInstrumentalRenderJobsTest {
 
         assertEquals(CloudSingUnavailable.CAP_REACHED, f.jobs.cloudAvailability(song))
         assertEquals(CloudSingStart.Started("job-1"), f.jobs.startCloud(song))
+    }
+
+    @Test
+    fun `the playhead goes along with a Sing, for its preview clip`() = runTest {
+        val f = fixture()
+        coEvery { f.holder.startSing(song, 42_000L) } returns CloudSingStart.Started("job-1")
+
+        assertEquals(CloudSingStart.Started("job-1"), f.jobs.startCloud(song, 42_000L))
+    }
+
+    @Test
+    fun `an imported preview clip carries its own file and never stands for the song's instrumental`() = runTest {
+        val clip = record(CloudJobState.IMPORTED, importedInstrumental = true).copy(
+            jobKey = "clip-1", tasks = listOf(CloudTask.INSTRUMENTAL), clipStartMs = 57_000L, clipEndMs = 120_000L,
+            clipOfJobKey = "job-1",
+        )
+        val f = fixture(records = flowOf(listOf(clip, record(CloudJobState.RUNNING))), pathOnDisk = "/stems/should-not-be-used")
+        coEvery { f.onDevice.clipPath("1", 57_000L) } returns "/cache/sing_clips/1_clip_57000.flac"
+
+        val jobs = f.jobs.jobsFor("1").first()
+
+        val clipJob = jobs.first { it.id == "clip-1" }
+        assertEquals(RenderJobState.SUCCEEDED, clipJob.state)
+        assertEquals("/cache/sing_clips/1_clip_57000.flac", clipJob.instrumentalPath)
+        assertEquals(SingClipWindow(57_000L, 120_000L), clipJob.clip)
+        // The full job is still running: the clip's import didn't make it look done, and the instrumental store wasn't asked.
+        val fullJob = jobs.first { it.id == "job-1" }
+        assertEquals(RenderJobState.RUNNING, fullJob.state)
+        assertNull(fullJob.instrumentalPath)
+        assertNull(fullJob.clip)
+        coVerify(exactly = 0) { f.onDevice.bestAvailablePath(any()) }
     }
 }

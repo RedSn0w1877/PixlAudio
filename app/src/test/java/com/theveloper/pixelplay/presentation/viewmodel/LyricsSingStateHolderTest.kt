@@ -10,6 +10,8 @@ import com.theveloper.pixelplay.data.model.Song
 import com.theveloper.pixelplay.data.model.SyncedLine
 import com.theveloper.pixelplay.data.model.TimedLine
 import com.theveloper.pixelplay.data.model.TimedSyllable
+import com.theveloper.pixelplay.data.service.player.SingClipEvents
+import com.theveloper.pixelplay.data.tais.SingClipWindow
 import com.theveloper.pixelplay.data.worker.CloudPhase
 import com.theveloper.pixelplay.data.worker.InstrumentalRenderJob
 import com.theveloper.pixelplay.data.worker.InstrumentalRenderJobs
@@ -64,7 +66,8 @@ class LyricsSingStateHolderTest {
         createdAt: Long = 1L,
         percent: Int = 0,
         phase: CloudPhase? = null,
-    ) = InstrumentalRenderJob(id, state, percent, path, failure, automatic, createdAt, RenderSource.CLOUD, phase)
+        clip: SingClipWindow? = null,
+    ) = InstrumentalRenderJob(id, state, percent, path, failure, automatic, createdAt, RenderSource.CLOUD, phase, clip = clip)
 
     /** What the context's getString answers (see [harness]): the string id, so tests name messages by resource. */
     private fun s(resId: Int) = "s$resId"
@@ -75,6 +78,10 @@ class LyricsSingStateHolderTest {
         val onDisk = HashMap<String, String>()
         val enqueued = mutableListOf<String>()
         val cloudStarts = mutableListOf<String>()
+        /** The playhead each cloud start was given (for its preview clip). */
+        val playheads = mutableListOf<Long?>()
+        /** Songs whose preview clips were asked to go. */
+        val discarded = mutableListOf<String>()
 
         /** What keeps the cloud from taking a song: off, so the on-device tests stay on the phone. */
         var cloudBlocker: CloudSingUnavailable? = CloudSingUnavailable.OFF
@@ -91,10 +98,15 @@ class LyricsSingStateHolderTest {
 
         override suspend fun bestAvailablePath(songId: String): String? = onDisk[songId]
         override fun cloudAvailability(song: Song): CloudSingUnavailable? = cloudBlocker
-        override suspend fun startCloud(song: Song): CloudSingStart {
+        override suspend fun startCloud(song: Song, playheadMs: Long?): CloudSingStart {
             cloudStarts += song.id
+            playheads += playheadMs
             startGate?.await()
             return startResult(song)
+        }
+
+        override suspend fun discardClips(songId: String) {
+            discarded += songId
         }
     }
 
@@ -105,6 +117,7 @@ class LyricsSingStateHolderTest {
         val prepared: MutableStateFlow<PreparedLyrics?>,
         val requests: MutableList<SingRequest>,
         val messages: MutableList<String>,
+        val clipEvents: SingClipEvents,
     )
 
     // The holder runs in backgroundScope, so the tests step it with runCurrent(): advanceUntilIdle()
@@ -137,14 +150,15 @@ class LyricsSingStateHolderTest {
         val context = mockk<Context>(relaxed = true)
         every { context.getString(any()) } answers { "s${firstArg<Int>()}" }
         every { context.getString(any(), *anyVararg<Any>()) } answers { "s${firstArg<Int>()}" }
-        val holder = LyricsSingStateHolder(context, playback, cast, connect, jobs, lyricsState, probe)
+        val clipEvents = SingClipEvents()
+        val holder = LyricsSingStateHolder(context, playback, cast, connect, jobs, lyricsState, probe, clipEvents)
         holder.initialize(backgroundScope)
         val requests = mutableListOf<SingRequest>()
         val messages = mutableListOf<String>()
         backgroundScope.launch { holder.requests.collect { requests += it } }
         backgroundScope.launch { holder.messages.collect { messages += it } }
         runCurrent()
-        return Harness(holder, player, connectDevice, preparedFlow, requests, messages)
+        return Harness(holder, player, connectDevice, preparedFlow, requests, messages, clipEvents)
     }
 
     /** "la" held 10.0 to 11.0 s, a second "la" 12.0 to 12.5 s: a gap between the words from 11.0 to 12.0 s. */
@@ -814,5 +828,207 @@ class LyricsSingStateHolderTest {
         runCurrent()
 
         assertEquals(listOf<SingRequest>(SingRequest.Original), h.requests)
+    }
+
+    // ---- the preview clip ----------------------------------------------------------------------------------
+
+    /** The clip a tap at 10 s gets: 7 s to 70 s of the song. */
+    private val clipWindow = SingClipWindow(7_000L, 70_000L)
+
+    private fun landedClip(window: SingClipWindow = clipWindow) =
+        cloudJob("clip", RenderJobState.SUCCEEDED, path = "/cache/sing_clips/1_clip_7000.flac", createdAt = 2L, clip = window)
+
+    private val fullPath = "/stems/1_cloud_inst.m4a"
+
+    /** A cloud Sing tapped at 10 s whose preview clip landed first and plays now. */
+    private fun TestScope.onClip(jobs: FakeJobs): Harness {
+        val h = harness(jobs, positionMs = 10_000L)
+        h.holder.onSingTapped()
+        runCurrent()
+        jobs.flowFor("1").value = listOf(landedClip(), cloudJob("c", RenderJobState.RUNNING, phase = CloudPhase.PROCESSING))
+        runCurrent()
+        h.holder.onInstrumentalPlaying()
+        runCurrent()
+        return h
+    }
+
+    @Test
+    fun `the cloud is told where the song is, for the preview clip`() = runTest {
+        val jobs = FakeJobs().apply { cloudBlocker = null }
+        val h = harness(jobs, positionMs = 42_000L)
+
+        h.holder.onSingTapped()
+        runCurrent()
+
+        assertEquals(listOf<Long?>(42_000L), jobs.playheads)
+        assertTrue(h.requests.isEmpty())
+    }
+
+    @Test
+    fun `a preview clip that lands first plays at a gap, with the way back planned before it runs out`() = runTest {
+        val jobs = FakeJobs().apply { cloudBlocker = null }
+        val h = harness(jobs, positionMs = 10_000L)
+        h.holder.onSingTapped()
+        runCurrent()
+
+        jobs.flowFor("1").value = listOf(landedClip(), cloudJob("c", RenderJobState.RUNNING, phase = CloudPhase.PROCESSING))
+        runCurrent()
+
+        // In at the next moment (no word timing), back out just after 68 s: 2 s before the clip's end.
+        assertEquals(
+            listOf<SingRequest>(
+                SingRequest.Clip(
+                    "/cache/sing_clips/1_clip_7000.flac", clipWindow,
+                    plan = CrossfadePlan(startAtPositionMs = 10_360L, fadeMs = 700),
+                    returnPlan = CrossfadePlan(startAtPositionMs = 68_060L, fadeMs = 700),
+                )
+            ),
+            h.requests,
+        )
+        // "Preparing…" until the player says the clip plays; then "Vocals off".
+        assertTrue(h.holder.ui.value.rendering)
+        assertFalse(h.holder.ui.value.active)
+        h.holder.onInstrumentalPlaying()
+        runCurrent()
+        assertTrue(h.holder.ui.value.active)
+        // A clip is not the song's instrumental.
+        assertFalse(h.holder.available.value)
+    }
+
+    @Test
+    fun `the full instrumental landing while the clip plays takes over at once`() = runTest {
+        val jobs = FakeJobs().apply { cloudBlocker = null }
+        val h = onClip(jobs)
+
+        jobs.flowFor("1").value = listOf(landedClip(), cloudJob("c", RenderJobState.SUCCEEDED, path = fullPath))
+        runCurrent()
+
+        // No gap plan: from instrumental to instrumental the player swaps straight away.
+        assertEquals(SingRequest.Instrumental(fullPath), h.requests.last())
+        assertEquals(2, h.requests.size)
+        assertTrue(h.holder.ui.value.active)
+        h.holder.onInstrumentalPlaying()
+        runCurrent()
+        assertTrue(h.holder.ui.value.active)
+        assertTrue(h.holder.available.value)
+    }
+
+    @Test
+    fun `a clip that ran out brings back Preparing, and the full instrumental then fades in at a gap`() = runTest {
+        val jobs = FakeJobs().apply { cloudBlocker = null }
+        val h = onClip(jobs)
+
+        h.clipEvents.clipLeft("1")
+        runCurrent()
+
+        val ui = h.holder.ui.value
+        assertFalse(ui.active)
+        assertTrue(ui.rendering)
+        assertEquals(SingPhase.CLOUD, ui.phase)
+
+        jobs.flowFor("1").value = listOf(landedClip(), cloudJob("c", RenderJobState.SUCCEEDED, path = fullPath))
+        runCurrent()
+        assertEquals(SingRequest.Instrumental(fullPath, CrossfadePlan(startAtPositionMs = 10_360L, fadeMs = 700)), h.requests.last())
+    }
+
+    @Test
+    fun `a clip the song is already past is skipped and the wait goes on`() = runTest {
+        val jobs = FakeJobs().apply { cloudBlocker = null }
+        val h = harness(jobs, positionMs = 66_000L)
+        h.holder.onSingTapped()
+        runCurrent()
+
+        jobs.flowFor("1").value = listOf(landedClip(), cloudJob("c", RenderJobState.RUNNING, phase = CloudPhase.PROCESSING))
+        runCurrent()
+
+        assertTrue(h.requests.isEmpty())
+        assertEquals(SingPhase.CLOUD, h.holder.ui.value.phase)
+        // Reported again, it is not tried a second time.
+        jobs.flowFor("1").value = listOf(landedClip(), cloudJob("c", RenderJobState.RUNNING, percent = 50, phase = CloudPhase.PROCESSING))
+        runCurrent()
+        assertTrue(h.requests.isEmpty())
+    }
+
+    @Test
+    fun `a clip is not played once the switch was called off, or over an instrumental already playing`() = runTest {
+        val jobs = FakeJobs().apply { cloudBlocker = null }
+        val h = harness(jobs, positionMs = 10_000L)
+        h.holder.onSingTapped()
+        runCurrent()
+        jobs.flowFor("1").value = listOf(cloudJob("c", RenderJobState.RUNNING, phase = CloudPhase.PROCESSING))
+        runCurrent()
+        h.holder.onSingTapped() // calls off the switch
+        runCurrent()
+        jobs.flowFor("1").value = listOf(landedClip(), cloudJob("c", RenderJobState.RUNNING, phase = CloudPhase.PROCESSING))
+        runCurrent()
+        assertTrue(h.requests.isEmpty())
+
+        val other = FakeJobs().apply { cloudBlocker = null }
+        val g = harness(other, positionMs = 10_000L)
+        g.holder.onInstrumentalPlaying()
+        other.flowFor("1").value = listOf(landedClip())
+        runCurrent()
+        assertTrue(g.requests.isEmpty())
+    }
+
+    @Test
+    fun `a clip that could not start keeps the wait without a message`() = runTest {
+        val jobs = FakeJobs().apply { cloudBlocker = null }
+        val h = harness(jobs, positionMs = 10_000L)
+        h.holder.onSingTapped()
+        runCurrent()
+        jobs.flowFor("1").value = listOf(landedClip(), cloudJob("c", RenderJobState.RUNNING, phase = CloudPhase.PROCESSING))
+        runCurrent()
+
+        h.holder.onSwitchFailed()
+        runCurrent()
+
+        assertEquals(listOf(s(R.string.lyrics_sing_cloud_queued)), h.messages)
+        assertEquals(SingPhase.CLOUD, h.holder.ui.value.phase)
+        // The full instrumental still switches when it lands.
+        jobs.flowFor("1").value = listOf(landedClip(), cloudJob("c", RenderJobState.SUCCEEDED, path = fullPath))
+        runCurrent()
+        assertEquals(fullPath, (h.requests.last() as SingRequest.Instrumental).path)
+    }
+
+    @Test
+    fun `tapping while the clip plays brings the vocals back for good`() = runTest {
+        val jobs = FakeJobs().apply { cloudBlocker = null }
+        val h = onClip(jobs)
+
+        h.holder.onSingTapped()
+        runCurrent()
+        h.holder.onOriginalPlaying()
+        jobs.flowFor("1").value = listOf(landedClip(), cloudJob("c", RenderJobState.SUCCEEDED, path = fullPath))
+        runCurrent()
+
+        assertEquals(SingRequest.Original, h.requests.last())
+        assertFalse(h.holder.ui.value.active)
+    }
+
+    @Test
+    fun `a clip-left signal for another song, or with no clip playing, changes nothing`() = runTest {
+        val jobs = FakeJobs().apply { cloudBlocker = null }
+        val h = onClip(jobs)
+        h.clipEvents.clipLeft("2")
+        runCurrent()
+        assertTrue(h.holder.ui.value.active)
+
+        val other = harness(FakeJobs())
+        other.holder.onInstrumentalPlaying()
+        other.clipEvents.clipLeft("1")
+        runCurrent()
+        assertTrue(other.holder.ui.value.active)
+    }
+
+    @Test
+    fun `a song left behind takes its preview clips with it`() = runTest {
+        val jobs = FakeJobs()
+        val h = harness(jobs)
+
+        h.player.value = StablePlayerState(currentSong = song("2"))
+        runCurrent()
+
+        assertEquals(listOf("1"), jobs.discarded)
     }
 }

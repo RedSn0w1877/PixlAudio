@@ -4,6 +4,7 @@ import com.theveloper.pixelplay.data.cloudstudio.CloudJobOrigin
 import com.theveloper.pixelplay.data.cloudstudio.CloudJobRecord
 import com.theveloper.pixelplay.data.cloudstudio.CloudJobState
 import com.theveloper.pixelplay.data.cloudstudio.CloudTask
+import com.theveloper.pixelplay.data.tais.SingClipWindow
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull
@@ -196,5 +197,28 @@ class CloudJobToRenderJobTest {
     fun `progress clamps stray numbers`() {
         assertEquals(0.4f, record(CloudJobState.UPLOADING).progressFraction(5f), 0.0001f)
         assertEquals(0.9f, record(CloudJobState.RUNNING, progressPercent = 400).progressFraction(null), 0.0001f)
+    }
+
+    // ---- preview clips ----------------------------------------------------------------------------
+
+    @Test
+    fun `a preview clip keeps its window, and a full job has none`() {
+        val clip = record(CloudJobState.IMPORTED, importedInstrumental = true, tasks = listOf(CloudTask.INSTRUMENTAL))
+            .copy(clipStartMs = 57_000, clipEndMs = 120_000, clipOfJobKey = "job-0")
+        val job = map(clip, path = "/cache/sing_clips/1_clip_57000.flac")!!
+        assertTrue(job.isClip)
+        assertEquals(SingClipWindow(57_000, 120_000), job.clip)
+        assertEquals(RenderJobState.SUCCEEDED, job.state)
+        assertEquals("/cache/sing_clips/1_clip_57000.flac", job.instrumentalPath)
+        assertFalse(job.automatic)
+
+        assertFalse(map(record(CloudJobState.RUNNING))!!.isClip)
+        assertNull(map(record(CloudJobState.RUNNING))!!.clip)
+    }
+
+    @Test
+    fun `a clip not yet prepared spans its planned minute`() {
+        val clip = record(CloudJobState.QUEUED, tasks = listOf(CloudTask.INSTRUMENTAL)).copy(clipStartMs = 7_000)
+        assertEquals(SingClipWindow(7_000, 70_000), map(clip)!!.clip)
     }
 }

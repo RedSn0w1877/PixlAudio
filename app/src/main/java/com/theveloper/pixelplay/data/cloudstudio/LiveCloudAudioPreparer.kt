@@ -69,6 +69,32 @@ class LiveCloudAudioPreparer(private val context: Context) : CloudAudioPreparing
                 lowQualitySource = facts.lowQuality)
         }
 
+    /**
+     * A Sing preview clip: [startMs]..[endMs] of the song as FLAC. The song is decoded from its start and the samples
+     * before the clip are counted and dropped (not encoded), so the clip's first sample is exactly the one at that point
+     * of the forced decode the full job uploads, and the clip lines up with the full instrumental and the song. Decoding
+     * stops at the clip's end; only the clip is encoded and uploaded (a few MB).
+     */
+    override suspend fun prepareClip(source: String, jobKey: String, startMs: Long, endMs: Long): CloudPreparedAudio =
+        withContext(Dispatchers.IO) {
+            if (!CloudKeys.isValidJobKey(jobKey)) throw CloudPrepareException("Bad job key")
+            if (startMs < 0 || endMs <= startMs) throw CloudPrepareException("The preview clip is empty.", isDecodeFailure = true)
+            uploadsDir.mkdirs()
+            removeUpload(jobKey)
+            val facts = inspect(source)
+            val target = File(uploadsDir, "$jobKey.flac")
+            val (frames, sampleRate) = try {
+                decodeRangeToFlac(source, target, startMs, endMs)
+            } catch (error: Throwable) {
+                target.delete()
+                throw error
+            }
+            currentCoroutineContext().ensureActive()
+            val (sha, bytes) = CloudDigest.file(target)
+            CloudPreparedAudio(target, "flac", bytes, sha, frames * 1000 / sampleRate, frames, sampleRate,
+                lowQualitySource = facts.lowQuality)
+        }
+
     // ─── Decision ───────────────────────────────────────────────────────────────────────────
 
     enum class Route { COPY, DECODE }
@@ -180,14 +206,51 @@ class LiveCloudAudioPreparer(private val context: Context) : CloudAudioPreparing
     }
 
     /**
+     * Decodes [source] and writes only the frames from [startMs] to [endMs] (the decode's own frame count, at its output
+     * rate) into [target]; returns (frames written, sample rate). Stops decoding once the end is reached.
+     */
+    private suspend fun decodeRangeToFlac(source: String, target: File, startMs: Long, endMs: Long): Pair<Long, Int> {
+        var encoder: FlacEncoder? = null
+        var scratch = ShortArray(0)
+        var decoded = 0L
+        var endFrame = Long.MAX_VALUE
+        try {
+            val rate = decodeLoop(source, shouldStop = { decoded >= endFrame }) { buffer, encoding, frames, channels, sampleRate ->
+                val startFrame = startMs * sampleRate / 1000
+                endFrame = endMs * sampleRate / 1000
+                val window = CloudClipFrames.slice(decoded, frames.toLong(), startFrame, endFrame)
+                if (window != null) {
+                    val bytesPerSample = if (encoding == AudioFormat.ENCODING_PCM_FLOAT) 4 else 2
+                    val frameBytes = bytesPerSample * channels.coerceAtLeast(1)
+                    val base = buffer.position()
+                    // Position first (it is inside the current limit), then the limit: only the clip's frames are read.
+                    buffer.position(base + (window.from * frameBytes).toInt())
+                    buffer.limit(base + (window.until * frameBytes).toInt())
+                    val flac = encoder ?: FlacEncoder(target, sampleRate, 2).also { encoder = it }
+                    scratch = appendStereo(buffer, encoding, channels, scratch, flac)
+                }
+                decoded += frames
+            }
+            val flac = encoder ?: throw CloudPrepareException("The preview clip decoded to no audio.", isDecodeFailure = true)
+            val frames = flac.finish()
+            if (frames <= 0) throw CloudPrepareException("The preview clip decoded to no audio.", isDecodeFailure = true)
+            return frames to rate
+        } finally {
+            encoder?.close()
+        }
+    }
+
+    /**
      * The decode loop both routes share: every decoded buffer goes to [sink] as (buffer, PCM encoding, frames,
      * channels, sample rate). Returns the output sample rate. MediaCodec's own failures (a corrupt frame, a codec that
-     * gave up) become a decode failure; cancellation stays cancellation.
+     * gave up) become a decode failure; cancellation stays cancellation. [shouldStop] ends the decode early (a preview
+     * clip has what it needs).
      */
     private suspend fun decodeLoop(
         source: String,
         onTrack: (MediaFormat) -> Unit = {},
         onAccessUnit: () -> Unit = {},
+        shouldStop: () -> Boolean = { false },
         sink: (ByteBuffer, Int, Int, Int, Int) -> Unit,
     ): Int {
         val extractor = MediaExtractor()
@@ -219,7 +282,7 @@ class LiveCloudAudioPreparer(private val context: Context) : CloudAudioPreparing
             val info = MediaCodec.BufferInfo()
             var inputDone = false
             var outputDone = false
-            while (!outputDone) {
+            while (!outputDone && !shouldStop()) {
                 currentCoroutineContext().ensureActive()
                 if (!inputDone) {
                     val inIndex = decoder.dequeueInputBuffer(TIMEOUT_US)
