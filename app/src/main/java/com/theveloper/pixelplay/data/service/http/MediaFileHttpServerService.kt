@@ -105,9 +105,13 @@ class MediaFileHttpServerService : Service() {
     private val serviceJob = SupervisorJob()
     private val serviceScope = CoroutineScope(Dispatchers.IO + serviceJob)
     private val castHttpLogTag = "CastHttpServer"
-    private val signatureMimeCache = mutableMapOf<String, String?>()
+    // Both caches are written by concurrent Ktor request handlers (the Cast receiver issues HEAD,
+    // GET and range requests in parallel): a plain LinkedHashMap can lose entries or corrupt itself.
+    private val signatureMimeCache: MutableMap<String, String?> =
+        java.util.Collections.synchronizedMap(mutableMapOf<String, String?>())
     // Cache for the actual codec info (codec MIME, sample rate, channels) to avoid re-probing.
-    private val codecInfoCache = mutableMapOf<String, AudioCodecInfo?>()
+    private val codecInfoCache: MutableMap<String, AudioCodecInfo?> =
+        java.util.Collections.synchronizedMap(mutableMapOf<String, AudioCodecInfo?>())
     private val httpDateFormatter: DateTimeFormatter =
         DateTimeFormatter.RFC_1123_DATE_TIME.withZone(ZoneOffset.UTC)
 
@@ -238,6 +242,30 @@ class MediaFileHttpServerService : Service() {
         }
     }
 
+    /** Fails every write with a cancellation once [isWanted] turns false, to unwind blocking codec loops. */
+    private class CancellableOutputStream(
+        private val delegate: OutputStream,
+        private val isWanted: () -> Boolean
+    ) : OutputStream() {
+        private fun ensureWanted() {
+            if (!isWanted()) throw java.util.concurrent.CancellationException("Transcode no longer wanted")
+        }
+
+        override fun write(b: Int) {
+            ensureWanted()
+            delegate.write(b)
+        }
+
+        override fun write(b: ByteArray, off: Int, len: Int) {
+            ensureWanted()
+            delegate.write(b, off, len)
+        }
+
+        override fun flush() {
+            delegate.flush()
+        }
+    }
+
     private data class ArtStreamSource(
         val sourceLabel: String,
         val contentType: ContentType,
@@ -264,6 +292,12 @@ class MediaFileHttpServerService : Service() {
     override fun onCreate() {
         super.onCreate()
         startForegroundService()
+        // A killed process never ran onDestroy, so the temp files of its transcodes (tens of MB
+        // each) would sit in the cache directory until the system trims it. Nothing is cached yet.
+        runCatching {
+            cacheDir.listFiles { _, name -> name.startsWith("cast_transcode_") }
+                ?.forEach { staleFile -> staleFile.delete() }
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -361,6 +395,9 @@ class MediaFileHttpServerService : Service() {
                     stopSelf()
                     return@launch
                 }
+                // The service may already be gone (stopService right after the start intent): its
+                // onDestroy has reset the shared state, so do not publish an address again.
+                if (!serviceJob.isActive) return@launch
                 val serverPort = resolveServerPort(preferredPort = 8080)
                 if (serverPort != 8080) {
                     Timber.tag(castHttpLogTag).w(
@@ -381,7 +418,7 @@ class MediaFileHttpServerService : Service() {
                 lastFailureReason = null
                 lastFailureMessage = null
 
-                server = embeddedServer(CIO, port = serverPort, host = "0.0.0.0") {
+                val startedServer = embeddedServer(CIO, port = serverPort, host = "0.0.0.0") {
                     routing {
                             get("/health") {
                                 if (!call.ensureLoopbackHealthRequest()) return@get
@@ -807,7 +844,31 @@ class MediaFileHttpServerService : Service() {
                             }
                         }
                 }.start(wait = false)
-                isServerRunning = true
+                // start() is blocking and not cancellable. If onDestroy ran meanwhile it found no
+                // server to stop, so this one would keep port 8080 bound for the process lifetime
+                // and isServerRunning would claim a server that no service owns.
+                val adopted = synchronized(serverStartLock) {
+                    if (serviceJob.isActive) {
+                        server = startedServer
+                        true
+                    } else {
+                        false
+                    }
+                }
+                if (adopted) {
+                    isServerRunning = true
+                } else {
+                    Timber.tag(castHttpLogTag).w("Service destroyed during startup; stopping the new server")
+                    // Only clear what this instance published (a newer instance has its own port).
+                    if (serverAddress == "http://${addressSelection.hostAddress}:$serverPort") {
+                        serverAddress = null
+                        serverHostAddress = null
+                        serverPrefixLength = -1
+                    }
+                    Thread {
+                        runCatching { startedServer.stop(100, 2000) }
+                    }.start()
+                }
             } catch (e: Exception) {
                 isServerRunning = false
                 serverAddress = null
@@ -1932,17 +1993,24 @@ class MediaFileHttpServerService : Service() {
             return
         }
         // Previous transcode failed — remove the stale entry so the miss-path below can retry.
-        if (existing != null && existing.failed) {
-            transcodeCache.remove(songId)
+        // What is left of an existing entry here is failed, or done with its temp file gone (the
+        // system trims the cache directory): either way it has to go or putIfAbsent below never wins.
+        if (existing != null) {
+            transcodeCache.remove(songId, existing)
         }
 
         // No entry yet — we are the first request. Create the entry and start transcoding.
         val tempFile = File(cacheDir, "cast_transcode_${songId}.aac")
+        val entry = TranscodeEntry(tempFile = tempFile)
+        // Two first requests can arrive together (HEAD+GET are fine, two GETs are not): the loser
+        // would otherwise start a second transcode writing the same temp file. It serves the
+        // winner's entry instead, through the normal paths above.
+        if (transcodeCache.putIfAbsent(songId, entry) != null) {
+            respondTranscodedWithCache(song, codecInfo, uri, rangeHeader)
+            return
+        }
         // Remove stale failed temp file if present.
         runCatching { if (tempFile.exists()) tempFile.delete() }
-
-        val entry = TranscodeEntry(tempFile = tempFile)
-        transcodeCache[songId] = entry
 
         Timber.tag(castHttpLogTag).d("transcode-cache MISS songId=%s, starting progressive stream", songId)
         Timber.tag("PX_CAST_HTTP").i("transcode_cache_start songId=$songId codec=${codecInfo.codecMime}")
@@ -1953,14 +2021,25 @@ class MediaFileHttpServerService : Service() {
         serviceScope.launch {
             runCatching {
                 FileOutputStream(tempFile).use { fos ->
-                    transcodeToAacAdts(codecInfo, song, uri, fos)
+                    // The codec loops are blocking and never look at coroutine cancellation: stop
+                    // them from the output side once the service is gone or the entry was evicted,
+                    // instead of letting a long FLAC/ALAC transcode run to the end for nobody.
+                    transcodeToAacAdts(
+                        codecInfo, song, uri,
+                        CancellableOutputStream(fos) {
+                            serviceJob.isActive && transcodeCache[songId] === entry
+                        }
+                    )
                 }
+                // The MediaCodec path returns quietly when the source cannot be opened or no decoder
+                // starts. An empty "done" file would then be served (and cached) as the song.
+                check(tempFile.length() > 0L) { "Transcode produced no audio" }
                 entry.done = true
                 Timber.tag("PX_CAST_HTTP").i("transcode_cache_done songId=$songId size=${tempFile.length()}")
             }.onFailure { t ->
                 entry.failed = true
                 runCatching { tempFile.delete() }
-                if (!t.isClientAbortDuringResponse()) {
+                if (!t.isClientAbortDuringResponse() && t !is java.util.concurrent.CancellationException) {
                     Timber.tag(castHttpLogTag).e(t, "transcode-cache bg transcode failed songId=%s", songId)
                     Timber.tag("PX_CAST_HTTP").e(t, "transcode_cache_error songId=$songId")
                 }
@@ -2386,7 +2465,7 @@ class MediaFileHttpServerService : Service() {
             }
             outputStream.flush()
         } catch (e: Exception) {
-            if (!e.isClientAbortDuringResponse()) {
+            if (!e.isClientAbortDuringResponse() && e !is java.util.concurrent.CancellationException) {
                 Timber.tag(castHttpLogTag).e(e, "transcode %s→AAC error songId=%s", codecInfo.codecMime, song.id)
                 Timber.tag("PX_CAST_HTTP").e(e, "transcode_mediacodec_error codec=${codecInfo.codecMime} songId=${song.id}")
             }
@@ -2916,10 +2995,12 @@ class MediaFileHttpServerService : Service() {
         cleanupAllTranscodeTempFiles()
 
         // P0-1: Cancel serviceScope to avoid coroutine leaks after service is destroyed.
-        serviceJob.cancel()
-
-        val serverInstance = server
-        server = null
+        // Cancelling and taking the server happen under the lock startServer() adopts a new
+        // server with, so exactly one side ends up owning (and stopping) it.
+        val serverInstance = synchronized(serverStartLock) {
+            serviceJob.cancel()
+            server.also { server = null }
+        }
 
         // Stop server in a background thread to avoid blocking the Main Thread
         Thread {

@@ -63,8 +63,18 @@ class CastPlayer(
     private data class QueuedCommand(
         val name: String,
         val retryAttempts: Int,
-        val action: (RemoteMediaClient) -> PendingResult<RemoteMediaClient.MediaChannelResult>?
-    )
+        val action: (RemoteMediaClient) -> PendingResult<RemoteMediaClient.MediaChannelResult>?,
+        /** The pipeline generation it was queued in; a reset (new queue load) orphans older commands. */
+        val generation: Int = 0
+    ) {
+        /** Set once, by whichever attempt finishes the command first. */
+        val finished = java.util.concurrent.atomic.AtomicBoolean(false)
+        /** Counts attempts, so a late result from a superseded attempt can be told from the current one. */
+        val attempts = java.util.concurrent.atomic.AtomicInteger(0)
+    }
+
+    @Volatile
+    private var pipelineGeneration = 0
 
     private fun enqueueRemoteCommand(
         name: String,
@@ -76,7 +86,8 @@ class CastPlayer(
                 QueuedCommand(
                     name = name,
                     retryAttempts = retryAttempts,
-                    action = action
+                    action = action,
+                    generation = pipelineGeneration
                 )
             )
             maybeDispatchNextCommandLocked()
@@ -97,27 +108,40 @@ class CastPlayer(
         queuedCommand: QueuedCommand,
         retriesLeft: Int = queuedCommand.retryAttempts
     ) {
+        // A retry was posted, but a late result of an earlier attempt already finished the command.
+        if (queuedCommand.finished.get()) return
+
         val client = remoteMediaClient
         if (client == null) {
             Timber.w("Dropping cast command '%s': remote client unavailable", queuedCommand.name)
-            finishQueuedCommand()
+            if (queuedCommand.finished.compareAndSet(false, true) &&
+                queuedCommand.generation == pipelineGeneration
+            ) {
+                finishQueuedCommand()
+            }
             return
         }
 
         lastCommandSentAtMs = SystemClock.elapsedRealtime()
-        var completed = false
+        val attempt = queuedCommand.attempts.incrementAndGet()
+        fun isCurrentAttempt() = queuedCommand.attempts.get() == attempt
 
+        // The in-flight slot is released exactly once per command. A timed-out attempt's result can
+        // still arrive after its retry started; finishing twice freed the slot while the retry (or
+        // the next command) was still in flight, so two commands overlapped on the receiver.
         fun complete(requestStatus: Boolean = true) {
-            if (completed) return
-            completed = true
+            if (!queuedCommand.finished.compareAndSet(false, true)) return
             if (requestStatus) {
                 client.requestStatus()
             }
-            finishQueuedCommand()
+            // A command orphaned by a pipeline reset must not release the new pipeline's slot.
+            if (queuedCommand.generation == pipelineGeneration) {
+                finishQueuedCommand()
+            }
         }
 
         val timeoutRunnable = Runnable {
-            if (completed) return@Runnable
+            if (queuedCommand.finished.get() || !isCurrentAttempt()) return@Runnable
             Timber.w("Cast command timed out: %s", queuedCommand.name)
             if (retriesLeft > 0) {
                 commandHandler.postDelayed(
@@ -139,7 +163,9 @@ class CastPlayer(
             }
 
             pendingResult.setResultCallback { result ->
-                if (completed) return@setResultCallback
+                if (queuedCommand.finished.get()) return@setResultCallback
+                // A superseded attempt that failed late: its retry is already running and decides.
+                if (!isCurrentAttempt() && !result.status.isSuccess) return@setResultCallback
                 commandHandler.removeCallbacks(timeoutRunnable)
 
                 if (!result.status.isSuccess && retriesLeft > 0) {
@@ -217,6 +243,7 @@ class CastPlayer(
         synchronized(commandQueue) {
             commandQueue.clear()
             isCommandInFlight = false
+            pipelineGeneration++
         }
         commandHandler.removeCallbacksAndMessages(null)
     }

@@ -82,6 +82,24 @@ internal fun shouldResumeAfterTransientAudioFocusLoss(
         (transitionRunning && (auxiliaryPlayWhenReady || auxiliaryIsPlaying))
 }
 
+/** URI schemes whose bytes arrive over the network, so playback needs the Wi-Fi lock as well as the CPU. */
+private val NETWORK_WAKE_SCHEMES = setOf("http", "https", "spotify")
+
+/**
+ * ExoPlayer wake mode for a media item's URI scheme. A `spotify://` song is resolved at play time
+ * to a YouTube stream read through the loopback proxy, so it is a network stream: with only
+ * [C.WAKE_MODE_LOCAL] the Wi-Fi radio may power-save with the screen off and the buffer runs dry,
+ * and while audio offload sleeps the renderer the CPU wake lock was dropped altogether.
+ */
+internal fun wakeModeForScheme(scheme: String?): Int {
+    val normalized = scheme?.lowercase()
+    return if (normalized != null && normalized in NETWORK_WAKE_SCHEMES) {
+        C.WAKE_MODE_NETWORK
+    } else {
+        C.WAKE_MODE_LOCAL
+    }
+}
+
 internal fun shouldDisableAudioOffloadByDefaultForDevice(
     manufacturer: String,
     brand: String,
@@ -936,14 +954,8 @@ class DualPlayerEngine @Inject constructor(
         return scheme == null || scheme in LOCAL_MEDIA_SCHEMES
     }
 
-    private fun wakeModeFor(mediaItem: MediaItem?): Int {
-        val scheme = mediaItem?.localConfiguration?.uri?.scheme?.lowercase()
-        return if (scheme != null && scheme in REMOTE_MEDIA_SCHEMES) {
-            C.WAKE_MODE_NETWORK
-        } else {
-            C.WAKE_MODE_LOCAL
-        }
-    }
+    private fun wakeModeFor(mediaItem: MediaItem?): Int =
+        wakeModeForScheme(mediaItem?.localConfiguration?.uri?.scheme)
 
     private var currentWakeMode: Int = C.WAKE_MODE_LOCAL
 
@@ -997,6 +1009,19 @@ class DualPlayerEngine @Inject constructor(
             mapOf("reason" to logMessage)
         }
 
+        // A crossfade in flight holds the players this rebuild is about to release: left running,
+        // its job would promote the released incoming player to master when the fade ends. Its
+        // outgoing volume is mid-ramp and pauseAtEnd was forced on for it, and nothing re-arms
+        // either once the new player is in place, so both are reset instead of copied.
+        val interruptedTransition = transitionRunning
+        if (interruptedTransition) {
+            transitionJob?.cancel()
+            transitionJob = null
+            transitionRunning = false
+            resetPreparedWindowState()
+            incomingTrackReplayGainVolume = null
+        }
+
         val desiredPlayWhenReady = playerA.playWhenReady
         // Guard against snapshotting a position that landed during a bad early-startup seek
         // (e.g. an offload stall rebuild firing while the player is at a spurious offset).
@@ -1009,8 +1034,12 @@ class DualPlayerEngine @Inject constructor(
         for (i in 0 until mediaItemCount) mediaItems.add(playerA.getMediaItemAt(i))
         val repeatMode = playerA.repeatMode
         val shuffleMode = playerA.shuffleModeEnabled
-        val volume = playerA.volume
-        val pauseAtEnd = playerA.pauseAtEndOfMediaItems
+        val volume = if (interruptedTransition) 1f else playerA.volume
+        val pauseAtEnd = if (interruptedTransition) {
+            exactTimingSessions > 0
+        } else {
+            playerA.pauseAtEndOfMediaItems
+        }
         val playbackParameters: PlaybackParameters = playerA.playbackParameters
 
         removeMasterPlayerListeners(playerA)
@@ -1568,6 +1597,15 @@ class DualPlayerEngine @Inject constructor(
     private suspend fun performOverlapTransition(settings: TransitionSettings) {
         val auxiliaryPlayer = playerB
         if (auxiliaryPlayer == null || auxiliaryPlayer.mediaItemCount == 0) {
+            playerA.volume = 1f
+            setPauseAtEndOfMediaItems(false)
+            return
+        }
+
+        if (!playerA.playWhenReady) {
+            // Paused (by the user, or by an audio-focus loss) when the fade was due, e.g. a scrub
+            // into the last seconds. A crossfade must not un-pause playback: let the song end on
+            // its own and advance gaplessly after the user resumes.
             playerA.volume = 1f
             setPauseAtEndOfMediaItems(false)
             return

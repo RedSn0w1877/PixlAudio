@@ -12,6 +12,20 @@ import timber.log.Timber
 import javax.inject.Inject
 import javax.inject.Singleton
 
+private const val PLAYER_SCRIPT_TTL_MS = 6 * 60 * 60_000L
+private const val BROKEN_PLAYER_SCRIPT_RETRY_MS = 5 * 60_000L
+
+/**
+ * Whether a downloaded player is still worth using. YouTube rolls a new player every few days
+ * and a long-lived service process (days) would otherwise keep the first one for good; a
+ * player in which neither function could be found is retried after minutes, not kept for the
+ * life of the process.
+ */
+internal fun isPlayerScriptFresh(loadedAtMs: Long, nowMs: Long, hasFunctions: Boolean): Boolean {
+    val ttl = if (hasFunctions) PLAYER_SCRIPT_TTL_MS else BROKEN_PLAYER_SCRIPT_RETRY_MS
+    return nowMs - loadedAtMs in 0 until ttl
+}
+
 /**
  * Descifra las URLs de audio protegidas de YouTube.
  *
@@ -37,8 +51,11 @@ class SignatureCipherSolver @Inject constructor(
     private data class PlayerScript(
         val playerId: String,
         val signatureFunctionJs: String?,
-        val nFunctionJs: String?
-    )
+        val nFunctionJs: String?,
+        val loadedAtMs: Long = System.currentTimeMillis()
+    ) {
+        val hasFunctions: Boolean get() = signatureFunctionJs != null || nFunctionJs != null
+    }
 
     @Volatile
     private var cached: PlayerScript? = null
@@ -98,10 +115,17 @@ class SignatureCipherSolver @Inject constructor(
     // ─── Descarga y extracción de base.js ──────────────────────────────
 
     private suspend fun ensurePlayerScript(): PlayerScript? {
-        cached?.let { return it }
+        cached?.takeIf { isPlayerScriptFresh(it.loadedAtMs, System.currentTimeMillis(), it.hasFunctions) }
+            ?.let { return it }
         return loadMutex.withLock {
-            cached?.let { return@withLock it }
-            val loaded = downloadPlayerScript()
+            val current = cached
+            if (current != null &&
+                isPlayerScriptFresh(current.loadedAtMs, System.currentTimeMillis(), current.hasFunctions)
+            ) {
+                return@withLock current
+            }
+            // A failed refresh keeps the stale copy: an old player is still better than none.
+            val loaded = downloadPlayerScript() ?: return@withLock current
             cached = loaded
             loaded
         }

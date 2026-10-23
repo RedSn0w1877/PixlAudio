@@ -197,6 +197,10 @@ class PhoneDirectWatchTransferCoordinator @Inject constructor(
                     totalBytes = fileSize,
                     status = WearTransferProgress.STATUS_CANCELLED,
                 )
+                // The source is already open (a file descriptor, or an HTTP response holding a
+                // connection): the other early exits close it, this one leaked it.
+                runCatching { openedSongSource.close() }
+                openedSongSource = null
                 return
             }
 

@@ -125,7 +125,11 @@ class WearCommandReceiver : WearableListenerService() {
                             com.theveloper.pixelplay.data.service.player.PlayerTransport.togglePlayPause(controller)
                         }
                         WearPlaybackCommand.NEXT -> com.theveloper.pixelplay.data.service.player.PlayerTransport.skipNext(controller)
-                        WearPlaybackCommand.PREVIOUS -> controller.seekToPrevious()
+                        WearPlaybackCommand.PREVIOUS -> {
+                            // A failed song leaves the player IDLE, which drops the command.
+                            com.theveloper.pixelplay.data.service.player.PlayerTransport.ensurePrepared(controller)
+                            controller.seekToPrevious()
+                        }
                         WearPlaybackCommand.PLAY_QUEUE_INDEX -> {
                             val queueIndex = command.queueIndex
                             if (queueIndex == null) {
@@ -138,7 +142,8 @@ class WearCommandReceiver : WearableListenerService() {
                                 )
                             } else {
                                 controller.seekToDefaultPosition(queueIndex)
-                                controller.play()
+                                // play() alone does nothing on an IDLE (failed) player.
+                                com.theveloper.pixelplay.data.service.player.PlayerTransport.play(controller)
                             }
                         }
                         WearPlaybackCommand.TOGGLE_SHUFFLE -> {
@@ -286,7 +291,7 @@ class WearCommandReceiver : WearableListenerService() {
 
             // Send response back to the watch
             try {
-                val responseBytes = json.encodeToString(response).toByteArray(Charsets.UTF_8)
+                val responseBytes = encodeBrowseResponseWithinLimit(response, json)
                 val messageClient = Wearable.getMessageClient(this@WearCommandReceiver)
                 messageClient.sendMessage(
                     messageEvent.sourceNodeId,
@@ -754,6 +759,10 @@ class WearCommandReceiver : WearableListenerService() {
                 {
                     try {
                         val controller = future.get()
+                        // A disconnected controller (the service was restarted) is being replaced.
+                        mediaController?.takeIf { it !== controller }?.let { stale ->
+                            runCatching { stale.release() }
+                        }
                         mediaController = controller
                         action(controller)
                     } catch (e: Exception) {
@@ -775,8 +784,13 @@ class WearCommandReceiver : WearableListenerService() {
 
     private fun releaseController() {
         val controller = mediaController
+        val pendingFuture = mediaControllerFuture
         mediaController = null
         mediaControllerFuture = null
+        // A build still in flight would otherwise finish after onDestroy and leak its controller.
+        if (pendingFuture != null && !pendingFuture.isDone) {
+            runCatching { MediaController.releaseFuture(pendingFuture) }
+        }
         if (controller != null) {
             try {
                 controller.release()
@@ -791,4 +805,30 @@ class WearCommandReceiver : WearableListenerService() {
         runOnMainThread { releaseController() }
         super.onDestroy()
     }
+}
+
+/**
+ * Largest Data Layer message the browse reply may use. The platform caps a message payload at
+ * 100 KB; a reply over it fails to send and the watch waits for an answer that never comes.
+ */
+internal const val WEAR_MESSAGE_SAFE_BYTES = 90_000
+
+/**
+ * Encodes [response] and, when it would not fit in one message (hundreds of songs with long
+ * titles), keeps the leading items that do, so the watch gets a shorter list instead of nothing.
+ */
+internal fun encodeBrowseResponseWithinLimit(
+    response: WearBrowseResponse,
+    json: Json,
+    maxBytes: Int = WEAR_MESSAGE_SAFE_BYTES
+): ByteArray {
+    var current = response
+    var bytes = json.encodeToString(current).toByteArray(Charsets.UTF_8)
+    while (bytes.size > maxBytes && current.items.isNotEmpty()) {
+        val scaled = (current.items.size.toLong() * maxBytes / bytes.size * 9 / 10).toInt()
+        val keep = scaled.coerceAtMost(current.items.size - 1).coerceAtLeast(0)
+        current = current.copy(items = current.items.take(keep))
+        bytes = json.encodeToString(current).toByteArray(Charsets.UTF_8)
+    }
+    return bytes
 }

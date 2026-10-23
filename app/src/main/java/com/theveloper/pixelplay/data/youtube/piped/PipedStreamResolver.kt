@@ -3,6 +3,7 @@ package com.theveloper.pixelplay.data.youtube.piped
 import com.theveloper.pixelplay.data.youtube.ResolvedStream
 import com.theveloper.pixelplay.di.YouTubeOkHttpClient
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -88,6 +89,10 @@ class PipedStreamResolver @Inject constructor(
         }
 
         for (instance in candidateInstances()) {
+            // The calls below block a thread and ignore cancellation, so the caller's
+            // withTimeoutOrNull(15 s) cannot end this loop on its own: without this check
+            // eight dead instances at up to 6 s each hold playback for ~48 s.
+            ensureActive()
             val result = runCatching { resolveFromInstance(instance, videoId) }
                 .onFailure { Timber.d("PipedStreamResolver: $instance falló para $videoId: ${it.message}") }
                 .getOrNull()

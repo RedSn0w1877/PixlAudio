@@ -22,6 +22,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -169,12 +170,21 @@ abstract class CloudStreamProxy<K : Any>(
         startJob?.cancel()
         startJob = proxyScope.launch {
             try {
-                val freePort = ServerSocket(0).use { it.localPort }
-                val createdServer = createServer(freePort)
-                createdServer.start(wait = false)
-                server = createdServer
-                serverPort.value = freePort
-                Timber.d("$proxyTag started on port $actualPort")
+                // Same monitor as start()/stop(): a stop() that lands while this job is binding
+                // would otherwise find `server` still null, leave the new server running with
+                // the port published, and a start() right after it would bind a second one
+                // (the first never stopped). Under the lock the job either completes before
+                // stop() sees it, or is cancelled before it binds anything.
+                synchronized(this@CloudStreamProxy) {
+                    ensureActive()
+                    if (server != null) return@synchronized
+                    val freePort = ServerSocket(0).use { it.localPort }
+                    val createdServer = createServer(freePort)
+                    createdServer.start(wait = false)
+                    server = createdServer
+                    serverPort.value = freePort
+                    Timber.d("$proxyTag started on port $actualPort")
+                }
             } catch (_: CancellationException) {
                 Timber.d("$proxyTag start cancelled")
             } catch (e: Exception) {
@@ -189,10 +199,20 @@ abstract class CloudStreamProxy<K : Any>(
         startJob?.cancel()
         startJob = null
         proxyScope.coroutineContext.cancelChildren()
-        server?.stop(1000, 2000)
+        val stopping = server
         server = null
         serverPort.value = 0
         urlCache.clear()
+        if (stopping != null) {
+            // Ktor's stop() is a runBlocking call that waits out the grace period while a
+            // response is still open (a paused player leaves its writer suspended on a full
+            // channel). release() runs from MusicService.onDestroy on the main thread, so
+            // it must not wait here.
+            Thread({
+                runCatching { stopping.stop(1000, 2000) }
+                    .onFailure { Timber.w(it, "$proxyTag server stop failed") }
+            }, "$proxyTag-stop").apply { isDaemon = true }.start()
+        }
         Timber.d("$proxyTag stopped")
     }
 

@@ -12,6 +12,7 @@ import com.theveloper.pixelplay.ui.glancewidget.ControlWidget4x2
 import com.theveloper.pixelplay.ui.glancewidget.GridWidget2x2
 import com.theveloper.pixelplay.ui.glancewidget.PixelPlayGlanceWidget
 import com.theveloper.pixelplay.ui.glancewidget.PlayerInfoStateDefinition
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -156,14 +157,28 @@ internal class WidgetUpdateManager(
             widgetsPrimed = hasWidgets
             wearPrimed = hasWatch
 
-            if (shouldUpdateWidgets) {
-                updateGlanceWidgets(playerInfo)
-            }
+            // requestFullUpdate() cancels the running job, and a follow-up request lands while a
+            // widget render or the watch hand-off is still under way. The new info is already
+            // recorded above, so the next job would diff equal and skip, leaving the remaining
+            // widgets and the watch on the old state: when this run does not finish, forget
+            // that anything was served so the next one renders and publishes unconditionally.
+            var delivered = false
+            try {
+                if (shouldUpdateWidgets) {
+                    updateGlanceWidgets(playerInfo)
+                }
 
-            if (shouldPublishWear) {
-                val currentMediaId = resolveCurrentMediaIdForWear()
-                // Publish state to Wear OS watch
-                wearStatePublisher.publishState(currentMediaId, playerInfo)
+                if (shouldPublishWear) {
+                    val currentMediaId = resolveCurrentMediaIdForWear()
+                    // Publish state to Wear OS watch
+                    wearStatePublisher.publishState(currentMediaId, playerInfo)
+                }
+                delivered = true
+            } finally {
+                if (!delivered) {
+                    widgetsPrimed = false
+                    wearPrimed = false
+                }
             }
         }
     }
@@ -253,8 +268,12 @@ internal class WidgetUpdateManager(
             } else {
                 Timber.tag(TAG).w("No se encontraron widgets para actualizar")
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Timber.tag(TAG).e(e, "Error al actualizar el widget")
+            // Not rendered: the next update must not be skipped as "unchanged".
+            widgetsPrimed = false
         }
     }
 
