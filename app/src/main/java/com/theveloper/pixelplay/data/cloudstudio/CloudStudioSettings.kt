@@ -95,9 +95,6 @@ class CloudStudioSettings(
             endpointId = endpointId,
             r2Endpoint = prefs.getString(Keys.R2_ENDPOINT, "").orEmpty(),
             bucket = prefs.getString(Keys.BUCKET, CloudConfig.DEFAULT_BUCKET) ?: CloudConfig.DEFAULT_BUCKET,
-            wantsInstrumental = prefs.getBoolean(Keys.INSTRUMENTAL, true),
-            wantsLyrics = prefs.getBoolean(Keys.LYRICS, true),
-            transcribeWhenMissing = prefs.getBoolean(Keys.TRANSCRIBE, true),
             quality = CloudSeparationQuality.fromWire(prefs.getString(Keys.QUALITY, null)) ?: CloudSeparationQuality.STANDARD,
             useCellular = prefs.getBoolean(Keys.CELLULAR, false),
             pricePerSecondMicroUsd = prefs.getLong(Keys.PRICE, CloudCost.DEFAULT_PRICE_PER_SECOND_MICRO_USD).coerceIn(1, 10_000),
@@ -137,9 +134,6 @@ class CloudStudioSettings(
             putString(Keys.ENDPOINT_ID, after.endpointId)
             putString(Keys.R2_ENDPOINT, after.r2Endpoint)
             putString(Keys.BUCKET, after.bucket)
-            putBoolean(Keys.INSTRUMENTAL, after.wantsInstrumental)
-            putBoolean(Keys.LYRICS, after.wantsLyrics)
-            putBoolean(Keys.TRANSCRIBE, after.transcribeWhenMissing)
             putString(Keys.QUALITY, after.quality.wire)
             putBoolean(Keys.CELLULAR, after.useCellular)
             putLong(Keys.PRICE, after.pricePerSecondMicroUsd)
@@ -256,9 +250,8 @@ class CloudStudioSettings(
         const val ENDPOINT_ID = "endpoint_id"
         const val R2_ENDPOINT = "r2_endpoint"
         const val BUCKET = "bucket"
-        const val INSTRUMENTAL = "out_instrumental"
-        const val LYRICS = "out_lyrics"
-        const val TRANSCRIBE = "out_transcribe"
+        // "out_instrumental", "out_lyrics" and "out_transcribe" (the old Outputs switches) may still be in the file,
+        // unused: the cloud makes the instrumental only since 2026-10-23.
         const val QUALITY = "quality"
         const val CELLULAR = "cellular"
         const val PRICE = "price_micro_usd"

@@ -74,6 +74,11 @@ object CloudLimits {
     const val MAX_SONGS_PER_BATCH = 200
     /** Streamed songs are fetched a few at a time, at most 50 per batch (§7.3). */
     const val MAX_STREAMED_PER_BATCH = 50
+    /**
+     * Songs the phone prepares (download, decode) and uploads at once in a full pass, priority jobs first: enough to
+     * keep the built-in endpoint's 3 GPUs ([CloudKeyChoice.BUILT_IN_PARALLEL_WORKERS]) busy.
+     */
+    const val PHONE_STEPS_AT_ONCE = 3
     /** `PIXL_MAX_LYRICS_LINES` / `_CHARS`. */
     const val MAX_LYRICS_LINES = 500
     const val MAX_LYRICS_CHARS = 20_000
@@ -120,7 +125,10 @@ object CloudTiming {
      * lifecycle).
      */
     const val MAX_INPUT_AGE_AT_SUBMIT_MS: Long = 3L * 86_400_000
-    /** A batch is submitted when all its uploads are done, or this long after the first one finished. */
+    /**
+     * A batch is submitted when all its uploads are done, as many as RunPod runs at once are, or this long after the
+     * first one finished ([CloudBatchGate]).
+     */
     const val BATCH_GATE_MS: Long = 120_000
     /** `/status` for running jobs at most this often in the foreground. */
     const val STATUS_POLL_INTERVAL_MS: Long = 15_000
@@ -266,51 +274,23 @@ object CloudJobMachine {
 
 // ─── Selection ──────────────────────────────────────────────────────────────────────────────────
 
-/** What the library knows about a song's lyrics. */
-enum class CloudLyricsState {
-    NONE,
-    /** Plain text, or line timing only (alignment adds word timing). */
-    TEXT_OR_LINE_SYNCED,
-    /** Word timing from a catalog or an earlier run: nothing to add. */
-    WORD_SYNCED,
-    /** The person synced it themselves. */
-    USER_SYNCED,
-}
-
 /** One song's facts for selection (gathered by the app off the main thread). */
 data class CloudSongFacts(
     val songId: String,
     val durationMs: Long,
     val hasInstrumental: Boolean,
-    val lyrics: CloudLyricsState,
     /** A local file or a stream that can be downloaded. */
     val hasAudioSource: Boolean,
     val isStreamed: Boolean,
     val hasPendingJob: Boolean,
 )
 
-/** The person's choices (Settings › Cloud processing › Outputs). */
-data class CloudSelectionOptions(
-    val instrumental: Boolean = true,
-    val lyrics: Boolean = true,
-    /** "Write lyrics when none are found (AI transcription)". */
-    val transcribeWhenMissing: Boolean = true,
-    /** Re-time lyrics the person synced themselves. */
-    val replaceUserSynced: Boolean = false,
-    /**
-     * Ask for the instrumental even when Outputs has it off: the Sing button and automatic preparing exist to get one,
-     * so the developer toggle can't turn their job into a lyrics-only one.
-     */
-    val forceInstrumental: Boolean = false,
-)
-
 /** Why a song wasn't sent. */
 enum class CloudSkipReason(val label: String) {
-    ALREADY_DONE("Already has an instrumental and word-timed lyrics"),
+    ALREADY_DONE("Already has an instrumental"),
     PENDING_JOB("Already waiting in the cloud queue"),
     NO_AUDIO("No audio this phone can fetch"),
     TOO_LONG("Longer than 15 minutes"),
-    USER_SYNCED("You synced these lyrics yourself"),
     BATCH_FULL("More than 200 songs in one batch"),
     TOO_MANY_STREAMED("More than 50 streamed songs in one batch"),
 }
@@ -319,8 +299,6 @@ enum class CloudSkipReason(val label: String) {
 data class CloudSongPlan(
     val songId: String,
     val tasks: List<CloudTask>,
-    /** `align` when the song has lyrics, `transcribe` when it has none. */
-    val lyricsMode: CloudLyricsMode?,
     val isStreamed: Boolean,
     val durationMs: Long,
 )
@@ -337,40 +315,28 @@ data class CloudSelection(
 }
 
 object CloudSelector {
-    /** One song's plan, or why it is skipped. One job per song covers every missing task. */
-    fun plan(facts: CloudSongFacts, options: CloudSelectionOptions): Pair<CloudSongPlan?, CloudSkipReason?> {
+    /**
+     * One song's plan, or why it is skipped. The cloud makes instrumentals only (2026-10-23: word-timed lyrics come from
+     * BiniLyrics and the other catalogs, so the cloud no longer aligns or transcribes them): a song without one gets a
+     * job, a song that has one is done.
+     */
+    fun plan(facts: CloudSongFacts): Pair<CloudSongPlan?, CloudSkipReason?> {
         if (facts.hasPendingJob) return null to CloudSkipReason.PENDING_JOB
         if (facts.durationMs > CloudLimits.MAX_DURATION_MS) return null to CloudSkipReason.TOO_LONG
-        val tasks = mutableListOf<CloudTask>()
-        if ((options.instrumental || options.forceInstrumental) && !facts.hasInstrumental) tasks += CloudTask.INSTRUMENTAL
-        var mode: CloudLyricsMode? = null
-        var userSyncedSkip = false
-        if (options.lyrics) {
-            when (facts.lyrics) {
-                CloudLyricsState.NONE -> if (options.transcribeWhenMissing) mode = CloudLyricsMode.TRANSCRIBE
-                CloudLyricsState.TEXT_OR_LINE_SYNCED -> mode = CloudLyricsMode.ALIGN
-                CloudLyricsState.WORD_SYNCED -> Unit
-                CloudLyricsState.USER_SYNCED ->
-                    if (options.replaceUserSynced) mode = CloudLyricsMode.ALIGN else userSyncedSkip = true
-            }
-        }
-        if (mode != null) tasks += CloudTask.LYRICS
-        if (tasks.isEmpty()) {
-            return null to if (userSyncedSkip) CloudSkipReason.USER_SYNCED else CloudSkipReason.ALREADY_DONE
-        }
+        if (facts.hasInstrumental) return null to CloudSkipReason.ALREADY_DONE
         if (!facts.hasAudioSource) return null to CloudSkipReason.NO_AUDIO
-        return CloudSongPlan(facts.songId, tasks, mode, facts.isStreamed, facts.durationMs) to null
+        return CloudSongPlan(facts.songId, listOf(CloudTask.INSTRUMENTAL), facts.isStreamed, facts.durationMs) to null
     }
 
     /** A batch in the given order, with the 200-song and 50-streamed caps. */
-    fun select(songs: List<CloudSongFacts>, options: CloudSelectionOptions): CloudSelection {
+    fun select(songs: List<CloudSongFacts>): CloudSelection {
         val plans = mutableListOf<CloudSongPlan>()
         val skipped = mutableListOf<Pair<String, CloudSkipReason>>()
         var streamed = 0
         val seen = HashSet<String>()
         for (facts in songs) {
             if (!seen.add(facts.songId)) continue
-            val (plan, reason) = plan(facts, options)
+            val (plan, reason) = plan(facts)
             when {
                 plan == null -> skipped += facts.songId to (reason ?: CloudSkipReason.ALREADY_DONE)
                 plans.size >= CloudLimits.MAX_SONGS_PER_BATCH -> skipped += facts.songId to CloudSkipReason.BATCH_FULL
@@ -405,10 +371,22 @@ object CloudSelector {
 // ─── Batch gate ─────────────────────────────────────────────────────────────────────────────────
 
 object CloudBatchGate {
-    /** Submit a batch's uploaded jobs when every upload is done, or 2 minutes after the first one finished. */
-    fun shouldSubmit(uploadsPending: Int, uploadsDone: Int, firstUploadDoneAtMs: Long?, nowMs: Long): Boolean {
+    /**
+     * Submit a batch's uploaded jobs when every upload is done, as soon as [parallelWorkers] of them are (RunPod runs
+     * that many at once, so the GPUs start while the phone keeps uploading), or 2 minutes after the first one finished.
+     * [uploadsDone] counts the batch's jobs uploaded so far, those already sent included: once the gate has opened it
+     * stays open, and each further upload goes out in the next pass.
+     */
+    fun shouldSubmit(
+        uploadsPending: Int,
+        uploadsDone: Int,
+        firstUploadDoneAtMs: Long?,
+        nowMs: Long,
+        parallelWorkers: Int,
+    ): Boolean {
         if (uploadsDone <= 0) return false
         if (uploadsPending == 0) return true
+        if (uploadsDone >= max(parallelWorkers, 1)) return true
         val first = firstUploadDoneAtMs ?: return false
         return nowMs - first >= CloudTiming.BATCH_GATE_MS
     }
@@ -417,31 +395,64 @@ object CloudBatchGate {
 // ─── Submit burst ───────────────────────────────────────────────────────────────────────────────
 
 /**
- * One submit pass sends the ready jobs in order, and the last of them carries `policy.last_in_batch`: the worker then
- * stops itself after that job instead of staying up, idle and billed (on 2026-10-08 one sat idle for 7+ minutes past
- * its 10 s idle timeout). Which job is the last is only known once the next one is ready to go (a later one may be
- * skipped, fail to sign or stop at the monthly cap), so each job is held until the next one is ready, or until the
- * pass ends, and only then sent: [ready] hands back the job before it (not the last), [end] the final one (the last).
- * A single song is a burst of one. Ported from the iOS app's `CloudSubmitBurst`.
+ * One submit pass sends the ready jobs in order, and the last of them carry `policy.last_in_batch`: a worker stops
+ * itself after such a job instead of staying up, idle and billed (on 2026-10-08 one sat idle for 7+ minutes past its
+ * 10 s idle timeout). With N workers draining RunPod's queue in order, a burst's final N jobs run on (up to) N different
+ * workers, so the last `min(N, burst size)` are marked, one stop for each worker.
+ *
+ * Which jobs are the last is only known once the next ones are ready to go (a later one may be skipped, fail to sign
+ * or stop at the monthly cap), so the newest N ready jobs are held, and one is handed back to go out unmarked only
+ * when one more is ready behind it: [ready] hands back the job that is now known not to be among the last N, [end]
+ * the held ones in order, the burst's last. A single song is a burst of one. Ported from the iOS app's
+ * `CloudSubmitBurst`; whether the tail is marked at all is [CloudBurstMarks]'s.
  */
-class CloudSubmitBurst<Item : Any> {
-    private var held: Item? = null
+class CloudSubmitBurst<Item : Any>(parallelWorkers: Int) {
+    private val tailSize = max(parallelWorkers, 1)
+    private val held = ArrayDeque<Item>()
 
-    /** The job waiting to be sent: the next budget check counts it as already at RunPod. */
-    val holding: Item? get() = held
+    /** The jobs waiting to be sent (at most N): the next budget check counts them as already at RunPod. */
+    val holding: List<Item> get() = held.toList()
 
-    /** [item] is ready to send: hold it, and hand back the job held before it, to send as not the last. */
+    /** [item] is ready to send: hold it; once more than N are held, hand back the oldest, to send as not among the last. */
     fun ready(item: Item): Item? {
-        val previous = held
-        held = item
-        return previous
+        held.addLast(item)
+        return if (held.size > tailSize) held.removeFirst() else null
     }
 
-    /** The pass is over (or stopped at the cap): hand back the held job, to send as the burst's last. */
-    fun end(): Item? {
-        val last = held
-        held = null
-        return last
+    /** The pass is over (or stopped at the cap): hand back the held jobs in order, the burst's last. */
+    fun end(): List<Item> {
+        val tail = held.toList()
+        held.clear()
+        return tail
+    }
+}
+
+/**
+ * Whether the held tail of a burst ([CloudSubmitBurst.end]) carries `last_in_batch` (pure).
+ * - None of it while more of this phone's jobs are on their way soon ([moreComing]): the workers stay up for them
+ *   instead of stopping and leaving each a cold start.
+ * - Otherwise every job of the tail, except a Sing's preview clip whose full job is still coming
+ *   ([CloudPriorityLane.marksLastInBatch]).
+ */
+object CloudBurstMarks {
+    fun marks(tail: List<CloudJobRecord?>, jobs: List<CloudJobRecord>, moreComing: Boolean): List<Boolean> =
+        tail.map { record -> !moreComing && CloudPriorityLane.marksLastInBatch(record, jobs) }
+
+    /**
+     * More of this phone's jobs are coming soon: one of [onTheWay] (due, and being prepared or uploaded, or waiting for a
+     * step the phone may take now; the engine picks them) still fits in [roomMicroUsd], what the month has left once the
+     * burst is out. A job the cap would stop isn't coming. [outOfTime] is a background pass with no time left to upload
+     * more: what is left waits for a later pass, so the tail is marked anyway.
+     */
+    fun moreComing(
+        onTheWay: List<CloudJobRecord>,
+        roomMicroUsd: Long,
+        pricePerSecondMicroUsd: Long,
+        outOfTime: Boolean,
+    ): Boolean {
+        if (outOfTime) return false
+        val price = max(pricePerSecondMicroUsd, 0)
+        return onTheWay.any { CloudCost.estimatedSeconds(it.plan, it.quality) * price <= roomMicroUsd }
     }
 }
 
@@ -459,14 +470,14 @@ object CloudCost {
     const val DEFAULT_MONTHLY_CAP_MICRO_USD: Long = 3_000_000
 
     /**
-     * Billed GPU seconds per warm 4-minute song: instrumental + aligned lyrics. From the 2026-10-22 bench on an
-     * RTX A4500 (it was 20 before that run).
+     * Billed GPU seconds per warm 4-minute song: the instrumental only. The 2026-10-22 bench on an RTX A4500 measured
+     * 38 s with aligned lyrics; the cloud no longer times lyrics (2026-10-23), which takes off about 5 s of alignment.
+     * The same figure as the iOS app's.
      */
-    const val WARM_SECONDS_STANDARD: Long = 38
-    const val EXTRA_SECONDS_TRANSCRIBE: Long = 10
+    const val WARM_SECONDS_STANDARD: Long = 33
     const val EXTRA_SECONDS_BEST: Long = 12
     const val EXTRA_SECONDS_STEMS: Long = 5
-    /** One cold start per batch (2026-10-22 bench; it was 35 before that run). */
+    /** One cold start per worker a batch wakes (2026-10-22 bench; it was 35 before that run). */
     const val COLD_START_SECONDS: Long = 15
     /** The song length §6's figures are for (4 minutes). */
     const val REFERENCE_SONG_MS: Long = 240_000
@@ -485,17 +496,24 @@ object CloudCost {
     /** Estimated GPU seconds for one song's plan (scaled by length: the figures are for a 4-minute song). */
     fun estimatedSeconds(plan: CloudSongPlan, quality: CloudSeparationQuality): Long {
         var seconds = WARM_SECONDS_STANDARD
-        if (plan.lyricsMode == CloudLyricsMode.TRANSCRIBE) seconds += EXTRA_SECONDS_TRANSCRIBE
         if (CloudTask.STEMS4 in plan.tasks) seconds += EXTRA_SECONDS_STEMS
         if (CloudSelector.quality(quality, plan.durationMs) == CloudSeparationQuality.BEST) seconds += EXTRA_SECONDS_BEST
         val scale = max(plan.durationMs.toDouble() / REFERENCE_SONG_MS.toDouble(), 0.25)
         return ceil(seconds.toDouble() * scale).toLong()
     }
 
-    /** A batch's estimate: one cold start plus every song warm. */
-    fun estimateMicroUsd(plans: List<CloudSongPlan>, quality: CloudSeparationQuality, pricePerSecondMicroUsd: Long): Long {
+    /** Cold starts a batch of [songs] pays: one for each worker it wakes, `min(N, songs)` with N workers at once. */
+    fun coldStarts(songs: Int, parallelWorkers: Int): Int = min(max(parallelWorkers, 1), max(songs, 0))
+
+    /** A batch's estimate: a cold start for each worker it wakes ([coldStarts]) plus every song warm. */
+    fun estimateMicroUsd(
+        plans: List<CloudSongPlan>,
+        quality: CloudSeparationQuality,
+        pricePerSecondMicroUsd: Long,
+        parallelWorkers: Int,
+    ): Long {
         if (plans.isEmpty()) return 0
-        val seconds = COLD_START_SECONDS + plans.sumOf { estimatedSeconds(it, quality) }
+        val seconds = COLD_START_SECONDS * coldStarts(plans.size, parallelWorkers) + plans.sumOf { estimatedSeconds(it, quality) }
         return seconds * max(pricePerSecondMicroUsd, 0)
     }
 
@@ -629,9 +647,9 @@ object CloudPriorityLane {
     }
 
     /**
-     * Whether [record], the final job of a burst, carries `last_in_batch`. A preview clip whose full job is still coming
-     * doesn't: the worker that ran the clip stays up for the full song behind it instead of stopping and leaving that
-     * one a cold start. The full job then carries the flag, so a clip-then-song burst still has exactly one.
+     * Whether [record], one of a burst's last jobs, carries `last_in_batch`. A preview clip whose full job is still
+     * coming doesn't: the worker that ran the clip stays up for the full song behind it instead of stopping and leaving
+     * that one a cold start. The full job then carries the flag.
      */
     fun marksLastInBatch(record: CloudJobRecord?, jobs: List<CloudJobRecord>): Boolean =
         record == null || siblingStillComing(record, jobs) == null
@@ -736,7 +754,7 @@ object CloudClipPlanner {
 
     /** The clip as a selection plan (cost estimates): the instrumental only, at the clip's length. */
     fun plan(songId: String, isStreamed: Boolean, range: CloudClipRange): CloudSongPlan =
-        CloudSongPlan(songId, listOf(CloudTask.INSTRUMENTAL), null, isStreamed, range.lengthMs)
+        CloudSongPlan(songId, listOf(CloudTask.INSTRUMENTAL), isStreamed, range.lengthMs)
 }
 
 /** Frames [from] (inclusive) to [until] (exclusive) of one decoded buffer. */
@@ -786,6 +804,7 @@ data class CloudBatchEstimate(
             pricePerSecondMicroUsd: Long,
             committedMicroUsd: Long,
             capMicroUsd: Long,
+            parallelWorkers: Int,
         ): CloudBatchEstimate {
             var duration = 0L
             var bytes = 0L
@@ -795,7 +814,7 @@ data class CloudBatchEstimate(
                 bytes += CloudUploadEstimate.bytes(plan.durationMs)
                 if (plan.isStreamed) streamed++
             }
-            val cost = CloudCost.estimateMicroUsd(plans, quality, pricePerSecondMicroUsd)
+            val cost = CloudCost.estimateMicroUsd(plans, quality, pricePerSecondMicroUsd, parallelWorkers)
             val remaining = CloudBudget.remainingMicroUsd(capMicroUsd, committedMicroUsd)
             return CloudBatchEstimate(plans.size, streamed, duration, bytes, cost, remaining, capMicroUsd)
         }

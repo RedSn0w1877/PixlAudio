@@ -127,7 +127,7 @@ class CloudAutoPrepareRunnerTest {
 
     @Test fun `both budgets limit the batch`() = runBlocking {
         library("a", "b", "c")
-        // A 3-minute song costs (15 + 29) s at 192 µ$/s alone, 14,016 µ$ for two.
+        // A 3-minute song costs (15 + 25) s at 192 µ$/s alone, 12,480 µ$ for two, 17,280 µ$ for three.
         settings.snapshot = settings.snapshot.copy(autoPrepareMonthlyBudgetMicroUsd = 15_000)
         assertEquals(2, runner().run(deadline).added)
         engine.sent.clear()

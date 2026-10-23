@@ -6,11 +6,9 @@ import com.theveloper.pixelplay.data.cloudstudio.CloudEndpointWatch
 import com.theveloper.pixelplay.data.cloudstudio.CloudJobRecord
 import com.theveloper.pixelplay.data.cloudstudio.CloudKeyChoice
 import com.theveloper.pixelplay.data.cloudstudio.CloudJobState
-import com.theveloper.pixelplay.data.cloudstudio.CloudLyricsMode
 import com.theveloper.pixelplay.data.cloudstudio.CloudNotice
 import com.theveloper.pixelplay.data.cloudstudio.CloudProgress
 import com.theveloper.pixelplay.data.cloudstudio.CloudSkipReason
-import com.theveloper.pixelplay.data.cloudstudio.CloudTask
 import kotlin.math.max
 
 /**
@@ -86,7 +84,6 @@ object CloudStudioCopy {
 
     fun batchTitle(kind: CloudBatchKind): String = when (kind) {
         CloudBatchKind.CURRENT -> "Current song"
-        CloudBatchKind.MISSING_LYRICS -> "Songs without word-timed lyrics"
         CloudBatchKind.MISSING_INSTRUMENTAL -> "Songs without an instrumental"
     }
 
@@ -168,12 +165,7 @@ object CloudStudioCopy {
         }
         CloudJobState.FAILED ->
             record.lastErrorCode?.takeIf { developerMode }?.let { "Failed · $it" } ?: record.state.label
-        CloudJobState.IMPORTED -> {
-            val parts = mutableListOf<String>()
-            if (record.importedInstrumental) parts += "instrumental"
-            if (record.importedLyrics) parts += if (record.lyricsTranscribed) "AI-written lyrics" else "word-timed lyrics"
-            if (parts.isEmpty()) "Done" else "Done · " + parts.joinToString(" + ")
-        }
+        CloudJobState.IMPORTED -> if (record.importedInstrumental) "Done · instrumental" else "Done"
         else -> when {
             record.nextAttemptAtMs != null && !record.lastError.isNullOrEmpty() -> "Trying again soon"
             // Stepped aside in RunPod's queue for a song being sung: back on the phone, going out again right behind it.
@@ -197,9 +189,6 @@ object CloudStudioCopy {
             }
         }
         if (record.lowQualitySource) lines += "Low-quality source: only low-quality audio was on offer."
-        if (record.state != CloudJobState.IMPORTED && record.lyricsMode == CloudLyricsMode.TRANSCRIBE &&
-            CloudTask.LYRICS in record.tasks
-        ) lines += "No lyrics yet: the cloud will write them (AI-written lyrics)."
         if (record.state == CloudJobState.IMPORTED && developerMode) {
             val cost = listOfNotNull(record.costMicroUsd?.let(CloudCost::format), record.gpu)
             if (cost.isNotEmpty()) lines += cost.joinToString(" · ")

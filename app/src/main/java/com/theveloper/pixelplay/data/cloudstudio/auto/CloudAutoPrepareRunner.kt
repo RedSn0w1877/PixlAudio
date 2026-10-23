@@ -99,6 +99,7 @@ class CloudAutoPrepareRunner(
                 pricePerSecondMicroUsd = snapshot.effectivePricePerSecondMicroUsd,
                 quality = snapshot.quality,
                 isCoolingDown = { cooldowns.isResting(it, now) },
+                parallelWorkers = snapshot.parallelWorkers,
             ),
         )
         report.picked(selection.picks.ifEmpty { ranked.take(WHY_LINES) }.map { CloudAutoPrepare.whyLine(it, now) })

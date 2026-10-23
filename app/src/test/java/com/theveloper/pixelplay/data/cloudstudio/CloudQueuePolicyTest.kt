@@ -13,11 +13,10 @@ class CloudQueuePolicyTest {
         id: String = "s1",
         durationMs: Long = 240_000,
         instrumental: Boolean = false,
-        lyrics: CloudLyricsState = CloudLyricsState.TEXT_OR_LINE_SYNCED,
         audio: Boolean = true,
         streamed: Boolean = false,
         pending: Boolean = false,
-    ) = CloudSongFacts(id, durationMs, instrumental, lyrics, audio, streamed, pending)
+    ) = CloudSongFacts(id, durationMs, instrumental, audio, streamed, pending)
 
     private fun record(state: CloudJobState = CloudJobState.QUEUED, tasks: List<CloudTask> = listOf(CloudTask.INSTRUMENTAL, CloudTask.LYRICS)) =
         CloudJobRecord(jobKey = CloudFixtures.JOB_KEY, songId = "s1", tasks = tasks, state = state, createdAtMs = 0)
@@ -82,28 +81,21 @@ class CloudQueuePolicyTest {
         assertEquals(3_600_000L, CloudTiming.backoffMs(9))
     }
 
-    @Test fun `selection plans one job per song with every missing task`() {
-        val options = CloudSelectionOptions()
-        val (plan, _) = CloudSelector.plan(facts(), options)
-        assertEquals(listOf(CloudTask.INSTRUMENTAL, CloudTask.LYRICS), plan!!.tasks)
-        assertEquals(CloudLyricsMode.ALIGN, plan.lyricsMode)
-        assertEquals(CloudLyricsMode.TRANSCRIBE, CloudSelector.plan(facts(lyrics = CloudLyricsState.NONE), options).first!!.lyricsMode)
-        assertNull(CloudSelector.plan(facts(lyrics = CloudLyricsState.NONE), options.copy(transcribeWhenMissing = false)).first!!.lyricsMode)
-        assertEquals(CloudSkipReason.ALREADY_DONE,
-            CloudSelector.plan(facts(instrumental = true, lyrics = CloudLyricsState.WORD_SYNCED), options).second)
-        assertEquals(CloudSkipReason.USER_SYNCED,
-            CloudSelector.plan(facts(instrumental = true, lyrics = CloudLyricsState.USER_SYNCED), options).second)
-        assertEquals(CloudLyricsMode.ALIGN, CloudSelector.plan(facts(lyrics = CloudLyricsState.USER_SYNCED),
-            options.copy(replaceUserSynced = true)).first!!.lyricsMode)
-        assertEquals(CloudSkipReason.NO_AUDIO, CloudSelector.plan(facts(audio = false), options).second)
-        assertEquals(CloudSkipReason.TOO_LONG, CloudSelector.plan(facts(durationMs = 900_001), options).second)
-        assertEquals(CloudSkipReason.PENDING_JOB, CloudSelector.plan(facts(pending = true), options).second)
+    @Test fun `selection plans the instrumental only, for songs that don't have one`() {
+        // The cloud no longer times lyrics (2026-10-23): a job is the instrumental, whatever the song's lyrics are.
+        val (plan, _) = CloudSelector.plan(facts())
+        assertEquals(CloudSongPlan("s1", listOf(CloudTask.INSTRUMENTAL), false, 240_000), plan)
+        assertEquals(CloudSkipReason.ALREADY_DONE, CloudSelector.plan(facts(instrumental = true)).second)
+        assertEquals("Already has an instrumental", CloudSkipReason.ALREADY_DONE.label)
+        assertEquals(CloudSkipReason.NO_AUDIO, CloudSelector.plan(facts(audio = false)).second)
+        assertEquals(CloudSkipReason.TOO_LONG, CloudSelector.plan(facts(durationMs = 900_001)).second)
+        assertEquals(CloudSkipReason.PENDING_JOB, CloudSelector.plan(facts(pending = true)).second)
     }
 
     @Test fun `batches cap at 200 songs and 50 streamed ones, and skip duplicates`() {
         // 60 streamed songs first (50 go, 10 don't), then 200 local ones (150 fit, 50 don't), then a repeat.
         val songs = (0 until 260).map { facts(id = "s$it", streamed = it < 60) } + facts(id = "s1")
-        val selection = CloudSelector.select(songs, CloudSelectionOptions())
+        val selection = CloudSelector.select(songs)
         assertEquals(200, selection.plans.size)
         assertEquals(50, selection.plans.count { it.isStreamed })
         val counts = selection.skipCounts.toMap()
@@ -120,22 +112,54 @@ class CloudQueuePolicyTest {
         assertFalse(CloudSelector.syncedHint(false, null, 200_000))
         assertEquals(CloudSeparationQuality.STANDARD, CloudSelector.quality(CloudSeparationQuality.BEST, 480_001))
         assertEquals(CloudSeparationQuality.BEST, CloudSelector.quality(CloudSeparationQuality.BEST, 480_000))
-        assertFalse(CloudBatchGate.shouldSubmit(2, 0, null, 0))
-        assertTrue(CloudBatchGate.shouldSubmit(0, 3, 0, 0))
-        assertFalse(CloudBatchGate.shouldSubmit(1, 1, 1_000, 100_000))
-        assertTrue(CloudBatchGate.shouldSubmit(1, 1, 1_000, 121_000))
+        // One worker (own keys): the first upload opens the gate, as all of them or two minutes would.
+        assertFalse(CloudBatchGate.shouldSubmit(2, 0, null, 0, 1))
+        assertTrue(CloudBatchGate.shouldSubmit(0, 3, 0, 0, 1))
+        assertTrue(CloudBatchGate.shouldSubmit(1, 1, 1_000, 100_000, 1))
+        assertTrue(CloudBatchGate.shouldSubmit(1, 1, 1_000, 121_000, 0), "no worker count reads as one")
+    }
+
+    @Test fun `with three workers the gate opens at three uploads, all of them, or two minutes`() {
+        val n = CloudKeyChoice.BUILT_IN_PARALLEL_WORKERS
+        assertEquals(3, n)
+        assertFalse(CloudBatchGate.shouldSubmit(uploadsPending = 0, uploadsDone = 0, firstUploadDoneAtMs = null, nowMs = 0, parallelWorkers = n))
+        assertFalse(CloudBatchGate.shouldSubmit(5, 1, 1_000, 100_000, n), "one of six, under two minutes")
+        assertFalse(CloudBatchGate.shouldSubmit(4, 2, 1_000, 100_000, n), "two of six")
+        assertTrue(CloudBatchGate.shouldSubmit(3, 3, 1_000, 1_000, n), "three: the GPUs start while the rest upload")
+        // Once open it stays open: songs already sent count as uploads done, so the fourth goes out on its own.
+        assertTrue(CloudBatchGate.shouldSubmit(2, 4, 50_000, 50_000, n))
+        // A batch smaller than three goes when all of it is up; a slow one after two minutes.
+        assertTrue(CloudBatchGate.shouldSubmit(0, 2, 1_000, 1_000, n))
+        assertTrue(CloudBatchGate.shouldSubmit(4, 2, 1_000, 121_000, n))
+        // How many run at once follows the keys: three on PixlAudio's endpoint, one on the person's own.
+        assertEquals(3, CloudKeyChoice.parallelWorkers(CloudKeySource.BUILT_IN))
+        assertEquals(1, CloudKeyChoice.parallelWorkers(CloudKeySource.OWN))
+        assertEquals(3, CloudSettingsSnapshot(builtInAvailable = true).parallelWorkers)
+        assertEquals(1, CloudSettingsSnapshot(builtInAvailable = true, useOwnKeys = true).parallelWorkers)
     }
 
     @Test fun `cost estimates, actual cost and formatting`() {
-        val plan = CloudSongPlan("s", listOf(CloudTask.INSTRUMENTAL, CloudTask.LYRICS), CloudLyricsMode.ALIGN, false, 240_000)
-        // The 2026-10-22 bench (RTX A4500): 38 s warm for a 4-minute song, 15 s for a cold start.
-        assertEquals(38L, CloudCost.WARM_SECONDS_STANDARD)
+        val plan = CloudSongPlan("s", listOf(CloudTask.INSTRUMENTAL), false, 240_000)
+        // The 2026-10-22 bench (RTX A4500) less the lyric alignment the cloud no longer does: 33 s warm for a
+        // 4-minute song's instrumental (the iOS app's figure too), 15 s for a cold start.
+        assertEquals(33L, CloudCost.WARM_SECONDS_STANDARD)
         assertEquals(15L, CloudCost.COLD_START_SECONDS)
-        assertEquals(38L, CloudCost.estimatedSeconds(plan, CloudSeparationQuality.STANDARD))
-        assertEquals(60L, CloudCost.estimatedSeconds(plan.copy(lyricsMode = CloudLyricsMode.TRANSCRIBE), CloudSeparationQuality.BEST))
-        assertEquals(10L, CloudCost.estimatedSeconds(plan.copy(durationMs = 10_000), CloudSeparationQuality.STANDARD))
-        assertEquals((15L + 38) * 192, CloudCost.estimateMicroUsd(listOf(plan), CloudSeparationQuality.STANDARD, 192))
-        assertEquals(0L, CloudCost.estimateMicroUsd(emptyList(), CloudSeparationQuality.STANDARD, 192))
+        assertEquals(33L, CloudCost.estimatedSeconds(plan, CloudSeparationQuality.STANDARD))
+        assertEquals(45L, CloudCost.estimatedSeconds(plan, CloudSeparationQuality.BEST))
+        // A job stored with the lyrics task costs the same: nothing is added for lyrics any more.
+        assertEquals(33L, CloudCost.estimatedSeconds(plan.copy(tasks = listOf(CloudTask.INSTRUMENTAL, CloudTask.LYRICS)),
+            CloudSeparationQuality.STANDARD))
+        assertEquals(9L, CloudCost.estimatedSeconds(plan.copy(durationMs = 10_000), CloudSeparationQuality.STANDARD))
+        assertEquals((15L + 33) * 192, CloudCost.estimateMicroUsd(listOf(plan), CloudSeparationQuality.STANDARD, 192, 1))
+        assertEquals(0L, CloudCost.estimateMicroUsd(emptyList(), CloudSeparationQuality.STANDARD, 192, 3))
+        // A batch pays a cold start for each worker it wakes: min(N, songs).
+        val five = List(5) { plan }
+        assertEquals((15L + 5 * 33) * 192, CloudCost.estimateMicroUsd(five, CloudSeparationQuality.STANDARD, 192, 1))
+        assertEquals((3 * 15L + 5 * 33) * 192, CloudCost.estimateMicroUsd(five, CloudSeparationQuality.STANDARD, 192, 3))
+        assertEquals((2 * 15L + 2 * 33) * 192, CloudCost.estimateMicroUsd(five.take(2), CloudSeparationQuality.STANDARD, 192, 3))
+        assertEquals((15L + 33) * 192, CloudCost.estimateMicroUsd(listOf(plan), CloudSeparationQuality.STANDARD, 192, 3))
+        assertEquals(listOf(0, 1, 2, 3, 3), listOf(0, 1, 2, 3, 7).map { CloudCost.coldStarts(it, 3) })
+        assertEquals(1, CloudCost.coldStarts(4, 0), "no worker count reads as one")
         assertEquals(161L, CloudCost.pricePerSecondMicroUsd("NVIDIA RTX A4000"))
         assertEquals(306L, CloudCost.pricePerSecondMicroUsd("NVIDIA GeForce RTX 4090"))
         assertEquals(192L, CloudCost.pricePerSecondMicroUsd("NVIDIA L4"))
@@ -160,11 +184,12 @@ class CloudQueuePolicyTest {
         val running = record(CloudJobState.RUNNING).copy(submittedAtMs = month + 20, durationMs = 240_000)
         val records = listOf(done, lastMonth, running)
         assertEquals(5_000L, CloudBudget.spentMicroUsd(records, month))
-        assertEquals(5_000L + 38 * 192, CloudBudget.committedMicroUsd(records, month, 192))
+        assertEquals(5_000L + 33 * 192, CloudBudget.committedMicroUsd(records, month, 192))
         assertTrue(CloudBudget.allows(1_000, 10_000, 9_000))
         assertFalse(CloudBudget.allows(1_001, 10_000, 9_000))
         assertEquals(0L, CloudBudget.remainingMicroUsd(5, 10))
-        val estimate = CloudBatchEstimate.make(listOf(running.plan), CloudSeparationQuality.STANDARD, 192, 2_999_000, 3_000_000)
+        val estimate = CloudBatchEstimate.make(listOf(running.plan), CloudSeparationQuality.STANDARD, 192, 2_999_000, 3_000_000, 3)
+        assertEquals((15L + 33) * 192, estimate.costMicroUsd, "one song wakes one worker")
         assertFalse(estimate.fitsCap)
         assertEquals(4L, estimate.minutes)
         assertTrue(estimate.uploadMb in 20..35)
@@ -223,9 +248,22 @@ class CloudQueuePolicyTest {
         assertEquals(cost, duplicate.costMicroUsd)
         assertTrue(duplicate.warnings.isEmpty())
         assertFalse(taken.isFullyImported)
-        assertTrue(taken.copy(importedInstrumental = true, importedLyrics = true).isFullyImported)
-        // A result without the lyrics file counts as done for lyrics.
+        // A job sent with the lyrics task before the cloud stopped timing lyrics is done once its instrumental is in:
+        // the lyrics file is never fetched, so nothing waits for it.
+        assertTrue(taken.copy(importedInstrumental = true).isFullyImported)
         assertTrue(taken.copy(importedInstrumental = true, lyricsKey = null).isFullyImported)
+    }
+
+    @Test fun `a job not yet at RunPod drops the lyrics task`() {
+        val both = record(CloudJobState.UPLOADED).copy(lyricsMode = CloudLyricsMode.ALIGN)
+        val instrumentalOnly = both.withoutLyrics()
+        assertEquals(listOf(CloudTask.INSTRUMENTAL), instrumentalOnly.tasks)
+        assertNull(instrumentalOnly.lyricsMode)
+        assertEquals(instrumentalOnly, instrumentalOnly.withoutLyrics(), "nothing more to drop")
+        // A job that only wanted lyrics is left with nothing to do.
+        assertTrue(record(tasks = listOf(CloudTask.LYRICS)).withoutLyrics().tasks.isEmpty())
+        val plain = record(tasks = listOf(CloudTask.INSTRUMENTAL))
+        assertTrue(plain === plain.withoutLyrics(), "an instrumental-only job is returned as it is")
     }
 
     @Test fun `job keys and content types`() {
@@ -236,29 +274,6 @@ class CloudQueuePolicyTest {
         assertEquals(CloudFixtures.JOB_KEY, CloudKeys.jobKeyFromOutputKey("out/${CloudFixtures.JOB_KEY}/manifest.json"))
         assertEquals("audio/flac", CloudKeys.contentType("FLAC"))
         assertEquals("audio/mp4", CloudKeys.contentType("m4a"))
-    }
-
-    // ─── Forcing the instrumental (Sing, automatic preparing) ───────────────────────────────
-
-    @Test fun `forcing the instrumental overrides an Outputs toggle that is off`() {
-        val off = CloudSelectionOptions(instrumental = false)
-        // With the toggle off and nothing else to do, there is no job at all.
-        assertEquals(CloudSkipReason.ALREADY_DONE, CloudSelector.plan(facts(lyrics = CloudLyricsState.WORD_SYNCED), off).second)
-        assertEquals(listOf(CloudTask.LYRICS), CloudSelector.plan(facts(), off).first!!.tasks)
-        assertEquals(
-            listOf(CloudTask.INSTRUMENTAL, CloudTask.LYRICS),
-            CloudSelector.plan(facts(), off.copy(forceInstrumental = true)).first!!.tasks,
-        )
-        // Lyrics already word-timed: the job is the instrumental alone.
-        assertEquals(
-            listOf(CloudTask.INSTRUMENTAL),
-            CloudSelector.plan(facts(lyrics = CloudLyricsState.WORD_SYNCED), off.copy(forceInstrumental = true)).first!!.tasks,
-        )
-        // An instrumental that exists is never asked for again.
-        assertEquals(
-            CloudSkipReason.ALREADY_DONE,
-            CloudSelector.plan(facts(instrumental = true, lyrics = CloudLyricsState.WORD_SYNCED), off.copy(forceInstrumental = true)).second,
-        )
     }
 
     // ─── The priority lane ──────────────────────────────────────────────────────────────────
@@ -399,11 +414,13 @@ class CloudQueuePolicyTest {
 
     @Test fun `a clip's plan is the instrumental only at the clip's length, and costs a small share of the song`() {
         val clip = CloudClipPlanner.plan("s1", isStreamed = true, CloudClipRange(57_000, 120_000))
-        assertEquals(CloudSongPlan("s1", listOf(CloudTask.INSTRUMENTAL), null, true, 63_000), clip)
-        val song = CloudSongPlan("s1", listOf(CloudTask.INSTRUMENTAL, CloudTask.LYRICS), CloudLyricsMode.ALIGN, true, 240_000)
-        // 38 warm seconds for the song; the clip's 63 s are 10 more on the same warm worker (one cold start for both).
-        assertEquals(10, CloudCost.estimatedSeconds(clip, CloudSeparationQuality.STANDARD))
-        assertEquals((15 + 38 + 10) * 192L, CloudCost.estimateMicroUsd(listOf(clip, song), CloudSeparationQuality.STANDARD, 192))
+        assertEquals(CloudSongPlan("s1", listOf(CloudTask.INSTRUMENTAL), true, 63_000), clip)
+        val song = CloudSongPlan("s1", listOf(CloudTask.INSTRUMENTAL), true, 240_000)
+        // 33 warm seconds for the song; the clip's 63 s are 9 more. One worker: one cold start for both.
+        assertEquals(9, CloudCost.estimatedSeconds(clip, CloudSeparationQuality.STANDARD))
+        assertEquals((15 + 33 + 9) * 192L, CloudCost.estimateMicroUsd(listOf(clip, song), CloudSeparationQuality.STANDARD, 192, 1))
+        // Three workers: the clip and the song may land on two of them.
+        assertEquals((2 * 15 + 33 + 9) * 192L, CloudCost.estimateMicroUsd(listOf(clip, song), CloudSeparationQuality.STANDARD, 192, 3))
     }
 
     @Test fun `the clip is cut sample-exactly out of the decode's buffers`() {
@@ -449,6 +466,47 @@ class CloudQueuePolicyTest {
         ).forEach { sibling -> assertTrue(CloudPriorityLane.marksLastInBatch(clip, listOf(sibling, clip)), "with $sibling") }
         assertTrue(CloudPriorityLane.marksLastInBatch(clip, listOf(clip)), "its song is gone")
         assertTrue(CloudPriorityLane.marksLastInBatch(null, emptyList()))
+    }
+
+    @Test fun `the last N jobs of a burst carry the stop flag, and none while more are coming`() {
+        // Each held job is handed back unmarked once N more are ready behind it; the ones left at the end are the last.
+        fun sent(workers: Int, items: List<String>): List<Pair<String, Boolean>> {
+            val burst = CloudSubmitBurst<String>(workers)
+            val out = mutableListOf<Pair<String, Boolean>>()
+            for (item in items) burst.ready(item)?.let { out += it to false }
+            burst.end().forEach { out += it to true }
+            return out
+        }
+        // Three workers: the last three of five, one for each worker.
+        assertEquals(listOf("a" to false, "b" to false, "c" to true, "d" to true, "e" to true), sent(3, listOf("a", "b", "c", "d", "e")))
+        // A burst smaller than N: every job of it.
+        assertEquals(listOf("a" to true, "b" to true), sent(3, listOf("a", "b")))
+        // One worker (own keys): the final job only.
+        assertEquals(listOf("a" to false, "b" to false, "c" to true), sent(1, listOf("a", "b", "c")))
+        assertTrue(sent(3, emptyList()).isEmpty())
+        val burst = CloudSubmitBurst<String>(3)
+        listOf("a", "b").forEach { burst.ready(it) }
+        assertEquals(listOf("a", "b"), burst.holding, "the budget counts every held job as at RunPod")
+
+        // Whether the tail is marked at all: not while more of this phone's jobs are coming.
+        val a = laneJob("a", state = CloudJobState.UPLOADED, runpodId = null, submittedAt = null)
+        val b = laneJob("b", state = CloudJobState.UPLOADED, runpodId = null, submittedAt = null)
+        assertEquals(listOf(true, true), CloudBurstMarks.marks(listOf(a, b), listOf(a, b), moreComing = false))
+        assertEquals(listOf(false, false), CloudBurstMarks.marks(listOf(a, b), listOf(a, b), moreComing = true))
+        // A preview clip whose song is still coming stays unmarked (Sing step 4); the song behind it is marked.
+        val queuedFull = laneJob("F", state = CloudJobState.QUEUED, origin = CloudJobOrigin.SING, runpodId = null, submittedAt = null)
+        val clip = clipOf("C", "F")
+        val readyFull = queuedFull.copy(state = CloudJobState.UPLOADED)
+        assertEquals(listOf(false, true), CloudBurstMarks.marks(listOf(clip, readyFull), listOf(readyFull, clip), moreComing = false))
+        assertEquals(listOf(false), CloudBurstMarks.marks(listOf(clip), listOf(queuedFull, clip), moreComing = false))
+
+        // Coming = on its way and still inside what the month has left; a background pass out of time marks anyway.
+        val coming = laneJob("q", state = CloudJobState.QUEUED, runpodId = null, submittedAt = null)
+        val one = CloudCost.estimatedSeconds(coming.plan, coming.quality) * 192
+        assertTrue(CloudBurstMarks.moreComing(listOf(coming), one, 192, outOfTime = false))
+        assertFalse(CloudBurstMarks.moreComing(listOf(coming), one - 1, 192, outOfTime = false), "the cap would stop it")
+        assertFalse(CloudBurstMarks.moreComing(listOf(coming), one, 192, outOfTime = true), "no time left in this pass")
+        assertFalse(CloudBurstMarks.moreComing(emptyList(), 1_000_000, 192, outOfTime = false))
     }
 
     @Test fun `jobs that step aside for a clip wait for its song`() {
@@ -528,12 +586,12 @@ class CloudQueuePolicyTest {
         )
         val records = listOf(done, doneLastMonth, manual, running)
         // Automatic jobs only: this month's recorded cost, what RunPod holds now, and what removed ones spent.
-        assertEquals(5_000L + 38 * 192, CloudBudget.autoCommittedMicroUsd(records, month, 192, 0))
-        assertEquals(5_000L + 38 * 192 + 1_500, CloudBudget.autoCommittedMicroUsd(records, month, 192, 1_500))
+        assertEquals(5_000L + 33 * 192, CloudBudget.autoCommittedMicroUsd(records, month, 192, 0))
+        assertEquals(5_000L + 33 * 192 + 1_500, CloudBudget.autoCommittedMicroUsd(records, month, 192, 1_500))
         assertEquals(1_500L, CloudBudget.autoCommittedMicroUsd(emptyList(), month, 192, 1_500))
         assertEquals(0L, CloudBudget.autoCommittedMicroUsd(emptyList(), month, 192, -9), "a negative ledger value counts as 0")
         // The shared month, for comparison, counts the person's job too.
-        assertEquals(5_000L + 9_000 + 38 * 192, CloudBudget.committedMicroUsd(records, month, 192))
+        assertEquals(5_000L + 9_000 + 33 * 192, CloudBudget.committedMicroUsd(records, month, 192))
     }
 
     @Test fun `an automatic job needs room in both budgets`() {
