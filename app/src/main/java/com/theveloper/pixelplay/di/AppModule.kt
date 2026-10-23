@@ -106,11 +106,11 @@ object AppModule {
         impl: com.theveloper.pixelplay.data.lyrics.translate.MlKitLyricsTranslator
     ): com.theveloper.pixelplay.data.lyrics.translate.OnDeviceLyricsTranslator = impl
 
-    /** The lyrics page's Sing button reads its instrumental renders through this (WorkManager in the app). */
+    /** The lyrics page's Sing button reads its instrumental renders through this (WorkManager and Cloud Studio in the app). */
     @Provides
     @Singleton
     fun provideInstrumentalRenderJobs(
-        impl: com.theveloper.pixelplay.data.worker.WorkManagerInstrumentalRenderJobs
+        impl: com.theveloper.pixelplay.data.worker.CompositeInstrumentalRenderJobs
     ): com.theveloper.pixelplay.data.worker.InstrumentalRenderJobs = impl
 
     @Provides

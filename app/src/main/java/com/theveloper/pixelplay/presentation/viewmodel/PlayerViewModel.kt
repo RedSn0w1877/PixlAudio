@@ -38,6 +38,7 @@ import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.theveloper.pixelplay.R
 import com.theveloper.pixelplay.presentation.lyrics.model.PreparedLyrics
+import com.theveloper.pixelplay.presentation.lyrics.sing.sendStudioAudioCommand
 import com.theveloper.pixelplay.data.media.CoverArtUpdate
 import com.theveloper.pixelplay.data.model.Album
 import com.theveloper.pixelplay.data.model.Artist
@@ -936,7 +937,7 @@ class PlayerViewModel @Inject constructor(
         lyricsSing.requests
             .onEach { request: SingRequest ->
                 when (request) {
-                    is SingRequest.Instrumental -> switchToStudioInstrumental(request.path)
+                    is SingRequest.Instrumental -> switchToInstrumental(request.path, request.plan)
                     SingRequest.Original -> switchToOriginalAudio()
                 }
             }
@@ -3112,31 +3113,49 @@ class PlayerViewModel @Inject constructor(
      * player; the service applies the swap directly via [androidx.media3.common.Player.replaceMediaItem],
      * which keeps position and play/pause state on its own.
      */
-    fun switchToStudioInstrumental(instrumentalPath: String) {
+    fun switchToStudioInstrumental(instrumentalPath: String) = switchToInstrumental(instrumentalPath, plan = null)
+
+    /**
+     * [switchToStudioInstrumental] with the fade placed by [plan] (a gap between sung words, for an
+     * instrumental that arrives while the song plays). The Sing state only turns to "Vocals off" once the
+     * service reports the switch really happened; if it did not, the person is told and can tap again.
+     */
+    private fun switchToInstrumental(instrumentalPath: String, plan: CrossfadePlan?) {
         // A render just landed on disk — the Library's "instrumentalized" filter needs to know
         // about it now, not next time the app happens to restart.
         libraryStateHolder.refreshInstrumentalIndex()
-        val controller = mediaController ?: return
+        val controller = mediaController
+        if (controller == null) {
+            lyricsSing.onSwitchFailed()
+            return
+        }
+        val mediaId = controller.currentMediaItem?.mediaId
         val args = Bundle().apply {
             putString(MusicNotificationProvider.EXTRA_STUDIO_AUDIO_PATH, instrumentalPath)
+            plan?.startAtPositionMs?.let { putLong(MusicNotificationProvider.EXTRA_STUDIO_CROSSFADE_AT_MS, it) }
+            plan?.let { putLong(MusicNotificationProvider.EXTRA_STUDIO_CROSSFADE_MS, it.fadeMs.toLong()) }
         }
-        controller.sendCustomCommand(
-            SessionCommand(MusicNotificationProvider.CUSTOM_COMMAND_SET_STUDIO_AUDIO_OVERRIDE, Bundle()),
-            args
-        )
-        studioOverrideMediaId = controller.currentMediaItem?.mediaId
-        lyricsSing.onInstrumentalPlaying()
+        viewModelScope.launch {
+            val switched = controller.sendStudioAudioCommand(args)
+            // The song changed while the fade waited for its gap: Sing already started over for the new song.
+            if (controller.currentMediaItem?.mediaId != mediaId) return@launch
+            if (switched) {
+                studioOverrideMediaId = mediaId
+                lyricsSing.onInstrumentalPlaying()
+            } else {
+                lyricsSing.onSwitchFailed()
+            }
+        }
     }
 
     /** Reverts a [switchToStudioInstrumental] swap back to the original (non-instrumental) audio for the same track. No-op if nothing was overridden. */
     fun switchToOriginalAudio() {
         val controller = mediaController ?: return
         if (studioOverrideMediaId != controller.currentMediaItem?.mediaId) return
-        controller.sendCustomCommand(
-            SessionCommand(MusicNotificationProvider.CUSTOM_COMMAND_SET_STUDIO_AUDIO_OVERRIDE, Bundle()),
-            Bundle()
-        )
+        studioOverrideMediaId = null
+        // The vocals are coming back whatever the service answers, so the button turns back at once.
         lyricsSing.onOriginalPlaying()
+        viewModelScope.launch { controller.sendStudioAudioCommand(Bundle()) }
     }
 
     /**

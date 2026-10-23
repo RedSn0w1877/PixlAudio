@@ -203,7 +203,11 @@ sealed class RunPodError(message: String) : Exception(message) {
 interface RunPodJobsApi {
     suspend fun run(request: CloudJobRequest): RunPodJob
     suspend fun status(jobId: String): RunPodJob
-    suspend fun cancel(jobId: String)
+    /**
+     * Stops a job (`/cancel`). The answer names the job's state afterwards (`CANCELLED` when it was taken out of the
+     * queue); null when RunPod's reply couldn't be read. The priority lane relies on that word, so it must be kept.
+     */
+    suspend fun cancel(jobId: String): RunPodJob?
     suspend fun health(): RunPodHealth
     /** `/runsync` with `op: "selftest"` (about one cold start, ~1¢). */
     suspend fun selftest(build: String): RunPodJob
@@ -221,6 +225,7 @@ class RunPodJobsClient(
     private val gate = Mutex()
     @Volatile private var notBeforeMs: Long = 0
     private var lastRunAtMs: Long? = null
+    private var lastCancelAtMs: Long? = null
 
     /** How long the Retry-After gate still holds (0 = open). */
     val retryAfterRemainingMs: Long get() = (notBeforeMs - nowMs()).coerceAtLeast(0)
@@ -244,9 +249,17 @@ class RunPodJobsClient(
         return RunPodJob.parse(response.body) ?: throw RunPodError.BadResponse("unreadable job status")
     }
 
-    override suspend fun cancel(jobId: String) {
+    override suspend fun cancel(jobId: String): RunPodJob? {
         if (!isSafeIdentifier(jobId, 128)) throw RunPodError.JobNotFound()
-        send("POST", "cancel/$jobId", retries = true, notFound = { RunPodError.JobNotFound() })
+        gate.withLock {
+            lastCancelAtMs?.let { last ->
+                val wait = MINIMUM_CANCEL_INTERVAL_MS - (nowMs() - last)
+                if (wait > 0) sleep(wait)
+            }
+            lastCancelAtMs = nowMs()
+        }
+        val response = send("POST", "cancel/$jobId", retries = true, notFound = { RunPodError.JobNotFound() })
+        return RunPodJob.parse(response.body)
     }
 
     override suspend fun health(): RunPodHealth {
@@ -311,6 +324,8 @@ class RunPodJobsClient(
         const val BASE_URL = "https://api.runpod.ai/v2"
         /** §5: one `/run` per 100 ms or slower. */
         const val MINIMUM_RUN_INTERVAL_MS: Long = 100
+        /** RunPod allows 100 `/cancel` per 10 s (20 at once): pausing a queue stays one at a time, this far apart. */
+        const val MINIMUM_CANCEL_INTERVAL_MS: Long = CloudTiming.CANCEL_MIN_INTERVAL_MS
         /** Backoff before the 2nd and 3rd try of a read. */
         val READ_RETRY_DELAYS_MS: List<Long> = listOf(1_000, 3_000)
 

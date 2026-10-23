@@ -103,6 +103,13 @@ class CloudStudioSettings(
             pricePerSecondMicroUsd = prefs.getLong(Keys.PRICE, CloudCost.DEFAULT_PRICE_PER_SECOND_MICRO_USD).coerceIn(1, 10_000),
             monthlyCapMicroUsd = prefs.getLong(Keys.MONTHLY_CAP, CloudCost.DEFAULT_MONTHLY_CAP_MICRO_USD).coerceIn(0, 1_000_000_000),
             workerCaps = caps,
+            autoPrepareEnabled = prefs.getBoolean(Keys.AUTO_PREPARE, false),
+            autoPrepareMonthlyBudgetMicroUsd = CloudAutoPrepareDefaults.clampBudget(
+                prefs.getLong(Keys.AUTO_BUDGET, CloudAutoPrepareDefaults.BUDGET_MICRO_USD)
+            ),
+            autoPrepareDailyCap = CloudAutoPrepareDefaults.clampDailyCap(
+                prefs.getInt(Keys.AUTO_DAILY_CAP, CloudAutoPrepareDefaults.DAILY_CAP)
+            ),
         )
     }
 
@@ -111,7 +118,13 @@ class CloudStudioSettings(
     fun update(change: (CloudSettingsSnapshot) -> CloudSettingsSnapshot) {
         val before = _settings.value
         // Availability is the build's, not a setting.
-        var after = change(before).copy(builtInAvailable = before.builtInAvailable)
+        var after = change(before).copy(builtInAvailable = before.builtInAvailable).let {
+            // The slider and the stepper have ranges; nothing else may store a value outside them.
+            it.copy(
+                autoPrepareMonthlyBudgetMicroUsd = CloudAutoPrepareDefaults.clampBudget(it.autoPrepareMonthlyBudgetMicroUsd),
+                autoPrepareDailyCap = CloudAutoPrepareDefaults.clampDailyCap(it.autoPrepareDailyCap),
+            )
+        }
         // Another endpoint (typed in, or the other kind of keys): the old one's limits are unknown until a selftest.
         if ((after.endpointId.trim() != before.endpointId.trim() || after.useOwnKeys != before.useOwnKeys) &&
             after.workerCaps != null && after.workerCaps == before.workerCaps
@@ -131,6 +144,9 @@ class CloudStudioSettings(
             putBoolean(Keys.CELLULAR, after.useCellular)
             putLong(Keys.PRICE, after.pricePerSecondMicroUsd)
             putLong(Keys.MONTHLY_CAP, after.monthlyCapMicroUsd)
+            putBoolean(Keys.AUTO_PREPARE, after.autoPrepareEnabled)
+            putLong(Keys.AUTO_BUDGET, after.autoPrepareMonthlyBudgetMicroUsd)
+            putInt(Keys.AUTO_DAILY_CAP, after.autoPrepareDailyCap)
             val caps = after.workerCaps
             if (caps == null) remove(Keys.WORKER_CAPS)
             else putString(Keys.WORKER_CAPS, CloudJson.encodeToString(CloudWorkerCaps.serializer(), caps))
@@ -151,6 +167,28 @@ class CloudStudioSettings(
         if (microUsd <= 0) return
         val total = min(removedSpendMicroUsd(monthStartMs) + microUsd, 1_000_000_000_000L)
         prefs.edit().putLong(Keys.REMOVED_SPEND_MONTH, monthStartMs).putLong(Keys.REMOVED_SPEND_TOTAL, total).apply()
+    }
+
+    // ─── Automatic jobs' ledger (apart from the job list, so clearing it frees nothing) ─────
+
+    override fun removedAutoSpendMicroUsd(monthStartMs: Long): Long =
+        if (prefs.getLong(Keys.AUTO_REMOVED_MONTH, 0L) == monthStartMs) max(prefs.getLong(Keys.AUTO_REMOVED_TOTAL, 0L), 0L) else 0L
+
+    @Synchronized
+    override fun addRemovedAutoSpend(microUsd: Long, monthStartMs: Long) {
+        if (microUsd <= 0) return
+        val total = min(removedAutoSpendMicroUsd(monthStartMs) + microUsd, 1_000_000_000_000L)
+        prefs.edit().putLong(Keys.AUTO_REMOVED_MONTH, monthStartMs).putLong(Keys.AUTO_REMOVED_TOTAL, total).apply()
+    }
+
+    override fun autoDayCount(dayStartMs: Long): Int =
+        if (prefs.getLong(Keys.AUTO_DAY_START, 0L) == dayStartMs) max(prefs.getInt(Keys.AUTO_DAY_COUNT, 0), 0) else 0
+
+    @Synchronized
+    override fun addAutoDayCount(count: Int, dayStartMs: Long) {
+        if (count <= 0) return
+        val total = min(autoDayCount(dayStartMs) + count, 10_000)
+        prefs.edit().putLong(Keys.AUTO_DAY_START, dayStartMs).putInt(Keys.AUTO_DAY_COUNT, total).apply()
     }
 
     // ─── Keys ───────────────────────────────────────────────────────────────────────────────
@@ -233,6 +271,15 @@ class CloudStudioSettings(
         /** What jobs taken off the list spent this month (the month's start and the total), so clearing the list frees no cap room. */
         const val REMOVED_SPEND_MONTH = "removed_spend_month_ms"
         const val REMOVED_SPEND_TOTAL = "removed_spend_micro_usd"
+        /** "Prepare songs ahead in the cloud": the switch, its monthly budget and its daily cap. Off until chosen. */
+        const val AUTO_PREPARE = "auto_prepare"
+        const val AUTO_BUDGET = "auto_budget_micro_usd"
+        const val AUTO_DAILY_CAP = "auto_daily_cap"
+        /** The ledger apart from the job list: the day's count, and what removed automatic jobs spent this month. */
+        const val AUTO_DAY_START = "auto_day_start_ms"
+        const val AUTO_DAY_COUNT = "auto_day_count"
+        const val AUTO_REMOVED_MONTH = "auto_removed_month_ms"
+        const val AUTO_REMOVED_TOTAL = "auto_removed_total"
 
         const val RUNPOD_KEY = "runpod_restricted"
         const val ACCESS_KEY_ID = "r2_access_key_id"

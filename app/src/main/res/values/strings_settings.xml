@@ -756,6 +756,21 @@
     <string name="settings_sing_cloud_processing_off">Off</string>
     <string name="settings_sing_cloud_queue_title">Cloud queue</string>
     <string name="settings_sing_cloud_queue_default">Songs you sent to the cloud</string>
+    <!-- Sing › Prepare ahead (smart auto-prepare; off until the person turns it on) -->
+    <string name="settings_sing_auto_section">Prepare ahead</string>
+    <string name="settings_sing_auto_title">Prepare songs ahead in the cloud</string>
+    <string name="settings_sing_auto_subtitle">Picks songs you\'re likely to sing and gets them ready on Wi-Fi.</string>
+    <string name="settings_sing_auto_budget_title">Monthly budget</string>
+    <plurals name="settings_sing_auto_budget_caption">
+        <item quantity="one">About %1$d song a month</item>
+        <item quantity="other">About %1$d songs a month</item>
+    </plurals>
+    <string name="settings_sing_auto_budget_caption_none">No songs a month</string>
+    <!-- Developer mode › Advanced -->
+    <string name="settings_sing_auto_daily_title">Songs per day</string>
+    <string name="settings_sing_auto_daily_caption">The most songs it prepares in one day.</string>
+    <string name="settings_sing_auto_why_title">Why these songs</string>
+    <string name="settings_sing_auto_why_empty">No songs picked yet.</string>
 
     <!-- Main settings groups -->
     <string name="settings_group_music">Music</string>

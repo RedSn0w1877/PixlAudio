@@ -5,6 +5,8 @@ import android.net.ConnectivityManager
 import androidx.work.WorkManager
 import com.theveloper.pixelplay.BuildConfig
 import com.theveloper.pixelplay.data.cache.AudioCacheManager
+import com.theveloper.pixelplay.data.cloudstudio.auto.CloudAutoConditions
+import com.theveloper.pixelplay.data.cloudstudio.auto.LiveCloudAutoEnvironment
 import com.theveloper.pixelplay.data.database.SpotifyDao
 import com.theveloper.pixelplay.data.repository.LyricsRepository
 import com.theveloper.pixelplay.data.repository.MusicRepository
@@ -109,6 +111,7 @@ object CloudStudioModule {
             onLyricsUpdated = { songId -> automaticStudioManager.get().noteLyricsUpdated(songId) },
             scope = scope,
         )
+        val autoEnvironment = LiveCloudAutoEnvironment(context)
         return CloudStudioEngine(
             CloudStudioDependencies(
                 settings = settings,
@@ -134,6 +137,8 @@ object CloudStudioModule {
                     val connectivity = context.getSystemService(ConnectivityManager::class.java)
                     connectivity != null && !connectivity.isActiveNetworkMetered
                 },
+                // An automatic job's own steps (preparing, uploading) only run on a charger and Wi-Fi.
+                autoWorkAllowed = { CloudAutoConditions.workAllowed(autoEnvironment.conditions()) },
             )
         )
     }
