@@ -3,6 +3,7 @@ package com.theveloper.pixelplay.data.worker
 import android.content.Context
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
+import com.theveloper.pixelplay.data.cloudstudio.CloudClipPlanner
 import com.theveloper.pixelplay.data.cloudstudio.CloudJobOrigin
 import com.theveloper.pixelplay.data.cloudstudio.CloudJobRecord
 import com.theveloper.pixelplay.data.cloudstudio.CloudJobState
@@ -11,6 +12,8 @@ import com.theveloper.pixelplay.data.cloudstudio.CloudSingStart
 import com.theveloper.pixelplay.data.cloudstudio.CloudSingUnavailable
 import com.theveloper.pixelplay.data.cloudstudio.CloudTask
 import com.theveloper.pixelplay.data.model.Song
+import com.theveloper.pixelplay.data.tais.SingClipStore
+import com.theveloper.pixelplay.data.tais.SingClipWindow
 import com.theveloper.pixelplay.data.tais.TaisInstrumentalIndex
 import com.theveloper.pixelplay.presentation.viewmodel.CloudStudioStateHolder
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -51,7 +54,15 @@ data class InstrumentalRenderJob(
     val source: RenderSource = RenderSource.ON_DEVICE,
     /** The cloud step, for [RenderSource.CLOUD] jobs. */
     val phase: CloudPhase? = null,
-)
+    /**
+     * Set on a Sing's preview clip: the part of the song it holds. Its [instrumentalPath] is the transient clip, never
+     * the song's instrumental, so it never counts as one ("available", a finished render): the Sing plays it until the
+     * full job lands.
+     */
+    val clip: SingClipWindow? = null,
+) {
+    val isClip: Boolean get() = clip != null
+}
 
 /** The instrumental renders behind the Sing button: WorkManager and Cloud Studio in the app, a fake in tests. */
 interface InstrumentalRenderJobs {
@@ -67,8 +78,14 @@ interface InstrumentalRenderJobs {
     /** What keeps the cloud from taking [song] right now (null: it can). */
     fun cloudAvailability(song: Song): CloudSingUnavailable?
 
-    /** Starts a Sing job for [song] in the cloud, or joins the one already on its way. */
-    suspend fun startCloud(song: Song): CloudSingStart
+    /**
+     * Starts a Sing job for [song] in the cloud, or joins the one already on its way. [playheadMs] (where the song is
+     * now) lets a preview clip from there go first.
+     */
+    suspend fun startCloud(song: Song, playheadMs: Long? = null): CloudSingStart
+
+    /** The song's Sing preview clips go (the song changed); one still playing goes once the player lets go of it. */
+    suspend fun discardClips(songId: String) {}
 }
 
 @Singleton
@@ -87,6 +104,15 @@ class WorkManagerInstrumentalRenderJobs @Inject constructor(
 
     suspend fun bestAvailablePath(songId: String): String? = withContext(Dispatchers.IO) {
         TaisInstrumentalIndex.bestAvailableFile(context, songId)?.absolutePath
+    }
+
+    /** The Sing preview clip of [songId] that starts at [startMs], if it is on disk. */
+    suspend fun clipPath(songId: String, startMs: Long): String? = withContext(Dispatchers.IO) {
+        SingClipStore.find(SingClipStore.directory(context), songId, startMs)?.absolutePath
+    }
+
+    suspend fun discardClips(songId: String) = withContext(Dispatchers.IO) {
+        SingClipStore.discard(SingClipStore.directory(context), songId)
     }
 }
 
@@ -112,7 +138,9 @@ class CompositeInstrumentalRenderJobs @Inject constructor(
 
     override fun cloudAvailability(song: Song): CloudSingUnavailable? = cloud.get().singAvailability(song)
 
-    override suspend fun startCloud(song: Song): CloudSingStart = cloud.get().startSing(song)
+    override suspend fun startCloud(song: Song, playheadMs: Long?): CloudSingStart = cloud.get().startSing(song, playheadMs)
+
+    override suspend fun discardClips(songId: String) = onDevice.discardClips(songId)
 
     private fun cloudJobs(songId: String): Flow<List<InstrumentalRenderJob>> {
         val holder = cloud.get()
@@ -121,9 +149,18 @@ class CompositeInstrumentalRenderJobs @Inject constructor(
             .distinctUntilChanged()
         return combine(holder.cloudJobsFor(songId), conditions) { records, now -> records to now }
             .map { (records, now) ->
-                val someImported = records.any { it.importedInstrumental || it.state == CloudJobState.IMPORTED }
+                // Only a full job's import gives the song an instrumental; a preview clip's file is its own.
+                val someImported = records.any { !it.isClip && (it.importedInstrumental || it.state == CloudJobState.IMPORTED) }
                 val path = if (someImported) bestAvailablePath(songId) else null
-                records.mapNotNull { it.toRenderJob(now.waitingForWifi, now.transfers[it.jobKey], path) }
+                records.mapNotNull { record ->
+                    val clipStart = record.clipStartMs
+                    val recordPath = when {
+                        clipStart == null -> path
+                        record.importedInstrumental -> onDevice.clipPath(record.songId, clipStart)
+                        else -> null
+                    }
+                    record.toRenderJob(now.waitingForWifi, now.transfers[record.jobKey], recordPath)
+                }
             }
             // A Cloud Studio hiccup never takes the on-device renders down with it.
             .catch { emit(emptyList()) }
@@ -159,6 +196,8 @@ internal fun WorkInfo.toRenderJob(): InstrumentalRenderJob = InstrumentalRenderJ
  *   when it finished importing.
  * - [waitingForWifi] is the engine's "waiting for Wi-Fi" notice; it only applies to the steps that move song data.
  * - [transfer] is the running upload or download's fraction, [instrumentalPath] the file on disk once imported.
+ * - A Sing's preview clip keeps its [InstrumentalRenderJob.clip] window: [instrumentalPath] is then the clip's own
+ *   transient file, which never stands for the song's instrumental.
  */
 internal fun CloudJobRecord.toRenderJob(
     waitingForWifi: Boolean,
@@ -199,6 +238,9 @@ internal fun CloudJobRecord.toRenderJob(
         createdAtMs = createdAtMs,
         source = RenderSource.CLOUD,
         phase = phase.takeIf { !done && !renderState.isFinished },
+        clip = clipStartMs?.let { start ->
+            SingClipWindow(start, clipEndMs ?: (start + CloudClipPlanner.AFTER_PLAYHEAD_MS + CloudClipPlanner.PRE_ROLL_MS))
+        },
     )
 }
 

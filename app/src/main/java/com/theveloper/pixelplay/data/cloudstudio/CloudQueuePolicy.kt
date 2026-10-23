@@ -599,17 +599,49 @@ enum class PauseCheck {
  * cancelled, never a running one or another priority job.
  */
 object CloudPriorityLane {
-    /** The order the phone prepares and uploads in: priority jobs, then the person's batches, then automatic ones. */
+    /**
+     * The order the phone prepares and uploads in: priority jobs, then the person's batches, then automatic ones. Within
+     * the priority lane a Sing's preview clip comes before full songs: it is small, and someone is waiting to hear it.
+     */
     fun phoneOrder(jobs: List<CloudJobRecord>): List<CloudJobRecord> =
-        jobs.withIndex().sortedWith(compareBy({ it.value.lane }, { it.index })).map { it.value }
+        jobs.withIndex().sortedWith(compareBy({ it.value.lane }, { if (it.value.isClip) 0 else 1 }, { it.index }))
+            .map { it.value }
 
-    /** The order ready jobs go out in one burst: priority jobs first, then the rest in list order (paused ones keep theirs). */
+    /**
+     * The order ready jobs go out in one burst: priority jobs first (a preview clip ahead of the full songs), then the
+     * rest in list order (paused ones keep theirs).
+     */
     fun submitOrder(readyKeys: Collection<String>, jobs: List<CloudJobRecord>): List<String> {
         val wanted = readyKeys.toSet()
         return jobs.withIndex().filter { it.value.jobKey in wanted }
-            .sortedWith(compareBy({ if (it.value.isPriority) 0 else 1 }, { it.index }))
+            .sortedWith(compareBy({ if (it.value.isPriority) 0 else 1 }, { if (it.value.isClip) 0 else 1 }, { it.index }))
             .map { it.value.jobKey }
     }
+
+    /**
+     * The full Sing job a preview clip stands in for, while it is still on the phone (preparing, uploading or uploaded):
+     * it goes to RunPod right behind the clip. Null for any other job, or once that job has gone out or ended.
+     */
+    fun siblingStillComing(record: CloudJobRecord, jobs: List<CloudJobRecord>): CloudJobRecord? {
+        if (!record.isClip) return null
+        val key = record.clipOfJobKey ?: return null
+        return jobs.firstOrNull { it.jobKey == key && it.isPriority && it.state.isBeforeSubmit }
+    }
+
+    /**
+     * Whether [record], the final job of a burst, carries `last_in_batch`. A preview clip whose full job is still coming
+     * doesn't: the worker that ran the clip stays up for the full song behind it instead of stopping and leaving that
+     * one a cold start. The full job then carries the flag, so a clip-then-song burst still has exactly one.
+     */
+    fun marksLastInBatch(record: CloudJobRecord?, jobs: List<CloudJobRecord>): Boolean =
+        record == null || siblingStillComing(record, jobs) == null
+
+    /**
+     * Who the jobs stepping aside for [priority] wait for: its full song when [priority] is a preview clip whose full job
+     * is still coming (so they go out behind the song, not between the clip and the song), else [priority] itself.
+     */
+    fun waitTarget(priority: CloudJobRecord, jobs: List<CloudJobRecord>): String =
+        siblingStillComing(priority, jobs)?.jobKey ?: priority.jobKey
 
     /**
      * Jobs that may step aside for [priorityJobKey]: waiting in RunPod's queue (`submitted`), not priority jobs
@@ -670,6 +702,59 @@ object CloudPriorityLane {
         priority == null || !priority.state.isBeforeSubmit ||
             nowMs - (record.pausedAtMs ?: 0) >= CloudTiming.PRIORITY_HOLD_MAX_MS
     }.map { it.jobKey }
+}
+
+// ─── Preview clip (Sing) ────────────────────────────────────────────────────────────────────────
+
+/** The part of a song a preview clip covers, in song time: [startMs] inclusive to [endMs] exclusive. */
+data class CloudClipRange(val startMs: Long, val endMs: Long) {
+    val lengthMs: Long get() = endMs - startMs
+}
+
+/**
+ * Where a Sing's preview clip goes (pure). A brand-new song's full instrumental takes a minute or more; a clip of the
+ * next minute from the playhead is separated in seconds and plays first, from the same point of the song.
+ * - The clip runs from [PRE_ROLL_MS] before the playhead to [AFTER_PLAYHEAD_MS] after it, inside the song.
+ * - A song shorter than [MIN_SONG_MS], or a playhead within [MIN_TAIL_MS] of the end, gets no clip (the full job alone):
+ *   the clip would barely play before the song ends.
+ */
+object CloudClipPlanner {
+    const val PRE_ROLL_MS = 3_000L
+    const val AFTER_PLAYHEAD_MS = 60_000L
+    const val MIN_SONG_MS = 75_000L
+    const val MIN_TAIL_MS = 20_000L
+
+    /** The clip for a tap at [playheadMs] in a song of [durationMs], or null when it gets none. */
+    fun range(playheadMs: Long, durationMs: Long): CloudClipRange? {
+        if (durationMs < MIN_SONG_MS) return null
+        val playhead = playheadMs.coerceAtLeast(0)
+        if (playhead >= durationMs - MIN_TAIL_MS) return null
+        val start = (playhead - PRE_ROLL_MS).coerceAtLeast(0)
+        val end = (playhead + AFTER_PLAYHEAD_MS).coerceAtMost(durationMs)
+        return CloudClipRange(start, end).takeIf { it.lengthMs > 0 }
+    }
+
+    /** The clip as a selection plan (cost estimates): the instrumental only, at the clip's length. */
+    fun plan(songId: String, isStreamed: Boolean, range: CloudClipRange): CloudSongPlan =
+        CloudSongPlan(songId, listOf(CloudTask.INSTRUMENTAL), null, isStreamed, range.lengthMs)
+}
+
+/** Frames [from] (inclusive) to [until] (exclusive) of one decoded buffer. */
+data class CloudFrameSlice(val from: Long, val until: Long) {
+    val frames: Long get() = until - from
+}
+
+/** The preparer's sample-exact cut of a preview clip out of the song's decode (pure). */
+object CloudClipFrames {
+    /**
+     * The part of a buffer of [frames] frames, starting at frame [bufferStart] of the decode, that falls inside the clip
+     * [startFrame] (inclusive) to [endFrame] (exclusive), as offsets into the buffer; null when none of it does.
+     */
+    fun slice(bufferStart: Long, frames: Long, startFrame: Long, endFrame: Long): CloudFrameSlice? {
+        val from = (startFrame - bufferStart).coerceAtLeast(0)
+        val until = (endFrame - bufferStart).coerceAtMost(frames)
+        return if (until > from) CloudFrameSlice(from, until) else null
+    }
 }
 
 // ─── Batch estimate (the confirm sheet) ─────────────────────────────────────────────────────────

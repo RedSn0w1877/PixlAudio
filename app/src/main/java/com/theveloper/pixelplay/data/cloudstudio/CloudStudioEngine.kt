@@ -73,10 +73,12 @@ data class CloudStudioState(
     /** A pass is running (the queue shows a quiet "working" line). */
     val isWorking: Boolean = false,
 ) {
-    val activeJobs: List<CloudJobRecord> get() = jobs.filter { it.state.isPending }
-    val finishedJobs: List<CloudJobRecord> get() = jobs.filter { it.state == CloudJobState.IMPORTED }.asReversed()
+    /** The jobs the screens list: every job but a Sing's preview clips (they are part of that song's Sing, not rows). */
+    val visibleJobs: List<CloudJobRecord> get() = jobs.filterNot { it.isClip }
+    val activeJobs: List<CloudJobRecord> get() = visibleJobs.filter { it.state.isPending }
+    val finishedJobs: List<CloudJobRecord> get() = visibleJobs.filter { it.state == CloudJobState.IMPORTED }.asReversed()
     val attentionJobs: List<CloudJobRecord>
-        get() = jobs.filter { it.state == CloudJobState.FAILED || it.state == CloudJobState.CANCELLED || it.state == CloudJobState.EXPIRED }
+        get() = visibleJobs.filter { it.state == CloudJobState.FAILED || it.state == CloudJobState.CANCELLED || it.state == CloudJobState.EXPIRED }
 }
 
 /** What a tap on Sing did with the cloud ([CloudStudioEngine.startSing]). */
@@ -175,12 +177,12 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
 
     fun job(jobKey: String): CloudJobRecord? = jobs.firstOrNull { it.jobKey == jobKey }
 
-    /** The song has a job that isn't finished. */
-    fun hasPendingJob(songId: String): Boolean = jobs.any { it.songId == songId && it.state.isPending }
+    /** The song has a job that isn't finished (a Sing's preview clip doesn't count: it never makes the instrumental). */
+    fun hasPendingJob(songId: String): Boolean = jobs.any { it.songId == songId && it.state.isPending && !it.isClip }
 
-    /** "Cloud: 12 waiting, 1 processing" (null when nothing is pending). */
+    /** "Cloud: 12 waiting, 1 processing" (null when nothing is pending). Preview clips are part of their song's Sing. */
     fun summaryLine(): String? {
-        val active = jobs.filter { it.state.isPending }
+        val active = jobs.filter { it.state.isPending && !it.isClip }
         if (active.isEmpty()) return null
         val processing = active.count { it.state == CloudJobState.RUNNING }
         val waiting = active.size - processing
@@ -411,7 +413,7 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
     ): CloudBatchPreview {
         loadForDisplay()
         val host = deps.host
-        val pending = jobs.filter { it.state.isPending }.map { it.songId }.toSet()
+        val pending = jobs.filter { it.state.isPending && !it.isClip }.map { it.songId }.toSet()
         val facts = mutableListOf<CloudSongFacts>()
         val byId = LinkedHashMap<String, CloudSong>()
         for (song in songs) {
@@ -459,7 +461,7 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
             val out = list.toMutableList()
             for (plan in preview.plans) {
                 val song = byId[plan.songId] ?: continue
-                if (out.any { it.songId == song.id && it.state.isPending }) continue
+                if (out.any { it.songId == song.id && it.state.isPending && !it.isClip }) continue
                 out += CloudJobRecord(
                     jobKey = CloudKeys.jobKey(deps.newJobKey()), songId = song.id, title = song.title,
                     artist = song.artist, songDurationMs = song.durationMs, batchId = preview.id,
@@ -490,13 +492,18 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
      * A song that already has a job on its way is joined, not started again (an automatic job becomes a Sing, with a
      * batch of its own so the batch gate doesn't hold it). [CloudSingStart.Unavailable] says why the cloud can't take it
      * and the caller does the work on this phone instead.
+     *
+     * With [playheadMs] (where the song is playing now) a preview clip goes first ([CloudClipPlanner]): the next minute
+     * of the song, instrumental only, separated in seconds and played until the full instrumental lands. It is added to
+     * a joined job too, while that one hasn't begun at RunPod. No clip when the song is short, the playhead is near the
+     * end, or the month has no room for it on top of the song.
      */
-    suspend fun startSing(song: CloudSong): CloudSingStart {
+    suspend fun startSing(song: CloudSong, playheadMs: Long? = null): CloudSingStart {
         loadForDisplay()
         val settings = deps.settings.snapshot()
         if (!settings.enabled) return CloudSingStart.Unavailable(CloudSingUnavailable.OFF)
         val canonical = TaisInstrumentalIndex.canonicalSongId(song.id)
-        pendingJobFor(jobs, canonical)?.let { return joinSing(it) }
+        pendingJobFor(jobs, canonical)?.let { return joinSing(it, song, playheadMs) }
         singAvailability(song.durationMs)?.let { return CloudSingStart.Unavailable(it) }
         if (!settings.usesBuiltInKeys) {
             val secrets = deps.settings.secrets()
@@ -525,22 +532,77 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
             tasks = plan.tasks, lyricsMode = plan.lyricsMode, quality = CloudSelector.quality(settings.quality, plan.durationMs),
             createdAtMs = time, origin = CloudJobOrigin.SING, priorityAtMs = time,
         )
+        // The preview clip, when the month has room for it on top of the song (the song itself always comes first).
+        val clip = playheadMs?.let { CloudClipPlanner.range(it, song.durationMs) }
+            ?.takeIf { range ->
+                CloudBatchEstimate.make(
+                    listOf(plan, CloudClipPlanner.plan(song.id, plan.isStreamed, range)), settings.quality,
+                    settings.effectivePricePerSecondMicroUsd, committedThisMonthMicroUsd(), settings.effectiveMonthlyCapMicroUsd,
+                ).fitsCap
+            }
+            ?.let { range -> clipRecord(song, plan.isStreamed, range, record.jobKey, time) }
         var raced: CloudJobRecord? = null
         mutateJobs { list ->
             // Another tap got there first (this list is the only place that knows): join its job.
             raced = pendingJobFor(list, canonical)
-            if (raced != null) list else list + record
+            // The clip sits ahead of its song (the lane puts clips first anyway).
+            if (raced != null) list else list + listOfNotNull(clip) + record
         }
-        raced?.let { return joinSing(it) }
+        raced?.let { return joinSing(it, song, playheadMs) }
         wakeForPriorityJob()
         return CloudSingStart.Started(record.jobKey)
     }
 
+    /** The song's pending job that makes its instrumental (never a preview clip). */
     private fun pendingJobFor(list: List<CloudJobRecord>, canonicalSongId: String): CloudJobRecord? =
-        list.lastOrNull { it.state.isPending && TaisInstrumentalIndex.canonicalSongId(it.songId) == canonicalSongId }
+        list.lastOrNull {
+            it.state.isPending && !it.isClip && TaisInstrumentalIndex.canonicalSongId(it.songId) == canonicalSongId
+        }
+
+    private fun hasPendingClip(list: List<CloudJobRecord>, canonicalSongId: String): Boolean =
+        list.any { it.isClip && it.state.isPending && TaisInstrumentalIndex.canonicalSongId(it.songId) == canonicalSongId }
+
+    /**
+     * A Sing's preview clip of [range] for the full job [fullJobKey]: the instrumental only, standard quality, a Sing in
+     * the priority lane, in a batch of its own so it goes to RunPod as soon as it is uploaded (no batch gate).
+     */
+    private fun clipRecord(song: CloudSong, isStreamed: Boolean, range: CloudClipRange, fullJobKey: String, time: Long) =
+        CloudJobRecord(
+            jobKey = CloudKeys.jobKey(deps.newJobKey()), songId = song.id, title = song.title, artist = song.artist,
+            // The clip's own length, so its estimate before it is prepared is a clip's, not the whole song's.
+            songDurationMs = range.lengthMs, batchId = deps.newJobKey(), isStreamed = isStreamed,
+            tasks = listOf(CloudTask.INSTRUMENTAL), lyricsMode = null, quality = CloudSeparationQuality.STANDARD,
+            // FLAC back: sample-exact, so it lines up with the song from its first sample (no AAC priming to place).
+            outputCodec = CloudOutputCodec.FLAC,
+            createdAtMs = time, origin = CloudJobOrigin.SING, priorityAtMs = time,
+            clipStartMs = range.startMs, clipEndMs = range.endMs, clipOfJobKey = fullJobKey,
+        )
+
+    /**
+     * A preview clip for a Sing that joined the song's job [fullJobKey]: only while that job hasn't begun at RunPod (it
+     * is on the phone or waiting in RunPod's queue), it makes an instrumental, no clip of the song is on its way, and the
+     * month has room.
+     */
+    private suspend fun addClipToJoined(fullJobKey: String, song: CloudSong, playheadMs: Long?) {
+        val playhead = playheadMs ?: return
+        val full = job(fullJobKey) ?: return
+        if (CloudTask.INSTRUMENTAL !in full.tasks) return
+        if (!full.state.isBeforeSubmit && full.state != CloudJobState.SUBMITTED) return
+        val canonical = TaisInstrumentalIndex.canonicalSongId(song.id)
+        if (hasPendingClip(jobs, canonical)) return
+        val range = CloudClipPlanner.range(playhead, song.durationMs) ?: return
+        val settings = deps.settings.snapshot()
+        val estimate = CloudBatchEstimate.make(
+            listOf(CloudClipPlanner.plan(song.id, full.isStreamed, range)), settings.quality,
+            settings.effectivePricePerSecondMicroUsd, committedThisMonthMicroUsd(), settings.effectiveMonthlyCapMicroUsd,
+        )
+        if (!estimate.fitsCap) return
+        val clip = clipRecord(song, full.isStreamed, range, full.jobKey, now)
+        mutateJobs { list -> if (hasPendingClip(list, canonical)) list else list + clip }
+    }
 
     /** The song's job is already on its way: the Sing waits for it. An automatic job is promoted to a Sing. */
-    private suspend fun joinSing(existing: CloudJobRecord): CloudSingStart {
+    private suspend fun joinSing(existing: CloudJobRecord, song: CloudSong, playheadMs: Long?): CloudSingStart {
         val hasInstrumental = CloudTask.INSTRUMENTAL in existing.tasks
         // A job without an instrumental can still be given one while it is on the phone; once RunPod has it, it can't.
         if (!hasInstrumental && !existing.state.isBeforeSubmit) {
@@ -566,6 +628,7 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
                 next.copy(updatedAtMs = time)
             }
         }
+        addClipToJoined(existing.jobKey, song, playheadMs)
         wakeForPriorityJob()
         return CloudSingStart.Joined(existing.jobKey)
     }
@@ -604,7 +667,7 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
         val dayStart = deps.dayStartMs(time)
         val room = settings.autoPrepareDailyCap - deps.settings.autoDayCount(dayStart)
         if (room <= 0) return 0
-        val pending = jobs.filter { it.state.isPending }.map { TaisInstrumentalIndex.canonicalSongId(it.songId) }.toSet()
+        val pending = jobs.filter { it.state.isPending && !it.isClip }.map { TaisInstrumentalIndex.canonicalSongId(it.songId) }.toSet()
         val facts = mutableListOf<CloudSongFacts>()
         val byId = LinkedHashMap<String, CloudSong>()
         for (song in songs) {
@@ -638,7 +701,7 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
             val out = list.toMutableList()
             for (plan in plans) {
                 val song = byId[plan.songId] ?: continue
-                if (out.any { it.songId == song.id && it.state.isPending }) continue
+                if (out.any { it.songId == song.id && it.state.isPending && !it.isClip }) continue
                 out += CloudJobRecord(
                     jobKey = CloudKeys.jobKey(deps.newJobKey()), songId = song.id, title = song.title,
                     artist = song.artist, songDurationMs = song.durationMs, batchId = batchId,
@@ -690,6 +753,13 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
         }
         cleanUpLocal(jobKey)
         clients?.let { deleteRemote(CloudJobBuilder.objectKeys(record), it) }
+        // A Sing's preview clip only exists for its song's job: it stops with it.
+        cancelClipsOf(jobKey)
+    }
+
+    /** Stops the preview clips still on their way for the full job [fullJobKey] (it was cancelled, or is already in). */
+    private suspend fun cancelClipsOf(fullJobKey: String) {
+        for (clip in jobs.filter { it.isClip && it.clipOfJobKey == fullJobKey && !it.state.isFinished }) cancel(clip.jobKey)
     }
 
     /** Starts a failed, cancelled or expired job again from the upload. */
@@ -965,10 +1035,16 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
                 }
             } else deps.host.audioSource(song)
             val identity = if (record.isStreamed) deps.host.streamIdentity(song) else null
+            val clipStart = record.clipStartMs
             // A streamed song's download always goes up decoded as FLAC (design §7.3): the worker then sees exactly
             // the samples this phone plays, whatever priming the download's container declares. So does the FLAC
-            // redo of a result that didn't line up: decoded samples leave nothing to disagree about.
-            val prepared = deps.preparer.prepare(source, jobKey, forceDecode = record.isStreamed || record.flacRedone)
+            // redo of a result that didn't line up: decoded samples leave nothing to disagree about. A preview clip is
+            // always decoded: it is that stretch of the same decode, cut sample-exactly.
+            val prepared = if (clipStart != null) {
+                deps.preparer.prepareClip(source, jobKey, clipStart, record.clipEndMs ?: (clipStart + CloudClipPlanner.AFTER_PLAYHEAD_MS))
+            } else {
+                deps.preparer.prepare(source, jobKey, forceDecode = record.isStreamed || record.flacRedone)
+            }
             if (job(jobKey)?.state != CloudJobState.PREPARING) {
                 deps.preparer.removeUpload(jobKey)
                 return
@@ -994,6 +1070,8 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
                     videoId = identity ?: r.videoId,
                     // The worker's AAC encoder stops at 96 kHz; a hi-res upload asks for FLAC back.
                     outputCodec = if (prepared.sampleRate > CloudLimits.MAX_AAC_SAMPLE_RATE) CloudOutputCodec.FLAC else r.outputCodec,
+                    // A clip ends where its decode did (the song may be a little shorter than the library says).
+                    clipEndMs = r.clipStartMs?.let { start -> start + prepared.durationMs } ?: r.clipEndMs,
                 ).on(CloudJobEvent.PREPARED, now)
             }
         } catch (error: CancellationException) {
@@ -1168,10 +1246,13 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
             null
         }
         val pausedAt = now
+        // Making room for a preview clip makes room for its song too: they wait for the song, so they go out behind it
+        // and never between the clip and the song.
+        val waitFor = CloudPriorityLane.waitTarget(priority, jobs)
         mutateJobs { list ->
             list.map { record ->
                 if (record.jobKey in cancelled && record.state == CloudJobState.SUBMITTED) {
-                    record.completingPause(priority.jobKey, neverStarted = began != null && record.jobKey !in began, nowMs = pausedAt)
+                    record.completingPause(waitFor, neverStarted = began != null && record.jobKey !in began, nowMs = pausedAt)
                         ?: record
                 } else record
             }
@@ -1278,7 +1359,9 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
             val previous = burst.ready(PendingSubmit(jobKey, request, estimate, record.origin))
             if (previous != null && !submit(previous, lastInBatch = false, clients)) return
         }
-        burst.end()?.let { submit(it, lastInBatch = true, clients) }
+        // A preview clip that ends the burst while its song is still being uploaded leaves the worker up for the song,
+        // which then ends its own burst with the flag ([CloudPriorityLane.marksLastInBatch]).
+        burst.end()?.let { submit(it, lastInBatch = CloudPriorityLane.marksLastInBatch(job(it.jobKey), jobs), clients) }
     }
 
     /** A job of the current submit pass that is ready to go out, held until the next one is ready. */
@@ -1412,7 +1495,7 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
                 // RunPod cancelled it because this app asked to make room for a priority job (the answer to that cancel
                 // never arrived): that finishes the pause, it is not a failure, and costs the job no attempt.
                 if (status.typedStatus == RunPodJobStatus.CANCELLED && job(jobKey)?.hasPauseIntent == true) {
-                    val waitingFor = currentPriorityJob()?.jobKey
+                    val waitingFor = currentPriorityJob()?.let { CloudPriorityLane.waitTarget(it, jobs) }
                     update(jobKey) { it.completingPause(waitingFor, neverStarted = false, nowMs = now) ?: it }
                     return
                 }
@@ -1657,6 +1740,7 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
      */
     private suspend fun importInstrumental(jobKey: String, output: CloudOutputFile, staged: File, clients: Clients) {
         val record = job(jobKey) ?: run { staged.delete(); return }
+        var importedFull = false
         try {
             val (sha, bytes) = CloudDigest.file(staged)
             if (!CloudImportCheck.matches(output.bytes, output.sha256, bytes, sha)) {
@@ -1674,9 +1758,21 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
                 staged.delete()
                 return
             }
-            deps.host.installInstrumental(staged, record.songId, flac = record.outputCodec == CloudOutputCodec.FLAC)
+            val flac = record.outputCodec == CloudOutputCodec.FLAC
+            val clipStart = record.clipStartMs
+            if (clipStart != null) {
+                // A preview clip stays out of the instrumental store (a transient file the Sing plays until the full one
+                // lands), and isn't kept at all once the song has its full instrumental.
+                if (deps.host.hasInstrumental(record.songId)) staged.delete()
+                else deps.host.installClip(staged, record.songId, clipStart, flac)
+                update(jobKey) { it.copy(importedInstrumental = true) }
+                finishIfDone(jobKey, clients)
+                return
+            }
+            deps.host.installInstrumental(staged, record.songId, flac = flac)
             update(jobKey) { it.copy(importedInstrumental = true) }
             deps.host.instrumentalImported(record.songId)
+            importedFull = true
             finishIfDone(jobKey, clients)
         } catch (error: CancellationException) {
             staged.delete()
@@ -1685,6 +1781,22 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
             staged.delete()
             update(jobKey) { it.on(CloudJobEvent.RESULTS_READY, now) }
             fail(jobKey, "Import: ${CloudRedaction.redact(error.message ?: "couldn't save the instrumental")}", null, retryable = true)
+        }
+        if (importedFull) dropClipsOf(jobKey, record.songId)
+    }
+
+    /**
+     * The song's full instrumental is in: its preview clips have done their job. Their files go (one still playing goes
+     * once the player lets go of it) and a clip still on its way stops. Best effort: nothing here fails the import.
+     */
+    private suspend fun dropClipsOf(fullJobKey: String, songId: String) {
+        try {
+            deps.host.discardClips(songId)
+            cancelClipsOf(fullJobKey)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            // App start clears whatever is left.
         }
     }
 

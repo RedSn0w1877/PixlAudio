@@ -72,6 +72,17 @@ interface CloudStudioHost {
     suspend fun saveLyrics(doc: LyricsDoc, song: CloudSong, replaceUserSynced: Boolean): CloudLyricsSaveOutcome
     fun instrumentalImported(songId: String)
     fun lyricsImported(songId: String)
+
+    /**
+     * Keeps a Sing's verified preview clip, which starts at [clipStartMs] of the song, as a transient file (the caches,
+     * never the instrumental store, so nothing counts it as the song's instrumental). The default drops it.
+     */
+    suspend fun installClip(staged: File, songId: String, clipStartMs: Long, flac: Boolean) {
+        staged.delete()
+    }
+
+    /** The song's full instrumental is in: its preview clips go (one still playing goes once the player lets go). */
+    suspend fun discardClips(songId: String) {}
 }
 
 /** A prepared upload: the file and the facts the import checks later. */
@@ -99,6 +110,15 @@ interface CloudAudioPreparing {
      * even an AAC-LC source (a streamed song's download, a FLAC redo), so the worker sees the samples this phone plays.
      */
     suspend fun prepare(source: String, jobKey: String, forceDecode: Boolean): CloudPreparedAudio
+
+    /**
+     * Writes a Sing preview clip's upload: [source]'s decoded samples from [startMs] to [endMs] (song time, clamped to
+     * the song), as 16-bit stereo FLAC. The samples are counted the way [prepare] counts a forced decode, so the clip is
+     * exactly that stretch of the song's decode; the frames returned are the clip's own (its import check).
+     */
+    suspend fun prepareClip(source: String, jobKey: String, startMs: Long, endMs: Long): CloudPreparedAudio =
+        throw CloudPrepareException("Preview clips can't be prepared here.", isDecodeFailure = true)
+
     /** The prepared file of a job, if it is still on disk (an upload restarted after the app was stopped). */
     fun uploadFile(jobKey: String, ext: String): File?
     fun removeUpload(jobKey: String)

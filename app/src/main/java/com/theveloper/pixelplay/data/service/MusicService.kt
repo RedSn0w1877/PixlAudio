@@ -221,6 +221,8 @@ class MusicService : MediaLibraryService() {
     lateinit var blockedArtistsRepository: com.theveloper.pixelplay.data.blocking.BlockedArtistsRepository
     @Inject
     lateinit var musicHaptics: com.theveloper.pixelplay.data.haptics.MusicHapticsEngine
+    @Inject
+    lateinit var singClipEvents: com.theveloper.pixelplay.data.service.player.SingClipEvents
 
     /**
      * The MediaSession's player while a Spotify Connect session runs (wrapping the local player,
@@ -252,6 +254,8 @@ class MusicService : MediaLibraryService() {
             // A next-song overlap fades the instrumental out with the incoming player.
             isTransitionRunning = { engine.isTransitionRunning() },
             incomingVolumeTarget = { engine.incomingTrackReplayGainVolume ?: 1f },
+            // A Sing preview clip ran out (or a seek left it): the Sing button goes back to waiting for the full one.
+            onClipLeft = { songId -> singClipEvents.clipLeft(songId) },
         )
     }
 
@@ -879,10 +883,11 @@ class MusicService : MediaLibraryService() {
                                 CrossfadeRequest().fadeMs
                             ),
                         )
+                        val clip = studioClipRequest(args)
                         return serviceScope.future {
                             // The result says whether the switch really happened, so the Sing button only shows
                             // "Vocals off" when it did.
-                            val switched = applyStudioAudioOverride(session, path, request)
+                            val switched = applyStudioAudioOverride(session, path, request, clip)
                             SessionResult(
                                 if (switched) SessionResult.RESULT_SUCCESS else SessionResult.RESULT_ERROR_UNKNOWN,
                                 Bundle().apply { putBoolean(MusicNotificationProvider.EXTRA_STUDIO_CROSSFADED, switched) }
@@ -3287,16 +3292,63 @@ class MusicService : MediaLibraryService() {
         session: MediaSession,
         overridePath: String?,
         request: CrossfadeRequest,
+        clip: StudioClipRequest? = null,
     ): Boolean {
         // ExoPlayer requires main-thread access.
         return withContext(Dispatchers.Main) {
             val player = session.player
-            if (overridePath != null) {
+            if (overridePath == null) {
+                instrumentalCrossfadeController.crossfadeToOriginal(player)
+            } else if (clip == null) {
                 instrumentalCrossfadeController.crossfadeToInstrumental(player, request)
             } else {
-                instrumentalCrossfadeController.crossfadeToOriginal(player)
+                // A Sing preview clip: found by the song playing now and the clip's start, never by a path a caller sent.
+                val songId = player.currentMediaItem?.mediaId
+                val file = songId?.let { id ->
+                    withContext(Dispatchers.IO) {
+                        com.theveloper.pixelplay.data.tais.SingClipStore.find(
+                            com.theveloper.pixelplay.data.tais.SingClipStore.directory(this@MusicService), id, clip.startMs
+                        )
+                    }
+                }
+                if (file == null) {
+                    false
+                } else {
+                    instrumentalCrossfadeController.crossfadeToInstrumental(
+                        player,
+                        request,
+                        com.theveloper.pixelplay.data.service.player.SingClipSource(
+                            file = file,
+                            window = com.theveloper.pixelplay.data.tais.SingClipWindow(clip.startMs, clip.endMs),
+                            returnAtMs = clip.returnAtMs,
+                            returnFadeMs = clip.returnFadeMs ?: CrossfadeRequest().fadeMs,
+                        ),
+                    )
+                }
             }
         }
+    }
+
+    /** The Sing preview clip a studio-audio command asks for (null: the full instrumental, or the vocals). */
+    private class StudioClipRequest(val startMs: Long, val endMs: Long, val returnAtMs: Long?, val returnFadeMs: Long?)
+
+    private fun studioClipRequest(args: Bundle): StudioClipRequest? {
+        if (!args.containsKey(MusicNotificationProvider.EXTRA_STUDIO_CLIP_START_MS) ||
+            !args.containsKey(MusicNotificationProvider.EXTRA_STUDIO_CLIP_END_MS)
+        ) return null
+        val start = args.getLong(MusicNotificationProvider.EXTRA_STUDIO_CLIP_START_MS)
+        val end = args.getLong(MusicNotificationProvider.EXTRA_STUDIO_CLIP_END_MS)
+        if (start < 0 || end <= start) return null
+        return StudioClipRequest(
+            startMs = start,
+            endMs = end,
+            returnAtMs = if (args.containsKey(MusicNotificationProvider.EXTRA_STUDIO_CLIP_RETURN_AT_MS)) {
+                args.getLong(MusicNotificationProvider.EXTRA_STUDIO_CLIP_RETURN_AT_MS)
+            } else null,
+            returnFadeMs = if (args.containsKey(MusicNotificationProvider.EXTRA_STUDIO_CLIP_RETURN_FADE_MS)) {
+                args.getLong(MusicNotificationProvider.EXTRA_STUDIO_CLIP_RETURN_FADE_MS)
+            } else null,
+        )
     }
 
     private suspend fun resolveMediaItemsByIds(

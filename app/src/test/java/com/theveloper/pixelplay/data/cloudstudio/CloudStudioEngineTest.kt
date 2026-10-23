@@ -1104,6 +1104,111 @@ class CloudStudioEngineTest {
         assertTrue(engine.hasWorkForThePerson())
     }
 
+    // ─── Sing preview clip ──────────────────────────────────────────────────────────────────
+
+    @Test fun `a Sing with a playhead sends a preview clip ahead of the song, and the song carries the one stop flag`() = runBlocking {
+        val engine = engine()
+        val started = engine.startSing(localSong, playheadMs = 60_000) as CloudSingStart.Started
+        val full = engine.job(started.jobKey)!!
+        val clip = engine.state.value.jobs.single { it.isClip }
+        // The minute from the playhead (3 s before it), the instrumental only, a Sing of its own batch.
+        assertEquals(57_000L to 120_000L, clip.clipStartMs to clip.clipEndMs)
+        assertEquals(started.jobKey, clip.clipOfJobKey)
+        assertEquals(listOf(CloudTask.INSTRUMENTAL), clip.tasks)
+        assertNull(clip.lyricsMode)
+        assertEquals(CloudSeparationQuality.STANDARD, clip.quality)
+        assertEquals(CloudOutputCodec.FLAC, clip.outputCodec)
+        assertEquals(CloudJobOrigin.SING, clip.origin)
+        assertTrue(clip.isPriority)
+        assertNotEquals(full.batchId, clip.batchId)
+        // One Sing on the queue's lists, not two rows; the song still has its pending job.
+        assertEquals(listOf(started.jobKey), engine.state.value.activeJobs.map { it.jobKey })
+        assertTrue(engine.hasPendingJob(localSong.id))
+        assertEquals("Cloud: 1 waiting", engine.summaryLine())
+
+        runpod.finishImmediately = false
+        engine.workerPass(now + PASS_MS)
+        assertEquals(listOf(57_000L to 120_000L), preparer.clipRanges)
+        assertEquals(listOf(clip.jobKey, started.jobKey), runpod.runs.map { it.input.jobKey }, "the clip first, the song right behind")
+        // The clip leaves the worker up for the song coming behind it; the song is the last.
+        assertEquals(listOf(null, CloudJobInputPolicy(lastInBatch = true)), runpod.runs.map { it.input.policy })
+        assertEquals(listOf("instrumental"), runpod.runs.first().input.tasks)
+        assertEquals(CloudOutputCodec.FLAC.wire, runpod.runs.first().input.output?.codec)
+    }
+
+    @Test fun `a preview clip is kept apart, never counts as the song's instrumental, and goes with the song's import`() = runBlocking {
+        val engine = engine()
+        val started = engine.startSing(localSong, playheadMs = 60_000) as CloudSingStart.Started
+        val clipKey = engine.state.value.jobs.single { it.isClip }.jobKey
+        engine.workerPass(now + PASS_MS)
+        val clip = engine.job(clipKey)!!
+        assertEquals(CloudJobState.IMPORTED, clip.state, "last error: ${clip.lastError}")
+        // Its length check used the clip's own decode (63 s), not the song's.
+        assertEquals(63_000L * 44_100 / 1000, clip.decodedFrames)
+        assertEquals(listOf(Triple(localSong.id, 57_000L, true)), host.installedClips)
+        assertTrue(host.installed.isEmpty(), "the instrumental store is untouched")
+        assertTrue(host.instrumentalNotes.isEmpty())
+        assertTrue(engine.hasPendingJob(localSong.id))
+        assertTrue(engine.state.value.finishedJobs.isEmpty(), "a finished clip is not a row either")
+
+        now += CloudTiming.SING_POLL_INTERVAL_MS + 1
+        engine.workerPass(now + PASS_MS)
+        val done = engine.job(started.jobKey)!!
+        assertEquals(CloudJobState.IMPORTED, done.state, "last error: ${done.lastError}")
+        assertEquals(listOf(localSong.id), host.instrumentalNotes)
+        assertEquals(listOf(localSong.id), host.discardedClips, "the song's own instrumental is in: its clips go")
+        assertEquals(listOf(started.jobKey), engine.state.value.finishedJobs.map { it.jobKey })
+    }
+
+    @Test fun `a joined Sing gets a clip while the song's job hasn't begun, and only one`() = runBlocking {
+        val engine = engine()
+        val first = sing(engine, localSong)
+        assertTrue(engine.state.value.jobs.none { it.isClip }, "no playhead, no clip")
+        assertEquals(CloudSingStart.Joined(first.jobKey), engine.startSing(localSong, playheadMs = 30_000))
+        val clip = engine.state.value.jobs.single { it.isClip }
+        assertEquals(27_000L to 90_000L, clip.clipStartMs to clip.clipEndMs)
+        assertEquals(first.jobKey, clip.clipOfJobKey)
+        assertEquals(CloudSingStart.Joined(first.jobKey), engine.startSing(localSong, playheadMs = 40_000))
+        assertEquals(1, engine.state.value.jobs.count { it.isClip })
+
+        // A song whose job already runs at RunPod gets no clip: the full instrumental is nearly there.
+        store.saved = listOf(
+            storedJob(keys.removeFirst(), streamedSong, CloudJobState.RUNNING, origin = CloudJobOrigin.SING,
+                runpodId = "r1", submittedAt = now, priority = true)
+        )
+        val fresh = engine()
+        assertTrue(fresh.startSing(streamedSong, playheadMs = 30_000) is CloudSingStart.Joined)
+        assertTrue(fresh.state.value.jobs.none { it.isClip })
+    }
+
+    @Test fun `no clip near the end of the song, or when the month only has room for the song`() = runBlocking {
+        assertTrue(singWithPlayhead(230_000) is CloudSingStart.Started)
+        assertTrue(store.saved.none { it.isClip }, "within 20 s of the end")
+        // The song alone is (15 + 38) s at 192 µ$; with the clip it is 10 s more: a cap in between takes the song only.
+        assertTrue(singWithPlayhead(60_000) { it.copy(monthlyCapMicroUsd = 11_000) } is CloudSingStart.Started)
+        assertTrue(store.saved.none { it.isClip }, "no room for the clip")
+        assertTrue(store.saved.single().isPriority)
+        assertTrue(singWithPlayhead(60_000) is CloudSingStart.Started)
+        assertEquals(1, store.saved.count { it.isClip })
+    }
+
+    private suspend fun singWithPlayhead(
+        playheadMs: Long,
+        change: (CloudSettingsSnapshot) -> CloudSettingsSnapshot = { it },
+    ): CloudSingStart {
+        settings.snapshot = change(CloudSettingsSnapshot(enabled = true, endpointId = "ep1", r2Endpoint = "0123456789abcdef0123456789abcdef"))
+        store.saved = emptyList()
+        return engine().startSing(localSong, playheadMs)
+    }
+
+    @Test fun `cancelling the song's job stops its clip too`() = runBlocking {
+        val engine = engine()
+        val started = engine.startSing(localSong, playheadMs = 60_000) as CloudSingStart.Started
+        val clipKey = engine.state.value.jobs.single { it.isClip }.jobKey
+        engine.cancel(started.jobKey)
+        assertEquals(CloudJobState.CANCELLED, engine.job(clipKey)!!.state)
+    }
+
     // ─── Fakes ──────────────────────────────────────────────────────────────────────────────
 
     private class FakeSettings : CloudStudioSettingsSource {
@@ -1172,6 +1277,14 @@ class CloudStudioEngineTest {
         }
         override fun instrumentalImported(songId: String) { instrumentalNotes += songId }
         override fun lyricsImported(songId: String) = Unit
+        /** Preview clips kept (song, start, FLAC), and songs whose clips were let go. */
+        val installedClips = mutableListOf<Triple<String, Long, Boolean>>()
+        val discardedClips = mutableListOf<String>()
+        override suspend fun installClip(staged: File, songId: String, clipStartMs: Long, flac: Boolean) {
+            installedClips += Triple(songId, clipStartMs, flac)
+            staged.delete()
+        }
+        override suspend fun discardClips(songId: String) { discardedClips += songId }
     }
 
     private class FakePreparer(private val dir: File) : CloudAudioPreparing {
@@ -1185,6 +1298,17 @@ class CloudStudioEngineTest {
             dir.mkdirs()
             val file = File(dir, "$jobKey.flac").apply { writeBytes(ByteArray(1_000) { 7 }) }
             return CloudPreparedAudio(file, "flac", file.length(), sha, 240_000, frames, 44_100)
+        }
+        /** Every clip asked for (start, end), and each job's own frame count (what its result must line up with). */
+        val clipRanges = mutableListOf<Pair<Long, Long>>()
+        val framesByJob = HashMap<String, Long>()
+        override suspend fun prepareClip(source: String, jobKey: String, startMs: Long, endMs: Long): CloudPreparedAudio {
+            clipRanges += startMs to endMs
+            dir.mkdirs()
+            val file = File(dir, "$jobKey.flac").apply { writeBytes(ByteArray(500) { 3 }) }
+            val clipFrames = (endMs - startMs) * 44_100 / 1000
+            framesByJob[jobKey] = clipFrames
+            return CloudPreparedAudio(file, "flac", file.length(), sha, endMs - startMs, clipFrames, 44_100)
         }
         override fun uploadFile(jobKey: String, ext: String) = File(dir, "$jobKey.$ext").takeIf { it.isFile }
         override fun removeUpload(jobKey: String) { File(dir, "$jobKey.flac").delete() }
@@ -1280,7 +1404,8 @@ class CloudStudioEngineTest {
             val audio = ByteArray(2_000) { (it % 251).toByte() }
             bucket.objects[instrumentalKey] = audio
             val outputs = mapOf("instrumental" to CloudOutputFile(instrumentalKey, audio.size.toLong(),
-                CloudDigest.sha256Hex(audio), input.output!!.codec, null, 44_100, preparer.frames + samplesOffset))
+                CloudDigest.sha256Hex(audio), input.output!!.codec, null, 44_100,
+                (preparer.framesByJob[key] ?: preparer.frames) + samplesOffset))
             var lyricsSummary: CloudLyricsSummary? = null
             if (input.lyrics != null) {
                 val doc = CloudLyricsDocument(mode = "aligned", lines = listOf(

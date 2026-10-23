@@ -9,6 +9,8 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
+import com.theveloper.pixelplay.data.tais.SingClipStore
+import com.theveloper.pixelplay.data.tais.SingClipWindow
 import com.theveloper.pixelplay.data.tais.TaisInstrumentalIndex
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -47,6 +49,13 @@ import kotlin.math.abs
  * Next-song overlap transitions: the instrumental is the audible tail of the song, so it fades out with
  * the incoming player ([onMainVolumeChanged] mirrors that player's fade-in) and is released when the
  * hand-over finishes ([onTransitionFinished]).
+ *
+ * Preview clips (a Sing whose full instrumental is still in the cloud): the second player can play a clip that
+ * holds only part of the song ([SingClipSource]), at song position minus the clip's start; every seek and resync
+ * goes through that offset ([SingClipTimeline]). Before the clip runs out the vocals come back at the gap the
+ * app planned; a seek outside it brings them back at once; either way [onClipLeft] tells the app, whose Sing keeps
+ * waiting. When the full instrumental lands while the clip plays, a second player takes over at the same
+ * position with a short fade ([swapClipToFull]) and the clip's file goes.
  */
 class InstrumentalCrossfadeController(
     private val context: Context,
@@ -57,11 +66,25 @@ class InstrumentalCrossfadeController(
     private val isTransitionRunning: () -> Boolean = { false },
     /** The volume the incoming player of an overlap transition fades to (its ReplayGain level). */
     private val incomingVolumeTarget: () -> Float = { 1f },
+    /** The player left a preview clip on its own (it was running out, or a seek left it): the song id. */
+    private val onClipLeft: (String) -> Unit = {},
 ) {
     private var shadowPlayer: ExoPlayer? = null
     private var mainPlayerRef: Player? = null
     private var currentSongId: String? = null
     private var resyncJob: Job? = null
+
+    /** The preview clip the second player plays (null: the song's full instrumental). */
+    private var clip: SingClipSource? = null
+
+    /** Where the fade back from the audible clip starts, in song time. */
+    private var clipReturnAtMs = 0L
+
+    /** Watches the song while a clip is audible, to bring the vocals back before it runs out. */
+    private var clipWatchJob: Job? = null
+
+    /** The full instrumental's player while it takes over from the clip. */
+    private var incomingPlayer: ExoPlayer? = null
 
     /** A suspend owner forced the vocals back while the instrumental was audible; re-apply on resume. */
     private var restoreInstrumentalOnResume = false
@@ -124,21 +147,59 @@ class InstrumentalCrossfadeController(
         if (mediaId != currentSongId) onSongChanged(mediaId, mainPlayer)
     }
 
+    /** What is audible now: the vocals, a preview clip, or the song's full instrumental. */
+    private val audible: InstrumentalAudible
+        get() = when {
+            !isCrossfadedToInstrumental -> InstrumentalAudible.NONE
+            clip != null -> InstrumentalAudible.CLIP
+            else -> InstrumentalAudible.FULL
+        }
+
+    /** Where the second player belongs when the song is at [songMs]: the same point, or that point of the clip. */
+    private fun shadowTargetMs(songMs: Long): Long = clip?.window?.clipPositionMs(songMs) ?: songMs
+
     /**
      * Builds the instrumental player on demand — a render that finishes *while its song is already open*
-     * has no transition to build it on. Null when the song has none (or the song changed meanwhile).
+     * has no transition to build it on. Null when the song has none (or the song changed meanwhile). With
+     * [source] it plays that preview clip instead of the song's full instrumental.
      */
-    private suspend fun prepareShadow(mainPlayer: Player): ExoPlayer? {
-        shadowPlayer?.let { return it }
+    private suspend fun prepareShadow(mainPlayer: Player, source: SingClipSource?): ExoPlayer? {
+        shadowPlayer?.let { existing ->
+            // Kept from a suspend: reuse it only for the same audio.
+            if (clip?.file == source?.file) return existing
+            teardown()
+        }
         val songId = currentSongId ?: return null
-        val file = withContext(Dispatchers.IO) { TaisInstrumentalIndex.bestAvailableFile(context, songId) } ?: return null
+        val file = withContext(Dispatchers.IO) {
+            if (source != null) source.file.takeIf { it.isFile } else TaisInstrumentalIndex.bestAvailableFile(context, songId)
+        } ?: return null
         if (currentSongId != songId || shadowPlayer != null) return shadowPlayer
-        return buildShadow(file, mainPlayer)
+        clip = source
+        return buildShadow(file, mainPlayer) ?: run {
+            clip = null
+            null
+        }
     }
 
     private fun buildShadow(file: java.io.File, mainPlayer: Player): ExoPlayer? {
+        val player = createPlayer(file, mainPlayer, shadowTargetMs(mainPlayer.currentPosition))
+        if (player == null) {
+            shadowPlayer = null
+            return null
+        }
+        // A clip being read can't be deleted under the player (a seek reopens the file).
+        clip?.let { SingClipStore.markInUse(it.file) }
+        shadowPlayer = player
+        mainPlayerRef = mainPlayer
+        isCrossfadedToInstrumental = false
+        startResyncLoop()
+        return player
+    }
+
+    /** A silent second player on [file], at [positionMs] of it, following [mainPlayer]'s speed and play state. */
+    private fun createPlayer(file: java.io.File, mainPlayer: Player, positionMs: Long): ExoPlayer? {
         return try {
-            val player = ExoPlayer.Builder(context).build().apply {
+            ExoPlayer.Builder(context).build().apply {
                 val attrs = Media3AudioAttributes.Builder()
                     .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
                     .setUsage(C.USAGE_MEDIA)
@@ -152,17 +213,11 @@ class InstrumentalCrossfadeController(
                 setMediaItem(MediaItem.fromUri(Uri.fromFile(file)))
                 prepare()
                 playbackParameters = mainPlayer.playbackParameters
-                seekTo(mainPlayer.currentPosition)
+                seekTo(positionMs)
                 playWhenReady = mainPlayer.playWhenReady
             }
-            shadowPlayer = player
-            mainPlayerRef = mainPlayer
-            isCrossfadedToInstrumental = false
-            startResyncLoop()
-            player
         } catch (e: Exception) {
             Timber.tag(TAG).w(e, "Failed to prepare shadow instrumental player for %s", file.name)
-            shadowPlayer = null
             null
         }
     }
@@ -180,9 +235,13 @@ class InstrumentalCrossfadeController(
                     // player, and the shadow must stay aligned for when it is audible again. A seek in
                     // the middle of a fade would be heard, so a fade is left alone.
                     if (!main.isPlaying || isRamping) continue
-                    val drift = abs(shadow.currentPosition - main.currentPosition)
+                    val songMs = main.currentPosition
+                    // Outside a clip there is nothing to line up: the clip watch brings the vocals back.
+                    if (clip?.window?.covers(songMs) == false) continue
+                    val target = shadowTargetMs(songMs)
+                    val drift = abs(shadow.currentPosition - target)
                     if (drift > DRIFT_TOLERANCE_MS) {
-                        shadow.seekTo(main.currentPosition)
+                        shadow.seekTo(target)
                     }
                 } catch (e: IllegalStateException) {
                     // One of the two players was released under us (a rebuild); the owner rebinds or tears down.
@@ -194,17 +253,31 @@ class InstrumentalCrossfadeController(
 
     /** Call on the main player's seek (position discontinuity, reason SEEK) — "match the exact timestamp" instead of waiting up to [RESYNC_INTERVAL_MS] for the next periodic correction. */
     fun onMainSeek(positionMs: Long) {
-        shadowPlayer?.seekTo(positionMs)
+        val shadow = shadowPlayer ?: return
+        // The full instrumental taking over from a clip is on the song's own timeline.
+        incomingPlayer?.seekTo(positionMs)
+        val active = clip
+        // (Not while the full instrumental is taking over: it holds every position, so the swap just finishes.)
+        if (active != null && !active.window.covers(positionMs) && isCrossfadedToInstrumental && !isRamping &&
+            incomingPlayer == null
+        ) {
+            // A seek outside the clip: the vocals come back at once (the seek is the cut), and the Sing keeps waiting.
+            leaveClip()
+            return
+        }
+        shadow.seekTo(shadowTargetMs(positionMs))
     }
 
     /** Keeps the shadow at the main player's speed (e.g. the lyrics sync editor's slower speeds). */
     fun onPlaybackParametersChanged(parameters: PlaybackParameters) {
-        val shadow = shadowPlayer ?: return
-        if (shadow.playbackParameters != parameters) shadow.playbackParameters = parameters
+        listOfNotNull(shadowPlayer, incomingPlayer).forEach { player ->
+            if (player.playbackParameters != parameters) player.playbackParameters = parameters
+        }
     }
 
     fun onPlayWhenReadyChanged(playWhenReady: Boolean) {
         shadowPlayer?.playWhenReady = playWhenReady
+        incomingPlayer?.playWhenReady = playWhenReady
     }
 
     /**
@@ -212,18 +285,35 @@ class InstrumentalCrossfadeController(
      * step with the song, then until the planned start (a gap between sung words), then fade. True once the
      * instrumental is the one audible; false (the song untouched) when the song has no instrumental, it could
      * not be started, the song changed meanwhile or a suspend owner forbids crossfades.
+     *
+     * With [clipSource] the instrumental is that preview clip, valid only while the song is inside it. A request
+     * for the full instrumental while a clip plays swaps the clip for it ([swapClipToFull]); a clip is never put
+     * over an instrumental that already plays.
      */
-    suspend fun crossfadeToInstrumental(mainPlayer: Player, request: CrossfadeRequest = CrossfadeRequest()): Boolean =
+    suspend fun crossfadeToInstrumental(
+        mainPlayer: Player,
+        request: CrossfadeRequest = CrossfadeRequest(),
+        clipSource: SingClipSource? = null,
+    ): Boolean =
         switchLock.withLock {
             if (isSuspended) return@withLock false
             syncSongWithMain(mainPlayer)
-            // Already audible: nothing to do (a second request, e.g. a resume, must not fade a silent player to itself).
-            if (isCrossfadedToInstrumental) return@withLock true
+            when (SingClipTimeline.switchFor(audible, wantsClip = clipSource != null)) {
+                // Already audible: nothing to do (a second request, e.g. a resume, must not fade a silent player to itself).
+                InstrumentalSwitch.KEEP -> return@withLock true
+                InstrumentalSwitch.SWAP_CLIP_TO_FULL -> return@withLock swapClipToFull(mainPlayer)
+                InstrumentalSwitch.CROSSFADE_FROM_ORIGINAL -> Unit
+            }
             val songId = currentSongId ?: return@withLock false
-            val shadow = prepareShadow(mainPlayer) ?: return@withLock false
+            val shadow = prepareShadow(mainPlayer, clipSource) ?: return@withLock false
             val gen = generation
-            val valid = { generation == gen && shadowPlayer === shadow && currentSongId == songId && !isSuspended }
-            if (!awaitReady(shadow, valid) || !alignShadow(mainPlayer, shadow, valid)) {
+            val window = clipSource?.window
+            // A clip holds only part of the song: the switch is off as soon as the song is outside it.
+            val valid = {
+                generation == gen && shadowPlayer === shadow && currentSongId == songId && !isSuspended &&
+                    (window == null || window.covers((mainPlayerRef ?: mainPlayer).currentPosition))
+            }
+            if (!awaitReady(shadow, valid) || !alignShadow(mainPlayer, shadow, valid, window)) {
                 // Not startable now: free the second player instead of leaving it open until the song ends.
                 if (generation == gen) teardown()
                 return@withLock false
@@ -237,7 +327,11 @@ class InstrumentalCrossfadeController(
                     stillValid = valid,
                     clock = clock,
                 )
-                if (!reached) return@withLock false
+                if (!reached) {
+                    // A clip the song left meanwhile is of no use: let go of it (and of its file) now.
+                    if (window != null && generation == gen) teardown()
+                    return@withLock false
+                }
             }
             val main = { mainPlayerRef ?: mainPlayer }
             val base = main().volume.coerceIn(0f, 1f)
@@ -261,48 +355,195 @@ class InstrumentalCrossfadeController(
             } finally {
                 isRamping = false
             }
-            if (!completed && generation == gen) abortFade(main(), shadow, base)
+            if (!completed && generation == gen) {
+                abortFade(main(), shadow, base)
+                // A clip that couldn't be faded in (the song left it) is let go of at once, with its file.
+                if (window != null) teardown()
+            }
+            if (completed && clip != null) startClipWatch()
             completed
         }
 
     /** Fades back from the instrumental to the vocals and frees the second player. False if there was nothing to fade back from. */
     suspend fun crossfadeToOriginal(mainPlayer: Player, durationMs: Long = CrossfadeRamp.DEFAULT_FADE_MS): Boolean =
-        switchLock.withLock {
-            val shadow = shadowPlayer ?: return@withLock false
-            if (!isCrossfadedToInstrumental) {
-                // The switch never completed: nothing is audible but the song itself.
-                teardown()
-                return@withLock false
-            }
-            val gen = generation
-            val valid = { generation == gen && shadowPlayer === shadow }
-            val main = { mainPlayerRef ?: mainPlayer }
-            val base = baseVolume
-            var completed = false
-            isRamping = true
-            try {
-                completed = CrossfadeRamp.ramp(
-                    durationMs = CrossfadeRamp.clampFadeMs(durationMs),
-                    outFrom = shadow.volume, outTo = 0f,
-                    inFrom = main().volume, inTo = base,
-                    setOut = { shadow.volume = it },
-                    setIn = { main().volume = it },
-                    stillValid = valid,
-                    clock = clock,
-                )
-            } catch (e: CancellationException) {
-                // The fade was cut off half way: the vocals are the safe side to stop on.
-                if (generation == gen) {
-                    restoreMasterVolume(main(), base)
-                    finishReturnToOriginal()
-                }
-                throw e
-            } finally {
-                isRamping = false
-            }
-            if (completed) finishReturnToOriginal()
-            completed
+        switchLock.withLock { fadeToOriginalLocked(mainPlayer, durationMs) }
+
+    /** [crossfadeToOriginal]'s fade, with [switchLock] held. */
+    private suspend fun fadeToOriginalLocked(mainPlayer: Player, durationMs: Long): Boolean {
+        val shadow = shadowPlayer ?: return false
+        if (!isCrossfadedToInstrumental) {
+            // The switch never completed: nothing is audible but the song itself.
+            teardown()
+            return false
         }
+        val gen = generation
+        val valid = { generation == gen && shadowPlayer === shadow }
+        val main = { mainPlayerRef ?: mainPlayer }
+        val base = baseVolume
+        var completed = false
+        isRamping = true
+        try {
+            completed = CrossfadeRamp.ramp(
+                durationMs = CrossfadeRamp.clampFadeMs(durationMs),
+                outFrom = shadow.volume, outTo = 0f,
+                inFrom = main().volume, inTo = base,
+                setOut = { shadow.volume = it },
+                setIn = { main().volume = it },
+                stillValid = valid,
+                clock = clock,
+            )
+        } catch (e: CancellationException) {
+            // The fade was cut off half way: the vocals are the safe side to stop on.
+            if (generation == gen) {
+                restoreMasterVolume(main(), base)
+                finishReturnToOriginal()
+            }
+            throw e
+        } finally {
+            isRamping = false
+        }
+        if (completed) finishReturnToOriginal()
+        return completed
+    }
+
+    // ─── Preview clips ──────────────────────────────────────────────────────────────────────
+
+    /**
+     * Watches the song while a clip is audible: before the clip runs out the vocals come back at the planned gap
+     * ([SingClipTimeline.returnAtMs]); a song outside the clip brings them back at once. Sleeps until shortly before
+     * the return point, so it costs next to nothing meanwhile.
+     */
+    private fun startClipWatch() {
+        clipWatchJob?.cancel()
+        val active = clip ?: return
+        clipReturnAtMs = SingClipTimeline.returnAtMs(active.window, active.returnAtMs, active.returnFadeMs)
+        val gen = generation
+        clipWatchJob = scope.launch {
+            while (generation == gen && clip === active && isCrossfadedToInstrumental) {
+                val main = mainPlayerRef ?: break
+                if (isRamping) {
+                    delay(SingClipTimeline.MIN_CHECK_MS)
+                    continue
+                }
+                val songMs = try {
+                    main.currentPosition
+                } catch (e: IllegalStateException) {
+                    break
+                }
+                when (SingClipTimeline.action(active.window, songMs, clipReturnAtMs)) {
+                    ClipAction.STAY -> delay(
+                        SingClipTimeline.nextCheckDelayMs(songMs, clipReturnAtMs, main.playbackParameters.speed)
+                    )
+                    ClipAction.RETURN -> {
+                        // Detached first: the return tears this player down, and must not cancel itself half way.
+                        clipWatchJob = null
+                        returnFromClip(main, active)
+                        break
+                    }
+                    ClipAction.LEAVE_NOW -> {
+                        clipWatchJob = null
+                        leaveClip()
+                        break
+                    }
+                }
+            }
+        }
+    }
+
+    /** The clip is about to run out and the full instrumental isn't here: fade back to the vocals, and say so. */
+    private suspend fun returnFromClip(main: Player, active: SingClipSource) {
+        val songId = currentSongId
+        val returned = switchLock.withLock {
+            // The full instrumental took over meanwhile, or the clip is no longer audible: nothing to return from.
+            if (clip !== active || !isCrossfadedToInstrumental) false
+            else fadeToOriginalLocked(main, active.returnFadeMs)
+        }
+        if (returned) songId?.let(onClipLeft)
+    }
+
+    /** Back to the vocals at once (a seek left the clip): no fade over a cut that already happened. */
+    private fun leaveClip() {
+        val songId = currentSongId
+        val main = mainPlayerRef
+        shadowPlayer?.volume = 0f
+        if (main != null) restoreMasterVolume(main)
+        teardown()
+        songId?.let(onClipLeft)
+    }
+
+    /**
+     * The full instrumental arrived while the clip plays: a second player starts on it at the song's position, and
+     * the two instrumentals cross in [SingClipTimeline.SWAP_FADE_MS] (no gap needed: the vocals stay off). Then the
+     * clip's player and file go. With [switchLock] held. False (the clip keeps playing) when it couldn't start.
+     */
+    private suspend fun swapClipToFull(mainPlayer: Player): Boolean {
+        val old = shadowPlayer ?: return false
+        val oldClip = clip ?: return false
+        val songId = currentSongId ?: return false
+        val file = withContext(Dispatchers.IO) { TaisInstrumentalIndex.bestAvailableFile(context, songId) } ?: return false
+        if (currentSongId != songId || shadowPlayer !== old || clip !== oldClip) return false
+        val main = mainPlayerRef ?: mainPlayer
+        val next = createPlayer(file, main, main.currentPosition) ?: return false
+        incomingPlayer = next
+        val gen = generation
+        val valid = { generation == gen && shadowPlayer === old && incomingPlayer === next && currentSongId == songId && !isSuspended }
+        // The full instrumental takes over before the clip would run out: the watch stands down.
+        clipWatchJob?.cancel()
+        clipWatchJob = null
+        var completed = false
+        try {
+            if (awaitReady(next, valid) && alignShadow(main, next, valid, window = null)) {
+                isRamping = true
+                try {
+                    completed = CrossfadeRamp.ramp(
+                        durationMs = SingClipTimeline.SWAP_FADE_MS,
+                        outFrom = old.volume, outTo = 0f,
+                        inFrom = 0f, inTo = baseVolume,
+                        setOut = { old.volume = it },
+                        setIn = { next.volume = it },
+                        stillValid = valid,
+                        clock = clock,
+                    )
+                } finally {
+                    isRamping = false
+                }
+            }
+        } catch (e: CancellationException) {
+            abandonSwap(next, old, gen)
+            throw e
+        }
+        if (!completed) {
+            abandonSwap(next, old, gen)
+            return false
+        }
+        incomingPlayer = null
+        shadowPlayer = next
+        clip = null
+        releaseQuietly(old)
+        SingClipStore.release(oldClip.file)
+        SingClipStore.delete(oldClip.file)
+        return true
+    }
+
+    /** A swap that didn't finish: the full instrumental's player goes, the clip plays on at its level. */
+    private fun abandonSwap(next: ExoPlayer, old: ExoPlayer, gen: Int) {
+        if (incomingPlayer === next) {
+            incomingPlayer = null
+            releaseQuietly(next)
+        }
+        if (generation == gen && shadowPlayer === old) {
+            old.volume = baseVolume
+            if (isCrossfadedToInstrumental && clip != null) startClipWatch()
+        }
+    }
+
+    private fun releaseQuietly(player: ExoPlayer) {
+        try {
+            player.release()
+        } catch (e: Exception) {
+            Timber.tag(TAG).d(e, "Releasing the instrumental player failed")
+        }
+    }
 
     /** The original is audible again (its volume already restored): free the silent second player until the next switch. */
     private fun finishReturnToOriginal() {
@@ -334,27 +575,30 @@ class InstrumentalCrossfadeController(
      * Puts the instrumental on the main player's timestamp. If the two are not within [ALIGN_TOLERANCE_MS]
      * (a fresh player starts a little behind), seek again, aiming ahead by the lag the last seek showed, and
      * look once more. Gives up improving after [ALIGN_BUDGET_MS] (the periodic resync keeps correcting
-     * afterwards). False only when the switch stopped being valid.
+     * afterwards). False only when the switch stopped being valid. [window] is the preview clip [shadow] plays
+     * (null: the full instrumental, on the song's own timeline).
      */
-    private suspend fun alignShadow(main: Player, shadow: ExoPlayer, valid: () -> Boolean): Boolean {
+    private suspend fun alignShadow(main: Player, shadow: ExoPlayer, valid: () -> Boolean, window: SingClipWindow?): Boolean {
+        val target = { songMs: Long -> window?.clipPositionMs(songMs) ?: songMs }
         shadow.playWhenReady = main.playWhenReady
         if (!main.isPlaying) {
             // Nothing moves: one seek puts them on the same timestamp exactly.
-            if (shadow.currentPosition != main.currentPosition) {
-                shadow.seekTo(main.currentPosition)
+            val at = target(main.currentPosition)
+            if (shadow.currentPosition != at) {
+                shadow.seekTo(at)
                 awaitSeekLanded(shadow, valid)
             }
             return valid()
         }
         val giveUpAt = clock() + ALIGN_BUDGET_MS
         var lead = 0L
-        var drift = shadow.currentPosition - main.currentPosition
+        var drift = shadow.currentPosition - target(main.currentPosition)
         while (abs(drift) > ALIGN_TOLERANCE_MS && clock() < giveUpAt) {
             lead = CrossfadeRamp.nextSeekLead(lead, drift)
-            shadow.seekTo(main.currentPosition + lead)
+            shadow.seekTo(target(main.currentPosition + lead))
             awaitSeekLanded(shadow, valid)
             if (!valid()) return false
-            drift = shadow.currentPosition - main.currentPosition
+            drift = shadow.currentPosition - target(main.currentPosition)
         }
         if (abs(drift) > ALIGN_TOLERANCE_MS) Timber.tag(TAG).d("Instrumental starts %d ms off the song", drift)
         return valid()
@@ -448,14 +692,15 @@ class InstrumentalCrossfadeController(
         generation++
         resyncJob?.cancel()
         resyncJob = null
-        shadowPlayer?.let {
-            try {
-                it.release()
-            } catch (e: Exception) {
-                Timber.tag(TAG).d(e, "Releasing the instrumental player failed")
-            }
-        }
+        clipWatchJob?.cancel()
+        clipWatchJob = null
+        shadowPlayer?.let(::releaseQuietly)
+        incomingPlayer?.let(::releaseQuietly)
         shadowPlayer = null
+        incomingPlayer = null
+        // The clip's file may go now (a delete asked for while it played happens here).
+        clip?.let { SingClipStore.release(it.file) }
+        clip = null
         mainPlayerRef = null
         isCrossfadedToInstrumental = false
         isRamping = false
@@ -472,7 +717,7 @@ class InstrumentalCrossfadeController(
         val shadow = shadowPlayer ?: return
         shadow.volume = 0f
         restoreMasterVolume(main)
-        shadow.seekTo(main.currentPosition)
+        shadow.seekTo(shadowTargetMs(main.currentPosition))
         isCrossfadedToInstrumental = false
         restoreInstrumentalOnResume = true
     }
@@ -481,7 +726,13 @@ class InstrumentalCrossfadeController(
         if (!restoreInstrumentalOnResume) return
         restoreInstrumentalOnResume = false
         val main = mainPlayerRef ?: return
-        scope.launch { crossfadeToInstrumental(main) }
+        val resumeClip = clip
+        val songId = currentSongId
+        scope.launch {
+            val switched = crossfadeToInstrumental(main, CrossfadeRequest(), resumeClip)
+            // The song moved outside the clip meanwhile: the vocals stay, and the Sing keeps waiting.
+            if (!switched && resumeClip != null) songId?.let(onClipLeft)
+        }
     }
 
     companion object {

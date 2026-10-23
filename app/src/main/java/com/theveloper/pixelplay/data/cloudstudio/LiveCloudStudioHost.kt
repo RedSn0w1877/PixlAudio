@@ -11,6 +11,7 @@ import com.theveloper.pixelplay.data.model.Song
 import com.theveloper.pixelplay.data.repository.LyricsRepository
 import com.theveloper.pixelplay.data.repository.MusicRepository
 import com.theveloper.pixelplay.data.spotify.SpotifyStreamProxy
+import com.theveloper.pixelplay.data.tais.SingClipStore
 import com.theveloper.pixelplay.data.tais.TaisInstrumentalIndex
 import com.theveloper.pixelplay.utils.LyricsUtils
 import java.io.File
@@ -156,6 +157,17 @@ class LiveCloudStudioHost(
 
     override fun instrumentalImported(songId: String) {
         scope.launch { instrumentalIndex.refresh() }
+    }
+
+    /** A Sing's preview clip goes to the caches ([SingClipStore]), never beside the instrumentals. */
+    override suspend fun installClip(staged: File, songId: String, clipStartMs: Long, flac: Boolean): Unit =
+        withContext(Dispatchers.IO) {
+            SingClipStore.install(SingClipStore.directory(context), staged, songId, clipStartMs, flac)
+            Unit
+        }
+
+    override suspend fun discardClips(songId: String): Unit = withContext(Dispatchers.IO) {
+        SingClipStore.discard(SingClipStore.directory(context), songId)
     }
 
     /** The lyrics screen reloads when it shows this song (the same signal automatic lyric sync sends). */

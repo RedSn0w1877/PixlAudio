@@ -27,6 +27,17 @@ object MusicNotificationProvider {
     const val EXTRA_STUDIO_CROSSFADE_AT_MS = "com.theveloper.pixelplay.extra.STUDIO_CROSSFADE_AT_MS"
     /** Long: the length of the fade (ms); the service clamps it to 300..700. */
     const val EXTRA_STUDIO_CROSSFADE_MS = "com.theveloper.pixelplay.extra.STUDIO_CROSSFADE_MS"
+    /**
+     * Long: the switch is to the song's Sing preview clip that starts here (song time, ms), not its full instrumental.
+     * The service finds the clip by the current song and this start; the path sent along is only a "not the vocals".
+     */
+    const val EXTRA_STUDIO_CLIP_START_MS = "com.theveloper.pixelplay.extra.STUDIO_CLIP_START_MS"
+    /** Long: where that clip ends in the song (ms, exclusive). */
+    const val EXTRA_STUDIO_CLIP_END_MS = "com.theveloper.pixelplay.extra.STUDIO_CLIP_END_MS"
+    /** Long: the player position the fade back to the vocals starts at before the clip runs out (a gap between words). */
+    const val EXTRA_STUDIO_CLIP_RETURN_AT_MS = "com.theveloper.pixelplay.extra.STUDIO_CLIP_RETURN_AT_MS"
+    /** Long: the length of that fade back (ms). */
+    const val EXTRA_STUDIO_CLIP_RETURN_FADE_MS = "com.theveloper.pixelplay.extra.STUDIO_CLIP_RETURN_FADE_MS"
     /** Result extra, Boolean: the switch happened (the render is audible, or the vocals are back). */
     const val EXTRA_STUDIO_CROSSFADED = "com.theveloper.pixelplay.extra.STUDIO_CROSSFADED"
 }

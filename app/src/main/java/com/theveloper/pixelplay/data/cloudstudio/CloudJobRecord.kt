@@ -54,6 +54,15 @@ data class CloudJobRecord(
     /** The RunPod job a pause was begun for: on disk before the status check and the cancel, so a lost reply is recoverable. */
     val pauseIntentRunpodJobId: String? = null,
 
+    // Preview clip (a Sing's first piece; optional, so an older file still decodes). To the worker a clip is just a
+    // short song: the phone cuts it out of the song's own decode and plays it from where it sits in the song.
+    /** Where the clip starts in the song; null on every job that isn't a clip. */
+    val clipStartMs: Long? = null,
+    /** Where it ends in the song (exclusive): the planned end, then the decoded one once prepared. */
+    val clipEndMs: Long? = null,
+    /** The song's full job the clip stands in for until that one is imported. */
+    val clipOfJobKey: String? = null,
+
     // State
     val state: CloudJobState = CloudJobState.QUEUED,
     val runpodJobId: String? = null,
@@ -148,6 +157,12 @@ data class CloudJobRecord(
 
     /** Stepped aside for a priority job and waiting, uploaded, to be sent again behind it. */
     val isPaused: Boolean get() = pausedByJobKey != null
+
+    /**
+     * A Sing's preview clip: a short instrumental-only job played until the song's full instrumental arrives. Never the
+     * song's instrumental, never a row of its own on the queue, and never counted as the song's pending job.
+     */
+    val isClip: Boolean get() = clipStartMs != null
 
     private val hasPauseFields: Boolean
         get() = pausedByJobKey != null || pausedAtMs != null || pausedNeverStarted != null || pauseIntentRunpodJobId != null

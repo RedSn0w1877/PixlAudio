@@ -147,10 +147,11 @@ class CloudStudioStateHolder @Inject constructor(
 
     /**
      * A tap on Sing: starts (or joins) the song's cloud job, ahead of everything else. The answer says which, or why the
-     * cloud can't take it and the caller removes the vocals on this phone instead.
+     * cloud can't take it and the caller removes the vocals on this phone instead. [playheadMs] (where the song is now)
+     * lets a short preview clip from there go first, so the instrumental starts in seconds.
      */
-    suspend fun startSing(song: Song): CloudSingStart = withContext(Dispatchers.Default) {
-        engine.startSing(song.toCloudSong())
+    suspend fun startSing(song: Song, playheadMs: Long? = null): CloudSingStart = withContext(Dispatchers.Default) {
+        engine.startSing(song.toCloudSong(), playheadMs)
     }
 
     /** Every cloud job of the song as it changes (a Sing watches its own: queued, uploading, at the GPU, importing). */

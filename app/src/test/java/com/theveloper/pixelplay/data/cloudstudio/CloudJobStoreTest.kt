@@ -92,4 +92,32 @@ class CloudJobStoreTest {
         assertTrue("\"pauseIntentRunpodJobId\":\"rp-3\"" in text, text)
     }
 
+    @Test fun `a file from before preview clips still loads, and no job in it is a clip`() = runBlocking {
+        val dir = directory.resolve("cloud_studio").toFile().apply { mkdirs() }
+        File(dir, CloudJobStore.FILE_NAME).writeText(
+            """[{"jobKey":"${CloudFixtures.JOB_KEY}","songId":"1","state":"uploaded","origin":"sing","priorityAtMs":5}]"""
+        )
+        val loaded = CloudJobStore(dir).load().single()
+        assertNull(loaded.clipStartMs)
+        assertNull(loaded.clipEndMs)
+        assertNull(loaded.clipOfJobKey)
+        assertFalse(loaded.isClip)
+        assertTrue(loaded.isPriority)
+    }
+
+    @Test fun `the clip fields are saved under fixed names and read back`() = runBlocking {
+        val store = CloudJobStore(directory.resolve("cloud_studio").toFile())
+        val clip = CloudJobRecord(
+            jobKey = CloudFixtures.JOB_KEY, songId = "1", origin = CloudJobOrigin.SING, priorityAtMs = 5,
+            tasks = listOf(CloudTask.INSTRUMENTAL), outputCodec = CloudOutputCodec.FLAC,
+            clipStartMs = 57_000, clipEndMs = 120_000, clipOfJobKey = "00000000-0000-4000-8000-000000000001", createdAtMs = 1,
+        )
+        store.save(listOf(clip))
+        val loaded = store.load().single()
+        assertEquals(clip, loaded)
+        assertTrue(loaded.isClip)
+        val text = File(directory.resolve("cloud_studio").toFile(), CloudJobStore.FILE_NAME).readText()
+        assertTrue("\"clipStartMs\":57000" in text, text)
+        assertTrue("\"clipOfJobKey\":\"00000000-0000-4000-8000-000000000001\"" in text, text)
+    }
 }
