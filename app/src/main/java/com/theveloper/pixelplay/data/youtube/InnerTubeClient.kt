@@ -364,16 +364,10 @@ class InnerTubeClient @Inject constructor(
             ?: return null
 
         // La segunda columna es "Artista • Álbum • 3:07" repartida en runs; los separadores
-        // llegan como runs sueltos con "•".
-        val details = columnTexts.getOrNull(1)
-            ?.map { it.trim() }
-            ?.filter { it.isNotBlank() && it != "•" }
-            .orEmpty()
-
-        val duration = details.firstNotNullOfOrNull(::parseDurationSeconds)
-        val meaningful = details.filter { parseDurationSeconds(it) == null }
-        // "Song" / "Video" es la etiqueta de tipo que YouTube Music pone primero.
-        val withoutType = meaningful.filterNot { it.equals("Song", true) || it.equals("Video", true) }
+        // llegan como runs sueltos con "•". Varios artistas ("A", " & ", "B") son runs
+        // distintos DENTRO de un mismo campo: solo el "•" separa campos.
+        val subtitle = parseSearchSubtitle(columnTexts.getOrNull(1).orEmpty())
+        val duration = subtitle.durationSeconds
 
         val thumbnailUrl = renderer.optJSONObject("thumbnail")
             ?.optJSONObject("musicThumbnailRenderer")
@@ -387,8 +381,8 @@ class InnerTubeClient @Inject constructor(
         return YouTubeSearchResult(
             videoId = videoId,
             title = title,
-            artist = withoutType.firstOrNull().orEmpty(),
-            album = withoutType.getOrNull(1)?.takeUnless { it.contains("views", true) || it.contains("plays", true) },
+            artist = subtitle.artist,
+            album = subtitle.album,
             durationSeconds = duration,
             thumbnailUrl = thumbnailUrl
         )
@@ -449,16 +443,70 @@ class InnerTubeClient @Inject constructor(
 
         /** mp4 360p con audio+vídeo juntos; el único itag exento de PoToken en yt-dlp. */
         const val MUXED_FALLBACK_ITAG = 18
+    }
+}
 
-        /** "3:07" o "1:02:33" → segundos. */
-        fun parseDurationSeconds(raw: String): Int? {
-            val parts = raw.split(":")
-            if (parts.size !in 2..3) return null
-            val numbers = parts.map { it.trim().toIntOrNull() ?: return null }
-            return when (numbers.size) {
-                2 -> numbers[0] * 60 + numbers[1]
-                else -> numbers[0] * 3600 + numbers[1] * 60 + numbers[2]
-            }
+private val VIEW_COUNT = Regex("""^(?:[\d.,]+\s*[KMB]?|no)\s+(?:views?|plays?)\b""", RegexOption.IGNORE_CASE)
+
+/** The second column of a search row: "Song • Lady Gaga & Bruno Mars • MAYHEM • 4:12". */
+internal data class SearchSubtitle(
+    /** Every credited artist, as shown ("Lady Gaga & Bruno Mars"). */
+    val artist: String,
+    val album: String?,
+    val durationSeconds: Int?
+)
+
+/**
+ * Splits the subtitle runs into fields. Only a "•" separates fields: a collaboration arrives
+ * as several runs ("Lady Gaga", " & ", "Bruno Mars") that belong to ONE field, so splitting on
+ * every run turned "&" into the album and cut the credit down to the first artist.
+ */
+internal fun parseSearchSubtitle(runs: List<String>): SearchSubtitle {
+    val fields = mutableListOf<String>()
+    val current = StringBuilder()
+    fun endField() {
+        current.toString().trim().takeIf { it.isNotEmpty() }?.let(fields::add)
+        current.clear()
+    }
+    for (run in runs) {
+        val pieces = run.split('•')
+        current.append(pieces.first())
+        for (piece in pieces.drop(1)) {
+            endField()
+            current.append(piece)
         }
+    }
+    endField()
+
+    // The duration closes the row; fall back to any field shaped like one.
+    val durationIndex = if (fields.lastOrNull()?.let { parseDurationSeconds(it) } != null) {
+        fields.lastIndex
+    } else {
+        fields.indexOfLast { parseDurationSeconds(it) != null }
+    }
+    val duration = fields.getOrNull(durationIndex)?.let { parseDurationSeconds(it) }
+    if (durationIndex >= 0) fields.removeAt(durationIndex)
+
+    // "Song" / "Video" is the type label YouTube Music puts first.
+    if (fields.firstOrNull()?.let { it.equals("Song", true) || it.equals("Video", true) } == true) {
+        fields.removeAt(0)
+    }
+
+    return SearchSubtitle(
+        artist = fields.firstOrNull().orEmpty(),
+        // "1.2B views" / "No views" is a count, not an album (but Drake's album "Views" is one).
+        album = fields.getOrNull(1)?.takeUnless { VIEW_COUNT.containsMatchIn(it) },
+        durationSeconds = duration
+    )
+}
+
+/** "3:07" o "1:02:33" → segundos. */
+internal fun parseDurationSeconds(raw: String): Int? {
+    val parts = raw.split(":")
+    if (parts.size !in 2..3) return null
+    val numbers = parts.map { it.trim().toIntOrNull() ?: return null }
+    return when (numbers.size) {
+        2 -> numbers[0] * 60 + numbers[1]
+        else -> numbers[0] * 3600 + numbers[1] * 60 + numbers[2]
     }
 }
