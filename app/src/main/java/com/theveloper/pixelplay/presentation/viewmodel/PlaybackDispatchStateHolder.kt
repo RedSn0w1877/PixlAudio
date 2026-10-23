@@ -1082,10 +1082,18 @@ class PlaybackDispatchStateHolder @Inject constructor(
                 return
             }
 
-            if (controller.currentMediaItem != null) {
+            val engineSong = dualPlayerEngine.masterPlayerIfAlive?.currentMediaItem
+            if (controller.currentMediaItem != null || engineSong != null) {
                 // Pause while a song still loads, retry after a failed one, restart after the end:
                 // decided on playWhenReady and the state, not on isPlaying (see PlayerTransport).
-                PlayerTransport.togglePlayPause(controller)
+                // A controller without play/pause (or one that can't see the song) must never turn
+                // a pause into a restart: toggle the engine itself then.
+                if (controller.isCommandAvailable(Player.COMMAND_PLAY_PAUSE) && controller.currentMediaItem != null) {
+                    PlayerTransport.togglePlayPause(controller)
+                } else {
+                    Timber.w("Play/pause went to the engine: the controller lacks COMMAND_PLAY_PAUSE or the current item")
+                    PlayerTransport.togglePlayPause(dualPlayerEngine.masterPlayer)
+                }
             } else {
                 // Nothing loaded in the player: start the shown queue (or song) from scratch.
                 val currentQueue = cb.getUiState().currentPlaybackQueue

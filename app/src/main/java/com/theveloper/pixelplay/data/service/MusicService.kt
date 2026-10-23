@@ -723,7 +723,13 @@ class MusicService : MediaLibraryService() {
                     return MediaSession.ConnectionResult.reject()
                 }
 
-                val defaultResult = super.onConnect(session, controller)
+                // Not super.onConnect(): since Media3 1.11 that default is a placeholder granting no
+                // session and no player commands at all (the real defaults moved to onConnectAsync).
+                // Built on it, every controller - the app's own, the notification, the lock screen,
+                // Bluetooth, Wear - was connected with zero player commands and every button did
+                // nothing. These are the defaults 1.10 returned.
+                val defaultSessionCommands = MediaSession.ConnectionResult.DEFAULT_SESSION_AND_LIBRARY_COMMANDS
+                val defaultPlayerCommands = MediaSession.ConnectionResult.DEFAULT_PLAYER_COMMANDS
                 val customCommands = listOf(
                     MusicNotificationProvider.CUSTOM_COMMAND_CLOSE_PLAYER,
                     MusicNotificationProvider.CUSTOM_COMMAND_LIKE,
@@ -744,7 +750,7 @@ class MusicService : MediaLibraryService() {
                 ).map { SessionCommand(it, Bundle.EMPTY) }
 
                 val sessionCommandsBuilder = SessionCommands.Builder()
-                    .addSessionCommands(defaultResult.availableSessionCommands.commands)
+                    .addSessionCommands(defaultSessionCommands.commands)
                 customCommands.forEach { sessionCommandsBuilder.add(it) }
                 grantArtworkUriPermissions(
                     controller.packageName,
@@ -772,7 +778,7 @@ class MusicService : MediaLibraryService() {
 
                 return MediaSession.ConnectionResult.accept(
                     sessionCommandsBuilder.build(),
-                    defaultResult.availablePlayerCommands
+                    defaultPlayerCommands
                 )
             }
 
