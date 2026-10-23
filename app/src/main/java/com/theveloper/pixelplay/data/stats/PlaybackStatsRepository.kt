@@ -506,8 +506,12 @@ class PlaybackStatsRepository @Inject constructor(
     /** Loads base file + append log once; afterwards memory is the source of truth (this process is the only writer). Caller holds [fileLock]. */
     private fun loadEventsLocked(): List<PlaybackEvent> {
         cachedEvents?.let { return it }
-        val base = parseEvents(readRawHistoryLocked())
-        val logged = PlaybackHistoryLog.readLog(logFile, gson).map { sanitizeEvent(it) }
+        val base = runCatching { parseEvents(readRawHistoryLocked()) }
+            .onFailure { Timber.e(it, "Playback history unreadable; starting empty") }
+            .getOrDefault(mutableListOf())
+        val logged = PlaybackHistoryLog.readLog(logFile, gson).mapNotNull { event ->
+            if (!isReadable(event)) null else runCatching { sanitizeEvent(event) }.getOrNull()
+        }
         logLineCount = logged.size
         val merged = PlaybackHistoryLog.merge(base, logged)
         cachedEvents = merged
@@ -573,10 +577,21 @@ class PlaybackStatsRepository @Inject constructor(
     private fun parseElement(element: JsonElement?): MutableList<PlaybackEvent> {
         if (element == null || element.isJsonNull) return mutableListOf()
         if (element.isJsonArray) {
-            val parsed: MutableList<PlaybackEvent> = gson.fromJson(element, eventsType)
-            return parsed.mapTo(mutableListOf()) { sanitizeEvent(it) }
+            val parsed: MutableList<PlaybackEvent?> = gson.fromJson(element, eventsType)
+            // Gson builds objects without running the constructor, so a file written by an older build whose fields
+            // were renamed (R8) or missing comes back with null "non-null" fields; those events are dropped, not fatal.
+            return parsed.mapNotNullTo(mutableListOf()) { event ->
+                if (!isReadable(event)) null else runCatching { sanitizeEvent(event!!) }.getOrNull()
+            }
         }
         return mutableListOf()
+    }
+
+    /** False for an event Gson left with a null id (see [parseElement]). */
+    private fun isReadable(event: PlaybackEvent?): Boolean {
+        if (event == null) return false
+        val id: String? = event.songId
+        return !id.isNullOrBlank()
     }
 
     private fun sanitizeEvent(event: PlaybackEvent): PlaybackEvent {
