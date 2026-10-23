@@ -106,6 +106,7 @@ fun SettingsSingCloudSection(
                 AutoPrepareBudgetItem(
                     storedMicroUsd = cloudSettings.autoPrepareMonthlyBudgetMicroUsd,
                     monthlyCapMicroUsd = cloudSettings.effectiveMonthlyCapMicroUsd,
+                    parallelWorkers = cloudSettings.parallelWorkers,
                     onCommit = { picked ->
                         viewModel.updateSettings { it.copy(autoPrepareMonthlyBudgetMicroUsd = picked) }
                     }
@@ -171,11 +172,12 @@ internal object SingAutoPrepareSettings {
 private fun AutoPrepareBudgetItem(
     storedMicroUsd: Long,
     monthlyCapMicroUsd: Long,
+    parallelWorkers: Int,
     onCommit: (Long) -> Unit,
 ) {
     var step by remember(storedMicroUsd) { mutableFloatStateOf(SingAutoPrepareSettings.budgetStep(storedMicroUsd)) }
     val budget = SingAutoPrepareSettings.budgetMicroUsd(step)
-    val songs = CloudAutoPrepare.songsPerMonth(SingAutoPrepareSettings.spendableMicroUsd(budget, monthlyCapMicroUsd))
+    val songs = CloudAutoPrepare.songsPerMonth(SingAutoPrepareSettings.spendableMicroUsd(budget, monthlyCapMicroUsd), parallelWorkers)
     AutoPrepareSliderItem(
         title = stringResource(R.string.settings_sing_auto_budget_title),
         valueText = CloudCost.format(budget),

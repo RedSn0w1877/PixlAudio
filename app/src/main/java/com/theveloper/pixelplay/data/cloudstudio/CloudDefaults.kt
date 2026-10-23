@@ -138,6 +138,20 @@ object CloudKeyChoice {
     const val BUILT_IN_MONTHLY_CAP_MICRO_USD: Long = 3_000_000
 
     /**
+     * How many jobs PixlAudio's own endpoint runs at once (its `workers.max`, 2026-10-23: 3 GPUs instead of 1). Per-second
+     * billing keeps the cost of a song the same; the jobs just finish sooner. The same number as the iOS app's.
+     */
+    const val BUILT_IN_PARALLEL_WORKERS = 3
+
+    /**
+     * How many jobs may run at RunPod at once: [BUILT_IN_PARALLEL_WORKERS] on PixlAudio's endpoint, 1 on the person's own
+     * (its `workers.max` isn't known here). The batch gate, the `last_in_batch` marks and the cold starts of an estimate
+     * all follow it.
+     */
+    fun parallelWorkers(source: CloudKeySource): Int =
+        if (source == CloudKeySource.BUILT_IN) BUILT_IN_PARALLEL_WORKERS else 1
+
+    /**
      * Own keys win whenever the person chose them; otherwise the built-in ones when this build has them; otherwise
      * own (the old behaviour: the fields, empty until filled in).
      */

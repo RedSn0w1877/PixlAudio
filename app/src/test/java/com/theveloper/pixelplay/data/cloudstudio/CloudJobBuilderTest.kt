@@ -94,19 +94,27 @@ class CloudJobBuilderTest {
     }
 
     @Test fun `a submit burst holds each job until the next is ready and hands back the last at the end`() {
-        val burst = CloudSubmitBurst<String>()
-        assertNull(burst.end(), "an empty pass sends nothing")
+        // One worker at RunPod (own keys): the burst's single last job.
+        val burst = CloudSubmitBurst<String>(1)
+        assertTrue(burst.end().isEmpty(), "an empty pass sends nothing")
         assertNull(burst.ready("a"))
-        assertEquals("a", burst.holding)
+        assertEquals(listOf("a"), burst.holding)
         assertEquals("a", burst.ready("b"), "a goes out, not the last")
         assertEquals("b", burst.ready("c"))
-        assertEquals("c", burst.end(), "c is the burst's last")
-        assertNull(burst.holding)
-        assertNull(burst.end())
+        assertEquals(listOf("c"), burst.end(), "c is the burst's last")
+        assertTrue(burst.holding.isEmpty())
+        assertTrue(burst.end().isEmpty())
         // A single song is a burst of one.
-        val single = CloudSubmitBurst<String>()
+        val single = CloudSubmitBurst<String>(1)
         assertNull(single.ready("only"))
-        assertEquals("only", single.end())
+        assertEquals(listOf("only"), single.end())
+        // Three workers: the last three are held back to the end, the ones before them go out as soon as they're known.
+        val three = CloudSubmitBurst<String>(3)
+        assertNull(three.ready("a"))
+        assertNull(three.ready("b"))
+        assertNull(three.ready("c"))
+        assertEquals("a", three.ready("d"))
+        assertEquals(listOf("b", "c", "d"), three.end())
     }
 
     @Test fun `lyrics requests`() {

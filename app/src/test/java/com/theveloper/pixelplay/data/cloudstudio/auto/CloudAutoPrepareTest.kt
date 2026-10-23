@@ -233,10 +233,11 @@ class CloudAutoPrepareTest {
 
     @Test fun `a batch stops where the automatic share or the month's cap runs out`() {
         val ranked = rank(library)
-        // A 3-minute song: 29 s warm (38 s scaled to 180 s, rounded up) and one 15 s cold start per batch, at 192 µ$/s.
-        val one = (15L + 29) * 192
-        val two = (15L + 58) * 192
-        val three = (15L + 87) * 192
+        // A 3-minute song: 25 s warm (33 s scaled to 180 s, rounded up) and one 15 s cold start per batch on one worker,
+        // at 192 µ$/s.
+        val one = (15L + 25) * 192
+        val two = (15L + 50) * 192
+        val three = (15L + 75) * 192
         assertEquals(one, CloudAutoPrepare.select(ranked, state(autoBudget = one)).estimateMicroUsd)
         assertEquals(1, CloudAutoPrepare.select(ranked, state(autoBudget = two - 1)).picks.size)
         assertEquals(2, CloudAutoPrepare.select(ranked, state(autoBudget = two)).picks.size)
@@ -249,10 +250,15 @@ class CloudAutoPrepareTest {
         assertEquals(2, CloudAutoPrepare.select(ranked, state(capRemaining = two)).picks.size)
         assertTrue(CloudAutoPrepare.select(ranked, state(capRemaining = one - 1)).picks.isEmpty())
         assertTrue(CloudAutoPrepare.select(ranked, state(autoBudget = 0)).picks.isEmpty())
+        // Three workers at once (the built-in keys): each song of the batch wakes its own, a cold start each.
+        val threeWorkers = state(autoBudget = 3 * one).copy(parallelWorkers = 3)
+        assertEquals(3, CloudAutoPrepare.select(ranked, threeWorkers).picks.size)
+        assertEquals(3 * one, CloudAutoPrepare.select(ranked, threeWorkers).estimateMicroUsd)
+        assertEquals(2, CloudAutoPrepare.select(ranked, threeWorkers.copy(autoBudgetMicroUsd = 3 * one - 1)).picks.size)
     }
 
     @Test fun `a song too long for what is left is skipped, and a shorter one further down may still fit`() {
-        // The first pick would be 8 minutes (76 s of GPU); only the short one after it fits the $0.012 left.
+        // The first pick would be 8 minutes (66 s of GPU); only the short one after it fits the $0.012 left.
         val long = song("long", favorite = true, duration = 480_000)
         val short = song("short", duration = 60_001)
         val selection = CloudAutoPrepare.select(rank(long, short), state(autoBudget = 12_000))
@@ -262,15 +268,20 @@ class CloudAutoPrepareTest {
     // ─── What the settings screen says ──────────────────────────────────────────────────────
 
     @Test fun `about N songs a month comes from the cost model`() {
-        // A 4-minute song: 38 s of GPU plus a third of a 15 s cold start (batches of three), at $0.000192 a second.
-        assertEquals(121, CloudAutoPrepare.songsPerMonth(1_000_000))
-        assertEquals(30, CloudAutoPrepare.songsPerMonth(250_000))
-        assertEquals(363, CloudAutoPrepare.songsPerMonth(3_000_000))
-        assertEquals(0, CloudAutoPrepare.songsPerMonth(8_255))
-        assertEquals(1, CloudAutoPrepare.songsPerMonth(8_256))
-        assertEquals(0, CloudAutoPrepare.songsPerMonth(0))
-        assertEquals(0, CloudAutoPrepare.songsPerMonth(-5))
-        assertEquals(38L, CloudCost.WARM_SECONDS_STANDARD)
+        // The built-in endpoint runs three at once: a batch of three wakes three workers, so each 4-minute song pays
+        // 33 s of GPU plus a whole 15 s cold start, at $0.000192 a second.
+        assertEquals(108, CloudAutoPrepare.songsPerMonth(1_000_000, 3))
+        assertEquals(27, CloudAutoPrepare.songsPerMonth(250_000, 3))
+        assertEquals(325, CloudAutoPrepare.songsPerMonth(3_000_000, 3))
+        assertEquals(0, CloudAutoPrepare.songsPerMonth(9_215, 3))
+        assertEquals(1, CloudAutoPrepare.songsPerMonth(9_216, 3))
+        assertEquals(0, CloudAutoPrepare.songsPerMonth(0, 3))
+        assertEquals(0, CloudAutoPrepare.songsPerMonth(-5, 3))
+        // One worker (own keys): the batch shares one cold start, a third of it each.
+        assertEquals(137, CloudAutoPrepare.songsPerMonth(1_000_000, 1))
+        assertEquals(0, CloudAutoPrepare.songsPerMonth(7_295, 1))
+        assertEquals(1, CloudAutoPrepare.songsPerMonth(7_296, 1))
+        assertEquals(33L, CloudCost.WARM_SECONDS_STANDARD)
         assertEquals(15L, CloudCost.COLD_START_SECONDS)
     }
 

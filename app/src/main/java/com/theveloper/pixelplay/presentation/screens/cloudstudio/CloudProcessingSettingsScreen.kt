@@ -11,15 +11,12 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowForwardIos
 import androidx.compose.material.icons.automirrored.rounded.ListAlt
-import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.CloudUpload
 import androidx.compose.material.icons.rounded.ErrorOutline
-import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.Key
 import androidx.compose.material.icons.rounded.KeyOff
 import androidx.compose.material.icons.rounded.Memory
 import androidx.compose.material.icons.rounded.NetworkCell
-import androidx.compose.material.icons.rounded.Subtitles
 import androidx.compose.material.icons.rounded.Verified
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -59,8 +56,8 @@ import com.theveloper.pixelplay.presentation.viewmodel.CloudStudioViewModel
  * Settings › Sing › Cloud processing (design §3.5 E, §7.2), ported from the iOS app's `CloudProcessingSettingsView`:
  * the consent switch, the RunPod endpoint and Restricted key, the R2 bucket and its key pair (fields in the order of
  * the owner's setup steps), Test connection (RunPod and storage reported on their own) with the optional selftest, the
- * outputs, mobile data, the GPU price and monthly cap, and the way to the queue. Everyone sees the consent switch,
- * mobile data and the queue link; the rest (keys, testing, outputs, cost) shows in developer mode only.
+ * instrumental's quality, mobile data, the GPU price and monthly cap, and the way to the queue. Everyone sees the
+ * consent switch, mobile data and the queue link; the rest (keys, testing, quality, cost) shows in developer mode only.
  */
 @Composable
 fun CloudProcessingSettingsScreen(
@@ -114,10 +111,11 @@ fun CloudProcessingSettingsScreen(
                     if (developerMode) {
                         CloudCaption(
                             if (builtIn) {
-                                "Separates vocals with BS-RoFormer and times lyrics word by word on PixlAudio's RunPod GPU. " +
+                                "Separates vocals with BS-RoFormer on PixlAudio's RunPod GPUs, " +
+                                    "${CloudKeyChoice.BUILT_IN_PARALLEL_WORKERS} songs at once. " +
                                     "Songs go to PixlAudio's Cloudflare R2 bucket and are deleted after import."
                             } else {
-                                "Separates vocals with BS-RoFormer and times lyrics word by word on your own RunPod GPU. " +
+                                "Separates vocals with BS-RoFormer on your own RunPod GPU, one song at a time. " +
                                     "Songs go to your Cloudflare R2 bucket and are deleted after import."
                             }
                         )
@@ -274,30 +272,9 @@ fun CloudProcessingSettingsScreen(
                 }
             }
         }
+        // The cloud makes the instrumental only (2026-10-23): what is left to choose is how carefully.
         if (developerMode) item(key = "outputs") {
-            CloudSection("Outputs") {
-                SwitchSettingItem(
-                    title = "Instrumental",
-                    subtitle = "For Sing: the song without its vocals.",
-                    checked = settings.wantsInstrumental,
-                    onCheckedChange = { on -> viewModel.updateSettings { it.copy(wantsInstrumental = on) } },
-                    leadingIcon = { Icon(Icons.Rounded.GraphicEq, null, tint = MaterialTheme.colorScheme.secondary) },
-                )
-                SwitchSettingItem(
-                    title = "Word-timed lyrics",
-                    subtitle = "Times your lyrics word by word against the vocals.",
-                    checked = settings.wantsLyrics,
-                    onCheckedChange = { on -> viewModel.updateSettings { it.copy(wantsLyrics = on) } },
-                    leadingIcon = { Icon(Icons.Rounded.Subtitles, null, tint = MaterialTheme.colorScheme.secondary) },
-                )
-                SwitchSettingItem(
-                    title = "Write lyrics when none are found (AI transcription)",
-                    subtitle = "Saved as \"AI-written lyrics\". Line timing only outside the 11 languages the aligner knows.",
-                    checked = settings.transcribeWhenMissing,
-                    onCheckedChange = { on -> viewModel.updateSettings { it.copy(transcribeWhenMissing = on) } },
-                    leadingIcon = { Icon(Icons.Rounded.AutoAwesome, null, tint = MaterialTheme.colorScheme.secondary) },
-                    enabled = settings.wantsLyrics,
-                )
+            CloudSection("Instrumental") {
                 CloudPanel {
                     Text("Quality", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
                     val options = listOf(CloudSeparationQuality.STANDARD to "Standard", CloudSeparationQuality.BEST to "Best")
