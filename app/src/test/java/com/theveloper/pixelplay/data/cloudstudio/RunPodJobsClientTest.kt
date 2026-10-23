@@ -117,6 +117,53 @@ class RunPodJobsClientTest {
         assertFalse(RunPodJobsClient.isValidEndpointId("api.runpod.ai/v2/x"))
     }
 
+    @Test fun `cancel returns the job's state afterwards`() = runBlocking {
+        val http = ScriptedHttp(response(200, """{"id":"job-1","status":"CANCELLED"}"""))
+        val reply = client(http).cancel("job-1")
+        assertEquals("job-1", reply?.id)
+        assertEquals(RunPodJobStatus.CANCELLED, reply?.typedStatus)
+        val request = http.requests.single()
+        assertEquals("POST", request.method)
+        assertEquals("https://api.runpod.ai/v2/ep123abc/cancel/job-1", request.url)
+        assertEquals("Bearer rpa_KEY", request.header("Authorization"))
+    }
+
+    @Test fun `a cancel that did not remove the job from the queue says so, and an unreadable reply is null`() = runBlocking {
+        // The priority lane only trusts the word CANCELLED: a job that already began answers with where it is.
+        val began = client(ScriptedHttp(response(200, """{"id":"job-1","status":"IN_PROGRESS"}"""))).cancel("job-1")
+        assertEquals(RunPodJobStatus.IN_PROGRESS, began?.typedStatus)
+        assertFalse(CloudPriorityLane.cancelConfirmed(began))
+        assertNull(client(ScriptedHttp(response(200, ""))).cancel("job-1"))
+        assertNull(client(ScriptedHttp(response(200, "not json"))).cancel("job-1"))
+        assertFalse(CloudPriorityLane.cancelConfirmed(client(ScriptedHttp(response(200, "{}"))).cancel("job-1")))
+    }
+
+    @Test fun `cancels are at least 120 ms apart, one gate of their own`() = runBlocking {
+        val http = ScriptedHttp(
+            response(200, """{"id":"a","status":"CANCELLED"}"""), response(200, """{"id":"b","status":"CANCELLED"}"""),
+            response(200, """{"id":"c","status":"CANCELLED"}"""),
+        )
+        val client = client(http)
+        client.cancel("a")
+        assertEquals(emptyList<Long>(), sleeps, "the first cancel waits for nothing")
+        now += 30
+        client.cancel("b")
+        assertEquals(listOf(90L), sleeps)
+        now += 500
+        client.cancel("c")
+        assertEquals(listOf(90L), sleeps, "after a long enough pause there is nothing to wait for")
+        assertEquals(RunPodJobsClient.MINIMUM_CANCEL_INTERVAL_MS, CloudTiming.CANCEL_MIN_INTERVAL_MS)
+    }
+
+    @Test fun `a cancel of a job RunPod forgot is JobNotFound, and a bad id never leaves the phone`() {
+        assertThrows(RunPodError.JobNotFound::class.java) {
+            runBlocking { client(ScriptedHttp(response(404))).cancel("job-1") }
+        }
+        val http = ScriptedHttp()
+        assertThrows(RunPodError.JobNotFound::class.java) { runBlocking { client(http).cancel("../x") } }
+        assertTrue(http.requests.isEmpty())
+    }
+
     @Test fun `selftest goes through runsync with a long timeout`() = runBlocking {
         val http = ScriptedHttp(response(200, CloudFixtures.phone("runpod.selftest.json")))
         val job = client(http).selftest("0.7.6 (11)")
@@ -136,7 +183,7 @@ class RunPodJobsClientTest {
 internal open class FakeRunPodBase : RunPodJobsApi {
     override suspend fun run(request: CloudJobRequest): RunPodJob = error("unexpected run")
     override suspend fun status(jobId: String): RunPodJob = error("unexpected status")
-    override suspend fun cancel(jobId: String) = Unit
+    override suspend fun cancel(jobId: String): RunPodJob? = null
     override suspend fun health(): RunPodHealth = error("unexpected health")
     override suspend fun selftest(build: String): RunPodJob = error("unexpected selftest")
 }

@@ -113,7 +113,7 @@ object CloudTiming {
     const val EXECUTION_TIMEOUT_MS: Long = 900_000
     /** The upload PUT the phone presigns for itself: 24 h. */
     const val UPLOAD_PRESIGN_SECONDS = 86_400
-    /** The worker's URLs, signed at submission: `ttl + executionTimeout + 1 h` (≈ 76 h; R2's maximum is 7 d). */
+    /** The worker's URLs, signed at submission: `ttl + executionTimeout + 1 h` (263,700 s ≈ 73 h; R2's maximum is 7 d). */
     val WORKER_PRESIGN_SECONDS: Int = ((TTL_MS + EXECUTION_TIMEOUT_MS) / 1000).toInt() + 3_600
     /**
      * An input older than this is uploaded again instead of being submitted (upload age + ttl < the 7-day `in/`
@@ -124,6 +124,15 @@ object CloudTiming {
     const val BATCH_GATE_MS: Long = 120_000
     /** `/status` for running jobs at most this often in the foreground. */
     const val STATUS_POLL_INTERVAL_MS: Long = 15_000
+    /** The same, for a priority job (a Sing is being waited on), and how often the foreground loop looks meanwhile. */
+    const val SING_POLL_INTERVAL_MS: Long = 3_000
+    /** RunPod's `/cancel` allows 100 per 10 s: the app stays well under, one at a time. */
+    const val CANCEL_MIN_INTERVAL_MS: Long = 120
+    /**
+     * How long a priority job may hold the others back while it prepares and uploads (new automatic jobs wait, and
+     * jobs that stepped aside wait to go behind it): after this the queue moves on without it.
+     */
+    const val PRIORITY_HOLD_MAX_MS: Long = 5L * 60_000
     /** RunPod keeps a finished job's `/status` for 30 minutes. */
     const val STATUS_RETENTION_MS: Long = 30L * 60_000
     /** Retry ladder after a failure: 1 → 5 → 15 → 60 minutes, then every hour. */
@@ -206,6 +215,8 @@ enum class CloudJobEvent {
     REQUEUE,
     /** The input is in R2 but the job must be sent again (lost at RunPod, or a FLAC redo). */
     RESUBMIT,
+    /** RunPod took the job out of its queue before it began, to make room for a priority job: back to `uploaded`. */
+    PAUSE,
 }
 
 object CloudJobMachine {
@@ -247,6 +258,8 @@ object CloudJobMachine {
                 CloudJobState.RESULTS_READY, CloudJobState.DOWNLOADING -> CloudJobState.UPLOADED
                 else -> null
             }
+            // Only a job still waiting in RunPod's queue can step aside; a running one is never stopped for another.
+            CloudJobEvent.PAUSE -> if (s == CloudJobState.SUBMITTED) CloudJobState.UPLOADED else null
         }
     }
 }
@@ -284,6 +297,11 @@ data class CloudSelectionOptions(
     val transcribeWhenMissing: Boolean = true,
     /** Re-time lyrics the person synced themselves. */
     val replaceUserSynced: Boolean = false,
+    /**
+     * Ask for the instrumental even when Outputs has it off: the Sing button and automatic preparing exist to get one,
+     * so the developer toggle can't turn their job into a lyrics-only one.
+     */
+    val forceInstrumental: Boolean = false,
 )
 
 /** Why a song wasn't sent. */
@@ -324,7 +342,7 @@ object CloudSelector {
         if (facts.hasPendingJob) return null to CloudSkipReason.PENDING_JOB
         if (facts.durationMs > CloudLimits.MAX_DURATION_MS) return null to CloudSkipReason.TOO_LONG
         val tasks = mutableListOf<CloudTask>()
-        if (options.instrumental && !facts.hasInstrumental) tasks += CloudTask.INSTRUMENTAL
+        if ((options.instrumental || options.forceInstrumental) && !facts.hasInstrumental) tasks += CloudTask.INSTRUMENTAL
         var mode: CloudLyricsMode? = null
         var userSyncedSkip = false
         if (options.lyrics) {
@@ -440,13 +458,16 @@ object CloudCost {
     /** The default app cap: $3 a month. */
     const val DEFAULT_MONTHLY_CAP_MICRO_USD: Long = 3_000_000
 
-    /** Billed GPU seconds per warm song (§6): instrumental + aligned lyrics. */
-    const val WARM_SECONDS_STANDARD: Long = 20
+    /**
+     * Billed GPU seconds per warm 4-minute song: instrumental + aligned lyrics. From the 2026-10-22 bench on an
+     * RTX A4500 (it was 20 before that run).
+     */
+    const val WARM_SECONDS_STANDARD: Long = 38
     const val EXTRA_SECONDS_TRANSCRIBE: Long = 10
     const val EXTRA_SECONDS_BEST: Long = 12
     const val EXTRA_SECONDS_STEMS: Long = 5
-    /** One cold start per batch: model load plus the 10 s idle timeout. */
-    const val COLD_START_SECONDS: Long = 35
+    /** One cold start per batch (2026-10-22 bench; it was 35 before that run). */
+    const val COLD_START_SECONDS: Long = 15
     /** The song length §6's figures are for (4 minutes). */
     const val REFERENCE_SONG_MS: Long = 240_000
 
@@ -525,6 +546,130 @@ object CloudBudget {
         val date = Instant.ofEpochMilli(nowMs).atZone(zone).toLocalDate().withDayOfMonth(1)
         return date.atStartOfDay(zone).toInstant().toEpochMilli()
     }
+
+    /** Start of the day containing [nowMs] in [zone] (the daily cap on automatic jobs counts the phone's own days). */
+    fun dayStartMs(nowMs: Long, zone: ZoneId = ZoneOffset.UTC): Long =
+        Instant.ofEpochMilli(nowMs).atZone(zone).toLocalDate().atStartOfDay(zone).toInstant().toEpochMilli()
+
+    // ─── Smart auto-prepare's own share of the month ────────────────────────────────────────
+
+    /**
+     * What automatic jobs have used or will use this month: their recorded costs, the estimate of those RunPod holds
+     * now, and what automatic jobs since taken off the list spent ([removedAutoSpendMicroUsd], kept apart from the
+     * list, so "Clear finished" never makes room).
+     */
+    fun autoCommittedMicroUsd(
+        records: List<CloudJobRecord>,
+        monthStartMs: Long,
+        pricePerSecondMicroUsd: Long,
+        removedAutoSpendMicroUsd: Long,
+    ): Long = committedMicroUsd(records.filter { it.origin == CloudJobOrigin.AUTO }, monthStartMs, pricePerSecondMicroUsd) +
+        max(removedAutoSpendMicroUsd, 0)
+
+    /**
+     * An automatic job needs both budgets: its own share ([autoBudgetMicroUsd] less what automatic jobs have
+     * committed) and the month's shared cap ([capRemainingMicroUsd]).
+     */
+    fun allowsAuto(
+        estimateMicroUsd: Long,
+        autoBudgetMicroUsd: Long,
+        autoCommittedMicroUsd: Long,
+        capRemainingMicroUsd: Long,
+    ): Boolean = estimateMicroUsd <= min(remainingMicroUsd(autoBudgetMicroUsd, autoCommittedMicroUsd), max(capRemainingMicroUsd, 0))
+}
+
+// ─── Priority lane ──────────────────────────────────────────────────────────────────────────────
+
+/** What a fresh `/status` says about a job that is about to be pulled out of RunPod's queue. */
+enum class PauseCheck {
+    /** Still waiting in the queue: safe to cancel. */
+    IN_QUEUE,
+    /** It began (or is about to): leave it running. */
+    STARTED,
+    /** It reached an end (finished, failed, already cancelled): the normal handling decides. */
+    FINISHED,
+    /** An answer this app doesn't know: do nothing. */
+    UNKNOWN,
+}
+
+/**
+ * Pure rules of the priority lane (a Sing, or a one-song "Process in cloud", goes first): who goes first on the phone,
+ * who may step aside at RunPod and in what order, who is held back for a few minutes. The engine only sequences the
+ * I/O around them. A paused job is `uploaded` with its upload kept; only a job still waiting in RunPod's queue is ever
+ * cancelled, never a running one or another priority job.
+ */
+object CloudPriorityLane {
+    /** The order the phone prepares and uploads in: priority jobs, then the person's batches, then automatic ones. */
+    fun phoneOrder(jobs: List<CloudJobRecord>): List<CloudJobRecord> =
+        jobs.withIndex().sortedWith(compareBy({ it.value.lane }, { it.index })).map { it.value }
+
+    /** The order ready jobs go out in one burst: priority jobs first, then the rest in list order (paused ones keep theirs). */
+    fun submitOrder(readyKeys: Collection<String>, jobs: List<CloudJobRecord>): List<String> {
+        val wanted = readyKeys.toSet()
+        return jobs.withIndex().filter { it.value.jobKey in wanted }
+            .sortedWith(compareBy({ if (it.value.isPriority) 0 else 1 }, { it.index }))
+            .map { it.value.jobKey }
+    }
+
+    /**
+     * Jobs that may step aside for [priorityJobKey]: waiting in RunPod's queue (`submitted`), not priority jobs
+     * themselves, started by an automatic pass or a batch. Never a running job.
+     */
+    fun pausable(jobs: List<CloudJobRecord>, priorityJobKey: String): List<CloudJobRecord> = jobs.filter {
+        it.jobKey != priorityJobKey && it.state == CloudJobState.SUBMITTED && it.runpodJobId != null && !it.isPriority &&
+            (it.origin == CloudJobOrigin.AUTO || it.origin == CloudJobOrigin.MANUAL)
+    }
+
+    /** The newest-submitted job first: the tail of RunPod's queue is cancelled before its head. */
+    fun cancelOrder(candidates: List<CloudJobRecord>, jobs: List<CloudJobRecord>): List<CloudJobRecord> {
+        val index = jobs.withIndex().associate { (position, record) -> record.jobKey to position }
+        return candidates.sortedWith(
+            compareByDescending<CloudJobRecord> { it.submittedAtMs ?: 0 }.thenByDescending { index[it.jobKey] ?: 0 }
+        )
+    }
+
+    fun check(status: RunPodJobStatus?): PauseCheck = when (status) {
+        RunPodJobStatus.IN_QUEUE -> PauseCheck.IN_QUEUE
+        RunPodJobStatus.IN_PROGRESS -> PauseCheck.STARTED
+        RunPodJobStatus.COMPLETED, RunPodJobStatus.FAILED, RunPodJobStatus.CANCELLED, RunPodJobStatus.TIMED_OUT ->
+            PauseCheck.FINISHED
+        null -> PauseCheck.UNKNOWN
+    }
+
+    /** `/cancel` took the job out of the queue only when it says so: anything else may mean it already began. */
+    fun cancelConfirmed(reply: RunPodJob?): Boolean = reply?.typedStatus == RunPodJobStatus.CANCELLED
+
+    /**
+     * Whether [record] waits at the phone for a priority job that is still on its way: a paused job waits behind the
+     * priority job that made room, and a new automatic job waits behind any priority job still preparing or uploading.
+     * Both give up after [CloudTiming.PRIORITY_HOLD_MAX_MS], so a priority job stuck on Wi-Fi never freezes the queue.
+     * [goingOut] are the priority jobs sent first in this very pass: they don't hold anyone back.
+     */
+    fun isHeld(record: CloudJobRecord, jobs: List<CloudJobRecord>, goingOut: Set<String>, nowMs: Long): Boolean {
+        if (record.isPaused) {
+            val waitingFor = record.pausedByJobKey ?: return false
+            if (waitingFor in goingOut) return false
+            val priority = jobs.firstOrNull { it.jobKey == waitingFor } ?: return false
+            if (!priority.state.isBeforeSubmit) return false
+            return nowMs - (record.pausedAtMs ?: return false) < CloudTiming.PRIORITY_HOLD_MAX_MS
+        }
+        if (record.origin == CloudJobOrigin.AUTO) {
+            return jobs.any { priority ->
+                priority.isPriority && priority.jobKey != record.jobKey && priority.state.isBeforeSubmit &&
+                    priority.jobKey !in goingOut &&
+                    nowMs - (priority.priorityAtMs ?: priority.createdAtMs) < CloudTiming.PRIORITY_HOLD_MAX_MS
+            }
+        }
+        return false
+    }
+
+    /** Paused jobs whose wait is over (the priority job is on its way or gone, or the hold ran out): to be released. */
+    fun releasable(jobs: List<CloudJobRecord>, nowMs: Long): List<String> = jobs.filter { record ->
+        if (!record.isPaused || record.state != CloudJobState.UPLOADED) return@filter false
+        val priority = jobs.firstOrNull { it.jobKey == record.pausedByJobKey }
+        priority == null || !priority.state.isBeforeSubmit ||
+            nowMs - (record.pausedAtMs ?: 0) >= CloudTiming.PRIORITY_HOLD_MAX_MS
+    }.map { it.jobKey }
 }
 
 // ─── Batch estimate (the confirm sheet) ─────────────────────────────────────────────────────────

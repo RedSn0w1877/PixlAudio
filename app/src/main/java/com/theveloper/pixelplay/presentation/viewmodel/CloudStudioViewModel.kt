@@ -27,6 +27,10 @@ class CloudStudioViewModel @Inject constructor(
     val settings: StateFlow<CloudSettingsSnapshot> get() = holder.settingsState
     /** What a start did ("Processing 1 song in the cloud", why nothing started…); screens show each line as a toast. */
     val messages: Flow<String> get() = holder.messages
+    /** Settings › Sing, under "Prepare songs ahead in the cloud": "3 songs today · $0.12 of $1.00 this month" or "Waiting for Wi-Fi"; empty while off. */
+    val autoPrepareStatus: StateFlow<String> get() = holder.autoPrepareStatus
+    /** Developer mode: the songs the last automatic run picked and why. */
+    val autoPrepareWhy: StateFlow<List<String>> get() = holder.autoPrepareWhy
 
     fun onScreenShown() = holder.onScreenShown()
     fun loadJobs() = holder.loadJobs()

@@ -4,6 +4,8 @@ import java.io.File
 import java.nio.file.Path
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
@@ -48,4 +50,46 @@ class CloudJobStoreTest {
         assertEquals(emptyList<CloudJobRecord>(), store.load())
         assertEquals(2, dir.listFiles()!!.count { it.name.startsWith("${CloudJobStore.FILE_NAME}.unreadable-") })
     }
+
+    @Test fun `a file from before the priority lane still loads, with every lane field empty`() = runBlocking {
+        val dir = directory.resolve("cloud_studio").toFile().apply { mkdirs() }
+        File(dir, CloudJobStore.FILE_NAME).writeText(
+            """[{"jobKey":"${CloudFixtures.JOB_KEY}","songId":"1","state":"submitted","runpodJobId":"rp-1","submittedAtMs":5}]"""
+        )
+        val loaded = CloudJobStore(dir).load().single()
+        assertEquals(CloudJobState.SUBMITTED, loaded.state)
+        assertEquals(CloudJobOrigin.MANUAL, loaded.origin, "a job without an origin is a batch")
+        assertNull(loaded.priorityAtMs)
+        assertNull(loaded.pausedByJobKey)
+        assertNull(loaded.pausedAtMs)
+        assertNull(loaded.pausedNeverStarted)
+        assertNull(loaded.pauseIntentRunpodJobId)
+        assertFalse(loaded.isPriority)
+        assertFalse(loaded.isPaused)
+        assertFalse(loaded.hasPauseIntent)
+    }
+
+    @Test fun `the lane fields are saved under fixed names and read back`() = runBlocking {
+        val store = CloudJobStore(directory.resolve("cloud_studio").toFile())
+        val sing = CloudJobRecord(
+            jobKey = CloudFixtures.JOB_KEY, songId = "1", origin = CloudJobOrigin.SING, priorityAtMs = 5,
+            state = CloudJobState.UPLOADED, createdAtMs = 1,
+        )
+        val paused = CloudJobRecord(
+            jobKey = "00000000-0000-4000-8000-000000000001", songId = "2", origin = CloudJobOrigin.AUTO,
+            state = CloudJobState.UPLOADED, submittedAtMs = 3, pausedByJobKey = CloudFixtures.JOB_KEY, pausedAtMs = 7,
+            pausedNeverStarted = true, createdAtMs = 2,
+        )
+        val intent = CloudJobRecord(
+            jobKey = "00000000-0000-4000-8000-000000000002", songId = "3", state = CloudJobState.SUBMITTED,
+            runpodJobId = "rp-3", pauseIntentRunpodJobId = "rp-3", createdAtMs = 3,
+        )
+        store.save(listOf(sing, paused, intent))
+        assertEquals(listOf(sing, paused, intent), store.load())
+        val text = File(directory.resolve("cloud_studio").toFile(), CloudJobStore.FILE_NAME).readText()
+        assertTrue("\"origin\":\"sing\"" in text, text)
+        assertTrue("\"origin\":\"auto\"" in text, text)
+        assertTrue("\"pauseIntentRunpodJobId\":\"rp-3\"" in text, text)
+    }
+
 }

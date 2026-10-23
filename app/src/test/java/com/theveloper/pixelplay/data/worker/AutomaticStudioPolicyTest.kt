@@ -152,4 +152,12 @@ class AutomaticStudioPolicyTest {
         ledger.record("latest", 5)
         assertEquals(setOf("middle", "latest"), ledger.snapshot().keys)
     }
+
+    @Test fun `the on-device studio leaves an instrumental to the cloud only while the cloud will do it`() {
+        assertTrue(AutomaticStudioPolicy.cloudOwnsInstrumental(autoPrepareOn = true, cloudUsable = true))
+        // The switch is off, or the cloud can't take it (off, keys, cap): nothing else would ever prepare the song.
+        assertFalse(AutomaticStudioPolicy.cloudOwnsInstrumental(autoPrepareOn = false, cloudUsable = true))
+        assertFalse(AutomaticStudioPolicy.cloudOwnsInstrumental(autoPrepareOn = true, cloudUsable = false))
+        assertFalse(AutomaticStudioPolicy.cloudOwnsInstrumental(autoPrepareOn = false, cloudUsable = false))
+    }
 }

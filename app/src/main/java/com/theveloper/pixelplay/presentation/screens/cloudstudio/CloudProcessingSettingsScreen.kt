@@ -99,7 +99,7 @@ fun CloudProcessingSettingsScreen(
             CloudSection("Consent") {
                 SwitchSettingItem(
                     title = if (builtIn) "Process songs in the cloud" else "Send songs to my RunPod account",
-                    subtitle = "Nothing leaves this phone until you tap Process in cloud.",
+                    subtitle = "Nothing leaves this phone until you tap Process in cloud or Sing, or turn on Prepare songs ahead.",
                     checked = settings.enabled,
                     onCheckedChange = { on -> viewModel.updateSettings { it.copy(enabled = on) } },
                     leadingIcon = { Icon(Icons.Rounded.CloudUpload, null, tint = MaterialTheme.colorScheme.secondary) },

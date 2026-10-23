@@ -61,6 +61,13 @@ internal object AutomaticStudioPolicy {
 
     fun canProcessDuration(durationMs: Long): Boolean = durationMs in 1..MAX_SONG_DURATION_MS
 
+    /**
+     * Whether the cloud's own automatic preparing (Settings › Sing › "Prepare songs ahead in the cloud") looks after
+     * this instrumental, so the on-device automatic studio leaves it alone instead of doing the same song on the charger.
+     * Both must hold: the switch is on for the song, and the cloud is usable (otherwise nothing would ever prepare it).
+     */
+    fun cloudOwnsInstrumental(autoPrepareOn: Boolean, cloudUsable: Boolean): Boolean = autoPrepareOn && cloudUsable
+
     fun orderedIds(current: String?, recent: List<String>, favorites: List<String>, local: List<String>): List<String> =
         (listOfNotNull(current) + recent + favorites + local).filter(String::isNotBlank).distinct().take(40)
 

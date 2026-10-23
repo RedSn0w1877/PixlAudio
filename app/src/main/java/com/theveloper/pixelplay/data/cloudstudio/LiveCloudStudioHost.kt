@@ -75,6 +75,16 @@ class LiveCloudStudioHost(
         }
     }
 
+    override suspend fun cachedAudioSource(song: CloudSong): String? {
+        val appSong = appSong(song.id) ?: return null
+        val spotifyId = appSong.spotifyId
+        if (spotifyId == null) return appSong.contentUriString.ifBlank { appSong.path }.takeIf { it.isNotBlank() }
+        // Only a complete file already on the phone. Calling downloadAndCache after that check makes it permanent
+        // (so it can't be evicted while it uploads) without any network: a cached file is reused, not fetched again.
+        if (audioCacheManager.getPlayableFile(spotifyId) == null) return null
+        return audioCacheManager.downloadAndCache(spotifyStreamProxy, spotifyId, isPermanent = true)?.absolutePath
+    }
+
     override suspend fun streamIdentity(song: CloudSong): String? {
         val spotifyId = appSong(song.id)?.spotifyId ?: return null
         return withContext(Dispatchers.IO) { spotifyDao.getMatchedVideoId(spotifyId) }

@@ -1,7 +1,9 @@
 package com.theveloper.pixelplay.presentation.viewmodel
 
+import com.theveloper.pixelplay.data.worker.CloudPhase
 import com.theveloper.pixelplay.data.worker.InstrumentalRenderJob
 import com.theveloper.pixelplay.data.worker.RenderJobState
+import com.theveloper.pixelplay.data.worker.RenderSource
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
@@ -13,6 +15,17 @@ class SingUiReducerTest {
     private fun job(state: RenderJobState, percent: Int = 0, automatic: Boolean = false) = InstrumentalRenderJob(
         id = "job", state = state, percent = percent, instrumentalPath = null,
         failureReason = null, automatic = automatic, createdAtMs = 1L
+    )
+
+    private fun cloudJob(
+        state: RenderJobState,
+        percent: Int = 0,
+        phase: CloudPhase? = null,
+        automatic: Boolean = false,
+    ) = InstrumentalRenderJob(
+        id = "cloud", state = state, percent = percent, instrumentalPath = null,
+        failureReason = null, automatic = automatic, createdAtMs = 1L,
+        source = RenderSource.CLOUD, phase = phase,
     )
 
     @Test
@@ -67,5 +80,133 @@ class SingUiReducerTest {
     fun `Cast or Spotify Connect disables Sing`() {
         assertFalse(singUi(available = true, active = false, job = null, remoteActive = true).enabled)
         assertTrue(singUi(available = true, active = false, job = null, remoteActive = false).enabled)
+    }
+
+    // ---- the cloud ------------------------------------------------------------------------------
+
+    @Test
+    fun `a Sing waiting on the cloud says Preparing before its job shows up`() {
+        val ui = singUi(available = false, active = false, job = null, remoteActive = false, wait = SingWait.CLOUD)
+
+        assertTrue(ui.rendering)
+        assertEquals(SingPhase.CLOUD, ui.phase)
+        assertNull(ui.progress)
+        assertFalse(ui.active)
+    }
+
+    @Test
+    fun `a cloud job fills the button with its progress`() {
+        val ui = singUi(
+            available = false, active = false, remoteActive = false, wait = SingWait.CLOUD,
+            job = cloudJob(RenderJobState.RUNNING, percent = 60, phase = CloudPhase.PROCESSING),
+        )
+
+        assertTrue(ui.rendering)
+        assertEquals(SingPhase.CLOUD, ui.phase)
+        assertEquals(0.60f, ui.progress!!, 0.0001f)
+    }
+
+    @Test
+    fun `a queued cloud job shows its fill too`() {
+        val ui = singUi(
+            available = false, active = false, remoteActive = false, wait = SingWait.CLOUD,
+            job = cloudJob(RenderJobState.QUEUED, percent = 12, phase = CloudPhase.UPLOADING),
+        )
+
+        assertEquals(SingPhase.CLOUD, ui.phase)
+        assertEquals(0.12f, ui.progress!!, 0.0001f)
+    }
+
+    @Test
+    fun `a cloud job that waits for Wi-Fi says so`() {
+        val ui = singUi(
+            available = false, active = false, remoteActive = false, wait = SingWait.CLOUD,
+            job = cloudJob(RenderJobState.QUEUED, phase = CloudPhase.WAITING_FOR_WIFI),
+        )
+
+        assertTrue(ui.rendering)
+        assertEquals(SingPhase.CLOUD_WIFI, ui.phase)
+    }
+
+    @Test
+    fun `a cloud job nobody is waiting for does not touch the button`() {
+        // Started from Song info or by the quiet preparation: the button stays a plain Sing.
+        val ui = singUi(
+            available = false, active = false, remoteActive = false, wait = SingWait.NONE,
+            job = cloudJob(RenderJobState.RUNNING, percent = 40, phase = CloudPhase.PROCESSING),
+        )
+
+        assertEquals(SingUi(), ui)
+    }
+
+    @Test
+    fun `a finished cloud job has no fill`() {
+        val ui = singUi(
+            available = false, active = false, remoteActive = false, wait = SingWait.CLOUD,
+            job = cloudJob(RenderJobState.FAILED),
+        )
+
+        assertNull(ui.progress)
+        assertEquals(SingPhase.CLOUD, ui.phase)
+    }
+
+    @Test
+    fun `an instrumental already on disk never shows the cloud's steps`() {
+        val ui = singUi(
+            available = true, active = false, remoteActive = false, wait = SingWait.CLOUD,
+            job = cloudJob(RenderJobState.RUNNING, percent = 40, phase = CloudPhase.PROCESSING),
+        )
+
+        assertFalse(ui.rendering)
+        assertEquals(SingPhase.IDLE, ui.phase)
+    }
+
+    @Test
+    fun `waiting for the gap after the cloud keeps the button full`() {
+        val ui = singUi(
+            available = true, active = false, job = null, remoteActive = false,
+            wait = SingWait.SWITCHING_AFTER_CLOUD,
+        )
+
+        assertTrue(ui.rendering)
+        assertEquals(1f, ui.progress!!, 0.0001f)
+        assertEquals(SingPhase.CLOUD, ui.phase)
+        assertFalse(ui.active)
+    }
+
+    @Test
+    fun `switching to an instrumental already here is a plain Sing until it happens`() {
+        val ui = singUi(
+            available = true, active = false, job = null, remoteActive = false, wait = SingWait.SWITCHING,
+        )
+
+        assertFalse(ui.rendering)
+        assertFalse(ui.active)
+        assertEquals(SingPhase.SWITCHING, ui.phase)
+    }
+
+    @Test
+    fun `vocals off beats every wait`() {
+        SingWait.entries.forEach { wait ->
+            val ui = singUi(available = true, active = true, job = null, remoteActive = false, wait = wait)
+
+            assertTrue(ui.active, "wait $wait")
+            assertFalse(ui.rendering, "wait $wait")
+            assertEquals(SingPhase.IDLE, ui.phase, "wait $wait")
+        }
+    }
+
+    @Test
+    fun `a cloud wait is disabled while Cast or Connect plays`() {
+        val ui = singUi(available = false, active = false, job = null, remoteActive = true, wait = SingWait.CLOUD)
+
+        assertFalse(ui.enabled)
+    }
+
+    @Test
+    fun `on this phone the steps are the removing-vocals ones`() {
+        val ui = singUi(available = false, active = false, job = job(RenderJobState.RUNNING, 48), remoteActive = false)
+
+        assertEquals(SingPhase.ON_DEVICE, ui.phase)
     }
 }

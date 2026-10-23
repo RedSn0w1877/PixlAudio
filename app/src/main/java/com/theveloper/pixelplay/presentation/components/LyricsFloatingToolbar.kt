@@ -70,6 +70,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.util.fastCoerceIn
 import androidx.compose.ui.util.lerp
 import com.theveloper.pixelplay.R
+import com.theveloper.pixelplay.presentation.viewmodel.SingPhase
 import com.theveloper.pixelplay.presentation.viewmodel.SingUi
 import kotlin.math.roundToInt
 
@@ -94,7 +95,8 @@ data class LyricsTranslateSegment(
  * - Translate: a tap shows or hides the lyrics' translations, or translates them on this phone
  *   when they have none. A long press opens Translate via AI and Show romanization.
  * - Sing: vocals off / on through the song's studio instrumental, with the render's progress
- *   filling the segment the first time.
+ *   filling the segment the first time. When the cloud prepares it the button says "Preparing…"
+ *   (or "Waiting for Wi-Fi") while the song plays on with its lyrics, then "Vocals off".
  *
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
@@ -140,6 +142,9 @@ fun LyricsFloatingToolbar(
     val singProgress = sing.progress
     val singLabel = when {
         sing.active -> stringResource(R.string.lyrics_sing_vocals_off)
+        // The cloud is preparing the vocal-free version while the song plays on: its steps are plain words.
+        sing.phase == SingPhase.CLOUD_WIFI -> stringResource(R.string.lyrics_sing_waiting_wifi)
+        sing.phase == SingPhase.CLOUD -> stringResource(R.string.lyrics_sing_preparing)
         sing.rendering && singProgress != null ->
             stringResource(R.string.lyrics_sing_removing, (singProgress * 100f).roundToInt())
         sing.rendering -> stringResource(R.string.lyrics_sing_removing_queued)
