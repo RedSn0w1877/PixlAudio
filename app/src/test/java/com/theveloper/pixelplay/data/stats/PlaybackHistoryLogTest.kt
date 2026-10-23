@@ -45,6 +45,21 @@ class PlaybackHistoryLogTest {
     }
 
     @Test
+    fun `a play recorded after a torn last line is not glued to the fragment`() = runTest {
+        val dir = createTempDirectory("history-log-").toFile()
+        val now = System.currentTimeMillis()
+        repo(dir).recordPlayback("song-0", 10_000L, now)
+        File(dir, "playback_history.log").appendText("{\"songId\":\"torn\",\"timest")
+
+        val second = repo(dir)
+        second.recordPlayback("song-1", 10_000L, now + 1)
+        second.recordPlayback("song-2", 10_000L, now + 2)
+
+        assertThat(repo(dir).exportEventsForBackup().map { it.songId })
+            .containsExactly("song-0", "song-1", "song-2")
+    }
+
+    @Test
     fun `merge drops logged events that compaction already folded into the base`() {
         val a = PlaybackStatsRepository.PlaybackEvent("a", 100L, 10L, 90L, 100L)
         val b = PlaybackStatsRepository.PlaybackEvent("b", 200L, 10L, 190L, 200L)
