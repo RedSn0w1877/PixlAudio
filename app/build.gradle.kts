@@ -1,4 +1,5 @@
 import java.io.File
+import java.security.SecureRandom
 import java.time.LocalDate
 import java.time.ZoneOffset
 import java.util.Properties
@@ -80,7 +81,7 @@ val anthropicKeyShares: Pair<String, String> = run {
         "" to ""
     } else {
         val plain = key.toByteArray(Charsets.UTF_8)
-        val pad = ByteArray(plain.size).also { java.security.SecureRandom().nextBytes(it) }
+        val pad = ByteArray(plain.size).also { SecureRandom().nextBytes(it) }
         val masked = ByteArray(plain.size) { i -> (plain[i].toInt() xor pad[i].toInt()).toByte() }
         fun ByteArray.hex(): String = joinToString("") { (it.toInt() and 0xff).toString(16).padStart(2, '0') }
         masked.hex() to pad.hex()
