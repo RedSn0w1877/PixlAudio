@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+
 package com.theveloper.pixelplay.presentation.screens
 
 import androidx.compose.foundation.layout.Spacer
