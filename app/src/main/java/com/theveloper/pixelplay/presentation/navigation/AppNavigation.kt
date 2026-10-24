@@ -560,6 +560,13 @@ fun AppNavigation(
                 }
             }
             composable(
+                Screen.TasteChanges.route,
+            ) {
+                ScreenWrapper(navController = navController, playerViewModel = playerViewModel, animatedVisibilityScope = this) {
+                    com.theveloper.pixelplay.presentation.screens.TasteChangesScreen(navController = navController)
+                }
+            }
+            composable(
                 Screen.DelimiterConfig.route,
             ) {
                 ScreenWrapper(navController = navController, playerViewModel = playerViewModel, animatedVisibilityScope = this) {

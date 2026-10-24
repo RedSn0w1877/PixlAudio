@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Settings › Library › Ask Taizo's taste changes -->
+    <string name="taste_changes_title">Ask Taizo\'s taste changes</string>
+    <string name="taste_changes_row_none">Nothing changed yet. Ask Taizo for more or less of something.</string>
+    <plurals name="taste_changes_row_count">
+        <item quantity="one">%1$d change in force · tap to review</item>
+        <item quantity="other">%1$d changes in force · tap to review</item>
+    </plurals>
+    <string name="taste_changes_intro">These are the changes you asked Ask Taizo to make to what PixlAudio recommends. They sit on top of what the app learns from your plays. Nothing is deleted, and you can take any of them back.</string>
+    <string name="taste_changes_empty_title">No taste changes</string>
+    <string name="taste_changes_empty_body">Ask Taizo to play more or less of an artist, genre or song, or to keep something out of your mixes, and it will show up here.</string>
+    <string name="taste_changes_remove">Remove</string>
+    <string name="taste_changes_clear_all">Clear all</string>
+    <string name="taste_changes_clear_title">Clear all taste changes?</string>
+    <string name="taste_changes_clear_body">Recommendations go back to what the app learned from your plays alone. Your songs and history are not touched.</string>
+    <string name="taste_kind_boost">Boosted (%1$s)</string>
+    <string name="taste_kind_reduce">Reduced (%1$s)</string>
+    <string name="taste_kind_mute">Muted: kept out of mixes and shelves</string>
+    <string name="taste_kind_block">Blocked: never recommended</string>
+    <string name="taste_target_artist">Artist</string>
+    <string name="taste_target_song">Song</string>
+    <string name="taste_target_genre">Genre</string>
+    <string name="taste_target_album">Album</string>
+    <string name="taste_set_by_taizo">Set by Taizo</string>
+    <string name="taste_set_by_user">Set by you</string>
+</resources>
