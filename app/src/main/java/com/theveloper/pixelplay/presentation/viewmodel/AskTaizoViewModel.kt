@@ -350,6 +350,8 @@ class AskTaizoViewModel @Inject constructor(
                 effort = TaizoContext.effortFor(text),
             )
             history = TaizoAgent.trimHistory(result.history)
+            // A taste change makes the cached profile (and its digest) stale: rebuild it for the next turn.
+            if (toolExecutor.consumeTasteChanged()) profile = null
             val finalText = synchronized(streamed) { streamed.toString().trim() }
             when (result.outcome) {
                 TaizoAgent.Outcome.REFUSED -> updateAssistant(assistant.id) {
@@ -461,6 +463,9 @@ class AskTaizoViewModel @Inject constructor(
         TaizoTools.GET_LYRICS -> R.string.taizo_activity_lyrics
         TaizoTools.START_SING -> R.string.taizo_activity_sing
         TaizoTools.LIKE_SONG -> R.string.taizo_activity_like
+        TaizoTools.LIBRARY_OVERVIEW -> R.string.taizo_activity_library
+        TaizoTools.TASTE_PROFILE -> R.string.taizo_activity_taste
+        TaizoTools.ADJUST_TASTE, TaizoTools.LIST_TASTE_ADJUSTMENTS, TaizoTools.REMOVE_TASTE_ADJUSTMENT -> R.string.taizo_activity_taste_change
         else -> R.string.taizo_activity_thinking
     }
 

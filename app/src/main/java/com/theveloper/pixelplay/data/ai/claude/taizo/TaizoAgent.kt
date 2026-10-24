@@ -18,6 +18,13 @@ import kotlinx.serialization.json.put
 
 /** Runs Ask Taizo's client tools. */
 interface TaizoToolRunner {
+    /**
+     * Called once when a user turn starts, with the user's own words (the last text block of their message,
+     * without the context blocks). Tools that change the user's settings compare against it: text that
+     * arrives from a web page, a lyric or a tool result is data and never counts as a request.
+     */
+    fun beginTurn(userMessage: String) {}
+
     /** The question to ask before running this call (a big playlist, replacing the queue), or null to run it now. */
     suspend fun confirmationFor(name: String, input: JsonObject): String?
 
@@ -83,6 +90,7 @@ class TaizoAgent(
         effort: ClaudeEffort = ClaudeEffort.MEDIUM,
     ): Result {
         val messages = history.toMutableList()
+        tools.beginTurn(userMessageOf(userContent))
         appendUserContent(messages, userContent)
         val replyText = StringBuilder()
         val sources = linkedMapOf<String, TaizoSource>()
@@ -283,6 +291,15 @@ class TaizoAgent(
         }
 
         const val MAX_HISTORY_MESSAGES = 60
+
+        /** The user's own words in [content]: its last text block (the blocks before it are the app's context). */
+        fun userMessageOf(content: JsonArray): String {
+            for (i in content.indices.reversed()) {
+                val obj = content[i] as? JsonObject ?: continue
+                if (obj.str("type") == "text") return obj.str("text").orEmpty()
+            }
+            return ""
+        }
 
         fun textContent(text: String): JsonArray = buildJsonArray {
             add(buildJsonObject {

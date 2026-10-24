@@ -374,5 +374,7 @@
     <string name="taizo_activity_lyrics">Getting the lyrics…</string>
     <string name="taizo_activity_sing">Turning on Sing…</string>
     <string name="taizo_activity_like">Liking the song…</string>
+    <string name="taizo_activity_taste">Reading your taste…</string>
+    <string name="taizo_activity_taste_change">Updating your taste changes…</string>
     <string name="taizo_activity_thinking">Thinking…</string>
 </resources>

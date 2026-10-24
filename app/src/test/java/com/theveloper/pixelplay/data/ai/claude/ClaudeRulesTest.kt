@@ -140,7 +140,12 @@ class ClaudeRulesTest {
         val client = tools.map { it as JsonObject }.filter { it["input_schema"] != null }
         assertThat(client.map { (it["name"] as JsonPrimitive).content }).containsExactlyElementsIn(TaizoTools.clientToolNames).inOrder()
         client.forEach { tool ->
-            assertThat(tool["strict"]).isEqualTo(JsonPrimitive(true))
+            // search_library is the one exception (too many optional filters for the strict grammar); see TaizoTools.nonStrictToolNames.
+            if ((tool["name"] as JsonPrimitive).content in TaizoTools.nonStrictToolNames) {
+                assertThat(tool["strict"]).isNull()
+            } else {
+                assertThat(tool["strict"]).isEqualTo(JsonPrimitive(true))
+            }
             assertThat(tool["eager_input_streaming"]).isEqualTo(JsonPrimitive(true))
             assertThat(tool["input_schema"]!!.jsonObject["additionalProperties"]).isEqualTo(JsonPrimitive(false))
         }
