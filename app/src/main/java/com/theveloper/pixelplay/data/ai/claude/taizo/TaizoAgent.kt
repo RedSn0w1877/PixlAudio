@@ -97,7 +97,8 @@ class TaizoAgent(
             val turn = transport.stream(
                 request = ClaudeRequest(
                     system = system,
-                    messages = JsonArray(messages),
+                    // A snapshot: JsonArray wraps the list it's given, and `messages` keeps growing.
+                    messages = JsonArray(messages.toList()),
                     tools = toolDefinitions,
                     maxTokens = maxTokens,
                     effort = effort,
