@@ -39,6 +39,7 @@ class HomeGreetingStateHolder @Inject constructor(
     private val aiHandler: AiHandler,
     private val aiAvailability: AiAvailabilityStateHolder,
     private val userPreferencesRepository: UserPreferencesRepository,
+    private val listeningInsights: com.theveloper.pixelplay.data.history.ListeningInsights,
 ) {
     private val _greeting = MutableStateFlow(HomeGreeting(localHeadline(null, null), defaultSubtitle()))
     val greeting: StateFlow<HomeGreeting> = _greeting.asStateFlow()
@@ -72,7 +73,7 @@ class HomeGreetingStateHolder @Inject constructor(
                 val summary = runCatching {
                     statsRepository.loadSummary(StatsTimeRange.ALL, allSongs)
                 }.getOrNull()
-                val topArtist = summary?.topArtists?.firstOrNull()?.artist
+                val topArtist = recentTopArtist() ?: summary?.topArtists?.firstOrNull()?.artist
                 val topGenre = summary?.topGenres
                     ?.firstOrNull { it.genre != PlaybackStatsRepository.UNKNOWN_GENRE_LABEL }
                     ?.genre
@@ -122,7 +123,7 @@ class HomeGreetingStateHolder @Inject constructor(
             val summary = runCatching {
                 statsRepository.loadSummary(StatsTimeRange.ALL, allSongs)
             }.getOrNull()
-            val topArtist = summary?.topArtists?.firstOrNull()?.artist
+            val topArtist = recentTopArtist() ?: summary?.topArtists?.firstOrNull()?.artist
             // "Unknown Genre" is a legitimate bucket on the Stats screen but nonsensical to
             // name here ("in the mood for some Unknown Genre?") — skip straight to the next
             // real genre instead of ever surfacing it in the greeting.
@@ -171,6 +172,15 @@ class HomeGreetingStateHolder @Inject constructor(
             }
         }
     }
+
+    /**
+     * The artist played most lately across PixlAudio and the listening history imported from Spotify / YouTube
+     * Music (Spotify weighted far above YouTube Music), so the greeting knows what you play outside the app too.
+     */
+    private suspend fun recentTopArtist(): String? = runCatching {
+        listeningInsights.topArtists(com.theveloper.pixelplay.data.history.InsightPeriod.LAST_4_WEEKS, 1).firstOrNull()?.name
+            ?: listeningInsights.topArtists(com.theveloper.pixelplay.data.history.InsightPeriod.LAST_6_MONTHS, 1).firstOrNull()?.name
+    }.onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }.getOrNull()
 
     private fun dayPhase(): String = when (LocalTime.now().hour) {
         in 5..10 -> "morning"

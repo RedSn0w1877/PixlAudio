@@ -1,0 +1,20 @@
+[
+  {
+    "endTime" : "2023-04-01 18:22",
+    "artistName" : "Taylor Swift",
+    "trackName" : "Anti-Hero",
+    "msPlayed" : 200690
+  },
+  {
+    "endTime" : "2023-04-01 18:23",
+    "artistName" : "Taylor Swift",
+    "trackName" : "Lavender Haze",
+    "msPlayed" : 4100
+  },
+  {
+    "endTime" : "2023-04-02 07:00",
+    "artistName" : "Unknown Artist",
+    "trackName" : "Unknown Track",
+    "msPlayed" : 61000
+  }
+]

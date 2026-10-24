@@ -1,0 +1,54 @@
+[{
+  "header": "YouTube Music",
+  "title": "Watched Espresso",
+  "titleUrl": "https://music.youtube.com/watch?v=abcDEF12345",
+  "subtitles": [{
+    "name": "Sabrina Carpenter - Topic",
+    "url": "https://www.youtube.com/channel/UC0000000000000000000000"
+  }],
+  "time": "2024-06-10T20:15:03.512Z",
+  "products": ["YouTube"],
+  "activityControls": ["YouTube watch history"]
+},{
+  "header": "YouTube",
+  "title": "Watched How to fix a bike chain",
+  "titleUrl": "https://www.youtube.com/watch?v=zzzzzzzzzzz",
+  "subtitles": [{
+    "name": "Bike Repair Channel",
+    "url": "https://www.youtube.com/channel/UC1111111111111111111111"
+  }],
+  "time": "2024-06-10T19:00:00.000Z",
+  "products": ["YouTube"]
+},{
+  "header": "YouTube",
+  "title": "Watched Kendrick Lamar - Not Like Us",
+  "titleUrl": "https://www.youtube.com/watch?v=T6eK-2OQtew",
+  "subtitles": [{
+    "name": "Kendrick Lamar - Topic",
+    "url": "https://www.youtube.com/channel/UC2222222222222222222222"
+  }],
+  "time": "2024-06-09T10:00:00Z",
+  "products": ["YouTube"]
+},{
+  "header": "YouTube",
+  "title": "Watched Taylor Swift - Shake It Off (Official Video)",
+  "titleUrl": "https://www.youtube.com/watch?v=nfWlot6h_JM",
+  "subtitles": [{
+    "name": "TaylorSwiftVEVO",
+    "url": "https://www.youtube.com/channel/UC3333333333333333333333"
+  }],
+  "time": "2024-06-08T10:00:00Z",
+  "products": ["YouTube"]
+},{
+  "header": "YouTube Music",
+  "title": "Watched https://music.youtube.com/watch?v=removedvid1",
+  "titleUrl": "https://music.youtube.com/watch?v=removedvid1",
+  "time": "2024-06-07T10:00:00Z",
+  "products": ["YouTube"]
+},{
+  "header": "YouTube Music",
+  "title": "Searched for espresso",
+  "titleUrl": "https://music.youtube.com/search?q=espresso",
+  "time": "2024-06-07T09:00:00Z",
+  "products": ["YouTube"]
+}]

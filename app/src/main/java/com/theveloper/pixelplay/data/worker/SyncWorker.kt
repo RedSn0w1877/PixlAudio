@@ -75,6 +75,8 @@ constructor(
                             "purgedLocal" to purged.toString()
                         )
                     }
+                    // The daily housekeeping also keeps imported listening history fresh (synced at most every 6 h).
+                    runCatching { com.theveloper.pixelplay.data.history.ListeningHistorySyncWorker.enqueue(applicationContext) }
                     Result.success(workDataOf(OUTPUT_TOTAL_SONGS to totalSongs.toLong()))
                 } catch (e: Exception) {
                     Log.e(TAG, "Library housekeeping failed", e)

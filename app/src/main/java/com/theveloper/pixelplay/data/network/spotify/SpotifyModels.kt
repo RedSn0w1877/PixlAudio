@@ -187,3 +187,34 @@ data class SpotifySearchResponse(
     @SerializedName("artists") val artists: SpotifyArtistsPage? = null,
     @SerializedName("albums") val albums: SpotifyAlbumsPage? = null
 )
+
+// ─── Historial de escucha ──────────────────────────────────────────────
+
+/** One row of `/v1/me/player/recently-played`. `played_at` is ISO-8601 UTC, when the play ended. */
+data class SpotifyPlayHistoryItem(
+    @SerializedName("track") val track: SpotifyTrack? = null,
+    @SerializedName("played_at") val playedAt: String? = null
+)
+
+data class SpotifyCursors(
+    @SerializedName("after") val after: String? = null,
+    @SerializedName("before") val before: String? = null
+)
+
+data class SpotifyRecentlyPlayedPage(
+    @SerializedName("items") val items: List<SpotifyPlayHistoryItem>? = null,
+    @SerializedName("next") val next: String? = null,
+    @SerializedName("cursors") val cursors: SpotifyCursors? = null
+)
+
+/** `/v1/me/following?type=artist` wraps its page in `artists`. */
+data class SpotifyFollowedArtistsResponse(
+    @SerializedName("artists") val artists: SpotifyFollowedArtistsPage? = null
+)
+
+data class SpotifyFollowedArtistsPage(
+    @SerializedName("items") val items: List<SpotifyArtistFull>? = null,
+    @SerializedName("next") val next: String? = null,
+    @SerializedName("cursors") val cursors: SpotifyCursors? = null,
+    @SerializedName("total") val total: Int? = null
+)
