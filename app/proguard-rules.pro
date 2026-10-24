@@ -355,3 +355,23 @@
 
 # NOTE: the Timber/Log -assumenosideeffects rules above delete Timber.i / Log.i call sites in release.
 # The shareable diagnostics log therefore uses DiagnosticsLog.event(...) for INFO-level facts.
+
+# =============================================================================
+# ANTHROPIC JAVA SDK (Claude: every AI feature when online, and Ask Taizo)
+# =============================================================================
+# The SDK publishes its own keep rules (META-INF/proguard/anthropic-java-core.pro: Jackson, kotlin.Metadata, its
+# model classes) and R8 applies them automatically. These lines only silence references to JVM-only classes that its
+# dependencies mention and never touch on Android (found by scanning the jars against android.jar):
+# - Jackson: java.beans.ConstructorProperties / Transient (its Java 7 support checks for them reflectively).
+# - The SDK's structured-output schema helper and victools jsonschema-generator: java.lang.reflect.AnnotatedType,
+#   which Android lacks; we never derive schemas from classes (our tool schemas are written by hand).
+# - jsonschema-generator's optional SLF4J logging, and OpenTelemetry's optional common module.
+-dontwarn java.beans.ConstructorProperties
+-dontwarn java.beans.Transient
+-dontwarn java.lang.reflect.AnnotatedType
+-dontwarn java.lang.reflect.AnnotatedParameterizedType
+-dontwarn org.slf4j.**
+-dontwarn io.opentelemetry.common.**
+-dontwarn org.w3c.dom.bootstrap.DOMImplementationRegistry
+# Our own Claude request/response code builds plain Maps/Lists for the SDK's JsonValue; nothing of ours is read by
+# Jackson reflectively, so no app classes need keeping here.

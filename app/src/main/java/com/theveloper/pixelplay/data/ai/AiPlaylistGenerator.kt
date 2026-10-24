@@ -2,6 +2,7 @@ package com.theveloper.pixelplay.data.ai
 
 
 import com.theveloper.pixelplay.data.DailyMixManager
+import com.theveloper.pixelplay.data.ai.claude.CloudFallbackException
 import com.theveloper.pixelplay.data.ai.curator.OnDevicePlaylistCurator
 import com.theveloper.pixelplay.data.ai.local.AiRoute
 import com.theveloper.pixelplay.data.ai.local.OnDeviceAiException
@@ -105,7 +106,9 @@ class AiPlaylistGenerator @Inject constructor(
             </candidate_pool>
             """.trimIndent()
 
-            val responseText = aiHandler.generateContent(fullPrompt, type)
+            // Claude failing mid-way (connection dropped, budget used up) hands over to the
+            // on-device curator below rather than squeezing this prompt into a 4k-token model.
+            val responseText = aiHandler.generateContent(fullPrompt, type, onDeviceFallback = false)
 
             val songIds = extractPlaylistSongIds(responseText)
 
@@ -120,6 +123,20 @@ class AiPlaylistGenerator @Inject constructor(
 
         } catch (e: CancellationException) {
             throw e
+        } catch (e: CloudFallbackException) {
+            try {
+                onDeviceCurator.curate(
+                    userPrompt = userPrompt,
+                    allSongs = allSongs,
+                    minLength = minLength,
+                    maxLength = maxLength,
+                    seedPool = candidateSongs,
+                )
+            } catch (inner: CancellationException) {
+                throw inner
+            } catch (inner: Exception) {
+                Result.failure(inner)
+            }
         } catch (e: IllegalArgumentException) {
             Result.failure(Exception(e.message ?: "AI response did not contain a valid playlist."))
         } catch (e: Exception) {

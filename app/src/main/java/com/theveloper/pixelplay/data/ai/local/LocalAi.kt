@@ -19,11 +19,38 @@ enum class LocalEngineId(val routeId: String, val usageLabel: String) {
 /** Where an AI request goes. */
 sealed interface AiRoute {
     data class OnDevice(val engine: LocalEngineId) : AiRoute
+    /** A "Cloud assistant" with the user's own key (Developer mode override). */
     data class Cloud(val provider: AiProvider) : AiRoute
+    /** Claude Sonnet 5.5 with the built-in key: the automatic choice whenever the phone is online. */
+    data object Claude : AiRoute
 }
 
 /** The routing rules, pure (AiRouteResolverTest). */
 object AiRouteResolver {
+    /**
+     * The automatic route every AI feature uses ("always cloud, offline -> local"):
+     * 1. Developer mode with a Cloud assistant selected: that provider (the own-key override).
+     * 2. A validated internet connection (any network), the built-in Claude key and budget left
+     *    this month: Claude.
+     * 3. Otherwise the phone's own model (the downloaded one when it is on and ready, else Nano).
+     */
+    fun resolveAutomatic(
+        providerName: String,
+        developerMode: Boolean,
+        claudeKeyPresent: Boolean,
+        online: Boolean,
+        withinBudget: Boolean,
+        useDownloadedModel: Boolean,
+        downloadedModelReady: Boolean,
+        downloadedModelSupported: Boolean = true,
+    ): AiRoute {
+        val provider = AiProvider.fromString(providerName)
+        if (developerMode && provider != AiProvider.ON_DEVICE) return AiRoute.Cloud(provider)
+        if (claudeKeyPresent && online && withinBudget) return AiRoute.Claude
+        val gemma = useDownloadedModel && downloadedModelReady && downloadedModelSupported
+        return AiRoute.OnDevice(if (gemma) LocalEngineId.GEMMA else LocalEngineId.NANO)
+    }
+
     fun resolve(
         providerName: String,
         useDownloadedModel: Boolean,

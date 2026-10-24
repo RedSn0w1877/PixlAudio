@@ -54,7 +54,11 @@ class TaisDjEngine @Inject constructor(
     private val libraryLookup: LibraryLookup,
     private val aiPreferences: AiPreferencesRepository,
 ) {
-    suspend fun respond(prompt: String, memory: TaizoMemory? = null): TaizoTurn {
+    /**
+     * [forceOnDevice]: answer with the phone's model even when the automatic route says Claude
+     * (Ask Taizo falls back here when a Claude request fails mid-way).
+     */
+    suspend fun respond(prompt: String, memory: TaizoMemory? = null, forceOnDevice: Boolean = false): TaizoTurn {
         if (intentParser.isMediaRequest(prompt)) {
             val intent = intentParser.parse(prompt)
             val result = mediaRouter.route(intent)
@@ -62,7 +66,7 @@ class TaisDjEngine @Inject constructor(
         }
 
         return try {
-            val onDevice = aiHandler.currentRoute() is AiRoute.OnDevice
+            val onDevice = forceOnDevice || aiHandler.currentRoute() is AiRoute.OnDevice
             val reply = withTimeoutOrNull(CHAT_TIMEOUT_MS) {
                 if (onDevice) {
                     answerOnDevice(prompt, memory)
@@ -90,7 +94,7 @@ class TaisDjEngine @Inject constructor(
      * A short AI-written line introducing an already-resolved media result. Best-effort only:
      * null on any failure, and the UI keeps its plain "Found N songs" text.
      */
-    suspend fun introFor(prompt: String, result: DjRouteResult): String? {
+    suspend fun introFor(prompt: String, result: DjRouteResult, forceOnDevice: Boolean = false): String? {
         val resultCount = when (result) {
             is DjRouteResult.Offline -> result.songs.size
             is DjRouteResult.Online -> result.tracks.size
@@ -102,7 +106,7 @@ class TaisDjEngine @Inject constructor(
             "Write ONE short, upbeat sentence (max 12 words) introducing these results to the user. No quotes, no emoji."
         return runCatching {
             withTimeoutOrNull(INTRO_TIMEOUT_MS) {
-                if (aiHandler.currentRoute() is AiRoute.OnDevice) {
+                if (forceOnDevice || aiHandler.currentRoute() is AiRoute.OnDevice) {
                     localAi.generate(
                         LocalGenerationRequest(
                             instruction = OnDevicePrompts.TAIZO_INTRO,

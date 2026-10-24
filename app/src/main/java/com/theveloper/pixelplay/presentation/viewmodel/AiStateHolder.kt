@@ -337,11 +337,21 @@ $lyricsText
 </lyrics>
             """.trimIndent()
             
-            val response = aiHandler.generateContent(
-                prompt = prompt,
-                type = AiSystemPromptType.GENERAL,
-                temperature = 0.1f
-            )
+            val response = try {
+                aiHandler.generateContent(
+                    prompt = prompt,
+                    type = AiSystemPromptType.GENERAL,
+                    temperature = 0.1f,
+                    onDeviceFallback = false
+                )
+            } catch (e: com.theveloper.pixelplay.data.ai.claude.CloudFallbackException) {
+                // Claude dropped out mid-way: the on-device translator, chunked for a small model.
+                onDeviceLyricsTranslator.translate(
+                    lyrics = lyricsText,
+                    targetLanguage = targetLanguage,
+                    temperature = aiHandler.temperatureFor(0.1f),
+                )
+            }
             Result.success(response)
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e

@@ -1066,6 +1066,13 @@ fun SettingsCategoryScreen(
                             Spacer(Modifier.height(20.dp))
                         }
                     }
+                    // Where AI runs (one plain line) and Ask Taizo, for everyone.
+                    item(key = "ai_claude_status", contentType = "settings_subsection") {
+                        Column {
+                            ClaudeStatusAndAssistantRows(playerViewModel = playerViewModel)
+                            Spacer(Modifier.height(20.dp))
+                        }
+                    }
                     item(key = "ai_prompt", contentType = "settings_subsection") {
                         Column {
                             // Prompt Behavior Section
@@ -1195,6 +1202,12 @@ fun SettingsCategoryScreen(
                                     onDismiss = { showDeleteDialog = false }
                                 )
                             }
+                        }
+                    }
+                    // The built-in Claude key's monthly budget (device-local).
+                    item(key = "ai_claude_budget", contentType = "settings_subsection") {
+                        Column {
+                            ClaudeBudgetRows()
                         }
                     }
                     // Cloud assistants: optional, off by default, and never an automatic fallback.
@@ -1410,6 +1423,12 @@ fun SettingsCategoryScreen(
                             Column {
                                 // Generation Parameters Section
                                 SettingsSubsection(title = "Generation Parameters") {
+                                    Text(
+                                        text = stringResource(R.string.settings_claude_generation_note),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp)
+                                    )
                                     SliderSettingsItem(
                                         label = "Temperature",
                                         value = settingsViewModel.aiTemperature.collectAsStateWithLifecycle().value,

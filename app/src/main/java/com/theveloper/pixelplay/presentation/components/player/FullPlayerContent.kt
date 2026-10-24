@@ -383,18 +383,10 @@ fun FullPlayerContent(
     val onTaizoClick = { showTaizoSheet = true }
 
     if (showTaizoSheet) {
-        com.theveloper.pixelplay.presentation.components.tais.TaisChatSheet(
+        com.theveloper.pixelplay.presentation.components.taizo.AskTaizoSheet(
+            playerViewModel = playerViewModel,
             onDismissRequest = { showTaizoSheet = false },
-            sheetState = taizoSheetState,
-            onPlaySongs = { songs ->
-                songs.firstOrNull()?.let { first ->
-                    playerViewModel.playSongs(songs, first, queueName = "Taizo")
-                }
-                showTaizoSheet = false
-            },
-            onQueueSongs = { songs ->
-                songs.forEach { playerViewModel.addSongToQueue(it) }
-            }
+            sheetState = taizoSheetState
         )
     }
 
