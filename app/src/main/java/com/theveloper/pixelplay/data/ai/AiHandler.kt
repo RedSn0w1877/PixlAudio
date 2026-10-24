@@ -1,6 +1,10 @@
 package com.theveloper.pixelplay.data.ai
 
 
+import com.theveloper.pixelplay.data.ai.claude.ClaudeEffort
+import com.theveloper.pixelplay.data.ai.claude.ClaudeException
+import com.theveloper.pixelplay.data.ai.claude.ClaudeService
+import com.theveloper.pixelplay.data.ai.claude.CloudFallbackException
 import com.theveloper.pixelplay.data.ai.local.AiRoute
 import com.theveloper.pixelplay.data.ai.local.AiRouteResolver
 import com.theveloper.pixelplay.data.ai.local.LocalAi
@@ -12,6 +16,7 @@ import com.theveloper.pixelplay.data.ai.provider.AiProvider
 import com.theveloper.pixelplay.data.database.AiCacheDao
 import com.theveloper.pixelplay.data.database.AiCacheEntity
 import com.theveloper.pixelplay.data.preferences.AiPreferencesRepository
+import com.theveloper.pixelplay.data.preferences.UserPreferencesRepository
 import com.theveloper.pixelplay.data.database.AiUsageDao
 import com.theveloper.pixelplay.data.database.AiUsageEntity
 import com.theveloper.pixelplay.di.AppScope
@@ -32,6 +37,8 @@ class AiHandler @Inject constructor(
     private val cacheDao: AiCacheDao,
     private val usageDao: AiUsageDao,
     private val promptEngine: AiSystemPromptEngine,
+    private val claude: ClaudeService,
+    private val userPreferences: UserPreferencesRepository,
     @AppScope private val appScope: CoroutineScope
 ) {
     // Cooldown timer: Provider -> Expiry Timestamp
@@ -176,16 +183,22 @@ class AiHandler @Inject constructor(
     }
 
     /**
-     * Where the next request goes: the phone's own AI (the default) or the cloud assistant the user
-     * turned on. Features with their own on-device path (playlists, lyric translation, Taizo) ask
-     * this first.
+     * Where the next request goes ([AiRouteResolver.resolveAutomatic]): Claude whenever the phone
+     * is online with the built-in key and budget left, the phone's own AI otherwise, and a
+     * Developer-mode cloud assistant (own key) when one is selected. Features with their own
+     * on-device path (playlists, lyric translation, Taizo) ask this first.
      */
     suspend fun currentRoute(): AiRoute {
-        val providerName = preferencesRepo.aiProvider.first()
-        if (AiProvider.fromString(providerName) != AiProvider.ON_DEVICE) {
-            return AiRoute.Cloud(AiProvider.fromString(providerName))
-        }
-        return AiRoute.OnDevice(localAi.engine())
+        val route = AiRouteResolver.resolveAutomatic(
+            providerName = preferencesRepo.aiProvider.first(),
+            developerMode = userPreferences.developerModeFlow.first(),
+            claudeKeyPresent = claude.hasKey(),
+            online = claude.isOnline(),
+            withinBudget = claude.withinBudget(),
+            useDownloadedModel = false,
+            downloadedModelReady = false,
+        )
+        return if (route is AiRoute.OnDevice) AiRoute.OnDevice(localAi.engine()) else route
     }
 
     /** The user's Temperature when they moved it off the default, else [featureDefault]. */
@@ -203,6 +216,12 @@ class AiHandler @Inject constructor(
      * provider chain at all: an on-device failure is thrown as [com.theveloper.pixelplay.data.ai.local.OnDeviceAiException],
      * never retried on a cloud provider. [maxOutputTokens] sizes the on-device answer; cloud calls
      * keep the user's Max Output Tokens.
+     *
+     * Claude: the same layered prompt as the cloud path, no sampling parameters (Claude rejects
+     * them), effort by feature. When Claude fails (connection dropped, API refused the key,
+     * budget used up) the request is answered on the phone instead; a caller with its own
+     * on-device path passes [onDeviceFallback] = false and gets a [CloudFallbackException] to
+     * run that path. A refusal is never retried on the phone.
      */
     suspend fun generateContent(
         prompt: String,
@@ -210,10 +229,21 @@ class AiHandler @Inject constructor(
         temperature: Float = 0.7f,
         context: String = "",
         maxOutputTokens: Int? = null,
+        onDeviceFallback: Boolean = true,
     ): String {
         val route = currentRoute()
         if (route is AiRoute.OnDevice) {
             return generateOnDevice(prompt, type, temperature, context, maxOutputTokens)
+        }
+        if (route is AiRoute.Claude) {
+            return try {
+                generateWithClaude(prompt, type, context)
+            } catch (e: ClaudeException) {
+                if (!e.fallsBackOnDevice) throw Exception(CLAUDE_REFUSAL_MESSAGE, e)
+                if (!onDeviceFallback) throw CloudFallbackException(e)
+                Timber.tag("AiHandler").w("Claude unavailable (%s); answering on the phone", e.failure)
+                generateOnDevice(prompt, type, temperature, context, maxOutputTokens)
+            }
         }
 
         val params = getGenerationParams()
@@ -344,6 +374,40 @@ class AiHandler @Inject constructor(
         throw Exception(errorMessage)
     }
 
+    private suspend fun generateWithClaude(
+        prompt: String,
+        type: AiSystemPromptType,
+        context: String,
+    ): String {
+        val persona = getBasePersona(AiProvider.fromString(preferencesRepo.aiProvider.first()))
+        val systemPrompt = promptEngine.buildPrompt(persona, type, context)
+        val hash = ("CLAUDE" + type.name + systemPrompt + prompt).sha256()
+        cacheDao.getCache(hash)?.let { cached ->
+            if (System.currentTimeMillis() - cached.timestamp < CACHE_TTL_MS) return cached.responseJson
+        }
+        val startedAt = System.currentTimeMillis()
+        val completion = claude.complete(system = systemPrompt, prompt = prompt, effort = claudeEffortFor(type))
+        if (completion.text.isBlank()) throw Exception("Claude returned an empty answer. Try again.")
+        appScope.launch {
+            runCatching {
+                usageDao.insertUsage(
+                    AiUsageEntity(
+                        timestamp = startedAt,
+                        provider = CLAUDE_USAGE_LABEL,
+                        model = completion.model,
+                        promptType = type.name,
+                        promptTokens = (completion.usage.inputTokens + completion.usage.cacheReadTokens +
+                            completion.usage.cacheWriteTokens).toInt(),
+                        outputTokens = completion.usage.outputTokens.toInt(),
+                        thoughtTokens = 0
+                    )
+                )
+            }.onFailure { error -> Timber.tag("AiHandler").e(error, "Failed to persist AI usage") }
+        }
+        cacheDao.insert(AiCacheEntity(promptHash = hash, responseJson = completion.text, timestamp = System.currentTimeMillis()))
+        return completion.text
+    }
+
     private suspend fun generateOnDevice(
         prompt: String,
         type: AiSystemPromptType,
@@ -401,5 +465,18 @@ class AiHandler @Inject constructor(
             cacheDao.insert(AiCacheEntity(promptHash = hash, responseJson = response, timestamp = System.currentTimeMillis()))
         }
         return response
+    }
+
+    companion object {
+        const val CLAUDE_USAGE_LABEL = "Claude (cloud)"
+        const val CLAUDE_REFUSAL_MESSAGE = "Claude can't help with that request. Try asking another way."
+
+        /** Medium for chat and short tasks, high for playlist building and listening insights (owner, 2026-10-23). */
+        fun claudeEffortFor(type: AiSystemPromptType): ClaudeEffort = when (type) {
+            AiSystemPromptType.PLAYLIST,
+            AiSystemPromptType.DAILY_MIX,
+            AiSystemPromptType.PERSONA -> ClaudeEffort.HIGH
+            else -> ClaudeEffort.MEDIUM
+        }
     }
 }

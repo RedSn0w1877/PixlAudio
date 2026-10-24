@@ -8,6 +8,8 @@ googleGenai = "1.73.0"
 # downloaded Gemma model through LiteRT-LM (MediaPipe LLM Inference is maintenance-only).
 mlkitGenaiPrompt = "1.0.0-beta4"
 litertlm = "0.18.0"
+# Claude in the cloud (every AI feature when online, and Ask Taizo). 3.x sends anthropic-version 2026-10-21.
+anthropicJava = "3.2.0"
 googlePlayServicesCast = "22.3.1"
 animation = "1.11.3"
 appcompat = "1.8.0"
@@ -236,6 +238,10 @@ retrofit = { group = "com.squareup.retrofit2", name = "retrofit", version.ref = 
 converter-gson = { group = "com.squareup.retrofit2", name = "converter-gson", version.ref = "retrofit" }
 okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
 logging-interceptor = { group = "com.squareup.okhttp3", name = "logging-interceptor", version.ref = "okhttp" }
+anthropic-java = { group = "com.anthropic", name = "anthropic-java", version.ref = "anthropicJava" }
+# Pinned to the compiler's version: the Anthropic SDK asks for kotlin-reflect 1.9 (Jackson's Kotlin module reads
+# the SDK's classes with it) and a reflect that lags the stdlib can fail to read newer metadata.
+kotlin-reflect = { group = "org.jetbrains.kotlin", name = "kotlin-reflect", version.ref = "kotlin" }
 androidx-mediarouter = { group = "androidx.mediarouter", name = "mediarouter", version.ref = "mediarouterVersion" }
 play-services-cast-framework = { group = "com.google.android.gms", name = "play-services-cast-framework", version.ref = "playServicesCastFramework" }
 androidx-navigation-runtime-ktx = { group = "androidx.navigation", name = "navigation-runtime-ktx", version.ref = "navigationRuntimeKtx" }

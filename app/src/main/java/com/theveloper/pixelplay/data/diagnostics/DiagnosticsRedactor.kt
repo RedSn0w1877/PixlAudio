@@ -33,6 +33,8 @@ object DiagnosticsRedactor {
             """visitor[_\-]?data|po[_\-]?token|sapisid|sid|auth)(\s*[=:]\s*)("?)([^\s,;&"'}\]]+)"""
     )
     private val LONG_TOKEN_REGEX = Regex("""\b[A-Za-z0-9_\-]{32,}""")
+    /** Anthropic API keys (the built-in Claude key): always dropped, whatever surrounds them. */
+    private val ANTHROPIC_KEY_REGEX = Regex("""sk-ant-[A-Za-z0-9_\-]{8,}""")
 
     private const val MAX_SENSITIVE_NAMES = 128
     private val sensitiveNames = ConcurrentHashMap<String, String>()
@@ -44,7 +46,8 @@ object DiagnosticsRedactor {
     }
 
     private fun redactUnsafe(text: String): String {
-        var out = URL_REGEX.replace(text) { stripUrl(it.value) }
+        var out = ANTHROPIC_KEY_REGEX.replace(text, REDACTED)
+        out = URL_REGEX.replace(out) { stripUrl(it.value) }
         out = AUTH_SCHEME_REGEX.replace(out) { "Bearer $REDACTED" }
         out = JWT_REGEX.replace(out, REDACTED)
         out = SECRET_PAIR_REGEX.replace(out) { m ->

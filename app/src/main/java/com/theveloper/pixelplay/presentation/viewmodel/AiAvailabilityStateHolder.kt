@@ -2,6 +2,7 @@ package com.theveloper.pixelplay.presentation.viewmodel
 
 import androidx.annotation.StringRes
 import com.theveloper.pixelplay.R
+import com.theveloper.pixelplay.data.ai.claude.ClaudeService
 import com.theveloper.pixelplay.data.ai.local.AiRoute
 import com.theveloper.pixelplay.data.ai.local.DownloadedModelManager
 import com.theveloper.pixelplay.data.ai.local.DownloadedModelState
@@ -12,6 +13,7 @@ import com.theveloper.pixelplay.data.ai.local.NanoStatus
 import com.theveloper.pixelplay.data.ai.local.OnDeviceFailure
 import com.theveloper.pixelplay.data.ai.provider.AiProvider
 import com.theveloper.pixelplay.data.preferences.AiPreferencesRepository
+import com.theveloper.pixelplay.data.preferences.UserPreferencesRepository
 import com.theveloper.pixelplay.di.AppScope
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -70,9 +72,25 @@ class AiAvailabilityStateHolder @Inject constructor(
     private val nano: GeminiNanoEngine,
     private val gemma: GemmaLiteRtEngine,
     private val downloadedModel: DownloadedModelManager,
+    private val claude: ClaudeService,
+    private val userPreferences: UserPreferencesRepository,
+    private val connectivity: ConnectivityStateHolder,
     @AppScope private val appScope: CoroutineScope,
 ) {
     private data class CloudSetup(val provider: AiProvider, val apiKey: String, val baseUrl: String)
+
+    /** Developer mode, and whether Claude can answer now (key, connection, budget). */
+    private data class ClaudeGate(val developerMode: Boolean, val claudeAvailable: Boolean)
+
+    private val claudeGate = combine(
+        userPreferences.developerModeFlow,
+        connectivity.isOnline,
+        claude.budgetState,
+    ) { developerMode, online, budget ->
+        // ConnectivityStateHolder only starts with the player; ask Android directly as well.
+        val connected = online || claude.isOnline()
+        ClaudeGate(developerMode, claude.hasKey() && connected && !budget.exhausted)
+    }
 
     private val cloudSetup = preferences.aiProvider.flatMapLatest { name ->
         val provider = AiProvider.fromString(name)
@@ -86,7 +104,8 @@ class AiAvailabilityStateHolder @Inject constructor(
         preferences.aiDownloadedModelEnabled,
         nano.status,
         downloadedModel.state,
-    ) { cloud, useDownloaded, nanoStatus, modelState ->
+        claudeGate,
+    ) { cloud, useDownloaded, nanoStatus, modelState, gate ->
         AiAvailabilityResolver.resolve(
             provider = cloud.provider,
             apiKey = cloud.apiKey,
@@ -94,6 +113,8 @@ class AiAvailabilityStateHolder @Inject constructor(
             useDownloadedModel = useDownloaded && gemma.isSupportedDevice,
             downloadedModelReady = modelState is DownloadedModelState.Ready,
             nanoStatus = nanoStatus,
+            developerMode = gate.developerMode,
+            claudeAvailable = gate.claudeAvailable,
         )
     }
         .onStart { appScope.launch { nano.refreshIfUnknown() } }
@@ -115,6 +136,8 @@ class AiAvailabilityStateHolder @Inject constructor(
             useDownloadedModel = preferences.aiDownloadedModelEnabled.first() && gemma.isSupportedDevice,
             downloadedModelReady = withContext(Dispatchers.IO) { downloadedModel.readyModelPath() != null },
             nanoStatus = nanoStatus,
+            developerMode = userPreferences.developerModeFlow.first(),
+            claudeAvailable = claude.canUseNow(),
         )
     }
 
@@ -138,13 +161,18 @@ object AiAvailabilityResolver {
         useDownloadedModel: Boolean,
         downloadedModelReady: Boolean,
         nanoStatus: NanoStatus,
+        developerMode: Boolean = true,
+        claudeAvailable: Boolean = false,
     ): AiAvailability {
-        if (provider != AiProvider.ON_DEVICE) {
+        // A Cloud assistant with the user's own key is a Developer-mode override.
+        if (developerMode && provider != AiProvider.ON_DEVICE) {
             val missingKey = provider.requiresApiKey && apiKey.isBlank()
             val missingUrl = provider.hasConfigurableUrl && baseUrl.isBlank()
             return if (missingKey || missingUrl) AiAvailability.NeedsCloudSetup(provider)
             else AiAvailability.Ready(AiRoute.Cloud(provider))
         }
+        // Online with the built-in key: Claude answers, whatever the phone's own model can do.
+        if (claudeAvailable) return AiAvailability.Ready(AiRoute.Claude)
         // The downloaded model answers by itself, whatever Gemini Nano's state.
         if (useDownloadedModel && downloadedModelReady) {
             return AiAvailability.Ready(AiRoute.OnDevice(LocalEngineId.GEMMA))
