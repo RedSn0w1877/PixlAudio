@@ -105,6 +105,15 @@ class CloudAutoFactsGatherer @Inject constructor(
                 maxOf(before?.lastPlayedMs ?: 0L, normalizeEpochMs(row.lastPlayedTimestamp)),
             )
         }
+        // Plays imported from Spotify / YouTube Music (weighted, time-decayed) rank songs ahead the same way.
+        for ((songId, imported) in musicTaste.importedHistory()) {
+            val id = TaisInstrumentalIndex.canonicalSongId(songId)
+            val before = merged[id]
+            merged[id] = Plays(
+                (before?.plays ?: 0) + imported.plays.coerceAtLeast(0),
+                maxOf(before?.lastPlayedMs ?: 0L, normalizeEpochMs(imported.lastPlayedMs)),
+            )
+        }
         return merged
     }
 

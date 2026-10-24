@@ -454,6 +454,9 @@ fun SettingsCategoryScreen(
                     item(key = "library_blocked_artists", contentType = "settings_subsection") {
                         SettingsBlockedArtistsSection(navController = navController)
                     }
+                    item(key = "library_listening_history", contentType = "settings_subsection") {
+                        SettingsListeningHistorySection(navController = navController)
+                    }
                     item(key = "library_storage", contentType = "settings_subsection") {
                         Column {
                             SettingsSubsection(

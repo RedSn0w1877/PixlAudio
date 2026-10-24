@@ -114,6 +114,8 @@ class SpotifyLoginActivity : ComponentActivity() {
             if (result.isSuccess) {
                 // La importación va en un worker para que sobreviva al cierre de esta pantalla.
                 SpotifySyncWorker.enqueue(applicationContext)
+                // A (re)connect may have just granted the listening-history scopes: read them now.
+                com.theveloper.pixelplay.data.history.ListeningHistorySyncWorker.enqueue(applicationContext, force = true)
                 Toast.makeText(
                     this@SpotifyLoginActivity,
                     "Spotify connected — importing your library.",

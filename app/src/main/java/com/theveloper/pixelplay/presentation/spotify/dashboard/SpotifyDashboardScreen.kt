@@ -164,6 +164,16 @@ fun SpotifyDashboardScreen(
 
             if (uiState.reconnectRequired) {
                 item { ReconnectRequiredCard(onReconnect = viewModel::reconnect) }
+            } else if (uiState.historyReconnectNeeded) {
+                item {
+                    ReconnectRequiredCard(
+                        onReconnect = viewModel::reconnect,
+                        message = "PixlAudio can now learn from what you play on Spotify: your recently played " +
+                            "songs and the artists you follow make your mixes smarter. Sign in once more to allow it. " +
+                            "Everything already imported and matched stays.",
+                        urgent = false
+                    )
+                }
             }
 
             if (uiState.skippedPlaylists.isNotEmpty()) {
@@ -541,10 +551,19 @@ private fun AccountCard(
  * playlist concreta NO sale aquí; eso va en [SkippedPlaylistsCard], playlist por playlist.
  */
 @Composable
-private fun ReconnectRequiredCard(onReconnect: () -> Unit) {
+private fun ReconnectRequiredCard(
+    onReconnect: () -> Unit,
+    message: String = "Your Spotify login has expired, or it was granted without permission " +
+        "to read your library or playlists. Signing in again fixes it. " +
+        "This keeps everything already imported and matched; it only replaces the login.",
+    /** False for an optional reconnect (a new permission), shown in calmer colors than a broken login. */
+    urgent: Boolean = true
+) {
+    val container = if (urgent) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.secondaryContainer
+    val onContainer = if (urgent) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onSecondaryContainer
     Card(
         shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+        colors = CardDefaults.cardColors(containerColor = container),
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(
@@ -555,21 +574,23 @@ private fun ReconnectRequiredCard(onReconnect: () -> Unit) {
                 text = "Reconnect Spotify",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onErrorContainer
+                color = onContainer
             )
             Text(
-                text = "Your Spotify login has expired, or it was granted without permission " +
-                    "to read your library or playlists. Signing in again fixes it. " +
-                    "This keeps everything already imported and matched; it only replaces the login.",
+                text = message,
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onErrorContainer
+                color = onContainer
             )
             Button(
                 onClick = onReconnect,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.error,
-                    contentColor = MaterialTheme.colorScheme.onError
-                )
+                colors = if (urgent) {
+                    ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error,
+                        contentColor = MaterialTheme.colorScheme.onError
+                    )
+                } else {
+                    ButtonDefaults.buttonColors()
+                }
             ) {
                 Text("Sign in to Spotify again")
             }
