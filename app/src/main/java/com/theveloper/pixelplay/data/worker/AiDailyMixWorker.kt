@@ -27,7 +27,8 @@ class AiDailyMixWorker @AssistedInject constructor(
     private val dailyMixManager: DailyMixManager,
     private val dailyMixStateHolder: DailyMixStateHolder,
     private val discoveryRepository: com.theveloper.pixelplay.data.recommendation.MusicDiscoveryRepository,
-    private val tasteRepository: com.theveloper.pixelplay.data.recommendation.MusicTasteRepository
+    private val tasteRepository: com.theveloper.pixelplay.data.recommendation.MusicTasteRepository,
+    private val tasteAdjustments: com.theveloper.pixelplay.data.recommendation.TasteAdjustmentRepository
 ) : CoroutineWorker(appContext, workerParams) {
 
     companion object {
@@ -50,8 +51,9 @@ class AiDailyMixWorker @AssistedInject constructor(
 
             val favoriteIds = musicRepository.getFavoriteSongIdsFlow().first()
             val picks = dailyMixManager.personalizedPicks(allSongs, favoriteIds, TARGET_MAX)
-            val daily = discoveryRepository.augment(picks.map { it.song }, allSongs)
-            val yourMix = discoveryRepository.augment(dailyMixManager.generateYourMix(allSongs, favoriteIds), allSongs)
+            val adjustments = tasteAdjustments.snapshot()
+            val daily = discoveryRepository.augment(picks.map { it.song }, allSongs, adjustments = adjustments)
+            val yourMix = discoveryRepository.augment(dailyMixManager.generateYourMix(allSongs, favoriteIds), allSongs, adjustments = adjustments)
             dailyMixStateHolder.publishBackgroundMix(daily, yourMix)
             val known = allSongs.mapTo(hashSetOf()) { it.id }
             tasteRepository.saveReport(

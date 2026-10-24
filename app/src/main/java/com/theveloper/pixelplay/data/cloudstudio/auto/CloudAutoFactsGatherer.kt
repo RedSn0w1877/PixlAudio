@@ -7,6 +7,7 @@ import com.theveloper.pixelplay.data.database.LocalPlaylistDao
 import com.theveloper.pixelplay.data.database.PlaylistSongEntity
 import com.theveloper.pixelplay.data.model.Song
 import com.theveloper.pixelplay.data.recommendation.MusicTasteRepository
+import com.theveloper.pixelplay.data.recommendation.TasteAdjustmentRepository
 import com.theveloper.pixelplay.data.repository.MusicRepository
 import com.theveloper.pixelplay.data.spotify.SpotifyRepository
 import com.theveloper.pixelplay.data.tais.TaisInstrumentalIndex
@@ -43,6 +44,7 @@ class CloudAutoFactsGatherer @Inject constructor(
     private val instrumentalIndex: TaisInstrumentalIndex,
     private val blockedArtists: BlockedArtistsRepository,
     private val audioCacheManager: AudioCacheManager,
+    private val tasteAdjustments: TasteAdjustmentRepository,
 ) : CloudAutoFacts {
 
     override suspend fun gather(pendingCanonicalIds: Set<String>, nowMs: Long): List<AutoCandidateFacts> =
@@ -55,6 +57,7 @@ class CloudAutoFactsGatherer @Inject constructor(
             instrumentalIndex.refresh() // a fresh background process starts with an empty index
             val instrumentals = instrumentalIndex.instrumentalizedSongIds.value
             val blocked = blockedArtists.current
+            val adjustments = tasteAdjustments.snapshot()
             val dateAdded = library.associate { TaisInstrumentalIndex.canonicalSongId(it.id) to normalizeEpochMs(it.dateAdded) }
             // The five songs played last, newest first: whose neighbours in a playlist are the likely next ones.
             val recent = engagement.entries.filter { it.value.lastPlayedMs > 0 }
@@ -83,7 +86,8 @@ class CloudAutoFactsGatherer @Inject constructor(
                     neighbourBoost = boosts[canonical] ?: 0.0,
                     hasInstrumental = canonical in instrumentals || song.id in instrumentals,
                     hasPendingJob = canonical in pendingCanonicalIds,
-                    blockedArtist = blocked.isBlocked(song),
+                    blockedArtist = blocked.isBlocked(song) || adjustments.blocks(song),
+                    tasteMultiplier = adjustments.combinedMultiplier(song),
                 )
             }
         }

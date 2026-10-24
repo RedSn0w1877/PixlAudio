@@ -52,9 +52,13 @@ object MusicRecommendationEngine {
     fun rank(
         songs: List<Song>, favorites: Set<String>, signals: Map<String, Signal>,
         history: Map<String, History>, nowMs: Long, seed: Long,
-        artistPriors: Map<String, Double> = emptyMap()
+        artistPriors: Map<String, Double> = emptyMap(),
+        adjustments: TasteAdjustments = TasteAdjustments.NONE
     ): List<Pick> {
-        val candidates = songs.filter { it.title.isNotBlank() }.distinctBy { it.id }
+        val usable = songs.filter { it.title.isNotBlank() }.distinctBy { it.id }
+        // Muted and blocked songs never reach a mix or shelf; with no adjustments this is the same list.
+        val allowed = if (adjustments.isEmpty) usable else usable.filterNot { adjustments.excludes(it) }
+        val candidates = allowed
             .groupBy(::recordingKey).entries.map { (recordingKey, versions) ->
                 val first = versions.first()
                 RecordingCandidate(
@@ -66,7 +70,8 @@ object MusicRecommendationEngine {
                     // artist/genre/recording strings are normalised once per song, not 4-5 times.
                     recordingKey = recordingKey,
                     artistKey = artistKey(first),
-                    genreKey = genreKey(first)
+                    genreKey = genreKey(first),
+                    lift = if (adjustments.isEmpty) null else adjustments.liftFor(first)
                 )
             }
         val artistWeights = mutableMapOf<String, Double>()
@@ -104,7 +109,12 @@ object MusicRecommendationEngine {
             val favorite = candidate.favorite
             val artist = (artistWeights[candidate.artistKey] ?: 0.0) / artistScale
             val genre = (genreWeights[candidate.genreKey] ?: 0.0) / genreScale
-            val taste = artist * 0.75 + genre * 0.25
+            // Explicit adjustments (Ask Taizo) sit on top of what was learned: they scale the artist, genre
+            // and song affinities. Without any, `lift` is null and this is the learned score untouched.
+            val lift = candidate.lift
+            val taste = if (lift == null) artist * 0.75 + genre * 0.25 else
+                TasteAdjustmentMath.adjustAffinity(artist, lift.artist) * 0.75 +
+                    TasteAdjustmentMath.adjustAffinity(genre, lift.genre) * 0.25
             val satisfaction = (signal.completions + 2.0) / (signal.sessions + 4.0)
             val skipRate = signal.earlySkips.toDouble() / (signal.sessions + 2.0)
             val familiarity = ln(1.0 + past.plays.coerceAtLeast(0)) / playScale
@@ -114,9 +124,15 @@ object MusicRecommendationEngine {
             val unheard = past.plays == 0 && signal.sessions == 0
             val exploration = 1.0 / sqrt(1.0 + past.plays.coerceAtLeast(0) + signal.sessions)
             val jitter = java.util.Random(seed xor candidate.recordingKey.hashCode().toLong()).nextDouble() * 0.025
-            val score = taste * 0.32 + satisfaction * 0.2 + familiarity * 0.12 +
+            var score = taste * 0.32 + satisfaction * 0.2 + familiarity * 0.12 +
                 (if (favorite) 0.18 else 0.0) + exploration * 0.12 - skipRate * 0.55 - fatigue * 0.2 + jitter
+            if (lift != null && lift.song != 1.0) {
+                val own = satisfaction * 0.6 + familiarity * 0.4
+                score += (TasteAdjustmentMath.adjustAffinity(own, lift.song) - own) * 0.32
+            }
             val reason = when {
+                lift != null && lift.reduced -> "$REASON_PREFIX_DEMOTED: you asked for less of this"
+                lift != null && lift.boosted -> "More of this, as you asked"
                 skipRate > 0.4 -> "$REASON_PREFIX_DEMOTED: frequently skipped"
                 favorite -> "One of your favorites"
                 signal.completions >= 2 -> "You often finish this song"
@@ -132,7 +148,8 @@ object MusicRecommendationEngine {
 
     private data class RecordingCandidate(
         val song: Song, val favorite: Boolean, val signal: Signal, val history: History,
-        val recordingKey: String, val artistKey: String, val genreKey: String?
+        val recordingKey: String, val artistKey: String, val genreKey: String?,
+        val lift: TasteAdjustments.Lift? = null
     )
 
     /**
@@ -229,6 +246,9 @@ object MusicRecommendationEngine {
     private fun genreKey(song: Song): String? = song.genre?.let(::normalize)?.takeUnless { it.isBlank() || it == "unknown" }
     fun recordingKey(song: Song): String = "${artistKey(song)}|${normalize(song.title)}"
     private val WHITESPACE_RUN = Regex("\\s+")
+
+    /** The folding every key here uses (case, width, spacing); [TasteAdjustments] matches names with it. */
+    fun normalizeKey(value: String): String = normalize(value)
 
     private fun normalize(value: String): String {
         val folded = Normalizer.normalize(value, Normalizer.Form.NFKC).lowercase(Locale.ROOT)

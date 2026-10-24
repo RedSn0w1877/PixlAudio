@@ -29,7 +29,12 @@ class MusicDiscoveryRepository @Inject constructor(
     private var cachedIds: List<String> = emptyList()
     private var cachedAt = 0L
 
-    suspend fun augment(baseMix: List<Song>, library: List<Song>, maxOnlineSongs: Int = 6): List<Song> = lock.withLock {
+    suspend fun augment(
+        baseMix: List<Song>,
+        library: List<Song>,
+        maxOnlineSongs: Int = 6,
+        adjustments: TasteAdjustments = TasteAdjustments.NONE
+    ): List<Song> = lock.withLock {
         if (baseMix.isEmpty() || maxOnlineSongs <= 0 || !tasteRepository.state.first().discoveryEnabled) return@withLock baseMix
         val now = System.currentTimeMillis()
         val cached = if (now - cachedAt < 6 * 60 * 60_000L && cachedIds.isNotEmpty()) {
@@ -75,7 +80,8 @@ class MusicDiscoveryRepository @Inject constructor(
         }
         if (discovered.isEmpty()) return@withLock baseMix
         val used = baseMix.mapTo(hashSetOf(), MusicRecommendationEngine::recordingKey)
-        val additions = discovered.filter { used.add(MusicRecommendationEngine.recordingKey(it)) }.take(maxOnlineSongs)
+        // Muted and blocked artists, genres and songs stay out of catalog discoveries too.
+        val additions = discovered.filter { !adjustments.excludes(it) && used.add(MusicRecommendationEngine.recordingKey(it)) }.take(maxOnlineSongs)
         if (additions.isEmpty()) return@withLock baseMix
         // Small libraries can grow to 30; larger mixes keep their established size. Reserve
         // discovery positions before filling with familiar songs so truncation cannot remove

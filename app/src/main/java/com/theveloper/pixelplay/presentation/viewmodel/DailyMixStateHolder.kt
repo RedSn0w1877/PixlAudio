@@ -159,7 +159,9 @@ class DailyMixStateHolder @Inject constructor(
         baseMix: List<Song>,
         maxOnlineSongs: Int = 6
     ): List<Song> {
-        return musicDiscoveryRepository.augment(baseMix, musicRepository.getAllSongsOnce(), maxOnlineSongs)
+        val adjustments = runCatching { dailyMixManager.tasteAdjustmentSnapshot() }
+            .getOrDefault(com.theveloper.pixelplay.data.recommendation.TasteAdjustments.NONE)
+        return musicDiscoveryRepository.augment(baseMix, musicRepository.getAllSongsOnce(), maxOnlineSongs, adjustments)
     }
 
     /**
