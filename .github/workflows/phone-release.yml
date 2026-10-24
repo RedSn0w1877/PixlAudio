@@ -29,8 +29,31 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v6
 
+      # One signing key for every build, so a new APK always installs over the old one. The key lives in the
+      # ANDROID_KEYSTORE_B64 / ANDROID_KEYSTORE_PASSWORD secrets (a backup copy is on Hoa's PC). Forks and bot PRs have no
+      # secrets and fall back to the throwaway key below, which changes whenever its cache is evicted.
+      - name: Use the permanent signing key
+        id: permanent-key
+        env:
+          KS_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          KS_PW: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          if [ -n "$KS_B64" ] && [ -n "$KS_PW" ]; then
+            printf '%s' "$KS_B64" | base64 -d > vz-pixelplay.jks
+            {
+              echo "storePassword=$KS_PW"
+              echo "keyAlias=pixelplay-key"
+              echo "keyPassword=$KS_PW"
+            } > keystore.properties
+            echo "used=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No permanent signing key in this run (no secrets): using the throwaway cached key."
+            echo "used=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Cache keystore
         id: cache-keystore
+        if: steps.permanent-key.outputs.used != 'true'
         uses: actions/cache@v6
         with:
           path: vz-pixelplay.jks
@@ -39,13 +62,14 @@ jobs:
 
 # This is not the official release key, those apk's will be universal and manually uploaded.
       - name: Generate keystore if not cached
-        if: steps.cache-keystore.outputs.cache-hit != 'true'
+        if: steps.permanent-key.outputs.used != 'true' && steps.cache-keystore.outputs.cache-hit != 'true'
         run: |
           keytool -genkey -v -keystore vz-pixelplay.jks -alias pixelplay-key -keyalg RSA -keysize 4096 -validity 10000 \
             -storepass 994273 -keypass 994273 \
             -dname "CN=PixelPlay, OU=Dev, O=PixelPlay, L=World, S=World, C=US"
 
       - name: Create keystore.properties
+        if: steps.permanent-key.outputs.used != 'true'
         run: |
           echo "storePassword=994273" > keystore.properties
           echo "keyAlias=pixelplay-key" >> keystore.properties
