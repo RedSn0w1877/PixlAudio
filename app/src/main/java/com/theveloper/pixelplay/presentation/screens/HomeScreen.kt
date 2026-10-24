@@ -142,6 +142,10 @@ fun HomeScreen(
     val playbackHistory by playerViewModel.playbackHistory.collectAsStateWithLifecycle()
     val lifecycleOwner = LocalLifecycleOwner.current
     val discoveryViewModel: HomeDiscoveryViewModel = hiltViewModel()
+    // The one-time "import your Spotify history" card (Settings › Library & storage › Listening history).
+    val listeningHistoryViewModel: com.theveloper.pixelplay.presentation.viewmodel.ListeningHistoryViewModel = hiltViewModel()
+    val listeningHistoryStatus by listeningHistoryViewModel.status.collectAsStateWithLifecycle()
+    val showListeningHistoryCard = !listeningHistoryStatus.homeCardDismissed && !listeningHistoryStatus.hasSpotifyExport
     val discovery by discoveryViewModel.state.collectAsStateWithLifecycle()
     val beta05CleanInstallDisclaimerDismissed by discoveryViewModel
         .beta05CleanInstallDisclaimerDismissed.collectAsStateWithLifecycle()
@@ -423,6 +427,21 @@ fun HomeScreen(
                         actions = homeQuickActions,
                         modifier = Modifier.fillMaxWidth()
                     )
+                }
+
+                if (showListeningHistoryCard) {
+                    item(
+                        key = "home_listening_history_card",
+                        contentType = "home_listening_history_card"
+                    ) {
+                        HomeListeningHistoryCard(
+                            onImport = { navController.navigateSafely(Screen.ListeningHistory.route) },
+                            onDismiss = listeningHistoryViewModel::dismissHomeCard,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = greetingHorizontalPadding)
+                        )
+                    }
                 }
 
                 if (discovery.mixes.isNotEmpty()) {

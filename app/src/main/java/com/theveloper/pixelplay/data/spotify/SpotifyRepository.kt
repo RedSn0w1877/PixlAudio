@@ -912,6 +912,30 @@ class SpotifyRepository @Inject constructor(
                 .filter { !it.id.isNullOrBlank() }
         }
 
+    // ─── Listening history (data.history) ──────────────────────────────
+    // These return the full SpotifyResult so the history sync can tell a missing scope (403) from
+    // a network failure; all of them go through the shared executor and its rate limiter.
+
+    suspend fun fetchRecentlyPlayed(afterMs: Long? = null): SpotifyResult<com.theveloper.pixelplay.data.network.spotify.SpotifyRecentlyPlayedPage> =
+        withContext(Dispatchers.IO) {
+            executor.execute("recently-played") { auth -> api.getRecentlyPlayed(auth, after = afterMs) }
+        }
+
+    suspend fun fetchTopTracks(timeRange: String): SpotifyResult<com.theveloper.pixelplay.data.network.spotify.SpotifyTracksListPage> =
+        withContext(Dispatchers.IO) {
+            executor.execute("top-tracks") { auth -> api.getMyTopTracks(auth, timeRange) }
+        }
+
+    suspend fun fetchTopArtists(timeRange: String): SpotifyResult<com.theveloper.pixelplay.data.network.spotify.SpotifyArtistsPage> =
+        withContext(Dispatchers.IO) {
+            executor.execute("top-artists") { auth -> api.getMyTopArtists(auth, timeRange) }
+        }
+
+    suspend fun fetchFollowedArtists(after: String? = null): SpotifyResult<com.theveloper.pixelplay.data.network.spotify.SpotifyFollowedArtistsResponse> =
+        withContext(Dispatchers.IO) {
+            executor.execute("followed-artists") { auth -> api.getFollowedArtists(auth, after = after) }
+        }
+
     /**
      * Mete en la biblioteca las pistas que el usuario ha encontrado explorando, para que
      * pasen por el mismo emparejador que el resto y se puedan reproducir.

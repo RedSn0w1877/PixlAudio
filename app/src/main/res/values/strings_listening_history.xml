@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Settings › Library & storage › Listening history -->
+    <string name="listening_history_title">Listening history</string>
+    <string name="listening_history_status_empty">Nothing imported yet</string>
+    <string name="listening_history_status_never">%1$s plays · not synced yet</string>
+    <string name="listening_history_status_synced">Last synced %1$s · %2$s plays</string>
+    <string name="listening_history_status_syncing">Syncing… · %1$s plays</string>
+    <string name="listening_history_spotify_title">Spotify listening history</string>
+    <string name="listening_history_spotify_subtitle">Learn from what you play on Spotify. It counts the most.</string>
+    <string name="listening_history_spotify_signed_out">Sign in to Spotify to use this</string>
+    <string name="listening_history_spotify_reconnect">Reconnect Spotify once to read your recent plays</string>
+    <string name="listening_history_youtube_title">YouTube Music history</string>
+    <string name="listening_history_youtube_subtitle">Learn from what you play on YouTube Music (counts less than Spotify)</string>
+    <string name="listening_history_youtube_signed_out">Sign in to YouTube in the Spotify screen to use this</string>
+    <string name="listening_history_import_title">Import from a file</string>
+    <string name="listening_history_import_subtitle">Your full Spotify or YouTube Music history, years of it</string>
+    <string name="listening_history_clear_title">Clear imported history</string>
+    <string name="listening_history_clear_subtitle">Your plays in PixlAudio are not touched</string>
+    <string name="listening_history_clear_dialog_title">Clear imported history?</string>
+    <string name="listening_history_clear_dialog_body">This removes every play imported from Spotify and YouTube Music, and your mixes stop using them. Plays in PixlAudio stay. You can import again any time.</string>
+    <string name="listening_history_clear_confirm">Clear</string>
+    <string name="listening_history_cleared">Imported history cleared</string>
+
+    <!-- The Listening history screen -->
+    <string name="listening_history_intro">PixlAudio learns from what you\'ve played on Spotify and YouTube Music to make your mixes and recommendations smarter. Spotify counts the most. Everything stays on this phone.</string>
+    <string name="listening_history_summary_plays">%1$s plays imported</string>
+    <string name="listening_history_summary_detail">Spotify %1$s · YouTube Music %2$s · %3$s artists</string>
+    <string name="listening_history_sync_now">Sync now</string>
+    <string name="listening_history_reconnect_title">Reconnect Spotify</string>
+    <string name="listening_history_reconnect_body">Your Spotify login is from before PixlAudio could read your recently played songs and the artists you follow. Sign in once more to allow it. Everything already imported stays.</string>
+    <string name="listening_history_reconnect_action">Sign in to Spotify again</string>
+    <string name="listening_history_spotify_section">Your full Spotify history</string>
+    <string name="listening_history_spotify_step1">Open your Spotify privacy settings and sign in.</string>
+    <string name="listening_history_spotify_step2">Under \"Download your data\", tick \"Extended streaming history\" and tap Request data.</string>
+    <string name="listening_history_spotify_step3">Spotify emails you a download link, usually within a few days. Download the ZIP.</string>
+    <string name="listening_history_spotify_step4">Come back here, tap Choose files and pick the ZIP (or the JSON files inside it).</string>
+    <string name="listening_history_spotify_open">Open Spotify privacy settings</string>
+    <string name="listening_history_youtube_section">Your YouTube Music history</string>
+    <string name="listening_history_youtube_step1">Open Google Takeout. Only \"YouTube and YouTube Music\" is selected.</string>
+    <string name="listening_history_youtube_step2">Tap \"All YouTube data included\" and keep only \"history\".</string>
+    <string name="listening_history_youtube_step3">Tap \"Multiple formats\" and set History to JSON.</string>
+    <string name="listening_history_youtube_step4">Create the export, download the ZIP, then pick it here.</string>
+    <string name="listening_history_youtube_open">Open Google Takeout</string>
+    <string name="listening_history_choose_files">Choose files</string>
+    <string name="listening_history_dedupe_note">Importing the same file twice never counts a play twice.</string>
+    <string name="listening_history_importing">Importing… %1$s plays read</string>
+    <string name="listening_history_importing_file">Reading %1$s</string>
+    <string name="listening_history_import_done">Imported %1$s plays · %2$s artists</string>
+    <string name="listening_history_import_done_duplicates">%1$s were already imported</string>
+    <string name="listening_history_import_nothing_new">Nothing new: all %1$s plays were already imported</string>
+    <string name="listening_history_no_browser">No browser found to open this page</string>
+
+    <!-- Home card -->
+    <string name="listening_history_home_card_title">Make your mixes smarter</string>
+    <string name="listening_history_home_card_body">Import your Spotify history and PixlAudio learns years of your listening in seconds.</string>
+    <string name="listening_history_home_card_action">Import</string>
+    <string name="listening_history_home_card_dismiss">Not now</string>
+</resources>

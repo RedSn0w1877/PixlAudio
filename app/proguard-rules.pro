@@ -341,6 +341,9 @@
 -keep class com.theveloper.pixelplay.data.recommendation.HomeCatalogEntry { <fields>; <init>(...); }
 -keep class com.theveloper.pixelplay.data.recommendation.HomeCatalogSnapshot { <fields>; <init>(...); }
 -keep class com.theveloper.pixelplay.data.spotify.connect.SpotifyConnectResolution { <fields>; <init>(...); }
+# Imported listening history (Spotify / YouTube Music) persisted into the taste store by field name.
+-keep class com.theveloper.pixelplay.data.recommendation.ImportedTasteSnapshot { <fields>; <init>(...); }
+-keep class com.theveloper.pixelplay.data.recommendation.MusicRecommendationEngine$History { <fields>; <init>(...); }
 
 # NewPipeExtractor (YouTube stream resolution): it evaluates YouTube's player JavaScript with Rhino, which
 # loads its runtime classes reflectively, and it ships no consumer rules. Without these, resolving a stream

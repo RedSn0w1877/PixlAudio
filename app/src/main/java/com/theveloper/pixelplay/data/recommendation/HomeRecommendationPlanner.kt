@@ -39,9 +39,10 @@ object HomeRecommendationPlanner {
         releases: List<Song> = emptyList(),
         nowMs: Long,
         seed: Long,
-        variant: MuselleVariant = MuselleVariant.BASIC
+        variant: MuselleVariant = MuselleVariant.BASIC,
+        artistPriors: Map<String, Double> = emptyMap()
     ): HomeRecommendations {
-        val rank = Muselle.rank(variant, library + discoveries + releases, favorites, signals, history, nowMs, seed)
+        val rank = Muselle.rank(variant, library + discoveries + releases, favorites, signals, history, nowMs, seed, artistPriors)
         // recordingKey normalises the artist and title (Unicode fold + regex), and the shelves below
         // test every ranked song against it several times: compute it once per Song instance.
         val keyCache = java.util.IdentityHashMap<Song, String>()

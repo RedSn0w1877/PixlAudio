@@ -553,6 +553,13 @@ fun AppNavigation(
                 }
             }
             composable(
+                Screen.ListeningHistory.route,
+            ) {
+                ScreenWrapper(navController = navController, playerViewModel = playerViewModel, animatedVisibilityScope = this) {
+                    com.theveloper.pixelplay.presentation.screens.ListeningHistoryScreen(navController = navController)
+                }
+            }
+            composable(
                 Screen.DelimiterConfig.route,
             ) {
                 ScreenWrapper(navController = navController, playerViewModel = playerViewModel, animatedVisibilityScope = this) {
