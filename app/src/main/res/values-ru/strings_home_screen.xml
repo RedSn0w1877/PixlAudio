@@ -11,7 +11,7 @@
     <!-- BetaInfoBottomSheet -->
     <string name="beta_sheet_version">Бета 0.7.5</string>
     <string name="beta_sheet_letter">β</string>
-    <string name="beta_sheet_welcome_title">Добро пожаловать в PixelPlayer 0.7.5-beta</string>
+    <string name="beta_sheet_welcome_title">Добро пожаловать в PixlAudio 0.7.5-beta</string>
     <string name="beta_sheet_welcome_body">Вы используете бета-версию, которая может содержать ошибки, сбои или экспериментальные функции. Помогите нам улучшить приложение, сообщая о проблемах.</string>
     <string name="beta_sheet_expect_title">Чего ожидать</string>
     <string name="beta_sheet_expect_1">Ошибки, сбои или незавершённые функции могут возникать неожиданно.</string>
@@ -28,7 +28,7 @@
     <string name="beta_sheet_report_summary">Краткий чек-лист перед созданием новой задачи.</string>
     <string name="beta_sheet_before_title">Перед созданием задачи</string>
     <string name="beta_sheet_before_1">Проверьте открытые и закрытые задачи, чтобы избежать дубликатов.</string>
-    <string name="beta_sheet_before_2">Обновитесь до последней версии PixelPlayer и убедитесь, что проблема всё ещё возникает.</string>
+    <string name="beta_sheet_before_2">Обновитесь до последней версии PixlAudio и убедитесь, что проблема всё ещё возникает.</string>
     <string name="beta_sheet_before_3">Перезапустите приложение и проверьте, сохраняется ли проблема.</string>
     <string name="beta_sheet_before_4">Попробуйте воспроизвести проблему и запишите точные шаги.</string>
     <string name="beta_sheet_issue_type_title">Какой тип задачи?</string>
@@ -46,7 +46,7 @@
     <string name="beta_sheet_bug_screenshot">Скриншот / видео: если доступно.</string>
     <string name="beta_sheet_bug_logs">Логи / стек вызовов: если доступны.</string>
     <string name="beta_sheet_env_title">Окружение</string>
-    <string name="beta_sheet_env_version">Версия PixelPlayer:</string>
+    <string name="beta_sheet_env_version">Версия PixlAudio:</string>
     <string name="beta_sheet_env_source">Источник установки: GitHub Release, отладочная сборка, nightly и т.д.</string>
     <string name="beta_sheet_env_android">Версия Android:</string>
     <string name="beta_sheet_env_device">Модель устройства:</string>
@@ -92,7 +92,7 @@
     <string name="crash_report_stack_preview_label">Стек вызовов (предпросмотр):</string>
     <string name="crash_report_clipboard_label">Журнал сбоя</string>
     <string name="crash_report_toast_log_copied">Журнал сбоя скопирован в буфер обмена</string>
-    <string name="crash_report_share_subject">Отчёт о сбое PixelPlayer</string>
+    <string name="crash_report_share_subject">Отчёт о сбое PixlAudio</string>
     <string name="crash_report_share_chooser">Поделиться отчётом о сбое</string>
 
     <!-- Home Option -->

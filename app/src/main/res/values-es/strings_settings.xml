@@ -87,7 +87,7 @@
     <string name="lib_org_group_by_album_artist_subtitle">Mostrar álbumes de colaboración bajo el artista principal</string>
     <string name="multi_artist_info_title">Acerca del análisis de varios artistas</string>
     <string name="multi_artist_info_body">
-        PixelPlayer divide las etiquetas de artistas usando delimitadores de caracteres (/, ;, &amp;) y delimitadores de palabras (feat., ft., vs., x). Los delimitadores de palabras coinciden sin distinguir mayúsculas de minúsculas.
+        PixlAudio divide las etiquetas de artistas usando delimitadores de caracteres (/, ;, &amp;) y delimitadores de palabras (feat., ft., vs., x). Los delimitadores de palabras coinciden sin distinguir mayúsculas de minúsculas.
         \"Extraer artistas del título\" detecta patrones como (feat. Artista) en los títulos de las canciones.
         Se puede usar la barra invertida (\\) para omitir delimitadores de caracteres.
     </string>
@@ -367,7 +367,7 @@
     <string name="settings_action_export_pxpl">Exportar .pxpl</string>
     <string name="settings_action_restore_selected">Restaurar seleccionados</string>
     <string name="settings_backup_transfer_in_progress">Transferencia en curso…</string>
-    <string name="settings_backup_file_name_format">PixelPlayer_Copia_%1$d.pxpl</string>
+    <string name="settings_backup_file_name_format">PixlAudio_Copia_%1$d.pxpl</string>
     <string name="settings_dialog_creating_backup">Creando copia de seguridad</string>
     <string name="settings_dialog_restoring_backup">Restaurando copia de seguridad</string>
     <string name="settings_dialog_progress_percent">%1$d%%</string>
@@ -578,7 +578,7 @@
     <string name="settings_devcaps_report_copy">Copiar</string>
     <string name="settings_devcaps_report_share">Compartir</string>
     <string name="settings_devcaps_report_copied">Informe copiado al portapapeles</string>
-    <string name="settings_devcaps_report_share_title">Informe de rendimiento de PixelPlayer</string>
+    <string name="settings_devcaps_report_share_title">Informe de rendimiento de PixlAudio</string>
     <string name="settings_devcaps_advanced_diagnostics_title">Diagnóstico avanzado de rendimiento</string>
     <string name="settings_devcaps_advanced_diagnostics_description">Desactivado por defecto. Registra una breve línea de tiempo de retrasos para depuración beta.</string>
     <string name="settings_devcaps_advanced_diagnostics_expires">Activo hasta %1$s</string>
@@ -605,7 +605,7 @@
 
     <!-- About category -->
     <string name="about_screen_title">Acerca de</string>
-    <string name="about_app_name">PixelPlayer</string>
+    <string name="about_app_name">PixlAudio</string>
     <string name="about_tagline">Reproductor de música open source construido con su comunidad.</string>
     <string name="about_version_format">Versión v%1$s</string>
     <string name="about_signal_open_source">Código abierto</string>
@@ -613,7 +613,7 @@
     <string name="about_signal_material3">Material 3 expresivo</string>
     <string name="about_no_contributors">No se encontraron colaboradores en este momento. Inténtalo de nuevo más tarde.</string>
     <string name="about_maintainer_title">Mantenedor</string>
-    <string name="about_maintainer_subtitle">La persona detrás de PixelPlayer.</string>
+    <string name="about_maintainer_subtitle">La persona detrás de PixlAudio.</string>
     <string name="about_spotlight_title">Destacados de la comunidad</string>
     <string name="about_spotlight_subtitle">Reconocimiento a colaboradores con gran impacto.</string>
     <string name="about_contributors_section_title">Colaboradores de código abierto</string>

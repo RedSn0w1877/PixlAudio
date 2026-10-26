@@ -84,7 +84,6 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.theveloper.pixelplay.R
 import com.theveloper.pixelplay.data.model.Song
 import com.theveloper.pixelplay.presentation.components.BetaInfoBottomSheet
-import com.theveloper.pixelplay.presentation.components.Beta05CleanInstallDisclaimerDialog
 import com.theveloper.pixelplay.presentation.components.ChangelogBottomSheet
 import com.theveloper.pixelplay.presentation.components.HomeGradientTopBar
 import com.theveloper.pixelplay.presentation.components.HomeGreetingCard
@@ -147,8 +146,6 @@ fun HomeScreen(
     val listeningHistoryStatus by listeningHistoryViewModel.status.collectAsStateWithLifecycle()
     val showListeningHistoryCard = !listeningHistoryStatus.homeCardDismissed && !listeningHistoryStatus.hasSpotifyExport
     val discovery by discoveryViewModel.state.collectAsStateWithLifecycle()
-    val beta05CleanInstallDisclaimerDismissed by discoveryViewModel
-        .beta05CleanInstallDisclaimerDismissed.collectAsStateWithLifecycle()
     val discoverySnackbar = remember { SnackbarHostState() }
     LaunchedEffect(homeMixPreviewSongs.isNotEmpty()) { discoveryViewModel.refresh() }
     val discoveryRefreshScope = rememberCoroutineScope()
@@ -307,7 +304,6 @@ fun HomeScreen(
         )
     }
     var showBetaInfoBottomSheet by remember { mutableStateOf(false) }
-    var cleanInstallDisclaimerDismissedThisSession by rememberSaveable { mutableStateOf(false) }
     val sheetState = rememberModalBottomSheetState()
     val betaSheetState = rememberModalBottomSheetState()
     val jobsSheetState = rememberModalBottomSheetState()
@@ -361,9 +357,6 @@ fun HomeScreen(
 
     // Drawer state for sidebar
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
-    val shouldShowCleanInstallDisclaimer =
-        beta05CleanInstallDisclaimerDismissed == false &&
-            !cleanInstallDisclaimerDismissedThisSession
 
     Box(
         modifier = Modifier.fillMaxSize()
@@ -660,16 +653,6 @@ fun HomeScreen(
             BetaInfoBottomSheet()
             }
         }
-    }
-    if (shouldShowCleanInstallDisclaimer) {
-        Beta05CleanInstallDisclaimerDialog(
-            onDismiss = { dontShowAgain ->
-                cleanInstallDisclaimerDismissedThisSession = true
-                if (dontShowAgain) {
-                    discoveryViewModel.setBeta05CleanInstallDisclaimerDismissed(true)
-                }
-            }
-        )
     }
 }
 

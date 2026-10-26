@@ -87,7 +87,7 @@
     <string name="lib_org_group_by_album_artist_subtitle">Kollaborations-Alben unter dem Hauptkünstler anzeigen</string>
     <string name="multi_artist_info_title">Über Mehrkünstler-Parsing</string>
     <string name="multi_artist_info_body">
-        PixelPlayer teilt Künstler-Tags mithilfe von Zeichen-Trennzeichen (/, ;, &amp;) und Wort-Trennzeichen (feat., ft., vs., x). Bei Wort-Trennzeichen wird nicht auf Groß-/Kleinschreibung geachtet.
+        PixlAudio teilt Künstler-Tags mithilfe von Zeichen-Trennzeichen (/, ;, &amp;) und Wort-Trennzeichen (feat., ft., vs., x). Bei Wort-Trennzeichen wird nicht auf Groß-/Kleinschreibung geachtet.
         \"Künstler aus Titel extrahieren\" erkennt Muster wie (feat. Künstler) in Songtiteln.
         Backslash (\\) kann verwendet werden, um Zeichen-Trennzeichen zu maskieren.
     </string>
@@ -367,7 +367,7 @@
     <string name="settings_action_export_pxpl">.pxpl exportieren</string>
     <string name="settings_action_restore_selected">Ausgewählte wiederherstellen</string>
     <string name="settings_backup_transfer_in_progress">Übertragung läuft…</string>
-    <string name="settings_backup_file_name_format">PixelPlayer_Backup_%1$d.pxpl</string>
+    <string name="settings_backup_file_name_format">PixlAudio_Backup_%1$d.pxpl</string>
     <string name="settings_dialog_creating_backup">Backup wird erstellt</string>
     <string name="settings_dialog_restoring_backup">Backup wird wiederhergestellt</string>
     <string name="settings_dialog_progress_percent">%1$d%%</string>
@@ -578,7 +578,7 @@
     <string name="settings_devcaps_report_copy">Kopieren</string>
     <string name="settings_devcaps_report_share">Teilen</string>
     <string name="settings_devcaps_report_copied">Bericht in Zwischenablage kopiert</string>
-    <string name="settings_devcaps_report_share_title">PixelPlayer Leistungsbericht</string>
+    <string name="settings_devcaps_report_share_title">PixlAudio Leistungsbericht</string>
     <string name="settings_devcaps_advanced_diagnostics_title">Erweiterte Leistungsdiagnose</string>
     <string name="settings_devcaps_advanced_diagnostics_description">Standardmäßig deaktiviert. Zeichnet eine kurze Ruckel-Zeitleiste zur Fehleranalyse in Beta-Versionen auf.</string>
     <string name="settings_devcaps_advanced_diagnostics_expires">Aktiv bis %1$s</string>
@@ -605,7 +605,7 @@
 
     <!-- About category -->
     <string name="about_screen_title">Über</string>
-    <string name="about_app_name">PixelPlayer</string>
+    <string name="about_app_name">PixlAudio</string>
     <string name="about_tagline">Open-Source-Musikplayer – von der Community, für die Community.</string>
     <string name="about_version_format">Version v%1$s</string>
     <string name="about_signal_open_source">Open Source</string>
@@ -613,7 +613,7 @@
     <string name="about_signal_material3">Material 3 Expressiv</string>
     <string name="about_no_contributors">Aktuell keine Mitwirkenden gefunden. Später erneut versuchen.</string>
     <string name="about_maintainer_title">Maintainer</string>
-    <string name="about_maintainer_subtitle">Die Person hinter PixelPlayer.</string>
+    <string name="about_maintainer_subtitle">Die Person hinter PixlAudio.</string>
     <string name="about_spotlight_title">Community-Spotlight</string>
     <string name="about_spotlight_subtitle">Anerkennung für Mitwirkende mit besonders großem Einfluss.</string>
     <string name="about_contributors_section_title">Open-Source-Mitwirkende</string>

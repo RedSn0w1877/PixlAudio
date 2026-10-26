@@ -87,7 +87,7 @@
     <string name="lib_org_group_by_album_artist_subtitle">在主要艺术家下显示合作专辑</string>
     <string name="multi_artist_info_title">关于多艺术家解析</string>
     <string name="multi_artist_info_body">
-        PixelPlayer 使用字符分隔符（/、;、&amp;）和单词分隔符（feat.、ft.、vs.、x）来拆分艺术家标签。单词分隔符不区分大小写。
+        PixlAudio 使用字符分隔符（/、;、&amp;）和单词分隔符（feat.、ft.、vs.、x）来拆分艺术家标签。单词分隔符不区分大小写。
         “从标题提取艺术家”会检测歌曲标题中如 (feat. Artist) 的模式。
         反斜杠 (\) 可用于转义字符分隔符。
     </string>
@@ -367,7 +367,7 @@
     <string name="settings_action_export_pxpl">导出 .pxpl</string>
     <string name="settings_action_restore_selected">恢复所选项</string>
     <string name="settings_backup_transfer_in_progress">正在传输…</string>
-    <string name="settings_backup_file_name_format">PixelPlayer_Backup_%1$d.pxpl</string>
+    <string name="settings_backup_file_name_format">PixlAudio_Backup_%1$d.pxpl</string>
     <string name="settings_dialog_creating_backup">正在创建备份</string>
     <string name="settings_dialog_restoring_backup">正在恢复备份</string>
     <string name="settings_dialog_progress_percent">%1$d%%</string>
@@ -578,7 +578,7 @@
     <string name="settings_devcaps_report_copy">复制</string>
     <string name="settings_devcaps_report_share">分享</string>
     <string name="settings_devcaps_report_copied">报告已复制到剪贴板</string>
-    <string name="settings_devcaps_report_share_title">PixelPlayer 性能报告</string>
+    <string name="settings_devcaps_report_share_title">PixlAudio 性能报告</string>
     <string name="settings_devcaps_advanced_diagnostics_title">高级性能诊断</string>
     <string name="settings_devcaps_advanced_diagnostics_description">默认关闭。用于记录短暂卡顿时间线，便于测试版问题排查。</string>
     <string name="settings_devcaps_advanced_diagnostics_expires">有效期至 %1$s</string>
@@ -605,7 +605,7 @@
 
     <!-- About category -->
     <string name="about_screen_title">关于</string>
-    <string name="about_app_name">PixelPlayer</string>
+    <string name="about_app_name">PixlAudio</string>
     <string name="about_tagline">由社区共同打造的开源音乐播放器。</string>
     <string name="about_version_format">版本 v%1$s</string>
     <string name="about_signal_open_source">开源</string>
@@ -613,7 +613,7 @@
     <string name="about_signal_material3">Material 3 表现力设计</string>
     <string name="about_no_contributors">目前未找到贡献者。请稍后再试。</string>
     <string name="about_maintainer_title">维护者</string>
-    <string name="about_maintainer_subtitle">PixelPlayer 背后的开发者。</string>
+    <string name="about_maintainer_subtitle">PixlAudio 背后的开发者。</string>
     <string name="about_spotlight_title">社区焦点</string>
     <string name="about_spotlight_subtitle">感谢对本项目有重大影响的合作者。</string>
     <string name="about_contributors_section_title">开源贡献者</string>

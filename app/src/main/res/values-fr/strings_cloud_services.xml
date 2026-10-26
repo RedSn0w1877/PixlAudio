@@ -179,7 +179,7 @@
     <string name="auth_gdrive_connect_subtitle">Diffusez des fichiers musicaux directement depuis votre Google Drive</string>
     <string name="auth_gdrive_connect_title">Connecter Google Drive</string>
     <string name="auth_gdrive_connected_toast">Google Drive connecté !</string>
-    <string name="auth_gdrive_create_action">Créer \"PixelPlayer Music\"</string>
+    <string name="auth_gdrive_create_action">Créer \"PixlAudio Music\"</string>
     <string name="auth_gdrive_create_subtitle">Créer un nouveau dossier ici pour votre musique</string>
     <string name="auth_gdrive_empty_msg">Aucun dossier ici</string>
     <string name="auth_gdrive_open_cd">Ouvrir le dossier</string>
@@ -214,7 +214,7 @@
     <string name="auth_netease_http_error">HTTP %1$d lors du chargement de NetEase.</string>
     <string name="auth_netease_incomplete_error">Connexion non détectée. Terminez la connexion NetEase avant d\'appuyer sur Terminé.</string>
     <string name="auth_netease_login_title">Connexion à NetEase Music</string>
-    <string name="auth_netease_security_msg">Note de sécurité : votre mot de passe est saisi uniquement dans les pages web de NetEase. PixelPlayer stocke les cookies de session (MUSIC_U) pour synchroniser votre bibliothèque.</string>
+    <string name="auth_netease_security_msg">Note de sécurité : votre mot de passe est saisi uniquement dans les pages web de NetEase. PixlAudio stocke les cookies de session (MUSIC_U) pour synchroniser votre bibliothèque.</string>
     <string name="auth_netease_title">NetEase Music</string>
 
     <!-- QQ Music Web Login -->
@@ -223,6 +223,6 @@
     <string name="auth_qq_http_error">HTTP %1$d lors du chargement de QQ Music.</string>
     <string name="auth_qq_incomplete_error">Connexion non détectée. Terminez la connexion QQ Music avant d\'appuyer sur Terminé.</string>
     <string name="auth_qq_login_title">Connexion à QQ Music</string>
-    <string name="auth_qq_security_msg">Note de sécurité : votre mot de passe est saisi uniquement dans les pages web de QQ Music. PixelPlayer stocke les cookies de session pour synchroniser votre bibliothèque.</string>
+    <string name="auth_qq_security_msg">Note de sécurité : votre mot de passe est saisi uniquement dans les pages web de QQ Music. PixlAudio stocke les cookies de session pour synchroniser votre bibliothèque.</string>
     <string name="auth_qq_title">QQ Music</string>
 </resources>

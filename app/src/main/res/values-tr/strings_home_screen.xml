@@ -11,7 +11,7 @@
     <!-- BetaInfoBottomSheet -->
     <string name="beta_sheet_version">Beta 0.7.5</string>
     <string name="beta_sheet_letter">β</string>
-    <string name="beta_sheet_welcome_title">PixelPlayer 0.7.5-beta\'ya Hoş Geldiniz</string>
+    <string name="beta_sheet_welcome_title">PixlAudio 0.7.5-beta\'ya Hoş Geldiniz</string>
     <string name="beta_sheet_welcome_body">Hata, çökme veya deneysel özellikler içerebilecek bir beta yapısı kullanıyorsunuz. Sorunları bildirerek geliştirmemize yardımcı olun.</string>
     <string name="beta_sheet_expect_title">Ne beklemeli</string>
     <string name="beta_sheet_expect_1">Beklenmedik hatalar, çökmeler veya tamamlanmamış özellikler olabilir.</string>
@@ -28,7 +28,7 @@
     <string name="beta_sheet_report_summary">Yeni bir sorun açmadan önce hızlı kontrol listesi.</string>
     <string name="beta_sheet_before_title">Sorun açmadan önce</string>
     <string name="beta_sheet_before_1">Tekrarlamamak için mevcut açık ve kapalı sorunları arayın.</string>
-    <string name="beta_sheet_before_2">En son PixelPlayer sürümüne güncelleyin ve sorunun devam ettiğini onaylayın.</string>
+    <string name="beta_sheet_before_2">En son PixlAudio sürümüne güncelleyin ve sorunun devam ettiğini onaylayın.</string>
     <string name="beta_sheet_before_3">Uygulamayı yeniden başlatın ve sorunun devam ettiğini onaylayın.</string>
     <string name="beta_sheet_before_4">Yeniden oluşturmaya çalışın ve tam adımları not alın.</string>
     <string name="beta_sheet_issue_type_title">Hangi sorun türü?</string>
@@ -46,7 +46,7 @@
     <string name="beta_sheet_bug_screenshot">Ekran görüntüsü / video: varsa.</string>
     <string name="beta_sheet_bug_logs">Günlükler / yığın izi: varsa.</string>
     <string name="beta_sheet_env_title">Ortam</string>
-    <string name="beta_sheet_env_version">PixelPlayer sürümü:</string>
+    <string name="beta_sheet_env_version">PixlAudio sürümü:</string>
     <string name="beta_sheet_env_source">Kurulum kaynağı: GitHub sürümü, hata ayıklama yapısı, gecelik yapı vb.</string>
     <string name="beta_sheet_env_android">Android sürümü:</string>
     <string name="beta_sheet_env_device">Cihaz modeli:</string>
@@ -92,7 +92,7 @@
     <string name="crash_report_stack_preview_label">Yığın izi (önizleme):</string>
     <string name="crash_report_clipboard_label">Çökme günlüğü</string>
     <string name="crash_report_toast_log_copied">Çökme günlüğü panoya kopyalandı</string>
-    <string name="crash_report_share_subject">PixelPlayer çökme raporu</string>
+    <string name="crash_report_share_subject">PixlAudio çökme raporu</string>
     <string name="crash_report_share_chooser">Çökme raporunu paylaş</string>
 
     <!-- Home Option -->

@@ -11,7 +11,7 @@
     <!-- BetaInfoBottomSheet -->
     <string name="beta_sheet_version">Beta 0.7.5</string>
     <string name="beta_sheet_letter">β</string>
-    <string name="beta_sheet_welcome_title">Willkommen bei PixelPlayer 0.7.5-beta</string>
+    <string name="beta_sheet_welcome_title">Willkommen bei PixlAudio 0.7.5-beta</string>
     <string name="beta_sheet_welcome_body">Du verwendest eine Beta-Version, die Fehler, Abstürze oder experimentelle Funktionen enthalten kann. Hilf uns bei der Verbesserung, indem du Probleme meldest.</string>
     <string name="beta_sheet_expect_title">Was dich erwartet</string>
     <string name="beta_sheet_expect_1">Fehler, Abstürze oder unvollständige Funktionen können unerwartet auftreten.</string>
@@ -28,7 +28,7 @@
     <string name="beta_sheet_report_summary">Eine kurze Checkliste vor dem Erstellen eines neuen Issues.</string>
     <string name="beta_sheet_before_title">Vor dem Erstellen eines Issues</string>
     <string name="beta_sheet_before_1">Suche in bestehenden offenen und geschlossenen Issues, um Duplikate zu vermeiden.</string>
-    <string name="beta_sheet_before_2">Aktualisiere auf die neueste PixelPlayer-Version und bestätige, dass das Problem weiterhin auftritt.</string>
+    <string name="beta_sheet_before_2">Aktualisiere auf die neueste PixlAudio-Version und bestätige, dass das Problem weiterhin auftritt.</string>
     <string name="beta_sheet_before_3">Starte die App neu und überprüfe, ob das Problem weiterhin besteht.</string>
     <string name="beta_sheet_before_4">Versuche, es zu reproduzieren, und notiere die genauen Schritte.</string>
     <string name="beta_sheet_issue_type_title">Welcher Issue-Typ?</string>
@@ -46,7 +46,7 @@
     <string name="beta_sheet_bug_screenshot">Screenshot / Video: falls verfügbar.</string>
     <string name="beta_sheet_bug_logs">Protokolle / Stacktrace: falls verfügbar.</string>
     <string name="beta_sheet_env_title">Umgebung</string>
-    <string name="beta_sheet_env_version">PixelPlayer-Version:</string>
+    <string name="beta_sheet_env_version">PixlAudio-Version:</string>
     <string name="beta_sheet_env_source">Installationsquelle: GitHub-Release, Debug-Build, Nightly-Build usw.</string>
     <string name="beta_sheet_env_android">Android-Version:</string>
     <string name="beta_sheet_env_device">Gerätemodell:</string>
@@ -92,7 +92,7 @@
     <string name="crash_report_stack_preview_label">Stacktrace (Vorschau):</string>
     <string name="crash_report_clipboard_label">Absturzprotokoll</string>
     <string name="crash_report_toast_log_copied">Absturzprotokoll in die Zwischenablage kopiert</string>
-    <string name="crash_report_share_subject">PixelPlayer-Absturzbericht</string>
+    <string name="crash_report_share_subject">PixlAudio-Absturzbericht</string>
     <string name="crash_report_share_chooser">Absturzbericht teilen</string>
 
     <!-- Home Option -->

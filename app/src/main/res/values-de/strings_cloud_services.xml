@@ -179,7 +179,7 @@
     <string name="auth_gdrive_connect_subtitle">Musikdateien direkt aus deinem Google Drive streamen</string>
     <string name="auth_gdrive_connect_title">Google Drive verbinden</string>
     <string name="auth_gdrive_connected_toast">Google Drive connected!</string>
-    <string name="auth_gdrive_create_action">\"PixelPlayer Music\" erstellen</string>
+    <string name="auth_gdrive_create_action">\"PixlAudio Music\" erstellen</string>
     <string name="auth_gdrive_create_subtitle">Neuen Ordner für Musik hier erstellen</string>
     <string name="auth_gdrive_empty_msg">Keine Ordner hier</string>
     <string name="auth_gdrive_open_cd">Ordner öffnen</string>
@@ -214,7 +214,7 @@
     <string name="auth_netease_http_error">HTTP %1$d beim Laden von NetEase.</string>
     <string name="auth_netease_incomplete_error">Login noch nicht erkannt. Schließe den NetEase-Login ab, bevor du auf Fertig drückst.</string>
     <string name="auth_netease_login_title">Bei NetEase Music anmelden</string>
-    <string name="auth_netease_security_msg">Dein Passwort wird nur auf NetEase-Seiten eingegeben. PixelPlayer speichert nur Session-Cookies (MUSIC_U) zur Bibliothekssynchronisierung.</string>
+    <string name="auth_netease_security_msg">Dein Passwort wird nur auf NetEase-Seiten eingegeben. PixlAudio speichert nur Session-Cookies (MUSIC_U) zur Bibliothekssynchronisierung.</string>
     <string name="auth_netease_title">NetEase Music</string>
 
     <!-- QQ Music Web Login -->
@@ -223,6 +223,6 @@
     <string name="auth_qq_http_error">HTTP %1$d beim Laden von QQ Music.</string>
     <string name="auth_qq_incomplete_error">Login noch nicht erkannt. Schließe den QQ Music-Login ab, bevor du auf Fertig drückst.</string>
     <string name="auth_qq_login_title">Bei QQ Music anmelden</string>
-    <string name="auth_qq_security_msg">Dein Passwort wird nur auf QQ Music-Seiten eingegeben. PixelPlayer speichert nur Session-Cookies zur Bibliothekssynchronisierung.</string>
+    <string name="auth_qq_security_msg">Dein Passwort wird nur auf QQ Music-Seiten eingegeben. PixlAudio speichert nur Session-Cookies zur Bibliothekssynchronisierung.</string>
     <string name="auth_qq_title">QQ Music</string>
 </resources>

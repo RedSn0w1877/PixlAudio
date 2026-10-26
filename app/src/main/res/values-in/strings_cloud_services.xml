@@ -179,7 +179,7 @@
     <string name="auth_gdrive_connect_subtitle">Stream file musik langsung dari Google Drive Anda</string>
     <string name="auth_gdrive_connect_title">Hubungkan Google Drive</string>
     <string name="auth_gdrive_connected_toast">Google Drive terhubung!</string>
-    <string name="auth_gdrive_create_action">Buat \"PixelPlayer Music\"</string>
+    <string name="auth_gdrive_create_action">Buat \"PixlAudio Music\"</string>
     <string name="auth_gdrive_create_subtitle">Buat folder baru di sini untuk musik Anda</string>
     <string name="auth_gdrive_empty_msg">Tidak ada folder di sini</string>
     <string name="auth_gdrive_open_cd">Buka folder</string>
@@ -214,7 +214,7 @@
     <string name="auth_netease_http_error">HTTP %1$d saat memuat NetEase.</string>
     <string name="auth_netease_incomplete_error">Login belum terdeteksi. Selesaikan login NetEase sebelum menekan Selesai.</string>
     <string name="auth_netease_login_title">Login ke NetEase Music</string>
-    <string name="auth_netease_security_msg">Catatan keamanan: kata sandi Anda hanya dimasukkan di halaman web NetEase. PixelPlayer menyimpan cookie sesi (MUSIC_U) untuk menyinkronkan pustaka Anda.</string>
+    <string name="auth_netease_security_msg">Catatan keamanan: kata sandi Anda hanya dimasukkan di halaman web NetEase. PixlAudio menyimpan cookie sesi (MUSIC_U) untuk menyinkronkan pustaka Anda.</string>
     <string name="auth_netease_title">NetEase Music</string>
 
     <!-- QQ Music Web Login -->
@@ -223,6 +223,6 @@
     <string name="auth_qq_http_error">HTTP %1$d saat memuat QQ Music.</string>
     <string name="auth_qq_incomplete_error">Login belum terdeteksi. Selesaikan login QQ Music sebelum menekan Selesai.</string>
     <string name="auth_qq_login_title">Login ke QQ Music</string>
-    <string name="auth_qq_security_msg">Catatan keamanan: kata sandi Anda hanya dimasukkan di halaman web QQ Music. PixelPlayer menyimpan cookie sesi untuk menyinkronkan pustaka Anda.</string>
+    <string name="auth_qq_security_msg">Catatan keamanan: kata sandi Anda hanya dimasukkan di halaman web QQ Music. PixlAudio menyimpan cookie sesi untuk menyinkronkan pustaka Anda.</string>
     <string name="auth_qq_title">QQ Music</string>
 </resources>

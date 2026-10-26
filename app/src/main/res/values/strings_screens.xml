@@ -17,7 +17,7 @@
     <string name="setup_permission_notifications_description">Enable notifications to control your music from the lock screen and notification shade.</string>
     <string name="setup_enable_notifications">Enable Notifications</string>
     <string name="setup_backup_have_title">Do you have a backup?</string>
-    <string name="setup_backup_have_description">If you already have a PixelPlayer backup, restore it now and skip most of the remaining setup on this device.</string>
+    <string name="setup_backup_have_description">If you already have a PixlAudio backup, restore it now and skip most of the remaining setup on this device.</string>
     <string name="setup_import_backup">Import backup</string>
     <string name="setup_inspecting_backup">Inspecting backup</string>
     <string name="setup_checking_backup">Checking backup package…</string>
@@ -34,7 +34,7 @@
     <string name="setup_theme_title">App Theme</string>
     <string name="setup_theme_subtitle">Pick the look you want before you start exploring your library.</string>
     <string name="setup_theme_dark_title">Dark</string>
-    <string name="setup_theme_dark_description">The default Material 3 dark look for PixelPlayer.</string>
+    <string name="setup_theme_dark_description">The default Material 3 dark look for PixlAudio.</string>
     <string name="setup_theme_light_title">Light</string>
     <string name="setup_theme_light_description">A brighter Material 3 look across the app.</string>
     <string name="setup_theme_follow_title">Follow system</string>
@@ -59,15 +59,15 @@
     <string name="setup_customize_corner_radius">Customize Corner Radius</string>
     <string name="setup_navbar_footer">You can change this later in Settings &gt; Appearance &gt; Navbar Style.</string>
     <string name="setup_permission_alarms_title">Alarms &amp; Reminders</string>
-    <string name="setup_permission_alarms_description">Optional, but recommended if you use Sleep Timer and want PixelPlayer to stop playback exactly on time.</string>
+    <string name="setup_permission_alarms_description">Optional, but recommended if you use Sleep Timer and want PixlAudio to stop playback exactly on time.</string>
     <string name="setup_grant_permission_generic">Grant Permission</string>
     <string name="setup_battery_optimization_title">Battery Optimization</string>
-    <string name="setup_battery_optimization_description">Some Android devices aggressively kill background apps. Disable battery optimization for PixelPlayer to prevent unexpected playback interruptions.</string>
+    <string name="setup_battery_optimization_description">Some Android devices aggressively kill background apps. Disable battery optimization for PixlAudio to prevent unexpected playback interruptions.</string>
     <string name="setup_disable_battery_optimization">Disable Optimization</string>
     <string name="setup_all_set_title">All Set!</string>
     <string name="setup_all_set_body">You\'re ready to enjoy your music.</string>
     <string name="setup_spotify_title">Spotify users, listen up!</string>
-    <string name="setup_spotify_description">Please sign in with Spotify right here. Your liked songs and playlists come straight into PixelPlayer.</string>
+    <string name="setup_spotify_description">Please sign in with Spotify right here. Your liked songs and playlists come straight into PixlAudio.</string>
     <string name="setup_spotify_button">Sign in with Spotify</string>
     <string name="setup_spotify_connected">Spotify connected</string>
     <string name="setup_spotify_reach_out">Once you\'re signed in, reach out to me with your Name and Email!</string>

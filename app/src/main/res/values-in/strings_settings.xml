@@ -86,7 +86,7 @@
     <string name="lib_org_group_by_album_artist_title">Kelompokkan berdasarkan Artis Album</string>
     <string name="lib_org_group_by_album_artist_subtitle">Tampilkan album kolaborasi di bawah artis utama</string>
     <string name="multi_artist_info_title">Tentang Penguraian Multi-Artis</string>
-    <string name="multi_artist_info_body">PixelPlayer membagi tag artis menggunakan pemisah karakter (/, ;, &amp;amp;) dan pemisah kata (feat., ft., vs., x). Pemisah kata dicocokkan tanpa membedakan huruf besar-kecil.\n\n\"Ekstrak Artis dari Judul\" mendeteksi pola seperti (feat. Artis) dalam judul lagu.\n\nBackslash (\\) dapat digunakan untuk menghindari pemisah karakter.</string>
+    <string name="multi_artist_info_body">PixlAudio membagi tag artis menggunakan pemisah karakter (/, ;, &amp;amp;) dan pemisah kata (feat., ft., vs., x). Pemisah kata dicocokkan tanpa membedakan huruf besar-kecil.\n\n\"Ekstrak Artis dari Judul\" mendeteksi pola seperti (feat. Artis) dalam judul lagu.\n\nBackslash (\\) dapat digunakan untuk menghindari pemisah karakter.</string>
     <string name="multi_artist_examples_title">Contoh</string>
     <string name="multi_artist_example_arrow"> → </string>
     <string name="multi_artist_example_bullet"> ♪ </string>
@@ -363,7 +363,7 @@
     <string name="settings_action_export_pxpl">Ekspor .pxpl</string>
     <string name="settings_action_restore_selected">Pulihkan yang terpilih</string>
     <string name="settings_backup_transfer_in_progress">Transfer sedang berlangsung…</string>
-    <string name="settings_backup_file_name_format">PixelPlayer_Cadangan_%1$d.pxpl</string>
+    <string name="settings_backup_file_name_format">PixlAudio_Cadangan_%1$d.pxpl</string>
     <string name="settings_dialog_creating_backup">Creating Backup</string>
     <string name="settings_dialog_restoring_backup">Restoring Backup</string>
     <string name="settings_dialog_progress_percent">%1$d%%</string>
@@ -574,7 +574,7 @@
     <string name="settings_devcaps_report_copy">Salin</string>
     <string name="settings_devcaps_report_share">Bagikan</string>
     <string name="settings_devcaps_report_copied">Laporan disalin ke papan klip</string>
-    <string name="settings_devcaps_report_share_title">Laporan performa PixelPlayer</string>
+    <string name="settings_devcaps_report_share_title">Laporan performa PixlAudio</string>
     <string name="settings_devcaps_advanced_diagnostics_title">Diagnostik performa lanjutan</string>
     <string name="settings_devcaps_advanced_diagnostics_description">Nonaktif secara default. Merekam riwayat singkat lag untuk membantu troubleshooting beta.</string>
     <string name="settings_devcaps_advanced_diagnostics_expires">Aktif sampai %1$s</string>
@@ -601,7 +601,7 @@
 
     <!-- About category -->
     <string name="about_screen_title">Tentang</string>
-    <string name="about_app_name">PixelPlayer</string>
+    <string name="about_app_name">PixlAudio</string>
     <string name="about_tagline">Pemutar musik open source yang dibangun bersama komunitasnya.</string>
     <string name="about_version_format">Versi v%1$s</string>
     <string name="about_signal_open_source">Open source</string>
@@ -609,7 +609,7 @@
     <string name="about_signal_material3">Material 3 expressive</string>
     <string name="about_no_contributors">Tidak ditemukan kontributor saat ini. Silakan coba lagi nanti.</string>
     <string name="about_maintainer_title">Pemelihara</string>
-    <string name="about_maintainer_subtitle">Orang di balik PixelPlayer.</string>
+    <string name="about_maintainer_subtitle">Orang di balik PixlAudio.</string>
     <string name="about_spotlight_title">Sorotan komunitas</string>
     <string name="about_spotlight_subtitle">Penghargaan untuk kolaborator dengan dampak besar.</string>
     <string name="about_contributors_section_title">Kontributor open source</string>

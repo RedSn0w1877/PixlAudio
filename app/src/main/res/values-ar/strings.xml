@@ -1,11 +1,11 @@
 <resources>
-    <string name="app_name">PixelPlayer</string>
+    <string name="app_name">PixlAudio</string>
     <string name="app_name_change_title">تغيير اسم التطبيق</string>
     <string name="app_name_change_message">لقد قمنا بتغيير اسم تطبيقنا من PixelPlay إلى PixelPlayer بسبب مشكلة تتعلق بالعلامة التجارية. استمتع بالاستماع!</string>
     <string name="do_not_show_again">لا تظهره مرة أخرى</string>
     <string name="dismiss">تجاهل</string>
     <string name="all_files_access_title">مطلوب إذن خاص</string>
-    <string name="all_files_access_description">لتعديل البيانات الوصفية للأغاني (ملفات .mp3)، يحتاج PixelPlayer إلى صلاحية وصول خاصة لجميع الملفات. يتيح لنا هذا تعديل علامات المسارات الصوتية مباشرة. يرجى منح هذا الإذن في الشاشة التالية لتفعيل تعديل البيانات الوصفية.</string>
+    <string name="all_files_access_description">لتعديل البيانات الوصفية للأغاني (ملفات .mp3)، يحتاج PixlAudio إلى صلاحية وصول خاصة لجميع الملفات. يتيح لنا هذا تعديل علامات المسارات الصوتية مباشرة. يرجى منح هذا الإذن في الشاشة التالية لتفعيل تعديل البيانات الوصفية.</string>
     <string name="grant_permission_button">منح الإذن</string>
     <string name="all_files_access_setting">الوصول إلى جميع الملفات</string>
     <string name="error">خطأ</string>
@@ -86,7 +86,7 @@
     <string name="ai_error_api_key">يرجى تكوين مفتاح API صالح لمزود الذكاء الاصطناعي المحدد في الإعدادات.</string>
     <string name="ai_error_generic">خطأ في الذكاء الاصطناعي: %s</string>
     <string name="ai_error_quota">رفض مزود الذكاء الاصطناعي المحدد الطلب لعدم وجود رصيد أو حصة متاحة في الحساب.</string>
-    <string name="ai_error_model_unavailable">لم يعد نموذج الذكاء الاصطناعي المحدد متاحاً. حاول PixelPlayer التبديل تلقائياً إلى نموذج مدعوم.</string>
+    <string name="ai_error_model_unavailable">لم يعد نموذج الذكاء الاصطناعي المحدد متاحاً. حاول PixlAudio التبديل تلقائياً إلى نموذج مدعوم.</string>
     <string name="ai_no_songs_found">لم يتمكن الذكاء الاصطناعي من العثور على أي أغانٍ بناءً على طلبك.</string>
     <string name="ai_prompt_empty">اكتب فكرة لـ "مزيجك اليومي"</string>
     <string name="ai_daily_mix_updated">تم تحديث المزيج اليومي بواسطة الذكاء الاصطناعي</string>
@@ -130,7 +130,7 @@
     <string name="playlist_share_failed">فشلت المشاركة: %1$s</string>
     <string name="playlist_none_to_export">لا توجد قوائم تشغيل لتصديرها</string>
     <string name="playlist_export_failed">فشل التصدير: %1$s</string>
-    <string name="playlist_export_folder_display">Music/PixelPlayer Exports</string>
+    <string name="playlist_export_folder_display">Music/PixlAudio Exports</string>
     <string name="ai_playlist_gemini_key_required">يرجى تكوين مفتاح Gemini API في الإعدادات.</string>
     <string name="error_unknown">خطأ غير معروف</string>
 

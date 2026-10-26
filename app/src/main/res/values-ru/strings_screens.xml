@@ -17,7 +17,7 @@
     <string name="setup_permission_notifications_description">Включите уведомления, чтобы управлять музыкой с экрана блокировки и панели уведомлений.</string>
     <string name="setup_enable_notifications">Включить уведомления</string>
     <string name="setup_backup_have_title">У вас есть резервная копия?</string>
-    <string name="setup_backup_have_description">Если у вас уже есть резервная копия PixelPlayer, восстановите её сейчас и пропустите большую часть настройки на этом устройстве.</string>
+    <string name="setup_backup_have_description">Если у вас уже есть резервная копия PixlAudio, восстановите её сейчас и пропустите большую часть настройки на этом устройстве.</string>
     <string name="setup_import_backup">Импортировать резервную копию</string>
     <string name="setup_inspecting_backup">Проверка резервной копии</string>
     <string name="setup_checking_backup">Проверка пакета резервной копии…</string>
@@ -34,7 +34,7 @@
     <string name="setup_theme_title">Тема приложения</string>
     <string name="setup_theme_subtitle">Выберите внешний вид приложения перед началом работы.</string>
     <string name="setup_theme_dark_title">Тёмная</string>
-    <string name="setup_theme_dark_description">Стандартная тёмная тема Material 3 для PixelPlayer.</string>
+    <string name="setup_theme_dark_description">Стандартная тёмная тема Material 3 для PixlAudio.</string>
     <string name="setup_theme_light_title">Светлая</string>
     <string name="setup_theme_light_description">Более светлая тема Material 3 для всего приложения.</string>
     <string name="setup_theme_follow_title">Как в системе</string>
@@ -59,10 +59,10 @@
     <string name="setup_customize_corner_radius">Настроить радиус скругления</string>
     <string name="setup_navbar_footer">Позже это можно изменить в Настройки &gt; Внешний вид &gt; Стиль панели навигации.</string>
     <string name="setup_permission_alarms_title">Будильники и напоминания</string>
-    <string name="setup_permission_alarms_description">Необязательно, но рекомендуется, если вы используете таймер сна и хотите, чтобы PixelPlayer останавливал воспроизведение точно вовремя.</string>
+    <string name="setup_permission_alarms_description">Необязательно, но рекомендуется, если вы используете таймер сна и хотите, чтобы PixlAudio останавливал воспроизведение точно вовремя.</string>
     <string name="setup_grant_permission_generic">Предоставить разрешение</string>
     <string name="setup_battery_optimization_title">Оптимизация батареи</string>
-    <string name="setup_battery_optimization_description">Некоторые устройства Android агрессивно закрывают фоновые приложения. Отключите оптимизацию батареи для PixelPlayer, чтобы избежать неожиданных прерываний воспроизведения.</string>
+    <string name="setup_battery_optimization_description">Некоторые устройства Android агрессивно закрывают фоновые приложения. Отключите оптимизацию батареи для PixlAudio, чтобы избежать неожиданных прерываний воспроизведения.</string>
     <string name="setup_disable_battery_optimization">Отключить оптимизацию</string>
     <string name="setup_all_set_title">Готово!</string>
     <string name="setup_all_set_body">Теперь можно наслаждаться музыкой.</string>

@@ -12,7 +12,7 @@
 
     <!-- CastBottomSheet -->
     <string name="cast_perm_title">Bersiap untuk menghubungkan</string>
-    <string name="cast_perm_body">Izinkan PixelPlayer untuk melihat perangkat terdekat dan Wi‑Fi Anda saat ini sehingga kami dapat menjaga transmisi, audio Bluetooth, dan speaker Anda tetap sinkron.</string>
+    <string name="cast_perm_body">Izinkan PixlAudio untuk melihat perangkat terdekat dan Wi‑Fi Anda saat ini sehingga kami dapat menjaga transmisi, audio Bluetooth, dan speaker Anda tetap sinkron.</string>
     <string name="cast_perm_nearby_title">Perangkat terdekat</string>
     <string name="cast_perm_nearby_desc">Diperlukan untuk membaca dan mengontrol perangkat audio Bluetooth Anda yang terhubung.</string>
     <string name="cast_perm_location_title">Lokasi untuk Wi‑Fi</string>

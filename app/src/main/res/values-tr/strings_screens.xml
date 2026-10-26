@@ -17,7 +17,7 @@
     <string name="setup_permission_notifications_description">Müziğinizi kilit ekranından ve bildirim panelinden kontrol edebilmek için bildirimleri etkinleştirin.</string>
     <string name="setup_enable_notifications">Bildirimleri Etkinleştir</string>
     <string name="setup_backup_have_title">Yedeğiniz var mı?</string>
-    <string name="setup_backup_have_description">Zaten bir PixelPlayer yedeğiniz varsa, şimdi geri yükleyin ve bu cihazdaki kalan kurulum adımlarının çoğunu atlayın.</string>
+    <string name="setup_backup_have_description">Zaten bir PixlAudio yedeğiniz varsa, şimdi geri yükleyin ve bu cihazdaki kalan kurulum adımlarının çoğunu atlayın.</string>
     <string name="setup_import_backup">Yedeği içe aktar</string>
     <string name="setup_inspecting_backup">Yedek inceleniyor</string>
     <string name="setup_checking_backup">Yedekleme paketi kontrol ediliyor…</string>
@@ -34,7 +34,7 @@
     <string name="setup_theme_title">Uygulama Teması</string>
     <string name="setup_theme_subtitle">Kitaplığınızı keşfetmeye başlamadan önce istediğiniz görünümü seçin.</string>
     <string name="setup_theme_dark_title">Koyu</string>
-    <string name="setup_theme_dark_description">PixelPlayer için varsayılan Material 3 koyu görünümü.</string>
+    <string name="setup_theme_dark_description">PixlAudio için varsayılan Material 3 koyu görünümü.</string>
     <string name="setup_theme_light_title">Açık</string>
     <string name="setup_theme_light_description">Uygulama genelinde daha parlak bir Material 3 görünümü.</string>
     <string name="setup_theme_follow_title">Sistemi takip et</string>
@@ -59,10 +59,10 @@
     <string name="setup_customize_corner_radius">Köşe Yuvarlama Çapını Özelleştir</string>
     <string name="setup_navbar_footer">Bunu daha sonra Ayarlar &gt; Görünüm &gt; Navigasyon Çubuğu Stili bölümünden değiştirebilirsiniz.</string>
     <string name="setup_permission_alarms_title">Alarmlar ve Hatırlatıcılar</string>
-    <string name="setup_permission_alarms_description">İsteğe bağlıdır, ancak Uyku Zamanlayıcısı kullanıyorsanız ve PixelPlayer\'ın oynatmayı tam zamanında durdurmasını istiyorsanız önerilir.</string>
+    <string name="setup_permission_alarms_description">İsteğe bağlıdır, ancak Uyku Zamanlayıcısı kullanıyorsanız ve PixlAudio\'ın oynatmayı tam zamanında durdurmasını istiyorsanız önerilir.</string>
     <string name="setup_grant_permission_generic">İzin Ver</string>
     <string name="setup_battery_optimization_title">Pil Optimizasyonu</string>
-    <string name="setup_battery_optimization_description">Bazı Android cihazlar arka plan uygulamalarını agresif bir şekilde kapatır. Beklenmedik oynatma kesintilerini önlemek için PixelPlayer için pil optimizasyonunu devre dışı bırakın.</string>
+    <string name="setup_battery_optimization_description">Bazı Android cihazlar arka plan uygulamalarını agresif bir şekilde kapatır. Beklenmedik oynatma kesintilerini önlemek için PixlAudio için pil optimizasyonunu devre dışı bırakın.</string>
     <string name="setup_disable_battery_optimization">Optimizasyonu Devre Dışı Bırak</string>
     <string name="setup_all_set_title">Her Şey Hazır!</string>
     <string name="setup_all_set_body">Müziğinizin keyfini çıkarmaya hazırsınız.</string>

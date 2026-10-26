@@ -87,7 +87,7 @@
     <string name="lib_org_group_by_album_artist_subtitle">Ortak albümleri ana sanatçı altında göster</string>
     <string name="multi_artist_info_title">Çoklu Sanatçı Ayrıştırma Hakkında</string>
     <string name="multi_artist_info_body">
-        PixelPlayer, sanatçı etiketlerini karakter sınırlayıcıları (/, ;, &amp;amp;) and kelime sınırlayıcıları (feat., ft., vs., x) kullanarak böler. 
+        PixlAudio, sanatçı etiketlerini karakter sınırlayıcıları (/, ;, &amp;amp;) and kelime sınırlayıcıları (feat., ft., vs., x) kullanarak böler. 
         Kelime sınırlayıcıları büyük/küçük harf duyarsız olarak eşleştirilir. \"Başlıktan Sanatçıları Çıkar\" özelliği, şarkı başlıklarındaki (feat. Sanatçı) gibi kalıpları algılar. 
         Karakter sınırlayıcılarını kaçış karakteri olarak kullanmak için ters eğik çizgi (\\) kullanılabilir.
     </string>
@@ -367,7 +367,7 @@
     <string name="settings_action_export_pxpl">.pxpl Olarak Dışa Aktar</string>
     <string name="settings_action_restore_selected">Seçilenleri Geri Yükle</string>
     <string name="settings_backup_transfer_in_progress">Aktarım devam ediyor…</string>
-    <string name="settings_backup_file_name_format">PixelPlayer_Yedek_%1$d.pxpl</string>
+    <string name="settings_backup_file_name_format">PixlAudio_Yedek_%1$d.pxpl</string>
     <string name="settings_dialog_creating_backup">Yedek Oluşturuluyor</string>
     <string name="settings_dialog_restoring_backup">Yedek Geri Yükleniyor</string>
     <string name="settings_dialog_progress_percent">%1$d%%</string>
@@ -578,7 +578,7 @@
     <string name="settings_devcaps_report_copy">Kopyala</string>
     <string name="settings_devcaps_report_share">Paylaş</string>
     <string name="settings_devcaps_report_copied">Rapor panoya kopyalandı</string>
-    <string name="settings_devcaps_report_share_title">PixelPlayer performans raporu</string>
+    <string name="settings_devcaps_report_share_title">PixlAudio performans raporu</string>
     <string name="settings_devcaps_advanced_diagnostics_title">Gelişmiş performans tanılama</string>
     <string name="settings_devcaps_advanced_diagnostics_description">Varsayılan olarak kapalıdır. Beta sorun giderme için kısa bir takılma zaman çizelgesi kaydeder.</string>
     <string name="settings_devcaps_advanced_diagnostics_expires">%1$s tarihine kadar aktif</string>
@@ -605,7 +605,7 @@
 
     <!-- About category -->
     <string name="about_screen_title">Hakkında</string>
-    <string name="about_app_name">PixelPlayer</string>
+    <string name="about_app_name">PixlAudio</string>
     <string name="about_tagline">Topluluğuyla birlikte oluşturulan açık kaynaklı müzik çalar.</string>
     <string name="about_version_format">Sürüm v%1$s</string>
     <string name="about_signal_open_source">Açık kaynak</string>
@@ -613,7 +613,7 @@
     <string name="about_signal_material3">Etkileyici Material 3</string>
     <string name="about_no_contributors">Şu anda katkıda bulunan bulunamadı. Lütfen daha sonra tekrar deneyin.</string>
     <string name="about_maintainer_title">Sorumlu</string>
-    <string name="about_maintainer_subtitle">PixelPlayer\'ın arkasındaki kişi.</string>
+    <string name="about_maintainer_subtitle">PixlAudio\'ın arkasındaki kişi.</string>
     <string name="about_spotlight_title">Topluluk odağı</string>
     <string name="about_spotlight_subtitle">Büyük etkisi olan iş birlikçileri için takdir.</string>
     <string name="about_contributors_section_title">Açık kaynak katkıda bulunanlar</string>

@@ -151,7 +151,7 @@
     <string name="song_info_set_sound_as_long">Ses olarak ayarla</string>
     <string name="song_info_cd_set_sound_as">Bu şarkıyı sistem sesi olarak nasıl kullanacağınızı seçin</string>
     <string name="song_info_tone_picker_title">Bu şarkıyı şu amaçla kullan:</string>
-    <string name="song_info_tone_picker_body">PixelPlayer\'ın bu sesi nereye yükleyeceğini seçin.</string>
+    <string name="song_info_tone_picker_body">PixlAudio\'ın bu sesi nereye yükleyeceğini seçin.</string>
     <string name="song_info_tone_ringtone_title">Telefon zil sesi</string>
     <string name="song_info_tone_ringtone_subtitle">Gelen aramalar</string>
     <string name="song_info_tone_notification_title">Bildirim sesi</string>
@@ -165,7 +165,7 @@
     <string name="song_info_tone_ringtone_label">zil sesi</string>
     <string name="song_info_tone_notification_label">bildirim sesi</string>
     <string name="song_info_tone_alarm_label">alarm sesi</string>
-    <string name="song_info_ringtone_permission_prompt">Sistem ayarlarını değiştirmeyi etkinleştirin, ardından otomatik olarak tamamlamak için PixelPlayer\'a geri dönün.</string>
+    <string name="song_info_ringtone_permission_prompt">Sistem ayarlarını değiştirmeyi etkinleştirin, ardından otomatik olarak tamamlamak için PixlAudio\'a geri dönün.</string>
     <string name="song_info_ringtone_permission_missing">Sistem ayarlarını değiştirme etkinleştirilmedi.</string>
     <string name="song_info_ringtone_success">\"%1$s\" zil sesi olarak ayarlandı</string>
     <string name="song_info_ringtone_local_only">Yalnızca yerel şarkılar zil sesi olarak kullanılabilir.</string>
@@ -492,7 +492,7 @@
     <string name="playlist_view_model_share_failed">Paylaşım başarısız oldu: %1$s</string>
     <string name="playlist_view_model_none_to_export">Dışa aktarılacak çalma listesi yok</string>
     <string name="playlist_view_model_export_failed">Dışa aktarma başarısız oldu: %1$s</string>
-    <string name="playlist_view_model_export_folder_display">Müzik/PixelPlayer Aktarımları</string>
+    <string name="playlist_view_model_export_folder_display">Müzik/PixlAudio Aktarımları</string>
     <string name="playlist_view_model_ai_gemini_key_required">Lütfen Ayarlar\'da Gemini API anahtarınızı yapılandırın.</string>
     <string name="playlist_view_model_restored_toast">Çalma listesi geri yüklendi</string>
     <plurals name="playlist_view_model_sharing_message">
@@ -552,7 +552,7 @@
     <string name="ai_state_error_api_key">Lütfen seçilen Yapay Zeka sağlayıcısı için Ayarlar\'da geçerli bir API anahtarı yapılandırın.</string>
     <string name="ai_state_error_generic">YZ Hatası: %s</string>
     <string name="ai_state_error_quota">Seçilen YZ sağlayıcısı, hesapta kredi veya kullanılabilir kota bulunmadığı için isteği reddetti.</string>
-    <string name="ai_state_error_model_unavailable">Seçilen YZ modeli artık kullanılabilir değil. PixelPlayer otomatik olarak desteklenen bir modele geçiş yapmayı denedi.</string>
+    <string name="ai_state_error_model_unavailable">Seçilen YZ modeli artık kullanılabilir değil. PixlAudio otomatik olarak desteklenen bir modele geçiş yapmayı denedi.</string>
     <string name="ai_state_no_songs_found">YZ, komutunuz için herhangi bir şarkı bulamadı.</string>
     <string name="ai_state_prompt_empty">Günlük Miksiniz için bir fikir yazın</string>
     <string name="ai_state_daily_mix_updated">Günlük Miks YZ ile güncellendi</string>

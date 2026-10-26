@@ -12,7 +12,7 @@
 
     <!-- CastBottomSheet -->
     <string name="cast_perm_title">Preparati a connetterti</string>
-    <string name="cast_perm_body">Consenti a PixelPlayer di vedere i tuoi dispositivi nelle vicinanze e la Wi-Fi attuale per mantenere sincronizzati cast, audio Bluetooth e altoparlanti.</string>
+    <string name="cast_perm_body">Consenti a PixlAudio di vedere i tuoi dispositivi nelle vicinanze e la Wi-Fi attuale per mantenere sincronizzati cast, audio Bluetooth e altoparlanti.</string>
     <string name="cast_perm_nearby_title">Dispositivi nelle vicinanze</string>
     <string name="cast_perm_nearby_desc">Necessario per leggere e controllare i tuoi dispositivi audio Bluetooth connessi.</string>
     <string name="cast_perm_location_title">Posizione per Wi-Fi</string>

@@ -17,7 +17,7 @@
     <string name="setup_permission_notifications_description">Aktifkan notifikasi untuk mengontrol musik Anda dari layar kunci dan panel notifikasi.</string>
     <string name="setup_enable_notifications">Aktifkan Notifikasi</string>
     <string name="setup_backup_have_title">Apakah Anda memiliki cadangan?</string>
-    <string name="setup_backup_have_description">Jika Anda sudah memiliki cadangan PixelPlayer, pulihkan sekarang dan lewati sebagian besar penyiapan yang tersisa di perangkat ini.</string>
+    <string name="setup_backup_have_description">Jika Anda sudah memiliki cadangan PixlAudio, pulihkan sekarang dan lewati sebagian besar penyiapan yang tersisa di perangkat ini.</string>
     <string name="setup_import_backup">Impor cadangan</string>
     <string name="setup_inspecting_backup">Memeriksa cadangan</string>
     <string name="setup_checking_backup">Memeriksa paket cadangan…</string>
@@ -34,7 +34,7 @@
     <string name="setup_theme_title">Tema Aplikasi</string>
     <string name="setup_theme_subtitle">Pilih tampilan yang Anda inginkan sebelum mulai menjelajahi pustaka Anda.</string>
     <string name="setup_theme_dark_title">Gelap</string>
-    <string name="setup_theme_dark_description">Tampilan gelap Material 3 default untuk PixelPlayer.</string>
+    <string name="setup_theme_dark_description">Tampilan gelap Material 3 default untuk PixlAudio.</string>
     <string name="setup_theme_light_title">Terang</string>
     <string name="setup_theme_light_description">Tampilan Material 3 yang lebih cerah di seluruh aplikasi.</string>
     <string name="setup_theme_follow_title">Ikuti sistem</string>
@@ -59,10 +59,10 @@
     <string name="setup_customize_corner_radius">Sesuaikan Radius Sudut</string>
     <string name="setup_navbar_footer">Anda dapat mengubah ini nanti di Pengaturan &gt; Tampilan &gt; Gaya Navbar.</string>
     <string name="setup_permission_alarms_title">Alarm &amp; Pengingat</string>
-    <string name="setup_permission_alarms_description">Opsional, tetapi direkomendasikan jika Anda menggunakan Timer Tidur dan ingin PixelPlayer berhenti memutar tepat waktu.</string>
+    <string name="setup_permission_alarms_description">Opsional, tetapi direkomendasikan jika Anda menggunakan Timer Tidur dan ingin PixlAudio berhenti memutar tepat waktu.</string>
     <string name="setup_grant_permission_generic">Berikan Izin</string>
     <string name="setup_battery_optimization_title">Optimalisasi Baterai</string>
-    <string name="setup_battery_optimization_description">Beberapa perangkat Android secara agresif mematikan aplikasi latar belakang. Nonaktifkan optimalisasi baterai untuk PixelPlayer untuk mencegah gangguan pemutaran yang tidak terduga.</string>
+    <string name="setup_battery_optimization_description">Beberapa perangkat Android secara agresif mematikan aplikasi latar belakang. Nonaktifkan optimalisasi baterai untuk PixlAudio untuk mencegah gangguan pemutaran yang tidak terduga.</string>
     <string name="setup_disable_battery_optimization">Nonaktifkan Optimalisasi</string>
     <string name="setup_all_set_title">Semua Sudah Siap!</string>
     <string name="setup_all_set_body">Anda siap untuk menikmati musik Anda.</string>

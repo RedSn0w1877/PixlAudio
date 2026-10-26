@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">PixelPlayer</string>
+    <string name="app_name">PixlAudio</string>
     <string name="app_tagline">Music Player</string>
     <string name="app_name_change_title">App Name Change</string>
     <string name="app_name_change_message">We have changed our app\'s name from PixelPlay to PixelPlayer due to a trademark-related issue. Keep playing!</string>
@@ -13,7 +13,7 @@
 
     <!-- All files access dialog-->
     <string name="all_files_access_title">Special Permission Required</string>
-    <string name="all_files_access_description">To edit song metadata (.mp3 files), PixelPlayer needs special access to all files. This allows us to modify track tags directly. Please grant this permission on the next screen to enable metadata editing.</string>
+    <string name="all_files_access_description">To edit song metadata (.mp3 files), PixlAudio needs special access to all files. This allows us to modify track tags directly. Please grant this permission on the next screen to enable metadata editing.</string>
     <string name="grant_permission_button">Grant Permission</string>
 
     <!-- Full player output pill (TalkBack) -->
@@ -41,14 +41,14 @@
     <string name="playstore_dialog_action_open">Open Play Store</string>
     <string name="playstore_dialog_action_continue_beta">Continue beta</string>
     <string name="playstore_dialog_link_pending">The Play Store link will be enabled from GitHub config.</string>
-    <string name="playstore_dialog_title">PixelPlayer is now available on Google Play</string>
+    <string name="playstore_dialog_title">PixlAudio is now available on Google Play</string>
     <string name="playstore_dialog_body">Use the stable channel on Google Play for release updates while we keep beta builds active.</string>
-    <string name="playstore_dialog_app_name">PixelPlayer</string>
+    <string name="playstore_dialog_app_name">PixlAudio</string>
     <string name="playstore_dialog_release_announcement">Release announcement</string>
     <string name="playstore_dialog_coming_soon">Coming soon</string>
 
     <!-- Brick breaker -->
-    <string name="easter_egg_thank_you">Thank you for using PixelPlayer!</string>
+    <string name="easter_egg_thank_you">Thank you for using PixlAudio!</string>
     <string name="brick_high">HIGH %1$d</string>
     <string name="brick_cd_close">Close</string>
     <string name="brick_stat_score">SCORE</string>

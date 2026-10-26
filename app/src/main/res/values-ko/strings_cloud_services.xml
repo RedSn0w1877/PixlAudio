@@ -177,7 +177,7 @@
     <string name="auth_gdrive_connect_subtitle">Google Drive에서 음악 파일을 직접 스트리밍합니다.</string>
     <string name="auth_gdrive_connect_title">Google Drive 연결</string>
     <string name="auth_gdrive_connected_toast">Google Drive 연결됨!</string>
-    <string name="auth_gdrive_create_action">\"PixelPlayer Music\" 폴더 만들기</string>
+    <string name="auth_gdrive_create_action">\"PixlAudio Music\" 폴더 만들기</string>
     <string name="auth_gdrive_create_subtitle">여기에 음악을 저장할 새 폴더를 만듭니다</string>
     <string name="auth_gdrive_empty_msg">폴더가 비어 있습니다</string>
     <string name="auth_gdrive_open_cd">폴더 열기</string>
@@ -212,7 +212,7 @@
     <string name="auth_netease_http_error">NetEase 로드 중 HTTP %1$d 오류 발생.</string>
     <string name="auth_netease_incomplete_error">로그인이 감지되지 않았습니다. \'완료\'를 누르기 전에 NetEase 로그인을 완료하세요.</string>
     <string name="auth_netease_login_title">NetEase Music 로그인</string>
-    <string name="auth_netease_security_msg">보안 안내: 비밀번호는 NetEase 웹 페이지 내에서만 입력됩니다. PixelPlayer는 라이브러리 동기화를 위해 세션 쿠키(MUSIC_U)를 저장합니다.</string>
+    <string name="auth_netease_security_msg">보안 안내: 비밀번호는 NetEase 웹 페이지 내에서만 입력됩니다. PixlAudio는 라이브러리 동기화를 위해 세션 쿠키(MUSIC_U)를 저장합니다.</string>
     <string name="auth_netease_title">NetEase Music</string>
 
     <!-- QQ Music Web Login -->
@@ -221,6 +221,6 @@
     <string name="auth_qq_http_error">QQ Music 로드 중 HTTP %1$d 오류 발생.</string>
     <string name="auth_qq_incomplete_error">로그인이 감지되지 않았습니다. \'완료\'를 누르기 전에 QQ Music 로그인을 완료하세요.</string>
     <string name="auth_qq_login_title">QQ Music 로그인</string>
-    <string name="auth_qq_security_msg">보안 안내: 비밀번호는 QQ Music 웹 페이지 내에서만 입력됩니다. PixelPlayer는 라이브러리 동기화를 위해 세션 쿠키를 저장합니다.</string>
+    <string name="auth_qq_security_msg">보안 안내: 비밀번호는 QQ Music 웹 페이지 내에서만 입력됩니다. PixlAudio는 라이브러리 동기화를 위해 세션 쿠키를 저장합니다.</string>
     <string name="auth_qq_title">QQ Music</string>
 </resources>

@@ -11,7 +11,7 @@
     <!-- BetaInfoBottomSheet -->
     <string name="beta_sheet_version">Beta 0.7.5</string>
     <string name="beta_sheet_letter">β</string>
-    <string name="beta_sheet_welcome_title">欢迎使用 PixelPlayer 0.7.5-beta</string>
+    <string name="beta_sheet_welcome_title">欢迎使用 PixlAudio 0.7.5-beta</string>
     <string name="beta_sheet_welcome_body">您正在使用的是可能包含错误、崩溃或实验性功能的测试版本。请报告问题以帮助我们改进。</string>
     <string name="beta_sheet_expect_title">预期情况</string>
     <string name="beta_sheet_expect_1">可能会意外出现错误、崩溃或未完成的功能。</string>
@@ -28,7 +28,7 @@
     <string name="beta_sheet_report_summary">开启新 Issue 前的快速检查清单。</string>
     <string name="beta_sheet_before_title">开启 Issue 前</string>
     <string name="beta_sheet_before_1">搜索现有已开启和已关闭的 Issue，以避免重复提交。</string>
-    <string name="beta_sheet_before_2">更新至 PixelPlayer 最新版本并确认问题是否仍然存在。</string>
+    <string name="beta_sheet_before_2">更新至 PixlAudio 最新版本并确认问题是否仍然存在。</string>
     <string name="beta_sheet_before_3">重启应用并确认问题是否仍然存在。</string>
     <string name="beta_sheet_before_4">尝试复现它并写下确切的步骤。</string>
     <string name="beta_sheet_issue_type_title">哪种问题类型？</string>
@@ -46,7 +46,7 @@
     <string name="beta_sheet_bug_screenshot">截图/视频：如果有。</string>
     <string name="beta_sheet_bug_logs">日志/堆栈跟踪：如果有。</string>
     <string name="beta_sheet_env_title">环境</string>
-    <string name="beta_sheet_env_version">PixelPlayer 版本：</string>
+    <string name="beta_sheet_env_version">PixlAudio 版本：</string>
     <string name="beta_sheet_env_source">安装来源：GitHub Release、debug 构建、Nightly 构建等。</string>
     <string name="beta_sheet_env_android">Android 版本：</string>
     <string name="beta_sheet_env_device">设备型号：</string>
@@ -92,7 +92,7 @@
     <string name="crash_report_stack_preview_label">堆栈跟踪（预览）：</string>
     <string name="crash_report_clipboard_label">崩溃日志</string>
     <string name="crash_report_toast_log_copied">崩溃日志已复制到剪贴板</string>
-    <string name="crash_report_share_subject">PixelPlayer 崩溃报告</string>
+    <string name="crash_report_share_subject">PixlAudio 崩溃报告</string>
     <string name="crash_report_share_chooser">分享崩溃报告</string>
 
     <!-- Home Option -->

@@ -179,7 +179,7 @@
     <string name="auth_gdrive_connect_subtitle">Müzik dosyalarını doğrudan Google Drive\'ınızdan aktarın.</string>
     <string name="auth_gdrive_connect_title">Connect Google Drive</string>
     <string name="auth_gdrive_connected_toast">Google Drive bağlandı!</string>
-    <string name="auth_gdrive_create_action">\"PixelPlayer Music\" Klasörü Oluştur</string>
+    <string name="auth_gdrive_create_action">\"PixlAudio Music\" Klasörü Oluştur</string>
     <string name="auth_gdrive_create_subtitle">Müziğiniz için burada yeni bir klasör oluşturun</string>
     <string name="auth_gdrive_empty_msg">Burada klasör yok</string>
     <string name="auth_gdrive_open_cd">Klasörü aç</string>
@@ -214,7 +214,7 @@
     <string name="auth_netease_http_error">NetEase yüklenirken HTTP %1$d hatası oluştu.</string>
     <string name="auth_netease_incomplete_error">Giriş henüz algılanmadı. Tamam butonuna basmadan önce NetEase girişini tamamlayın.</string>
     <string name="auth_netease_login_title">NetEase Music Girişi</string>
-    <string name="auth_netease_security_msg">Güvenlik notu: Şifreniz yalnızca NetEase web sayfalarına girilir. PixelPlayer, kütüphanenizi senkronize etmek için oturum çerezlerini (MUSIC_U) saklar.</string>
+    <string name="auth_netease_security_msg">Güvenlik notu: Şifreniz yalnızca NetEase web sayfalarına girilir. PixlAudio, kütüphanenizi senkronize etmek için oturum çerezlerini (MUSIC_U) saklar.</string>
     <string name="auth_netease_title">NetEase Music</string>
 
     <!-- QQ Music Web Login -->
@@ -223,6 +223,6 @@
     <string name="auth_qq_http_error">QQ Music yüklenirken HTTP %1$d hatası oluştu.</string>
     <string name="auth_qq_incomplete_error">Giriş henüz algılanmadı. Tamam butonuna basmadan önce QQ Music girişini tamamlayın.</string>
     <string name="auth_qq_login_title">QQ Music Girişi</string>
-    <string name="auth_qq_security_msg">Güvenlik notu: Şifreniz yalnızca QQ Music web sayfalarına girilir. PixelPlayer, kütüphanenizi senkronize etmek için oturum çerezlerini saklar.</string>
+    <string name="auth_qq_security_msg">Güvenlik notu: Şifreniz yalnızca QQ Music web sayfalarına girilir. PixlAudio, kütüphanenizi senkronize etmek için oturum çerezlerini saklar.</string>
     <string name="auth_qq_title">QQ Music</string>
 </resources>

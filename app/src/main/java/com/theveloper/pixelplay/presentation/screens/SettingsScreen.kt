@@ -342,7 +342,7 @@ private fun PlusSettingsItem(onClick: () -> Unit) {
             }
             Spacer(Modifier.width(16.dp))
             Column(Modifier.weight(1f)) {
-                Text("PixelPlayer Plus", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = colors.onPrimaryContainer)
+                Text("PixlAudio Plus", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = colors.onPrimaryContainer)
                 Text("One-time support for future music tools", style = MaterialTheme.typography.bodyMedium, color = colors.onPrimaryContainer.copy(alpha = .78f))
             }
             Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = colors.onPrimaryContainer)

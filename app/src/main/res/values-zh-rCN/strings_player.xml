@@ -12,7 +12,7 @@
 
     <!-- CastBottomSheet -->
     <string name="cast_perm_title">准备连接</string>
-    <string name="cast_perm_body">允许 PixelPlayer 查看您附近的设备和当前 Wi-Fi，以便我们保持您的投屏、蓝牙音频和扬声器同步。</string>
+    <string name="cast_perm_body">允许 PixlAudio 查看您附近的设备和当前 Wi-Fi，以便我们保持您的投屏、蓝牙音频和扬声器同步。</string>
     <string name="cast_perm_nearby_title">附近设备</string>
     <string name="cast_perm_nearby_desc">需要此权限来读取和控制您连接的蓝牙音频设备。</string>
     <string name="cast_perm_location_title">用于 Wi-Fi 的位置信息</string>

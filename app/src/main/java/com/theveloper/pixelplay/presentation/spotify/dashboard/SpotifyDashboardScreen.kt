@@ -409,7 +409,7 @@ private fun AccountCard(
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = "Sign in to bring your liked songs and playlists into PixelPlayer.",
+                    text = "Sign in to bring your liked songs and playlists into PixlAudio.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

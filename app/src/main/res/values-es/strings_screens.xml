@@ -17,7 +17,7 @@
     <string name="setup_permission_notifications_description">Activa las notificaciones para controlar la música desde la pantalla de bloqueo y el panel.</string>
     <string name="setup_enable_notifications">Activar notificaciones</string>
     <string name="setup_backup_have_title">¿Tienes una copia de seguridad?</string>
-    <string name="setup_backup_have_description">Si ya tienes una copia de PixelPlayer, restáurala ahora y omite la mayor parte del resto de la configuración en este dispositivo.</string>
+    <string name="setup_backup_have_description">Si ya tienes una copia de PixlAudio, restáurala ahora y omite la mayor parte del resto de la configuración en este dispositivo.</string>
     <string name="setup_import_backup">Importar copia</string>
     <string name="setup_inspecting_backup">Inspeccionando copia</string>
     <string name="setup_checking_backup">Comprobando copia de seguridad…</string>
@@ -34,7 +34,7 @@
     <string name="setup_theme_title">Tema de la app</string>
     <string name="setup_theme_subtitle">Elige el aspecto antes de explorar tu biblioteca.</string>
     <string name="setup_theme_dark_title">Oscuro</string>
-    <string name="setup_theme_dark_description">El aspecto oscuro Material 3 predeterminado de PixelPlayer.</string>
+    <string name="setup_theme_dark_description">El aspecto oscuro Material 3 predeterminado de PixlAudio.</string>
     <string name="setup_theme_light_title">Claro</string>
     <string name="setup_theme_light_description">Un aspecto Material 3 más luminoso en toda la app.</string>
     <string name="setup_theme_follow_title">Seguir el sistema</string>
@@ -59,10 +59,10 @@
     <string name="setup_customize_corner_radius">Personalizar radio de esquinas</string>
     <string name="setup_navbar_footer">Puedes cambiarlo después en Ajustes &gt; Apariencia &gt; Estilo de la barra.</string>
     <string name="setup_permission_alarms_title">Alarmas y recordatorios</string>
-    <string name="setup_permission_alarms_description">Opcional, pero recomendado si usas el temporizador de sueño y quieres que PixelPlayer detenga la reproducción a la hora exacta.</string>
+    <string name="setup_permission_alarms_description">Opcional, pero recomendado si usas el temporizador de sueño y quieres que PixlAudio detenga la reproducción a la hora exacta.</string>
     <string name="setup_grant_permission_generic">Conceder permiso</string>
     <string name="setup_battery_optimization_title">Optimización de batería</string>
-    <string name="setup_battery_optimization_description">Algunos dispositivos cierran apps en segundo plano con fuerza. Desactiva la optimización de batería para PixelPlayer y evita cortes inesperados.</string>
+    <string name="setup_battery_optimization_description">Algunos dispositivos cierran apps en segundo plano con fuerza. Desactiva la optimización de batería para PixlAudio y evita cortes inesperados.</string>
     <string name="setup_disable_battery_optimization">Desactivar optimización</string>
     <string name="setup_all_set_title">¡Todo listo!</string>
     <string name="setup_all_set_body">Ya puedes disfrutar de tu música.</string>

@@ -87,7 +87,7 @@
     <string name="lib_org_group_by_album_artist_subtitle">Vis samarbeidsalbum under hovedartist</string>
     <string name="multi_artist_info_title">Om tolkning av flere artister</string>
     <string name="multi_artist_info_body">
-        PixelPlayer deler artisttagger ved hjelp av tegndelimitere (/, ;, &amp;) og orddelimitere (feat., ft., vs., x). Orddelimitere sammenlignes uten hensyn til store/små bokstaver.
+        PixlAudio deler artisttagger ved hjelp av tegndelimitere (/, ;, &amp;) og orddelimitere (feat., ft., vs., x). Orddelimitere sammenlignes uten hensyn til store/små bokstaver.
         \"Hent artister fra tittel\" gjenkjenner mønstre som (feat. Artist) i sangtitler.
         Omvendt skråstrek (\\) kan brukes til å unngå tolkning av tegndelimitere.
     </string>
@@ -367,7 +367,7 @@
     <string name="settings_action_export_pxpl">Eksporter .pxpl</string>
     <string name="settings_action_restore_selected">Gjenopprett valgte</string>
     <string name="settings_backup_transfer_in_progress">Overføring pågår…</string>
-    <string name="settings_backup_file_name_format">PixelPlayer_Sikkerhetskopi_%1$d.pxpl</string>
+    <string name="settings_backup_file_name_format">PixlAudio_Sikkerhetskopi_%1$d.pxpl</string>
     <string name="settings_dialog_creating_backup">Oppretter sikkerhetskopi</string>
     <string name="settings_dialog_restoring_backup">Gjenoppretter sikkerhetskopi</string>
     <string name="settings_dialog_progress_percent">%1$d%%</string>
@@ -578,7 +578,7 @@
     <string name="settings_devcaps_report_copy">Kopier</string>
     <string name="settings_devcaps_report_share">Del</string>
     <string name="settings_devcaps_report_copied">Rapport kopiert til utklippstavle</string>
-    <string name="settings_devcaps_report_share_title">PixelPlayer ytelsesrapport</string>
+    <string name="settings_devcaps_report_share_title">PixlAudio ytelsesrapport</string>
     <string name="settings_devcaps_advanced_diagnostics_title">Avansert ytelsesdiagnostikk</string>
     <string name="settings_devcaps_advanced_diagnostics_description">Av som standard. Logger en kort tidslinje over hakking for feilsøking i beta.</string>
     <string name="settings_devcaps_advanced_diagnostics_expires">Aktiv til %1$s</string>
@@ -605,7 +605,7 @@
 
     <!-- About category -->
     <string name="about_screen_title">Om</string>
-    <string name="about_app_name">PixelPlayer</string>
+    <string name="about_app_name">PixlAudio</string>
     <string name="about_tagline">Åpen kildekode musikk-spiller bygget med sitt samfunn.</string>
     <string name="about_version_format">Versjon v%1$s</string>
     <string name="about_signal_open_source">Åpen kildekode</string>
@@ -613,7 +613,7 @@
     <string name="about_signal_material3">Material 3 ekspressiv</string>
     <string name="about_no_contributors">Ingen bidragsytere funnet akkurat nå. Prøv igjen senere.</string>
     <string name="about_maintainer_title">Vedlikeholder</string>
-    <string name="about_maintainer_subtitle">Personen bak PixelPlayer.</string>
+    <string name="about_maintainer_subtitle">Personen bak PixlAudio.</string>
     <string name="about_spotlight_title">Samfunns-spotlight</string>
     <string name="about_spotlight_subtitle">Anerkjennelse for samarbeidspartnere med stor innvirkning.</string>
     <string name="about_contributors_section_title">Bidragsytere til åpen kildekode</string>

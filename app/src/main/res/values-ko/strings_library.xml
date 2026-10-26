@@ -151,7 +151,7 @@
     <string name="song_info_set_sound_as_long">소리로 설정</string>
     <string name="song_info_cd_set_sound_as">이 곡을 시스템 소리로 사용하는 방법 선택</string>
     <string name="song_info_tone_picker_title">이 곡을 다음 소리로 사용</string>
-    <string name="song_info_tone_picker_body">PixelPlayer가 이 소리를 설치할 위치를 선택하세요.</string>
+    <string name="song_info_tone_picker_body">PixlAudio가 이 소리를 설치할 위치를 선택하세요.</string>
     <string name="song_info_tone_ringtone_title">전화 벨소리</string>
     <string name="song_info_tone_ringtone_subtitle">수신 전화</string>
     <string name="song_info_tone_notification_title">알림음</string>
@@ -165,7 +165,7 @@
     <string name="song_info_tone_ringtone_label">벨소리</string>
     <string name="song_info_tone_notification_label">알림음</string>
     <string name="song_info_tone_alarm_label">알람음</string>
-    <string name="song_info_ringtone_permission_prompt">시스템 설정 수정을 활성화한 후, PixelPlayer로 돌아와서 자동으로 완료하세요.</string>
+    <string name="song_info_ringtone_permission_prompt">시스템 설정 수정을 활성화한 후, PixlAudio로 돌아와서 자동으로 완료하세요.</string>
     <string name="song_info_ringtone_permission_missing">시스템 설정 수정이 활성화되지 않았습니다.</string>
     <string name="song_info_ringtone_success">\"%1$s\"을(를) 벨소리로 설정했습니다</string>
     <string name="song_info_ringtone_local_only">로컬 곡만 벨소리로 사용할 수 있습니다.</string>
@@ -488,7 +488,7 @@
     <string name="playlist_view_model_share_failed">공유 실패: %1$s</string>
     <string name="playlist_view_model_none_to_export">내보낼 플레이리스트가 없습니다</string>
     <string name="playlist_view_model_export_failed">내보내기 실패: %1$s</string>
-    <string name="playlist_view_model_export_folder_display">Music/PixelPlayer Exports</string>
+    <string name="playlist_view_model_export_folder_display">Music/PixlAudio Exports</string>
     <string name="playlist_view_model_ai_gemini_key_required">설정에서 Gemini API 키를 구성해 주세요.</string>
     <string name="playlist_view_model_restored_toast">플레이리스트 복원됨</string>
     <plurals name="playlist_view_model_sharing_message">
@@ -544,7 +544,7 @@
     <string name="ai_state_error_api_key">설정에서 선택한 AI 제공업체에 대한 유효한 API 키를 구성해 주세요.</string>
     <string name="ai_state_error_generic">AI 오류: %s</string>
     <string name="ai_state_error_quota">선택한 AI 제공업체가 계정에 크레딧이나 사용 가능한 할당량이 없어 요청을 거부했습니다.</string>
-    <string name="ai_state_error_model_unavailable">선택한 AI 모델을 더 이상 사용할 수 없습니다. PixelPlayer가 지원되는 모델로 자동 전환을 시도했습니다.</string>
+    <string name="ai_state_error_model_unavailable">선택한 AI 모델을 더 이상 사용할 수 없습니다. PixlAudio가 지원되는 모델로 자동 전환을 시도했습니다.</string>
     <string name="ai_state_no_songs_found">AI가 프롬프트에 맞는 노래를 찾지 못했습니다.</string>
     <string name="ai_state_prompt_empty">데일리 믹스에 대한 아이디어를 작성해 보세요</string>
     <string name="ai_state_daily_mix_updated">AI로 데일리 믹스가 업데이트되었습니다</string>

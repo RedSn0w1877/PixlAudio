@@ -17,7 +17,7 @@
     <string name="setup_permission_notifications_description">Activez les notifications pour contrôler votre musique depuis l\'écran de verrouillage et le volet de notification.</string>
     <string name="setup_enable_notifications">Activer les notifications</string>
     <string name="setup_backup_have_title">Avez-vous une sauvegarde ?</string>
-    <string name="setup_backup_have_description">Si vous avez déjà une sauvegarde PixelPlayer, restaurez-la maintenant pour passer la majeure partie de la configuration restante.</string>
+    <string name="setup_backup_have_description">Si vous avez déjà une sauvegarde PixlAudio, restaurez-la maintenant pour passer la majeure partie de la configuration restante.</string>
     <string name="setup_import_backup">Importer une sauvegarde</string>
     <string name="setup_inspecting_backup">Inspection de la sauvegarde</string>
     <string name="setup_checking_backup">Vérification du paquet de sauvegarde…</string>
@@ -34,7 +34,7 @@
     <string name="setup_theme_title">Thème de l\'application</string>
     <string name="setup_theme_subtitle">Choisissez l\'apparence que vous préférez avant de commencer à explorer votre bibliothèque.</string>
     <string name="setup_theme_dark_title">Sombre</string>
-    <string name="setup_theme_dark_description">L\'apparence sombre par défaut de Material 3 pour PixelPlayer.</string>
+    <string name="setup_theme_dark_description">L\'apparence sombre par défaut de Material 3 pour PixlAudio.</string>
     <string name="setup_theme_light_title">Clair</string>
     <string name="setup_theme_light_description">Une apparence Material 3 plus lumineuse dans toute l\'application.</string>
     <string name="setup_theme_follow_title">Suivre le système</string>
@@ -59,10 +59,10 @@
     <string name="setup_customize_corner_radius">Personnaliser le rayon des angles</string>
     <string name="setup_navbar_footer">Vous pouvez changer cela plus tard dans Paramètres &gt; Apparence &gt; Style de la barre de navigation.</string>
     <string name="setup_permission_alarms_title">Alarmes et rappels</string>
-    <string name="setup_permission_alarms_description">Facultatif, mais recommandé si vous utilisez le Minuteur de veille et que vous voulez que PixelPlayer arrête la lecture exactement à l\'heure.</string>
+    <string name="setup_permission_alarms_description">Facultatif, mais recommandé si vous utilisez le Minuteur de veille et que vous voulez que PixlAudio arrête la lecture exactement à l\'heure.</string>
     <string name="setup_grant_permission_generic">Accorder l\'autorisation</string>
     <string name="setup_battery_optimization_title">Optimisation de la batterie</string>
-    <string name="setup_battery_optimization_description">Certains appareils Android ferment agressivement les applications en arrière-plan. Désactivez l\'optimisation de la batterie pour PixelPlayer afin d\'éviter les interruptions de lecture inattendues.</string>
+    <string name="setup_battery_optimization_description">Certains appareils Android ferment agressivement les applications en arrière-plan. Désactivez l\'optimisation de la batterie pour PixlAudio afin d\'éviter les interruptions de lecture inattendues.</string>
     <string name="setup_disable_battery_optimization">Désactiver l\'optimisation</string>
     <string name="setup_all_set_title">Tout est prêt !</string>
     <string name="setup_all_set_body">Vous êtes prêt à profiter de votre musique.</string>

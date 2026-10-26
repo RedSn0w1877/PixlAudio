@@ -151,7 +151,7 @@
     <string name="song_info_set_sound_as_long">Jadikan suara</string>
     <string name="song_info_cd_set_sound_as">Pilih cara memakai lagu ini sebagai suara sistem</string>
     <string name="song_info_tone_picker_title">Gunakan lagu ini sebagai</string>
-    <string name="song_info_tone_picker_body">Pilih tempat PixelPlayer memasang suara ini.</string>
+    <string name="song_info_tone_picker_body">Pilih tempat PixlAudio memasang suara ini.</string>
     <string name="song_info_tone_ringtone_title">Nada dering telepon</string>
     <string name="song_info_tone_ringtone_subtitle">Panggilan masuk</string>
     <string name="song_info_tone_notification_title">Suara notifikasi</string>
@@ -165,7 +165,7 @@
     <string name="song_info_tone_ringtone_label">nada dering</string>
     <string name="song_info_tone_notification_label">suara notifikasi</string>
     <string name="song_info_tone_alarm_label">suara alarm</string>
-    <string name="song_info_ringtone_permission_prompt">Aktifkan Ubah setelan sistem, lalu kembali ke PixelPlayer untuk menyelesaikan otomatis.</string>
+    <string name="song_info_ringtone_permission_prompt">Aktifkan Ubah setelan sistem, lalu kembali ke PixlAudio untuk menyelesaikan otomatis.</string>
     <string name="song_info_ringtone_permission_missing">Ubah setelan sistem belum diaktifkan.</string>
     <string name="song_info_ringtone_success">"%1$s" ditetapkan sebagai nada dering</string>
     <string name="song_info_ringtone_local_only">Hanya lagu lokal yang dapat digunakan sebagai suara sistem.</string>
@@ -492,7 +492,7 @@
     <string name="playlist_view_model_share_failed">Gagal berbagi: %1$s</string>
     <string name="playlist_view_model_none_to_export">Tidak ada playlist untuk diekspor</string>
     <string name="playlist_view_model_export_failed">Gagal mengekspor: %1$s</string>
-    <string name="playlist_view_model_export_folder_display">Musik/Ekspor PixelPlayer</string>
+    <string name="playlist_view_model_export_folder_display">Musik/Ekspor PixlAudio</string>
     <string name="playlist_view_model_ai_gemini_key_required">Silakan konfigurasi API key Gemini Anda di Pengaturan.</string>
     <string name="playlist_view_model_restored_toast">Daftar putar dipulihkan</string>
     <plurals name="playlist_view_model_sharing_message">
@@ -552,7 +552,7 @@
     <string name="ai_state_error_api_key">Silakan konfigurasi API key yang valid untuk penyedia AI yang dipilih di Pengaturan.</string>
     <string name="ai_state_error_generic">Kesalahan AI: %s</string>
     <string name="ai_state_error_quota">Penyedia AI yang dipilih menolak permintaan karena akun tidak memiliki kredit atau kuota yang tersedia.</string>
-    <string name="ai_state_error_model_unavailable">Model AI yang dipilih tidak lagi tersedia. PixelPlayer mencoba beralih ke model yang didukung secara otomatis.</string>
+    <string name="ai_state_error_model_unavailable">Model AI yang dipilih tidak lagi tersedia. PixlAudio mencoba beralih ke model yang didukung secara otomatis.</string>
     <string name="ai_state_no_songs_found">AI tidak dapat menemukan lagu apa pun untuk permintaan Anda.</string>
     <string name="ai_state_prompt_empty">Tulis ide untuk Daily Mix Anda</string>
     <string name="ai_state_daily_mix_updated">Daily Mix diperbarui dengan AI</string>

@@ -12,7 +12,7 @@
 
     <!-- CastBottomSheet -->
     <string name="cast_perm_title">Bereit zum Verbinden</string>
-    <string name="cast_perm_body">Damit Cast und Bluetooth-Audio funktionieren, braucht PixelPlayer Zugriff auf Geräte in der Nähe und dein WLAN.</string>
+    <string name="cast_perm_body">Damit Cast und Bluetooth-Audio funktionieren, braucht PixlAudio Zugriff auf Geräte in der Nähe und dein WLAN.</string>
     <string name="cast_perm_nearby_title">Geräte in der Nähe</string>
     <string name="cast_perm_nearby_desc">Benötigt, um verbundene Bluetooth-Audiogeräte zu erkennen und zu steuern.</string>
     <string name="cast_perm_location_title">Standort für WLAN</string>

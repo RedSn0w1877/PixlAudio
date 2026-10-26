@@ -12,7 +12,7 @@
 
     <!-- CastBottomSheet -->
     <string name="cast_perm_title">Bağlanmaya hazırlanın</string>
-    <string name="cast_perm_body">Allow PixelPlayer to see your nearby devices and current Wi‑Fi so we can keep your cast, Bluetooth audio, and speakers in sync.</string>
+    <string name="cast_perm_body">Allow PixlAudio to see your nearby devices and current Wi‑Fi so we can keep your cast, Bluetooth audio, and speakers in sync.</string>
     <string name="cast_perm_nearby_title">Yakındaki cihazlar</string>
     <string name="cast_perm_nearby_desc">Bağlı Bluetooth ses cihazlarınızı okumak ve kontrol etmek için gereklidir.</string>
     <string name="cast_perm_location_title">Wi‑Fi için konum</string>

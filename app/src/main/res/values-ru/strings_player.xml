@@ -12,7 +12,7 @@
 
     <!-- CastBottomSheet -->
     <string name="cast_perm_title">Подготовьтесь к подключению</string>
-    <string name="cast_perm_body">Разрешите PixelPlayer видеть ближайшие устройства и текущую сеть Wi-Fi, чтобы синхронизировать трансляцию, Bluetooth-аудио и колонки.</string>
+    <string name="cast_perm_body">Разрешите PixlAudio видеть ближайшие устройства и текущую сеть Wi-Fi, чтобы синхронизировать трансляцию, Bluetooth-аудио и колонки.</string>
     <string name="cast_perm_nearby_title">Ближайшие устройства</string>
     <string name="cast_perm_nearby_desc">Требуется для обнаружения и управления подключёнными Bluetooth-аудиоустройствами.</string>
     <string name="cast_perm_location_title">Геолокация для Wi-Fi</string>
