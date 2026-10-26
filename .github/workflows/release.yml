@@ -1,0 +1,94 @@
+name: Publish GitHub Release
+
+# Pushing a tag like `v0.7.6-beta3` builds the release APKs with the permanent signing key and publishes them as a
+# GitHub pre-release. The in-app updater (data/update/GitHubReleaseParser) only recognises assets named
+# `…-vc<code>-<abi>.apk`, which is what `:app:prepareGitHubRelease` writes to `release-upload/`.
+#
+# Before tagging: raise APP_VERSION_NAME / APP_VERSION_CODE in gradle.properties (the tag must be
+# `v<APP_VERSION_NAME>`), and put the release notes in `handoff/release-notes-<suffix>.md`, where <suffix> is the
+# part of the version after the last `-` (e.g. `beta3`). The notes become the release body, which the updater
+# shows in the app. Without a notes file GitHub's generated notes are used instead.
+
+on:
+  push:
+    tags: [ 'v*' ]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Check the tag matches the app version
+        run: |
+          VERSION_NAME="$(grep '^APP_VERSION_NAME=' gradle.properties | cut -d= -f2 | tr -d '\r')"
+          if [ "$GITHUB_REF_NAME" != "v$VERSION_NAME" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match APP_VERSION_NAME=$VERSION_NAME (expected v$VERSION_NAME)."
+            exit 1
+          fi
+
+      # Same permanent key as phone-release.yml. A release must never fall back to a throwaway key: users could not
+      # install it over their current version, so this step fails instead.
+      - name: Use the permanent signing key
+        env:
+          KS_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          KS_PW: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          if [ -z "$KS_B64" ] || [ -z "$KS_PW" ]; then
+            echo "The ANDROID_KEYSTORE_B64 / ANDROID_KEYSTORE_PASSWORD secrets are missing; refusing to publish."
+            exit 1
+          fi
+          printf '%s' "$KS_B64" | base64 -d > vz-pixelplay.jks
+          {
+            echo "storePassword=$KS_PW"
+            echo "keyAlias=pixelplay-key"
+            echo "keyPassword=$KS_PW"
+          } > keystore.properties
+
+      - name: Build release APKs
+        env:
+          CLOUD_DEFAULTS_KEY: ${{ secrets.CLOUD_DEFAULTS_KEY }}
+          SPOTIFY_CLIENT_ID: ${{ secrets.SPOTIFY_CLIENT_ID }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: ./gradlew :app:prepareGitHubRelease -Ppixelplay.enableAbiSplits=true
+
+      - name: Verify APKs
+        run: |
+          BUILD_TOOLS_VERSION="$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -n 1)"
+          ls -l release-upload/
+          for apk in release-upload/*.apk; do
+            "$ANDROID_HOME/build-tools/$BUILD_TOOLS_VERSION/aapt2" dump badging "$apk" >/dev/null
+            "$ANDROID_HOME/build-tools/$BUILD_TOOLS_VERSION/apksigner" verify --verbose "$apk"
+          done
+
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          SUFFIX="${GITHUB_REF_NAME##*-}"
+          NOTES="handoff/release-notes-$SUFFIX.md"
+          if [ -f "$NOTES" ]; then
+            gh release create "$GITHUB_REF_NAME" release-upload/*.apk --prerelease --title "$GITHUB_REF_NAME" --notes-file "$NOTES"
+          else
+            echo "No $NOTES; using generated notes."
+            gh release create "$GITHUB_REF_NAME" release-upload/*.apk --prerelease --title "$GITHUB_REF_NAME" --generate-notes
+          fi
