@@ -158,6 +158,7 @@ import com.theveloper.pixelplay.presentation.lyrics.KaraokeLyricsAppearance
 import com.theveloper.pixelplay.presentation.lyrics.KaraokeLyricsView
 import com.theveloper.pixelplay.presentation.lyrics.lyricsEdgeFade
 import com.theveloper.pixelplay.presentation.lyrics.LongSource
+import com.theveloper.pixelplay.presentation.lyrics.LyricsClock
 import com.theveloper.pixelplay.presentation.lyrics.rememberLyricsClock
 import com.theveloper.pixelplay.presentation.lyrics.rememberLyricsEngine
 import com.theveloper.pixelplay.presentation.lyrics.background.LyricsArtworkBackground
@@ -983,7 +984,7 @@ fun LyricsSheet(
                     onLyricsSyncOffsetChange = onLyricsSyncOffsetChange,
                     isPlaying = isPlaying,
                     onPlayPause = onPlayPause,
-                    playbackPositionFlow = playbackPositionFlow,
+                    positionSource = positionProvider,
                     totalDuration = totalDuration,
                     onSeekTo = onSeekTo,
                     onSeekPreviewChange = { previewSeekPositionMs = it },
@@ -1209,7 +1210,7 @@ private fun LyricsControlCluster(
     onLyricsSyncOffsetChange: (Int) -> Unit,
     isPlaying: Boolean,
     onPlayPause: () -> Unit,
-    playbackPositionFlow: StateFlow<Long>,
+    positionSource: LongSource,
     totalDuration: Long,
     onSeekTo: (Long) -> Unit,
     onSeekPreviewChange: (Long?) -> Unit,
@@ -1279,7 +1280,7 @@ private fun LyricsControlCluster(
                     modifier = Modifier
                         .weight(1f)
                         .height(50.dp),
-                    playbackPositionFlow = playbackPositionFlow,
+                    positionSource = positionSource,
                     backgroundColor = chrome.container,
                     onBackgroundColor = chrome.content,
                     accentColor = chrome.accent,
@@ -1501,7 +1502,7 @@ private fun LyricsStatusContent(
 
 @Composable
 private fun LyricsPlaybackSeekBar(
-    playbackPositionFlow: StateFlow<Long>,
+    positionSource: LongSource,
     backgroundColor: Color,
     onBackgroundColor: Color,
     accentColor: Color,
@@ -1511,9 +1512,37 @@ private fun LyricsPlaybackSeekBar(
     isPlaying: Boolean,
     modifier: Modifier = Modifier
 ) {
-    // Held as a State, never read here: only the seek bar's snapshotFlow follows the 250 ms ticks.
-    val playbackPosition = playbackPositionFlow.collectAsStateWithLifecycle()
-    val positionProvider = remember(playbackPosition) { { playbackPosition.value } }
+    // The same frame-accurate model the full player's slider uses: one frame loop samples the
+    // player position into a single snapshot Long that only the slider's draw reads. This bar used
+    // to follow the 250 ms poll through a per-sample tween, whose two rates aliased into a stutter.
+    val latestSource by rememberUpdatedState(positionSource)
+    val progressClock = remember {
+        LyricsClock(LongSource { latestSource.getAsLong() }).also {
+            // Publish the real position before the first frame so the thumb never starts at 0.
+            it.tick(System.nanoTime())
+        }
+    }
+    LaunchedEffect(progressClock, isPlaying) {
+        progressClock.isPlaying = isPlaying
+        if (isPlaying) {
+            progressClock.rebase()
+            while (true) {
+                withFrameNanos { progressClock.tick(it) }
+            }
+        } else {
+            // Paused: sample once, then only look for a seek made elsewhere (restart, notification,
+            // watch, car) a few times a second. No frame loop while nothing moves.
+            withFrameNanos { progressClock.tick(it) }
+            while (true) {
+                delay(PAUSED_SEEK_BAR_CHECK_MS)
+                if (progressClock.peekMs() != progressClock.currentMs) {
+                    withFrameNanos { progressClock.tick(it) }
+                }
+            }
+        }
+    }
+    // Held as a lambda over snapshot state: read only in the slider's draw / derived state.
+    val positionProvider = remember(progressClock) { { progressClock.nowMs } }
 
     PlayerSeekBar(
         backgroundColor = backgroundColor,
@@ -1527,6 +1556,7 @@ private fun LyricsPlaybackSeekBar(
         // The pill is translucent over the artwork: a shadow would show through it.
         shadowElevation = 0.dp,
         inactiveTrackColor = accentTrackFor(accentColor),
+        frameAccurate = true,
         modifier = modifier
     )
 }
@@ -1665,6 +1695,9 @@ private val ShowControlsBottomGap = 24.dp
 
 /** How far the Material 3 controls slide while they hide. */
 private val ControlsSlide = 24.dp
+
+/** How often the seek bar looks for a seek made elsewhere while playback is paused. */
+private const val PAUSED_SEEK_BAR_CHECK_MS = 250L
 
 /** Material 3 bottom scrim: extends this far above the controls, up to this darkness. */
 private val M3ScrimExtra = 72.dp
