@@ -236,7 +236,7 @@ class PlaylistPreferencesRepository @Inject constructor(
 
     suspend fun resetPlaylistPreferencesToDefaults() {
         setPlaylistSongOrderModes(emptyMap())
-        setPlaylistsSortOption(SortOption.PlaylistNameAZ.storageKey)
+        setPlaylistsSortOption(SortOption.PlaylistDateCreated.storageKey)
     }
 
     private suspend fun ensureMigratedIfNeeded() {

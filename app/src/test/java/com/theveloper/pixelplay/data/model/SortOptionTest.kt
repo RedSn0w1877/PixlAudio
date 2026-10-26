@@ -52,4 +52,29 @@ class SortOptionTest {
 
         assertEquals(SortOption.SongArtist, resolved)
     }
+    @Test
+    fun `library tabs default to date added, newest first`() {
+        assertEquals(SortOption.SongDateAdded, LibraryTabId.SONGS.defaultSort)
+        assertEquals(SortOption.AlbumDateAdded, LibraryTabId.ALBUMS.defaultSort)
+        assertEquals(SortOption.ArtistDateAdded, LibraryTabId.ARTISTS.defaultSort)
+        assertEquals(SortOption.PlaylistDateCreated, LibraryTabId.PLAYLISTS.defaultSort)
+        for (option in listOf(
+            SortOption.SongDateAdded, SortOption.AlbumDateAdded, SortOption.ArtistDateAdded, SortOption.PlaylistDateCreated
+        )) {
+            assertEquals(SortDirection.Descending, option.direction)
+        }
+        assertEquals(true, SortOption.ARTISTS.contains(SortOption.ArtistDateAdded))
+    }
+
+    @Test
+    fun `a missing stored sort resolves to the new default`() {
+        assertEquals(
+            SortOption.ArtistDateAdded,
+            SortOption.fromStorageKey(null, SortOption.ARTISTS, SortOption.ArtistDateAdded)
+        )
+        assertEquals(
+            SortOption.ArtistDateAdded,
+            SortOption.fromStorageKey("artist_date_added", SortOption.ARTISTS, SortOption.ArtistNameAZ)
+        )
+    }
 }

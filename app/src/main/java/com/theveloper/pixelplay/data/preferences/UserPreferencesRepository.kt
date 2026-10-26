@@ -171,6 +171,8 @@ class UserPreferencesRepository @Inject constructor(
         // Sort options
         val SONGS_SORT_OPTION = stringPreferencesKey("songs_sort_option")
         val SONGS_SORT_OPTION_MIGRATED = booleanPreferencesKey("songs_sort_option_migrated_v2")
+        /** Set once the library lists moved to "Date added, newest first" as their default (see [ensureLibrarySortDefaults]). */
+        val SORT_DEFAULT_DATE_ADDED_APPLIED = booleanPreferencesKey("sort_default_date_added_applied_v1")
         val ALBUMS_SORT_OPTION = stringPreferencesKey("albums_sort_option")
         val ARTISTS_SORT_OPTION = stringPreferencesKey("artists_sort_option")
         val PLAYLISTS_SORT_OPTION = stringPreferencesKey("playlists_sort_option")
@@ -1107,17 +1109,19 @@ suspend fun markDirectoryRulesVersionApplied(version: Int) {
 
     // ─── Sort options ─────────────────────────────────────────────────────────
 
+    // The library lists default to "Date added, newest first" (Hoa, 2026-10-26). Playlists have no "added", so
+    // theirs is "Date created"; liked songs keep "Date liked". Only a list nobody chose a sort for uses the default.
     val songsSortOptionFlow: Flow<String> =
-        pref { SortOption.fromStorageKey(it[PreferencesKeys.SONGS_SORT_OPTION], SortOption.SONGS, SortOption.SongTitleAZ).storageKey }
+        pref { librarySortKey(it, PreferencesKeys.SONGS_SORT_OPTION, SortOption.SONGS, SortOption.SongTitleAZ, SortOption.SongDateAdded) }
 
     val albumsSortOptionFlow: Flow<String> =
-        pref { SortOption.fromStorageKey(it[PreferencesKeys.ALBUMS_SORT_OPTION], SortOption.ALBUMS, SortOption.AlbumTitleAZ).storageKey }
+        pref { librarySortKey(it, PreferencesKeys.ALBUMS_SORT_OPTION, SortOption.ALBUMS, SortOption.AlbumTitleAZ, SortOption.AlbumDateAdded) }
 
     val artistsSortOptionFlow: Flow<String> =
-        pref { SortOption.fromStorageKey(it[PreferencesKeys.ARTISTS_SORT_OPTION], SortOption.ARTISTS, SortOption.ArtistNameAZ).storageKey }
+        pref { librarySortKey(it, PreferencesKeys.ARTISTS_SORT_OPTION, SortOption.ARTISTS, SortOption.ArtistNameAZ, SortOption.ArtistDateAdded) }
 
     val playlistsSortOptionFlow: Flow<String> =
-        pref { SortOption.fromStorageKey(it[PreferencesKeys.PLAYLISTS_SORT_OPTION], SortOption.PLAYLISTS, SortOption.PlaylistNameAZ).storageKey }
+        pref { librarySortKey(it, PreferencesKeys.PLAYLISTS_SORT_OPTION, SortOption.PLAYLISTS, SortOption.PlaylistNameAZ, SortOption.PlaylistDateCreated) }
 
     val foldersSortOptionFlow: Flow<String> =
         pref { SortOption.fromStorageKey(it[PreferencesKeys.FOLDERS_SORT_OPTION], SortOption.FOLDERS, SortOption.FolderNameAZ).storageKey }
@@ -1152,25 +1156,52 @@ suspend fun markDirectoryRulesVersionApplied(version: Int) {
         dataStore.edit { it[PreferencesKeys.LIKED_SONGS_SORT_OPTION] = optionKey }
     }
 
+    /**
+     * The stored sort for a library list, or [newDefault] when none was chosen. Until [ensureLibrarySortDefaults] has
+     * run once, a stored [legacyDefault] is not a choice either: older builds wrote their default (A-Z) into the
+     * store, so it can't be told apart from a pick and is treated as unset. Reading it here (not only in the
+     * migration) keeps the first launch consistent whichever of the two runs first.
+     */
+    private fun librarySortKey(
+        preferences: Preferences,
+        key: Preferences.Key<String>,
+        allowed: Collection<SortOption>,
+        legacyDefault: SortOption,
+        newDefault: SortOption
+    ): String {
+        val raw = preferences[key]
+        if (preferences[PreferencesKeys.SORT_DEFAULT_DATE_ADDED_APPLIED] != true && isLegacyDefault(raw, legacyDefault)) {
+            return newDefault.storageKey
+        }
+        return SortOption.fromStorageKey(raw, allowed, newDefault).storageKey
+    }
+
+    private fun isLegacyDefault(raw: String?, legacyDefault: SortOption): Boolean =
+        raw == legacyDefault.storageKey || raw == legacyDefault.displayName
+
+    /**
+     * One time: drops the old A-Z defaults that earlier builds stored, so the new default (date added, newest
+     * first) applies. After that it only repairs a stored value that is no longer a valid option; it never writes
+     * a sort for a list nobody chose one for. (Someone who had deliberately picked A-Z before this change has to
+     * pick it once more: it can't be told from the stored default.)
+     */
     suspend fun ensureLibrarySortDefaults() {
         dataStore.edit { preferences ->
-            val songsMigrated = preferences[PreferencesKeys.SONGS_SORT_OPTION_MIGRATED] ?: false
-            val rawSongSort = preferences[PreferencesKeys.SONGS_SORT_OPTION]
-            val shouldForceSongDefault = !songsMigrated &&
-                (rawSongSort.isNullOrBlank() ||
-                    rawSongSort == SortOption.SongTitleZA.storageKey ||
-                    rawSongSort == SortOption.SongTitleZA.displayName)
+            if (preferences[PreferencesKeys.SORT_DEFAULT_DATE_ADDED_APPLIED] != true) {
+                fun dropLegacy(key: Preferences.Key<String>, legacyDefault: SortOption) {
+                    if (isLegacyDefault(preferences[key], legacyDefault)) preferences.remove(key)
+                }
+                dropLegacy(PreferencesKeys.SONGS_SORT_OPTION, SortOption.SongTitleAZ)
+                dropLegacy(PreferencesKeys.ALBUMS_SORT_OPTION, SortOption.AlbumTitleAZ)
+                dropLegacy(PreferencesKeys.ARTISTS_SORT_OPTION, SortOption.ArtistNameAZ)
+                dropLegacy(PreferencesKeys.PLAYLISTS_SORT_OPTION, SortOption.PlaylistNameAZ)
+                preferences[PreferencesKeys.SORT_DEFAULT_DATE_ADDED_APPLIED] = true
+            }
 
-            preferences[PreferencesKeys.SONGS_SORT_OPTION] =
-                if (shouldForceSongDefault) SortOption.SongTitleAZ.storageKey
-                else SortOption.fromStorageKey(rawSongSort, SortOption.SONGS, SortOption.SongTitleAZ).storageKey
-
-            if (!songsMigrated) preferences[PreferencesKeys.SONGS_SORT_OPTION_MIGRATED] = true
-
-            migrateSortPreference(preferences, PreferencesKeys.SONGS_SORT_OPTION, SortOption.SONGS, SortOption.SongTitleAZ)
-            migrateSortPreference(preferences, PreferencesKeys.ALBUMS_SORT_OPTION, SortOption.ALBUMS, SortOption.AlbumTitleAZ)
-            migrateSortPreference(preferences, PreferencesKeys.ARTISTS_SORT_OPTION, SortOption.ARTISTS, SortOption.ArtistNameAZ)
-            migrateSortPreference(preferences, PreferencesKeys.PLAYLISTS_SORT_OPTION, SortOption.PLAYLISTS, SortOption.PlaylistNameAZ)
+            migrateSortPreference(preferences, PreferencesKeys.SONGS_SORT_OPTION, SortOption.SONGS, SortOption.SongDateAdded)
+            migrateSortPreference(preferences, PreferencesKeys.ALBUMS_SORT_OPTION, SortOption.ALBUMS, SortOption.AlbumDateAdded)
+            migrateSortPreference(preferences, PreferencesKeys.ARTISTS_SORT_OPTION, SortOption.ARTISTS, SortOption.ArtistDateAdded)
+            migrateSortPreference(preferences, PreferencesKeys.PLAYLISTS_SORT_OPTION, SortOption.PLAYLISTS, SortOption.PlaylistDateCreated)
             migrateSortPreference(preferences, PreferencesKeys.FOLDERS_SORT_OPTION, SortOption.FOLDERS, SortOption.FolderNameAZ)
             migrateSortPreference(preferences, PreferencesKeys.LIKED_SONGS_SORT_OPTION, SortOption.LIKED, SortOption.LikedSongDateLiked)
         }
@@ -1182,8 +1213,9 @@ suspend fun markDirectoryRulesVersionApplied(version: Int) {
         allowed: Collection<SortOption>,
         fallback: SortOption
     ) {
-        val resolved = SortOption.fromStorageKey(preferences[key], allowed, fallback)
-        if (preferences[key] != resolved.storageKey) preferences[key] = resolved.storageKey
+        val raw = preferences[key] ?: return
+        val resolved = SortOption.fromStorageKey(raw, allowed, fallback)
+        if (raw != resolved.storageKey) preferences[key] = resolved.storageKey
     }
 
     // ─── Library UI state ─────────────────────────────────────────────────────

@@ -241,7 +241,7 @@ class PlaylistsModuleHandler @Inject constructor(
         playlistPreferencesRepository.replaceAllPlaylists(finalPlaylists)
         playlistPreferencesRepository.setPlaylistSongOrderModes(parsed.playlistSongOrderModes.orEmpty())
         playlistPreferencesRepository.setPlaylistsSortOption(
-            parsed.playlistsSortOption ?: SortOption.PlaylistNameAZ.storageKey
+            parsed.playlistsSortOption ?: SortOption.PlaylistDateCreated.storageKey
         )
         userPreferencesRepository.clearLegacyUserPlaylists()
     }
@@ -450,7 +450,7 @@ class PlaylistsModuleHandler @Inject constructor(
 
         val playlistsSortOption = entries.firstOrNull { it.key == LEGACY_PLAYLIST_SORT_OPTION_KEY }
             ?.stringValue
-            ?: SortOption.PlaylistNameAZ.storageKey
+            ?: SortOption.PlaylistDateCreated.storageKey
 
         playlistPreferencesRepository.replaceAllPlaylists(playlists)
         playlistPreferencesRepository.setPlaylistSongOrderModes(playlistSongOrderModes)
