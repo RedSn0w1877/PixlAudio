@@ -105,7 +105,7 @@ class ClaudeRulesTest {
         assertThat(ClaudeBudgetRules.isExhausted(spentMicros = 0, capMicros = 0)).isTrue()
         assertThat(ClaudeBudgetRules.clampCapUsd(500.0)).isEqualTo(ClaudeConfig.MAX_MONTHLY_CAP_USD)
         assertThat(ClaudeBudgetRules.clampCapUsd(-1.0)).isEqualTo(0.0)
-        assertThat(ClaudeConfig.DEFAULT_MONTHLY_CAP_USD).isEqualTo(50.0)
+        assertThat(ClaudeConfig.DEFAULT_MONTHLY_CAP_USD).isEqualTo(5.0)
     }
 
     @Test

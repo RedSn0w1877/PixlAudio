@@ -11,9 +11,9 @@ name: Android CI
 # Heads-up: the key therefore ends up inside the APK artifact below, which anyone who can see this repository's
 # Actions can download. That is the same exposure as any shipped APK (see handoff/2026-10-08-android-builtin-keys.md).
 #
-# Claude (Settings > AI features, Ask Taizo): the same steps get the ANTHROPIC_API_KEY secret, which
-# app/build.gradle.kts stores in BuildConfig as two XOR shares (never as a plain string). No secret just means
-# no cloud AI: the app answers with the on-device model.
+# Claude (Settings > AI features, Ask Taizo): these steps deliberately do NOT get the ANTHROPIC_API_KEY secret,
+# because the debug APK artifact below is downloadable by anyone signed in to GitHub. Without it the build simply
+# has no cloud AI and answers with the on-device model. Only phone-release.yml bakes the key in.
 
 on:
   push:
@@ -55,14 +55,12 @@ jobs:
         env:
           CLOUD_DEFAULTS_KEY: ${{ secrets.CLOUD_DEFAULTS_KEY }}
           SPOTIFY_CLIENT_ID: ${{ secrets.SPOTIFY_CLIENT_ID }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: ./gradlew :app:compileDebugKotlin
 
       - name: Unit tests
         env:
           CLOUD_DEFAULTS_KEY: ${{ secrets.CLOUD_DEFAULTS_KEY }}
           SPOTIFY_CLIENT_ID: ${{ secrets.SPOTIFY_CLIENT_ID }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: ./gradlew :app:testDebugUnitTest
 
       - name: Upload unit test reports
@@ -83,7 +81,6 @@ jobs:
         env:
           CLOUD_DEFAULTS_KEY: ${{ secrets.CLOUD_DEFAULTS_KEY }}
           SPOTIFY_CLIENT_ID: ${{ secrets.SPOTIFY_CLIENT_ID }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: ./gradlew :app:assembleDebug -Ppixelplay.enableAbiSplits=true
 
       - name: Upload arm64 debug APK

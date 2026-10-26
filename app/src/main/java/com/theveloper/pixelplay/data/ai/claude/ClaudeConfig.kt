@@ -38,8 +38,10 @@ object ClaudeConfig {
     const val MAX_AGENT_STEPS = 12
 
     /** Per-device monthly cap for the built-in key; Developer mode moves it between 0 and [MAX_MONTHLY_CAP_USD]. */
-    const val DEFAULT_MONTHLY_CAP_USD = 50.0
-    const val MAX_MONTHLY_CAP_USD = 200.0
+    // Beta-sized on purpose: this cap lives on the phone, so the real limit is the spend limit on the key's
+    // Console workspace.
+    const val DEFAULT_MONTHLY_CAP_USD = 5.0
+    const val MAX_MONTHLY_CAP_USD = 20.0
 
     const val WEB_SEARCH_TOOL_TYPE = "web_search_20260209"
     const val WEB_FETCH_TOOL_TYPE = "web_fetch_20260209"
