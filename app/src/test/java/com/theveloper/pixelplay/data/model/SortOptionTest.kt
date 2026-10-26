@@ -52,6 +52,7 @@ class SortOptionTest {
 
         assertEquals(SortOption.SongArtist, resolved)
     }
+
     @Test
     fun `library tabs default to date added, newest first`() {
         assertEquals(SortOption.SongDateAdded, LibraryTabId.SONGS.defaultSort)
