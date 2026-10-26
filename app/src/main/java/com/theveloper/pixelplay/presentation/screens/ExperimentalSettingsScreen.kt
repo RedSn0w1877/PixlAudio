@@ -462,13 +462,12 @@ fun ExperimentalSettingsScreen(
                                     )
                                     Column(modifier = Modifier.weight(1f)) {
                                         Text(
-                                            text = "TAIS DJ",
+                                            text = stringResource(R.string.settings_ask_taizo_title),
                                             style = MaterialTheme.typography.titleMedium,
                                             color = MaterialTheme.colorScheme.onSurface
                                         )
                                         Text(
-                                            text = "TAIS Engine 3 — tell it a mood or genre and it finds songs, " +
-                                                "offline from your library or online via Spotify.",
+                                            text = stringResource(R.string.settings_ask_taizo_subtitle),
                                             style = MaterialTheme.typography.bodyMedium,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
@@ -897,18 +896,10 @@ fun ExperimentalSettingsScreen(
     }
 
     if (showTaisChatSheet) {
-        com.theveloper.pixelplay.presentation.components.tais.TaisChatSheet(
+        com.theveloper.pixelplay.presentation.components.taizo.AskTaizoSheet(
+            playerViewModel = playerViewModel,
             onDismissRequest = { showTaisChatSheet = false },
-            sheetState = taisChatSheetState,
-            onPlaySongs = { songs ->
-                songs.firstOrNull()?.let { first ->
-                    playerViewModel.playSongs(songs, first, queueName = "TAIS DJ")
-                }
-                showTaisChatSheet = false
-            },
-            onQueueSongs = { songs ->
-                songs.forEach { playerViewModel.addSongToQueue(it) }
-            }
+            sheetState = taisChatSheetState
         )
     }
 }

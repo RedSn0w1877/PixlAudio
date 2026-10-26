@@ -1,4 +1,5 @@
 import java.io.File
+import java.security.SecureRandom
 import java.time.LocalDate
 import java.time.ZoneOffset
 import java.util.Properties
@@ -66,6 +67,27 @@ val cloudDefaultsKey: String = (providers.environmentVariable("CLOUD_DEFAULTS_KE
     .orEmpty()
     .filter { it in 'A'..'Z' || it in 'a'..'z' || it in '0'..'9' || it == '+' || it == '/' || it == '=' }
 
+// Built-in Claude key (Settings > AI features, Ask Taizo): the ANTHROPIC_API_KEY environment variable (the CI
+// secret), else local.properties, else empty. It never goes into BuildConfig as a plain string: it is split into two
+// XOR shares (a random pad and key XOR pad, hex), joined again only in memory by BuiltInClaudeKey. Empty means no
+// cloud AI (forks, pull requests): the app uses the on-device model and the build never fails. Never printed.
+val anthropicKeyShares: Pair<String, String> = run {
+    val key = (providers.environmentVariable("ANTHROPIC_API_KEY").orNull?.takeIf { it.isNotBlank() }
+        ?: localProperties.getProperty("ANTHROPIC_API_KEY"))
+        .orEmpty()
+        .trim()
+        .filter { it.isLetterOrDigit() || it == '-' || it == '_' }
+    if (key.isEmpty()) {
+        "" to ""
+    } else {
+        val plain = key.toByteArray(Charsets.UTF_8)
+        val pad = ByteArray(plain.size).also { SecureRandom().nextBytes(it) }
+        val masked = ByteArray(plain.size) { i -> (plain[i].toInt() xor pad[i].toInt()).toByte() }
+        fun ByteArray.hex(): String = joinToString("") { (it.toInt() and 0xff).toString(16).padStart(2, '0') }
+        masked.hex() to pad.hex()
+    }
+}
+
 // Build identity for Settings > About > Diagnostics and the shareable log header: the commit this APK was
 // built from (the CI's GITHUB_SHA, else `git rev-parse --short HEAD`, else "unknown") and the UTC build date.
 // Never fails the build: a checkout without git just reports "unknown".
@@ -130,11 +152,19 @@ android {
                 "/META-INF/io.netty.versions.properties",
                 "META-INF/CONTRIBUTORS.md",
                 "META-INF/NOTICE.txt",
-                "META-INF/NOTICE.md"
+                "META-INF/NOTICE.md",
+                // The Anthropic SDK's GraalVM native-image metadata (a 3.5 MB reflect-config.json): unused on Android.
+                "META-INF/native-image/**",
+                // Jackson (pulled in by the Anthropic SDK) ships a JPMS descriptor in every jar.
+                "META-INF/versions/9/module-info.class",
+                "module-info.class"
             )
             pickFirsts += listOf(
                 "META-INF/LICENSE.md",
-                "META-INF/LICENSE.txt"
+                "META-INF/LICENSE.txt",
+                // Every Jackson jar has these two (Apache-2.0, identical).
+                "META-INF/LICENSE",
+                "META-INF/NOTICE"
             )
         }
     }
@@ -159,6 +189,8 @@ android {
             .filter { it.isLetterOrDigit() || it == '-' || it == '_' }
         buildConfigField("String", "SPOTIFY_CLIENT_ID", "\"$spotifyClientId\"")
         buildConfigField("String", "CLOUD_DEFAULTS_KEY", "\"$cloudDefaultsKey\"")
+        buildConfigField("String", "ANTHROPIC_KEY_A", "\"${anthropicKeyShares.first}\"")
+        buildConfigField("String", "ANTHROPIC_KEY_B", "\"${anthropicKeyShares.second}\"")
         buildConfigField("String", "GIT_SHA", "\"$gitCommitShort\"")
         buildConfigField("String", "BUILD_DATE", "\"$buildDateUtc\"")
         buildConfigField("String", "PLUS_CHECKOUT_URL", "\"${plusCheckoutUrl.replace("\\", "\\\\").replace("\"", "\\\"")}\"")
@@ -392,6 +424,12 @@ dependencies {
     //   the armeabi-v7a split has no engine and Settings hides the switch on 32-bit-only phones.
     implementation(libs.mlkit.genai.prompt)
     implementation(libs.litertlm.android)
+
+    // Claude in the cloud (data/ai/claude): every AI feature when the phone is online, and Ask Taizo.
+    // The SDK carries its own R8 rules (META-INF/proguard); proguard-rules.pro only silences the JVM-only
+    // classes its dependencies mention.
+    implementation(libs.anthropic.java)
+    implementation(libs.kotlin.reflect)
 
     // On-device lyrics translation for the lyrics page's Translate button: Google ML Kit's
     // translator (one ~30 MB model per language, downloaded on first use) and its language ID

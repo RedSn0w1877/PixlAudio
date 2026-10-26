@@ -119,6 +119,7 @@ jobs:
       - name: Build Phone nightly release APKs
         env:
           SPOTIFY_CLIENT_ID: ${{ secrets.SPOTIFY_CLIENT_ID }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: gradle :app:assembleRelease -Ppixelplay.enableAbiSplits=true
 
       - name: Verify Phone nightly split APKs

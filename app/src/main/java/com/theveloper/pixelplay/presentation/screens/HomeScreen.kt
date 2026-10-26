@@ -280,8 +280,15 @@ fun HomeScreen(
     val navBarStyle by playerViewModel.navBarStyle.collectAsStateWithLifecycle()
     val greetingHorizontalPadding = navBarEdgeInset(navBarStyle)
 
-    val homeQuickActions = remember(navController, playerViewModel) {
+    var showAskTaizo by remember { mutableStateOf(false) }
+    val askTaizoLabel = stringResource(R.string.home_ask_taizo)
+    val homeQuickActions = remember(navController, playerViewModel, askTaizoLabel) {
         persistentListOf(
+            HomeQuickAction(
+                label = askTaizoLabel,
+                iconRes = R.drawable.rounded_auto_awesome_24,
+                onClick = { showAskTaizo = true }
+            ),
             HomeQuickAction(
                 label = "Shuffle All",
                 iconRes = R.drawable.rounded_shuffle_24,
@@ -624,6 +631,13 @@ fun HomeScreen(
             }
         }
     }
+    if (showAskTaizo) {
+        com.theveloper.pixelplay.presentation.components.taizo.AskTaizoSheet(
+            playerViewModel = playerViewModel,
+            onDismissRequest = { showAskTaizo = false }
+        )
+    }
+
     if (showJobsBottomSheet) {
         AdaptiveModalBottomSheet(
             containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
