@@ -153,6 +153,7 @@ class UserPreferencesRepository @Inject constructor(
 
     private object PreferencesKeys {
         val AUTOMATIC_LYRICS = booleanPreferencesKey("automatic_lyrics")
+        val SMART_DEFAULTS_APPLIED = booleanPreferencesKey("smart_defaults_applied_v1")
         val AUTOMATIC_INSTRUMENTALS = booleanPreferencesKey("automatic_instrumentals")
         val APP_REBRAND_DIALOG_SHOWN = booleanPreferencesKey("app_rebrand_dialog_shown")
         val BETA_05_CLEAN_INSTALL_DISCLAIMER_DISMISSED =
@@ -1414,6 +1415,13 @@ suspend fun markDirectoryRulesVersionApplied(version: Int) {
 
     val automaticLyricsEnabledFlow: Flow<Boolean> = pref { it[PreferencesKeys.AUTOMATIC_LYRICS] ?: true }
     val automaticInstrumentalsEnabledFlow: Flow<Boolean> = pref { it[PreferencesKeys.AUTOMATIC_INSTRUMENTALS] ?: true }
+
+    /** Set once [com.theveloper.pixelplay.data.preferences.SmartFeatureDefaults] has switched the smart features on for this install. */
+    val smartDefaultsAppliedFlow: Flow<Boolean> = pref { it[PreferencesKeys.SMART_DEFAULTS_APPLIED] ?: false }
+
+    suspend fun setSmartDefaultsApplied(applied: Boolean) {
+        dataStore.edit { it[PreferencesKeys.SMART_DEFAULTS_APPLIED] = applied }
+    }
 
     suspend fun setAutomaticLyricsEnabled(enabled: Boolean) {
         dataStore.edit { it[PreferencesKeys.AUTOMATIC_LYRICS] = enabled }

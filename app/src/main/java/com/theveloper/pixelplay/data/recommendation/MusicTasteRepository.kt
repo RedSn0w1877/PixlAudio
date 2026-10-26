@@ -181,6 +181,9 @@ class MusicTasteRepository @Inject constructor(@ApplicationContext private val c
         }
     }
 
+    /** Learning from listening and the Home mixes both on. They default on; this repairs a stored "off". */
+    suspend fun ensureLearningOn() { store.edit { it[LEARNING] = true; it[DISCOVERY] = true } }
+
     suspend fun setLearning(enabled: Boolean) { store.edit { it[LEARNING] = enabled } }
     suspend fun setDiscovery(enabled: Boolean) { store.edit { it[DISCOVERY] = enabled } }
     suspend fun setExploration(value: Float) { store.edit { it[EXPLORATION] = value.coerceIn(0f, 0.6f) } }
