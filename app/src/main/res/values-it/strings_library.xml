@@ -151,7 +151,7 @@
     <string name="song_info_set_sound_as_long">Imposta come suono</string>
     <string name="song_info_cd_set_sound_as">Scegli come usare questo brano come suono di sistema</string>
     <string name="song_info_tone_picker_title">Usa questo brano come</string>
-    <string name="song_info_tone_picker_body">Scegli dove PixelPlayer deve installare questo suono.</string>
+    <string name="song_info_tone_picker_body">Scegli dove PixlAudio deve installare questo suono.</string>
     <string name="song_info_tone_ringtone_title">Suoneria telefono</string>
     <string name="song_info_tone_ringtone_subtitle">Chiamate in arrivo</string>
     <string name="song_info_tone_notification_title">Suono notifiche</string>
@@ -165,7 +165,7 @@
     <string name="song_info_tone_ringtone_label">suoneria</string>
     <string name="song_info_tone_notification_label">suono notifiche</string>
     <string name="song_info_tone_alarm_label">suono sveglia</string>
-    <string name="song_info_ringtone_permission_prompt">Attiva Modifica impostazioni di sistema, poi torna a PixelPlayer per completare automaticamente.</string>
+    <string name="song_info_ringtone_permission_prompt">Attiva Modifica impostazioni di sistema, poi torna a PixlAudio per completare automaticamente.</string>
     <string name="song_info_ringtone_permission_missing">Modifica impostazioni di sistema non attivata.</string>
     <string name="song_info_ringtone_success">\"%1$s\" impostato come suoneria</string>
     <string name="song_info_ringtone_local_only">Solo i brani locali possono essere usati come suoni di sistema.</string>
@@ -492,7 +492,7 @@
     <string name="playlist_view_model_share_failed">Condivisione non riuscita: %1$s</string>
     <string name="playlist_view_model_none_to_export">Nessuna playlist da esportare</string>
     <string name="playlist_view_model_export_failed">Esportazione non riuscita: %1$s</string>
-    <string name="playlist_view_model_export_folder_display">Musica/Esportazioni PixelPlayer</string>
+    <string name="playlist_view_model_export_folder_display">Musica/Esportazioni PixlAudio</string>
     <string name="playlist_view_model_ai_gemini_key_required">Configura la tua chiave API Gemini nelle Impostazioni.</string>
     <string name="playlist_view_model_restored_toast">Playlist ripristinata</string>
     <plurals name="playlist_view_model_sharing_message">
@@ -552,7 +552,7 @@
     <string name="ai_state_error_api_key">Configura una chiave API valida per il fornitore AI selezionato nelle Impostazioni.</string>
     <string name="ai_state_error_generic">Errore AI: %s</string>
     <string name="ai_state_error_quota">Il fornitore AI selezionato ha rifiutato la richiesta perché l\'account non ha crediti o quota disponibile.</string>
-    <string name="ai_state_error_model_unavailable">Il modello AI selezionato non è più disponibile. PixelPlayer ha provato a passare automaticamente a un modello supportato.</string>
+    <string name="ai_state_error_model_unavailable">Il modello AI selezionato non è più disponibile. PixlAudio ha provato a passare automaticamente a un modello supportato.</string>
     <string name="ai_state_no_songs_found">L\'AI non è riuscita a trovare alcun brano per il tuo prompt.</string>
     <string name="ai_state_prompt_empty">Scrivi un\'idea per il tuo Daily Mix</string>
     <string name="ai_state_daily_mix_updated">Daily Mix aggiornato con IA</string>

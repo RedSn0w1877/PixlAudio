@@ -154,7 +154,7 @@ fun PlaylistBottomSheet(
                     trailingIcon = {
                         if (searchQuery.isNotEmpty()) IconButton(onClick = {
                             searchQuery = ""
-                        }) { Icon(Icons.Filled.Clear, null) }
+                        }) { Icon(Icons.Filled.Clear, contentDescription = stringResource(R.string.search_cd_clear_search_query)) }
                     }
                 )
 

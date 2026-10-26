@@ -151,7 +151,7 @@
     <string name="song_info_set_sound_as_long">设为声音</string>
     <string name="song_info_cd_set_sound_as">选择如何将此歌曲用作系统声音</string>
     <string name="song_info_tone_picker_title">将此歌曲用作</string>
-    <string name="song_info_tone_picker_body">选择 PixelPlayer 应在哪里安装此声音。</string>
+    <string name="song_info_tone_picker_body">选择 PixlAudio 应在哪里安装此声音。</string>
     <string name="song_info_tone_ringtone_title">手机铃声</string>
     <string name="song_info_tone_ringtone_subtitle">来电</string>
     <string name="song_info_tone_notification_title">通知音</string>
@@ -165,7 +165,7 @@
     <string name="song_info_tone_ringtone_label">铃声</string>
     <string name="song_info_tone_notification_label">通知音</string>
     <string name="song_info_tone_alarm_label">闹钟音</string>
-    <string name="song_info_ringtone_permission_prompt">启用“修改系统设置”，然后返回 PixelPlayer 自动完成。</string>
+    <string name="song_info_ringtone_permission_prompt">启用“修改系统设置”，然后返回 PixlAudio 自动完成。</string>
     <string name="song_info_ringtone_permission_missing">未启用“修改系统设置”。</string>
     <string name="song_info_ringtone_success">已将“%1$s”设为您的铃声</string>
     <string name="song_info_ringtone_local_only">只有本地歌曲才能设为铃声。</string>
@@ -492,7 +492,7 @@
     <string name="playlist_view_model_share_failed">分享失败：%1$s</string>
     <string name="playlist_view_model_none_to_export">没有可导出的播放列表</string>
     <string name="playlist_view_model_export_failed">导出失败：%1$s</string>
-    <string name="playlist_view_model_export_folder_display">Music/PixelPlayer Exports</string>
+    <string name="playlist_view_model_export_folder_display">Music/PixlAudio Exports</string>
     <string name="playlist_view_model_ai_gemini_key_required">请在设置中配置您的 Gemini API 密钥。</string>
     <string name="playlist_view_model_restored_toast">播放列表已恢复</string>
     <plurals name="playlist_view_model_sharing_message">
@@ -552,7 +552,7 @@
     <string name="ai_state_error_api_key">请在设置中为选定的 AI 提供商配置有效的 API 密钥。</string>
     <string name="ai_state_error_generic">AI 错误：%s</string>
     <string name="ai_state_error_quota">所选 AI 提供商拒绝了请求，原因是账户没有积分或可用配额不足。</string>
-    <string name="ai_state_error_model_unavailable">所选 AI 模型不再可用。PixelPlayer 尝试自动切换到支持的模型。</string>
+    <string name="ai_state_error_model_unavailable">所选 AI 模型不再可用。PixlAudio 尝试自动切换到支持的模型。</string>
     <string name="ai_state_no_songs_found">AI 无法根据您的提示找到任何歌曲。</string>
     <string name="ai_state_prompt_empty">写下一个 Daily Mix 的灵感</string>
     <string name="ai_state_daily_mix_updated">已使用 AI 更新 Daily Mix</string>

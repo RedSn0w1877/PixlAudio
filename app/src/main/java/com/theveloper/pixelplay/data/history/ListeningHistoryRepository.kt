@@ -32,6 +32,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -194,6 +195,9 @@ class ListeningHistoryRepository @Inject constructor(
 
     /** Deletes every imported play and Spotify seed, and takes their contribution out of learning. */
     suspend fun clearImported() = withContext(Dispatchers.IO) {
+        // A running file import would keep inserting plays after the wipe and bring them back. It doesn't take
+        // syncMutex, so stop it first (outside the lock).
+        importJob?.cancelAndJoin()
         syncMutex.withLock {
             dao.clearPlays()
             dao.clearSeeds()

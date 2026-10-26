@@ -149,7 +149,7 @@ fun QuickFillContent(
                                label = { Text(stringResource(R.string.quick_fill_search_songs_placeholder)) },
                                leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
                                trailingIcon = if (searchQuery.isNotEmpty()) {
-                                   { IconButton(onClick = { searchQuery = "" }) { Icon(Icons.Rounded.Clear, null) } }
+                                   { IconButton(onClick = { searchQuery = "" }) { Icon(Icons.Rounded.Clear, contentDescription = stringResource(R.string.search_cd_clear_search_query)) } }
                                } else null,
                                singleLine = true,
                                shape = RoundedCornerShape(16.dp),

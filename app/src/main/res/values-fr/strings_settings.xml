@@ -86,7 +86,7 @@
     <string name="lib_org_group_by_album_artist_title">Grouper par artiste de l\'album</string>
     <string name="lib_org_group_by_album_artist_subtitle">Afficher les albums de collaboration sous l\'artiste principal</string>
     <string name="multi_artist_info_title">À propos de l\'analyse multi-artistes</string>
-    <string name="multi_artist_info_body">PixelPlayer sépare les tags d\'artistes à l\'aide de délimiteurs de caractères (/, ;, &amp;amp;) et de délimiteurs de mots (feat., ft., vs., x). Les délimiteurs de mots sont mis en correspondance sans tenir compte de la casse.\n\n« Extraire les artistes du titre » détecte les motifs comme (feat. Artiste) dans les titres de chansons.\n\nL\'antislash (\\) peut être utilisé pour échapper les délimiteurs de caractères.</string>
+    <string name="multi_artist_info_body">PixlAudio sépare les tags d\'artistes à l\'aide de délimiteurs de caractères (/, ;, &amp;amp;) et de délimiteurs de mots (feat., ft., vs., x). Les délimiteurs de mots sont mis en correspondance sans tenir compte de la casse.\n\n« Extraire les artistes du titre » détecte les motifs comme (feat. Artiste) dans les titres de chansons.\n\nL\'antislash (\\) peut être utilisé pour échapper les délimiteurs de caractères.</string>
     <string name="multi_artist_examples_title">Exemples</string>
     <string name="multi_artist_example_arrow">\u2192</string>
     <string name="multi_artist_example_bullet">\u266A</string>
@@ -363,7 +363,7 @@
     <string name="settings_action_export_pxpl">Exporter .pxpl</string>
     <string name="settings_action_restore_selected">Restaurer la sélection</string>
     <string name="settings_backup_transfer_in_progress">Transfert en cours…</string>
-    <string name="settings_backup_file_name_format">PixelPlayer_Backup_%1$d.pxpl</string>
+    <string name="settings_backup_file_name_format">PixlAudio_Backup_%1$d.pxpl</string>
     <string name="settings_dialog_creating_backup">Création de la sauvegarde</string>
     <string name="settings_dialog_restoring_backup">Restauration de la sauvegarde</string>
     <string name="settings_dialog_progress_percent">%1$d%%</string>
@@ -574,7 +574,7 @@
     <string name="settings_devcaps_report_copy">Copier</string>
     <string name="settings_devcaps_report_share">Partager</string>
     <string name="settings_devcaps_report_copied">Rapport copié dans le presse-papiers</string>
-    <string name="settings_devcaps_report_share_title">Rapport de performance PixelPlayer</string>
+    <string name="settings_devcaps_report_share_title">Rapport de performance PixlAudio</string>
     <string name="settings_devcaps_advanced_diagnostics_title">"Diagnostics avancés des performances "</string>
     <string name="settings_devcaps_advanced_diagnostics_description">Désactivé par défaut. Enregistre une courte chronologie des ralentissements pour le dépannage bêta.</string>
     <string name="settings_devcaps_advanced_diagnostics_expires">Actif jusqu’au %1$s</string>
@@ -601,7 +601,7 @@
 
     <!-- About category -->
     <string name="about_screen_title">À propos</string>
-    <string name="about_app_name">PixelPlayer</string>
+    <string name="about_app_name">PixlAudio</string>
     <string name="about_tagline">Lecteur de musique open source construit avec sa communauté.</string>
     <string name="about_version_format">Version v%1$s</string>
     <string name="about_signal_open_source">Open source</string>
@@ -609,7 +609,7 @@
     <string name="about_signal_material3">Material 3 expressif</string>
     <string name="about_no_contributors">Aucun contributeur trouvé pour le moment. Veuillez réessayer plus tard.</string>
     <string name="about_maintainer_title">Mainteneur</string>
-    <string name="about_maintainer_subtitle">La personne derrière PixelPlayer.</string>
+    <string name="about_maintainer_subtitle">La personne derrière PixlAudio.</string>
     <string name="about_spotlight_title">Coup de projecteur sur la communauté</string>
     <string name="about_spotlight_subtitle">Reconnaissance des collaborateurs ayant un impact majeur.</string>
     <string name="about_contributors_section_title">Contributeurs open source</string>

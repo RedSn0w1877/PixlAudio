@@ -1426,22 +1426,6 @@ fun SpotifyLinkPage(
             horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier.fillMaxWidth()
         ) {
-            Surface(
-                shape = RoundedCornerShape(20.dp),
-                color = MaterialTheme.colorScheme.secondaryContainer,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text(
-                    text = stringResource(R.string.setup_spotify_reach_out),
-                    style = MaterialTheme.typography.bodyMedium,
-                    textAlign = TextAlign.Center,
-                    color = MaterialTheme.colorScheme.onSecondaryContainer,
-                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp)
-                )
-            }
-
-            Spacer(modifier = Modifier.height(14.dp))
-
             if (!isLoggedIn) {
                 Text(
                     text = stringResource(R.string.setup_spotify_arrow_hint),

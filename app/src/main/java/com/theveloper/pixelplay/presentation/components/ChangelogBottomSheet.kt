@@ -61,75 +61,17 @@ data class ChangelogVersion(
     val sections: List<ChangelogSection>
 )
 
+// PixlAudio's own releases only; the upstream PixelPlayer history (local files, Chromecast...) no longer applies.
 @Composable
 private fun changelogVersions(): List<ChangelogVersion> = listOf(
     ChangelogVersion(
-        version = "0.7.6-beta",
-        date = "2026-08-02",
+        version = "0.7.6-beta3",
+        date = "2026-10-26",
         sections = listOf(
-            ChangelogSection(R.string.changelog_sec_whats_new, R.array.changelog_076_whats_new),
-            ChangelogSection(R.string.changelog_sec_improvements, R.array.changelog_076_improvements)
-        )
-    ),
-    ChangelogVersion(
-        version = "0.7.5-beta",
-        date = "2026-06-13",
-        sections = listOf(
-            ChangelogSection(R.string.changelog_sec_whats_new, R.array.changelog_075_whats_new),
-            ChangelogSection(R.string.changelog_sec_improvements, R.array.changelog_075_improvements),
-            ChangelogSection(R.string.changelog_sec_fixes, R.array.changelog_075_fixes)
-        )
-    ),
-    ChangelogVersion(
-        version = "0.7.0-beta",
-        date = "2026-05-25",
-        sections = listOf(
-            ChangelogSection(R.string.changelog_sec_whats_new, R.array.changelog_070_whats_new),
-            ChangelogSection(R.string.changelog_sec_improvements, R.array.changelog_070_improvements),
-            ChangelogSection(R.string.changelog_sec_fixes, R.array.changelog_070_fixes),
-            ChangelogSection(R.string.changelog_sec_added, R.array.changelog_070_added)
-        )
-    ),
-    ChangelogVersion(
-        version = "0.6.0-beta",
-        date = "2026-03-05",
-        sections = listOf(
-            ChangelogSection(R.string.changelog_sec_whats_new, R.array.changelog_060_whats_new),
-            ChangelogSection(R.string.changelog_sec_improvements, R.array.changelog_060_improvements),
-            ChangelogSection(R.string.changelog_sec_fixes, R.array.changelog_060_fixes)
-        )
-    ),
-    ChangelogVersion(
-        version = "0.5.0-beta",
-        date = "2026-01-14",
-        sections = listOf(
-            ChangelogSection(R.string.changelog_sec_improvements, R.array.changelog_050_improvements),
-            ChangelogSection(R.string.changelog_sec_fixes, R.array.changelog_050_fixes)
-        )
-    ),
-    ChangelogVersion(
-        version = "0.4.0-beta",
-        date = "2025-12-15",
-        sections = listOf(
-            ChangelogSection(R.string.changelog_sec_improvements, R.array.changelog_040_improvements)
-        )
-    ),
-    ChangelogVersion(
-        version = "0.3.0-beta",
-        date = "2025-10-28",
-        sections = listOf(
-            ChangelogSection(R.string.changelog_sec_whats_new, R.array.changelog_030_whats_new),
-            ChangelogSection(R.string.changelog_sec_improvements, R.array.changelog_030_improvements),
-            ChangelogSection(R.string.changelog_sec_fixes, R.array.changelog_030_fixes)
-        )
-    ),
-    ChangelogVersion(
-        version = "0.2.0-beta",
-        date = "2024-09-15",
-        sections = listOf(
-            ChangelogSection(R.string.changelog_sec_added, R.array.changelog_020_added),
-            ChangelogSection(R.string.changelog_sec_improvements, R.array.changelog_020_improvements),
-            ChangelogSection(R.string.changelog_sec_fixes, R.array.changelog_020_fixes)
+            ChangelogSection(R.string.changelog_sec_whats_new, R.array.changelog_076b3_whats_new),
+            ChangelogSection(R.string.changelog_sec_changed, R.array.changelog_076b3_changed),
+            ChangelogSection(R.string.changelog_sec_fixed_faster, R.array.changelog_076b3_fixes),
+            ChangelogSection(R.string.changelog_sec_good_to_know, R.array.changelog_076b3_good_to_know)
         )
     )
 )
@@ -140,7 +82,7 @@ fun ChangelogBottomSheet(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val changelogUrl = "https://github.com/theovilardo/PixelPlayer/blob/master/CHANGELOG.md"
+    val changelogUrl = "https://github.com/RedSn0w1877/PixlAudio/releases"
     val changelog = changelogVersions()
 
     val fabCornerRadius = 16.dp

@@ -151,7 +151,7 @@
     <string name="song_info_set_sound_as_long">Angi som lyd</string>
     <string name="song_info_cd_set_sound_as">Velg hvordan denne sangen skal brukes som systemlyd</string>
     <string name="song_info_tone_picker_title">Bruk denne sangen som</string>
-    <string name="song_info_tone_picker_body">Velg hvor PixelPlayer skal installere denne lyden.</string>
+    <string name="song_info_tone_picker_body">Velg hvor PixlAudio skal installere denne lyden.</string>
     <string name="song_info_tone_ringtone_title">Telefonringetone</string>
     <string name="song_info_tone_ringtone_subtitle">Innkommende anrop</string>
     <string name="song_info_tone_notification_title">Varselslyd</string>
@@ -165,7 +165,7 @@
     <string name="song_info_tone_ringtone_label">ringetone</string>
     <string name="song_info_tone_notification_label">varselslyd</string>
     <string name="song_info_tone_alarm_label">alarmlyd</string>
-    <string name="song_info_ringtone_permission_prompt">Aktiver Endre systeminnstillinger, og gå tilbake til PixelPlayer for å fullføre automatisk.</string>
+    <string name="song_info_ringtone_permission_prompt">Aktiver Endre systeminnstillinger, og gå tilbake til PixlAudio for å fullføre automatisk.</string>
     <string name="song_info_ringtone_permission_missing">Endre systeminnstillinger ble ikke aktivert.</string>
     <string name="song_info_ringtone_success">Angitt \"%1$s\" som ringetone</string>
     <string name="song_info_ringtone_local_only">Kun lokale sanger kan brukes som ringetoner.</string>
@@ -492,7 +492,7 @@
     <string name="playlist_view_model_share_failed">Deling mislyktes: %1$s</string>
     <string name="playlist_view_model_none_to_export">Ingen spillelister å eksportere</string>
     <string name="playlist_view_model_export_failed">Eksport mislyktes: %1$s</string>
-    <string name="playlist_view_model_export_folder_display">Musikk/PixelPlayer Eksporter</string>
+    <string name="playlist_view_model_export_folder_display">Musikk/PixlAudio Eksporter</string>
     <string name="playlist_view_model_ai_gemini_key_required">Konfigurer Gemini API-nøkkelen din i innstillingene.</string>
     <string name="playlist_view_model_restored_toast">Spilleliste gjenopprettet</string>
     <plurals name="playlist_view_model_sharing_message">
@@ -552,7 +552,7 @@
     <string name="ai_state_error_api_key">Konfigurer en gyldig API-nøkkel for den valgte AI-leverandøren i innstillingene.</string>
     <string name="ai_state_error_generic">AI-feil: %s</string>
     <string name="ai_state_error_quota">Den valgte AI-leverandøren avviste forespørselen fordi kontoen ikke har kreditter eller tilgjengelig kvote.</string>
-    <string name="ai_state_error_model_unavailable">Den valgte AI-modellen er ikke lenger tilgjengelig. PixelPlayer forsøkte å bytte til en støttet modell automatisk.</string>
+    <string name="ai_state_error_model_unavailable">Den valgte AI-modellen er ikke lenger tilgjengelig. PixlAudio forsøkte å bytte til en støttet modell automatisk.</string>
     <string name="ai_state_no_songs_found">AI kunne ikke finne noen sanger for prompten din.</string>
     <string name="ai_state_prompt_empty">Skriv en idé for din Daily Mix</string>
     <string name="ai_state_daily_mix_updated">Daily Mix oppdatert med AI</string>

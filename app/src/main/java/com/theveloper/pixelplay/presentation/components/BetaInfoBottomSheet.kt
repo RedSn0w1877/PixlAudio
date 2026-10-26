@@ -61,6 +61,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
+import com.theveloper.pixelplay.BuildConfig
 import com.theveloper.pixelplay.R
 import com.theveloper.pixelplay.presentation.components.subcomps.SineWaveLine
 import com.theveloper.pixelplay.ui.theme.ExpTitleTypography
@@ -71,17 +72,17 @@ import racra.compose.smooth_corner_rect_library.AbsoluteSmoothCornerShape
 @Composable
 fun BetaInfoBottomSheet(modifier: Modifier = Modifier) {
     val context = LocalContext.current
-    val issuesUrl = "https://github.com/theovilardo/PixelPlayer/issues"
-    val reportUrl = "https://github.com/theovilardo/PixelPlayer/issues/new/choose"
+    val issuesUrl = "https://github.com/RedSn0w1877/PixlAudio/issues"
+    val reportUrl = "https://github.com/RedSn0w1877/PixlAudio/issues/new"
 
     val fabCornerRadius = 18.dp
 
     val versionName = remember {
         try {
             val packageInfo = context.packageManager.getPackageInfo(context.packageName, 0)
-            packageInfo.versionName ?: "0.7.5-beta"
+            packageInfo.versionName ?: BuildConfig.VERSION_NAME
         } catch (_: Exception) {
-            "0.7.5-beta"
+            BuildConfig.VERSION_NAME
         }
     }
 

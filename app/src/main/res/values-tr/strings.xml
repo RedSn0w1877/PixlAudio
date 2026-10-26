@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">PixelPlayer</string>
+    <string name="app_name">PixlAudio</string>
     <string name="app_tagline">Müzik Çalar</string>
     <string name="app_name_change_title">Uygulama Adı Değişikliği</string>
     <string name="app_name_change_message">Ticari marka kaynaklı bir sorun nedeniyle uygulamamızın adını PixelPlay\'den PixelPlayer olarak değiştirdik. Keyifli dinlemeler!</string>
@@ -13,7 +13,7 @@
 
     <!-- All files access dialog-->
     <string name="all_files_access_title">Özel İzin Gerekiyor</string>
-    <string name="all_files_access_description">Şarkı meta verilerini (.mp3 dosyalarını) düzenlemek için PixelPlayer\'ın tüm dosyalara özel erişim sağlaması gerekir. Bu, parça etiketlerini doğrudan değiştirmemize olanak tanır. Meta veri düzenlemeyi etkinleştirmek için lütfen sonraki ekranda bu izni verin.</string>
+    <string name="all_files_access_description">Şarkı meta verilerini (.mp3 dosyalarını) düzenlemek için PixlAudio\'ın tüm dosyalara özel erişim sağlaması gerekir. Bu, parça etiketlerini doğrudan değiştirmemize olanak tanır. Meta veri düzenlemeyi etkinleştirmek için lütfen sonraki ekranda bu izni verin.</string>
     <string name="grant_permission_button">İzin Ver</string>
 
     <!-- External Player -->
@@ -32,14 +32,14 @@
     <string name="playstore_dialog_action_open">Play Store\'u Aç</string>
     <string name="playstore_dialog_action_continue_beta">Beta\'ya devam et</string>
     <string name="playstore_dialog_link_pending">Play Store bağlantısı GitHub yapılandırmasından etkinleştirilecek.</string>
-    <string name="playstore_dialog_title">PixelPlayer artık Google Play\'de mevcut</string>
+    <string name="playstore_dialog_title">PixlAudio artık Google Play\'de mevcut</string>
     <string name="playstore_dialog_body">Beta yapılarını aktif tutarken sürüm güncellemeleri için Google Play\'deki stabil kanalı kullanın.</string>
-    <string name="playstore_dialog_app_name">PixelPlayer</string>
+    <string name="playstore_dialog_app_name">PixlAudio</string>
     <string name="playstore_dialog_release_announcement">Sürüm duyurusu</string>
     <string name="playstore_dialog_coming_soon">Çok yakında</string>
 
     <!-- Brick breaker -->
-    <string name="easter_egg_thank_you">PixelPlayer\'ı kullandığınız için teşekkür ederiz!</string>
+    <string name="easter_egg_thank_you">PixlAudio\'ı kullandığınız için teşekkür ederiz!</string>
     <string name="brick_high">EN YÜKSEK %1$d</string>
     <string name="brick_cd_close">Kapat</string>
     <string name="brick_stat_score">PUAN</string>

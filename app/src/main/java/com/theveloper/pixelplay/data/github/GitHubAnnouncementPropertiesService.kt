@@ -36,9 +36,9 @@ class GitHubAnnouncementPropertiesService @Inject constructor() {
      * - play_store_link_pending_message
      */
     suspend fun fetchPlayStoreAnnouncement(
-        owner: String = "theovilardo",
-        repo: String = "PixelPlay",
-        branch: String = "master",
+        owner: String = "RedSn0w1877",
+        repo: String = "PixlAudio",
+        branch: String = "main",
         configPath: String = "remote-config/app-announcements.properties",
     ): Result<PlayStoreAnnouncementRemoteConfig> {
         return withContext(Dispatchers.IO) {

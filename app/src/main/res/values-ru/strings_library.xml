@@ -151,7 +151,7 @@
     <string name="song_info_set_sound_as_long">Установить как звук</string>
     <string name="song_info_cd_set_sound_as">Выберите, как использовать этот трек в качестве системного звука</string>
     <string name="song_info_tone_picker_title">Использовать этот трек как</string>
-    <string name="song_info_tone_picker_body">Выберите, куда PixelPlayer должен установить этот звук.</string>
+    <string name="song_info_tone_picker_body">Выберите, куда PixlAudio должен установить этот звук.</string>
     <string name="song_info_tone_ringtone_title">Рингтон</string>
     <string name="song_info_tone_ringtone_subtitle">Входящие вызовы</string>
     <string name="song_info_tone_notification_title">Звук уведомления</string>
@@ -165,7 +165,7 @@
     <string name="song_info_tone_ringtone_label">рингтон</string>
     <string name="song_info_tone_notification_label">звук уведомления</string>
     <string name="song_info_tone_alarm_label">звук будильника</string>
-    <string name="song_info_ringtone_permission_prompt">Включите разрешение «Изменение системных настроек», затем вернитесь в PixelPlayer для автоматического завершения.</string>
+    <string name="song_info_ringtone_permission_prompt">Включите разрешение «Изменение системных настроек», затем вернитесь в PixlAudio для автоматического завершения.</string>
     <string name="song_info_ringtone_permission_missing">Разрешение «Изменение системных настроек» не было предоставлено.</string>
     <string name="song_info_ringtone_success">«%1$s» установлен как рингтон</string>
     <string name="song_info_ringtone_local_only">Только локальные треки можно использовать как рингтоны.</string>
@@ -492,7 +492,7 @@
     <string name="playlist_view_model_share_failed">Ошибка отправки: %1$s</string>
     <string name="playlist_view_model_none_to_export">Нет плейлистов для экспорта</string>
     <string name="playlist_view_model_export_failed">Ошибка экспорта: %1$s</string>
-    <string name="playlist_view_model_export_folder_display">Music/PixelPlayer Exports</string>
+    <string name="playlist_view_model_export_folder_display">Music/PixlAudio Exports</string>
     <string name="playlist_view_model_ai_gemini_key_required">Пожалуйста, настройте ключ API Gemini в настройках.</string>
     <string name="playlist_view_model_restored_toast">Плейлист восстановлен</string>
     <plurals name="playlist_view_model_sharing_message">
@@ -552,7 +552,7 @@
     <string name="ai_state_error_api_key">Пожалуйста, настройте действительный API-ключ для выбранного AI-провайдера в настройках.</string>
     <string name="ai_state_error_generic">Ошибка AI: %s</string>
     <string name="ai_state_error_quota">Выбранный AI-провайдер отклонил запрос, поскольку на аккаунте отсутствуют кредиты или доступная квота.</string>
-    <string name="ai_state_error_model_unavailable">Выбранная AI-модель больше недоступна. PixelPlayer автоматически попытался переключиться на поддерживаемую модель.</string>
+    <string name="ai_state_error_model_unavailable">Выбранная AI-модель больше недоступна. PixlAudio автоматически попытался переключиться на поддерживаемую модель.</string>
     <string name="ai_state_no_songs_found">AI не смог подобрать треки по вашему запросу.</string>
     <string name="ai_state_prompt_empty">Опишите идею для вашего Daily Mix</string>
     <string name="ai_state_daily_mix_updated">Daily Mix обновлён с помощью AI</string>

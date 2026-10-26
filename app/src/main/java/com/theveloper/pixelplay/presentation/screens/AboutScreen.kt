@@ -132,7 +132,7 @@ private val CoreMaintainer = Contributor(
     id = "redsn0w-studios",
     displayName = "RedSn0w Studios",
     role = "Developed & maintained by Hoa Vo",
-    detail = "Carrying PixelPlayer forward, one release at a time.",
+    detail = "Carrying PixlAudio forward, one release at a time.",
     iconRes = R.drawable.round_developer_board_24,
 )
 

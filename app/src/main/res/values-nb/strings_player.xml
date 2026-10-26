@@ -12,7 +12,7 @@
 
     <!-- CastBottomSheet -->
     <string name="cast_perm_title">Gjør deg klar til å koble til</string>
-    <string name="cast_perm_body">Tillat PixelPlayer å se enheter i nærheten og gjeldende Wi-Fi slik at vi kan holde cast, Bluetooth og høyttalere synkronisert.</string>
+    <string name="cast_perm_body">Tillat PixlAudio å se enheter i nærheten og gjeldende Wi-Fi slik at vi kan holde cast, Bluetooth og høyttalere synkronisert.</string>
     <string name="cast_perm_nearby_title">Enheter i nærheten</string>
     <string name="cast_perm_nearby_desc">Trengs for å styre Bluetooth-lydenheter.</string>
     <string name="cast_perm_location_title">Posisjon for Wi-Fi</string>

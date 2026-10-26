@@ -35,6 +35,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import timber.log.Timber
 import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
@@ -366,7 +367,8 @@ class SearchStateHolder @Inject constructor(
                 musicRepository.setFavoriteStatus(unifiedId.toString(), true)
 
                 val entity = spotifyDao.getSongBySpotifyId(spotifyId)
-                val match = entity?.let { trackMatcher.findMatch(it) }
+                // Fan-out with a cap: the sequential findMatch could leave the tap doing nothing for seconds.
+                val match = entity?.let { withTimeoutOrNull(20_000L) { trackMatcher.findMatchFanOut(it) } }
                 spotifyDao.updateMatch(
                     spotifyId = spotifyId,
                     videoId = match?.videoId,

@@ -11,7 +11,7 @@
     <!-- BetaInfoBottomSheet -->
     <string name="beta_sheet_version">Beta 0.7.5</string>
     <string name="beta_sheet_letter">β</string>
-    <string name="beta_sheet_welcome_title">PixelPlayer 0.7.5-beta에 오신 것을 환영합니다</string>
+    <string name="beta_sheet_welcome_title">PixlAudio 0.7.5-beta에 오신 것을 환영합니다</string>
     <string name="beta_sheet_welcome_body">버그, 충돌 또는 실험적 기능이 포함되어 있을 수 있는 베타 빌드를 사용 중입니다. 문제를 보고하여 앱을 개선할 수 있도록 도와주세요.</string>
     <string name="beta_sheet_expect_title">주요 변경 사항</string>
     <string name="beta_sheet_expect_1">버그, 충돌 또는 불완전한 기능이 예기치 않게 발생할 수 있습니다.</string>
@@ -28,7 +28,7 @@
     <string name="beta_sheet_report_summary">새 이슈를 작성하기 전 빠른 체크리스트.</string>
     <string name="beta_sheet_before_title">이슈를 작성하기 전에</string>
     <string name="beta_sheet_before_1">중복을 방지하기 위해 열려 있거나 닫힌 기존 이슈를 검색하세요.</string>
-    <string name="beta_sheet_before_2">최신 PixelPlayer 버전으로 업데이트하고 문제가 여전히 발생하는지 확인하세요.</string>
+    <string name="beta_sheet_before_2">최신 PixlAudio 버전으로 업데이트하고 문제가 여전히 발생하는지 확인하세요.</string>
     <string name="beta_sheet_before_3">앱을 재시작하고 문제가 지속되는지 확인하세요.</string>
     <string name="beta_sheet_before_4">문제를 재현해 보고 정확한 단계를 기록해 두세요.</string>
     <string name="beta_sheet_issue_type_title">어떤 이슈 유형인가요?</string>
@@ -46,7 +46,7 @@
     <string name="beta_sheet_bug_screenshot">스크린샷 / 동영상: (있는 경우)</string>
     <string name="beta_sheet_bug_logs">로그 / 스택 트레이스: (있는 경우)</string>
     <string name="beta_sheet_env_title">환경</string>
-    <string name="beta_sheet_env_version">PixelPlayer 버전:</string>
+    <string name="beta_sheet_env_version">PixlAudio 버전:</string>
     <string name="beta_sheet_env_source">설치 소스: GitHub 릴리스, 디버그 빌드, 나이틀리 빌드 등</string>
     <string name="beta_sheet_env_android">Android 버전:</string>
     <string name="beta_sheet_env_device">기기 모델:</string>
@@ -92,7 +92,7 @@
     <string name="crash_report_stack_preview_label">스택 트레이스 (미리보기):</string>
     <string name="crash_report_clipboard_label">크래시 로그</string>
     <string name="crash_report_toast_log_copied">크래시 로그가 클립보드에 복사되었습니다</string>
-    <string name="crash_report_share_subject">PixelPlayer 크래시 보고서</string>
+    <string name="crash_report_share_subject">PixlAudio 크래시 보고서</string>
     <string name="crash_report_share_chooser">크래시 보고서 공유</string>
 
     <!-- Home Option -->

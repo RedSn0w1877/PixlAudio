@@ -422,7 +422,9 @@ object AppModule {
     @FastOkHttpClient
     fun provideFastOkHttpClient(): OkHttpClient {
         val loggingInterceptor = HttpLoggingInterceptor()
-        loggingInterceptor.setLevel(HttpLoggingInterceptor.Level.HEADERS)
+        loggingInterceptor.setLevel(
+            if (BuildConfig.DEBUG) HttpLoggingInterceptor.Level.HEADERS else HttpLoggingInterceptor.Level.NONE
+        )
         
         // Connection pool to reuse connections for better performance
         val connectionPool = okhttp3.ConnectionPool(

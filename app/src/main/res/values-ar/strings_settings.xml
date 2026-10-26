@@ -218,7 +218,7 @@
     <string name="setcat_trigger_crash_title">إطلاق تعطل تجريبي</string>
     <string name="setcat_trigger_crash_subtitle">محاكاة تعطل مفاجئ للتطبيق لاختبار نظام تقارير الأخطاء.</string>
     <string name="setcat_application">التطبيق</string>
-    <string name="setcat_about_pixelplayer_title">حول PixelPlayer</string>
+    <string name="setcat_about_pixelplayer_title">حول PixlAudio</string>
     <string name="setcat_about_pixelplayer_subtitle">إصدار التطبيق، الحقوق والمساهمين، والمزيد.</string>
 
     <string name="backup_summary_none">لم يتم اختيار أي قسم.</string>
@@ -263,7 +263,7 @@
     <string name="dialog_regenerate_stats_title">إعادة توليد الإحصائيات؟</string>
     <string name="dialog_regenerate_stats_body">سيؤدي هذا إلى مسح ذاكرة التخزين المؤقت للإحصاءات وفرض إعادة الحساب من سجل قاعدة البيانات.</string>
     <string name="toast_stats_regeneration_started">بدأت عملية إعادة توليد الإحصائيات</string>
-    <string name="backup_file_name_format">PixelPlayer_Backup_%1$d.pxpl</string>
+    <string name="backup_file_name_format">PixlAudio_Backup_%1$d.pxpl</string>
 
     <string name="setcat_regenerate_daily_mix_action">إعادة توليد المزيج اليومي</string>
     <string name="setcat_regenerate_stats_action">إعادة توليد الإحصائيات</string>

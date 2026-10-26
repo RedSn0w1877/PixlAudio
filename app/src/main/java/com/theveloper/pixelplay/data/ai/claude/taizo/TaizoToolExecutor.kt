@@ -70,10 +70,30 @@ class TaizoToolExecutor @Inject constructor(
     @Volatile
     private var tasteChanged: Boolean = false
 
+    /** Web pages or lyrics reached the model in this turn: every taste change then asks for a tap. */
+    @Volatile
+    private var untrustedContentSeen: Boolean = false
+
+    /** Tools with side effects (playback, queue, playlists, likes, taste) that already ran in this turn. */
+    @Volatile
+    private var turnSideEffects: Int = 0
+
     override fun beginTurn(userMessage: String) {
         turnUserMessage = userMessage.trim()
         turnAdjustments = 0
+        untrustedContentSeen = false
+        turnSideEffects = 0
     }
+
+    override fun noteUntrustedContent() {
+        untrustedContentSeen = true
+    }
+
+    /**
+     * True when this turn already changed something (played, queued, created a playlist...). The chat then must not
+     * re-run the request on the phone engine if Claude drops out, or it would do it twice.
+     */
+    fun ranSideEffectsThisTurn(): Boolean = turnSideEffects > 0
 
     /** True once since the last call if a tool changed the user's taste: the chat then refreshes its cached profile. */
     fun consumeTasteChanged(): Boolean = tasteChanged.also { tasteChanged = false }
@@ -85,6 +105,9 @@ class TaizoToolExecutor @Inject constructor(
             TaizoTools.REMOVE_TASTE_ADJUSTMENT -> if (userAsked(input) && input.bool("all") == true) {
                 val count = tasteAdjustments.list().size
                 if (count == 0) null else "Remove all $count of Taizo's taste changes?"
+            } else if (userAsked(input) && untrustedContentSeen) {
+                val id = input.str("id").orEmpty().trim()
+                tasteAdjustments.list().firstOrNull { it.id == id }?.let { "Remove the taste change \"${it.label}\"?" }
             } else {
                 null
             }
@@ -107,7 +130,15 @@ class TaizoToolExecutor @Inject constructor(
         }
     }
 
-    override suspend fun run(name: String, input: JsonObject): String = when (name) {
+    override suspend fun run(name: String, input: JsonObject): String {
+        // Lyrics are text from outside the user's message, like a web page.
+        if (name == TaizoTools.GET_LYRICS) untrustedContentSeen = true
+        val result = runTool(name, input)
+        if (name in SIDE_EFFECT_TOOLS) turnSideEffects++
+        return result
+    }
+
+    private suspend fun runTool(name: String, input: JsonObject): String = when (name) {
         TaizoTools.SEARCH_LIBRARY -> searchLibrary(input)
         TaizoTools.SEARCH_SPOTIFY -> searchSpotify(input)
         TaizoTools.PLAY_SONGS -> playSongs(input)
@@ -177,6 +208,10 @@ class TaizoToolExecutor @Inject constructor(
                 "Apply ${items.size} taste changes" + (if (blocks.isNotEmpty()) ", including blocking ${blocks.size}" else "") + "?"
             blocks.isNotEmpty() ->
                 "Block ${names.joinToString(", ")} so PixlAudio never recommends or auto-queues ${if (names.size == 1) "it" else "them"}?"
+            // After a web page or lyrics the model's user_asked flag can't be trusted on its own: ask every time.
+            untrustedContentSeen && items.isNotEmpty() ->
+                "Apply these taste changes: " +
+                    items.joinToString(", ") { "${it.str("action").orEmpty()} ${it.str("target").orEmpty()}".trim() } + "?"
             else -> null
         }
     }
@@ -386,6 +421,9 @@ class TaizoToolExecutor @Inject constructor(
     private suspend fun createPlaylist(input: JsonObject): String {
         val name = input.str("name").orEmpty().trim().ifBlank { throw IllegalArgumentException("The playlist needs a name") }
         val resolved = resolve(input.strings("song_ids"), input.strings("queries"))
+        if (resolved.songs.isEmpty() && (input.strings("song_ids").isNotEmpty() || input.strings("queries").isNotEmpty())) {
+            throw IllegalStateException(notFoundMessage(resolved))
+        }
         val playlist = withContext(Dispatchers.IO) {
             playlists.createPlaylist(name = name, songIds = resolved.songs.map { it.id }, isAiGenerated = true)
         }
@@ -637,6 +675,18 @@ class TaizoToolExecutor @Inject constructor(
         const val SPOTIFY_PREFIX = "spotify:track:"
         const val QUEUE_NAME = "Taizo"
         const val LYRICS_TOOL_MAX_CHARS = 6_000
+
+        private val SIDE_EFFECT_TOOLS = setOf(
+            TaizoTools.PLAY_SONGS,
+            TaizoTools.ADD_TO_QUEUE,
+            TaizoTools.PLAYBACK_CONTROL,
+            TaizoTools.CREATE_PLAYLIST,
+            TaizoTools.ADD_TO_PLAYLIST,
+            TaizoTools.START_SING,
+            TaizoTools.LIKE_SONG,
+            TaizoTools.ADJUST_TASTE,
+            TaizoTools.REMOVE_TASTE_ADJUSTMENT,
+        )
         const val MAX_ADJUSTMENTS_PER_TURN = 40
 
         private fun JsonObject.str(key: String): String? = (this[key] as? JsonPrimitive)?.contentOrNull

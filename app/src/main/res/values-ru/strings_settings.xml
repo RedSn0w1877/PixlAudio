@@ -87,7 +87,7 @@
     <string name="lib_org_group_by_album_artist_subtitle">Показывать совместные альбомы под основным исполнителем</string>
     <string name="multi_artist_info_title">О поддержке нескольких исполнителей</string>
     <string name="multi_artist_info_body">
-        PixelPlayer разделяет теги исполнителей с помощью символьных разделителей (/, ;, &amp;) и словесных разделителей (feat., ft., vs., x). Словесные разделители обрабатываются без учёта регистра.
+        PixlAudio разделяет теги исполнителей с помощью символьных разделителей (/, ;, &amp;) и словесных разделителей (feat., ft., vs., x). Словесные разделители обрабатываются без учёта регистра.
         «Извлекать исполнителей из названия» определяет шаблоны вроде (feat. Artist) в названии песни.
         Обратная косая черта (\) может использоваться для экранирования символьных разделителей.
     </string>
@@ -367,7 +367,7 @@
     <string name="settings_action_export_pxpl">Экспорт .pxpl</string>
     <string name="settings_action_restore_selected">Восстановить выбранное</string>
     <string name="settings_backup_transfer_in_progress">Выполняется передача…</string>
-    <string name="settings_backup_file_name_format">PixelPlayer_Backup_%1$d.pxpl</string>
+    <string name="settings_backup_file_name_format">PixlAudio_Backup_%1$d.pxpl</string>
     <string name="settings_dialog_creating_backup">Создание резервной копии</string>
     <string name="settings_dialog_restoring_backup">Восстановление резервной копии</string>
     <string name="settings_dialog_progress_percent">%1$d%%</string>
@@ -578,7 +578,7 @@
     <string name="settings_devcaps_report_copy">Копировать</string>
     <string name="settings_devcaps_report_share">Поделиться</string>
     <string name="settings_devcaps_report_copied">Отчёт скопирован в буфер обмена</string>
-    <string name="settings_devcaps_report_share_title">Отчёт о производительности PixelPlayer</string>
+    <string name="settings_devcaps_report_share_title">Отчёт о производительности PixlAudio</string>
     <string name="settings_devcaps_advanced_diagnostics_title">Расширенная диагностика производительности</string>
     <string name="settings_devcaps_advanced_diagnostics_description">По умолчанию отключено. Записывает короткую историю лагов для отладки бета-версии.</string>
     <string name="settings_devcaps_advanced_diagnostics_expires">Активно до %1$s</string>
@@ -605,7 +605,7 @@
 
     <!-- About category -->
     <string name="about_screen_title">О приложении</string>
-    <string name="about_app_name">PixelPlayer</string>
+    <string name="about_app_name">PixlAudio</string>
     <string name="about_tagline">Музыкальный плеер с открытым исходным кодом, созданный сообществом.</string>
     <string name="about_version_format">Версия v%1$s</string>
     <string name="about_signal_open_source">Открытый исходный код</string>
@@ -613,7 +613,7 @@
     <string name="about_signal_material3">Material 3 Expressive</string>
     <string name="about_no_contributors">Сейчас список участников недоступен. Попробуйте позже.</string>
     <string name="about_maintainer_title">Сопровождающий проекта</string>
-    <string name="about_maintainer_subtitle">Человек, стоящий за PixelPlayer.</string>
+    <string name="about_maintainer_subtitle">Человек, стоящий за PixlAudio.</string>
     <string name="about_spotlight_title">Гордость сообщества</string>
     <string name="about_spotlight_subtitle">Признание участников, внёсших значительный вклад.</string>
     <string name="about_contributors_section_title">Участники open source</string>

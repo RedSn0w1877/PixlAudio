@@ -179,7 +179,7 @@
     <string name="auth_gdrive_connect_subtitle">直接从您的 Google Drive 串流音乐文件</string>
     <string name="auth_gdrive_connect_title">连接 Google Drive</string>
     <string name="auth_gdrive_connected_toast">Google Drive 已连接！</string>
-    <string name="auth_gdrive_create_action">创建 \"PixelPlayer Music\"</string>
+    <string name="auth_gdrive_create_action">创建 \"PixlAudio Music\"</string>
     <string name="auth_gdrive_create_subtitle">在这里为您的音乐创建一个新文件夹</string>
     <string name="auth_gdrive_empty_msg">这里没有文件夹</string>
     <string name="auth_gdrive_open_cd">打开文件夹</string>
@@ -214,7 +214,7 @@
     <string name="auth_netease_http_error">加载网易云音乐时出现 HTTP %1$d。</string>
     <string name="auth_netease_incomplete_error">尚未检测到登录。请在点击完成前完成网易云音乐的登录。</string>
     <string name="auth_netease_login_title">登录网易云音乐</string>
-    <string name="auth_netease_security_msg">安全提示：您的密码仅在网易云音乐网页中输入。PixelPlayer 仅存储会话 Cookie (MUSIC_U) 以同步您的媒体库。</string>
+    <string name="auth_netease_security_msg">安全提示：您的密码仅在网易云音乐网页中输入。PixlAudio 仅存储会话 Cookie (MUSIC_U) 以同步您的媒体库。</string>
     <string name="auth_netease_title">网易云音乐</string>
 
     <!-- QQ Music Web Login -->
@@ -223,6 +223,6 @@
     <string name="auth_qq_http_error">加载 QQ 音乐时出现 HTTP %1$d。</string>
     <string name="auth_qq_incomplete_error">尚未检测到登录。请在点击完成前完成 QQ 音乐的登录。</string>
     <string name="auth_qq_login_title">登录 QQ 音乐</string>
-    <string name="auth_qq_security_msg">安全提示：您的密码仅在 QQ 音乐网页中输入。PixelPlayer 仅存储会话 Cookie 以同步您的媒体库。</string>
+    <string name="auth_qq_security_msg">安全提示：您的密码仅在 QQ 音乐网页中输入。PixlAudio 仅存储会话 Cookie 以同步您的媒体库。</string>
     <string name="auth_qq_title">QQ 音乐</string>
 </resources>

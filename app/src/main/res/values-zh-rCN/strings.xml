@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">PixelPlayer</string>
+    <string name="app_name">PixlAudio</string>
     <string name="app_tagline">音乐播放器</string>
     <string name="app_name_change_title">应用名称更改</string>
     <string name="app_name_change_message">由于商标相关问题，我们将应用名称从 PixelPlay 更改为 PixelPlayer。请继续享受音乐！</string>
@@ -13,7 +13,7 @@
 
     <!-- All files access dialog-->
     <string name="all_files_access_title">需要特殊权限</string>
-    <string name="all_files_access_description">为了编辑歌曲信息（.mp3 文件），PixelPlayer 需要访问所有文件的特殊权限。这将允许我们直接修改曲目标签。请在下一界面授予此权限以开启信息编辑功能。</string>
+    <string name="all_files_access_description">为了编辑歌曲信息（.mp3 文件），PixlAudio 需要访问所有文件的特殊权限。这将允许我们直接修改曲目标签。请在下一界面授予此权限以开启信息编辑功能。</string>
     <string name="grant_permission_button">授予权限</string>
 
     <!-- External Player -->
@@ -32,14 +32,14 @@
     <string name="playstore_dialog_action_open">打开 Play 商店</string>
     <string name="playstore_dialog_action_continue_beta">继续使用 Beta 版</string>
     <string name="playstore_dialog_link_pending">Play 商店链接将通过 GitHub 配置启用。</string>
-    <string name="playstore_dialog_title">PixelPlayer 现已上线 Google Play</string>
+    <string name="playstore_dialog_title">PixlAudio 现已上线 Google Play</string>
     <string name="playstore_dialog_body">请在 Google Play 上使用稳定版以获取正式更新，同时我们仍会保持 Beta 测试版本的更新。</string>
-    <string name="playstore_dialog_app_name">PixelPlayer</string>
+    <string name="playstore_dialog_app_name">PixlAudio</string>
     <string name="playstore_dialog_release_announcement">发布公告</string>
     <string name="playstore_dialog_coming_soon">敬请期待</string>
 
     <!-- Brick breaker -->
-    <string name="easter_egg_thank_you">感谢您使用 PixelPlayer！</string>
+    <string name="easter_egg_thank_you">感谢您使用 PixlAudio！</string>
     <string name="brick_high">最高分 %1$d</string>
     <string name="brick_cd_close">关闭</string>
     <string name="brick_stat_score">分数</string>

@@ -99,7 +99,7 @@
     <string name="lib_org_group_by_album_artist_subtitle">Show collaboration albums under main artist</string>
     <string name="multi_artist_info_title">About Multi-Artist Parsing</string>
     <string name="multi_artist_info_body">
-        PixelPlayer splits artist tags using character delimiters (/, ;, &amp;) and word delimiters (feat., ft., vs., x). Word delimiters are matched case-insensitively.
+        PixlAudio splits artist tags using character delimiters (/, ;, &amp;) and word delimiters (feat., ft., vs., x). Word delimiters are matched case-insensitively.
         \"Extract Artists from Title\" detects patterns like (feat. Artist) in song titles.
         Backslash (\) can be used to escape character delimiters.
     </string>
@@ -402,15 +402,15 @@
     <!-- Backup & Restore category -->
     <string name="settings_backup_how_dialog_title">How backup works</string>
     <string name="settings_backup_how_dialog_body">Choose sections, export a .pxpl file, and import it later. Restore only replaces the sections you select.</string>
-    <string name="settings_create_backup_section">Create Backup</string>
-    <string name="settings_export_backup_title">Export Backup</string>
+    <string name="settings_create_backup_section">Create backup</string>
+    <string name="settings_export_backup_title">Export backup</string>
     <string name="settings_export_backup_none">No sections selected.</string>
     <string name="settings_export_backup_all">All sections selected.</string>
     <string name="settings_export_backup_partial">Selected %1$d of %2$d sections.</string>
     <string name="settings_export_backup_subtitle">%1$s Creates a .pxpl backup file.</string>
     <string name="settings_action_select_export">Select &amp; Export</string>
-    <string name="settings_restore_backup_section">Restore Backup</string>
-    <string name="settings_import_backup_title">Import Backup</string>
+    <string name="settings_restore_backup_section">Restore backup</string>
+    <string name="settings_import_backup_title">Import backup</string>
     <string name="settings_action_select_restore">Select &amp; Restore</string>
     <string name="settings_import_backup_subtitle">Browse or pick from recent backups. Selected data will replace current data.</string>
 
@@ -426,7 +426,7 @@
     <string name="settings_action_export_pxpl">Export .pxpl</string>
     <string name="settings_action_restore_selected">Restore Selected</string>
     <string name="settings_backup_transfer_in_progress">Transfer in progress…</string>
-    <string name="settings_backup_file_name_format">PixelPlayer_Backup_%1$d.pxpl</string>
+    <string name="settings_backup_file_name_format">PixlAudio_Backup_%1$d.pxpl</string>
     <string name="settings_dialog_creating_backup">Creating Backup</string>
     <string name="settings_dialog_restoring_backup">Restoring Backup</string>
     <string name="settings_dialog_progress_percent">%1$d%%</string>
@@ -641,7 +641,7 @@
     <string name="settings_devcaps_report_copy">Copy</string>
     <string name="settings_devcaps_report_share">Share</string>
     <string name="settings_devcaps_report_copied">Report copied to clipboard</string>
-    <string name="settings_devcaps_report_share_title">PixelPlayer performance report</string>
+    <string name="settings_devcaps_report_share_title">PixlAudio performance report</string>
     <string name="settings_devcaps_advanced_diagnostics_title">Advanced performance diagnostics</string>
     <string name="settings_devcaps_advanced_diagnostics_description">Off by default. Records a short lag timeline for beta troubleshooting.</string>
     <string name="settings_devcaps_advanced_diagnostics_expires">Active until %1$s</string>
@@ -668,7 +668,7 @@
 
     <!-- About category -->
     <string name="about_screen_title">About</string>
-    <string name="about_app_name">PixelPlayer</string>
+    <string name="about_app_name">PixlAudio</string>
     <string name="about_tagline">Open source music player built with its community.</string>
     <string name="about_version_format">Version v%1$s</string>
     <string name="about_signal_open_source">Open source</string>
@@ -676,7 +676,7 @@
     <string name="about_signal_material3">Material 3 expressive</string>
     <string name="about_no_contributors">No contributors found right now. Please try again later.</string>
     <string name="about_maintainer_title">Maintainer</string>
-    <string name="about_maintainer_subtitle">The person behind PixelPlayer.</string>
+    <string name="about_maintainer_subtitle">The person behind PixlAudio.</string>
     <string name="about_spotlight_title">Community spotlight</string>
     <string name="about_spotlight_subtitle">Recognition for collaborators with major impact.</string>
     <string name="about_licenses_title">Licenses and notices</string>
@@ -717,7 +717,7 @@
     <string name="app_update_error_not_newer">That download isn\'t newer than the version you have.</string>
     <string name="app_update_error_different_key">This update was signed with a different key than the app on your phone, so Android won\'t install it on top. Uninstall this copy once, then install the new version from GitHub.</string>
     <string name="app_update_error_storage">Not enough storage space to install the update.</string>
-    <string name="app_update_error_blocked">Android blocked the update. Check that PixelPlayer is allowed to install apps.</string>
+    <string name="app_update_error_blocked">Android blocked the update. Check that PixlAudio is allowed to install apps.</string>
     <string name="app_update_error_install_generic">The update couldn\'t be installed. Try again.</string>
     <string name="open_source_licenses_screen_title">Open source licenses</string>
     <string name="third_party_notices_action">MIT-era notice</string>

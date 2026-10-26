@@ -17,7 +17,7 @@
     <string name="setup_permission_notifications_description">启用通知以便在锁屏和通知栏控制您的音乐。</string>
     <string name="setup_enable_notifications">启用通知</string>
     <string name="setup_backup_have_title">您有备份文件吗？</string>
-    <string name="setup_backup_have_description">如果您已有 PixelPlayer 备份，现在恢复它可以跳过此设备上的大部分剩余设置。</string>
+    <string name="setup_backup_have_description">如果您已有 PixlAudio 备份，现在恢复它可以跳过此设备上的大部分剩余设置。</string>
     <string name="setup_import_backup">导入备份</string>
     <string name="setup_inspecting_backup">正在检查备份</string>
     <string name="setup_checking_backup">正在检查备份包…</string>
@@ -34,7 +34,7 @@
     <string name="setup_theme_title">应用主题</string>
     <string name="setup_theme_subtitle">在开始探索媒体库之前，选择您喜欢的外观。</string>
     <string name="setup_theme_dark_title">深色</string>
-    <string name="setup_theme_dark_description">PixelPlayer 默认的 Material 3 深色外观。</string>
+    <string name="setup_theme_dark_description">PixlAudio 默认的 Material 3 深色外观。</string>
     <string name="setup_theme_light_title">浅色</string>
     <string name="setup_theme_light_description">整个应用采用更明亮的 Material 3 外观。</string>
     <string name="setup_theme_follow_title">跟随系统</string>
@@ -59,10 +59,10 @@
     <string name="setup_customize_corner_radius">自定义圆角半径</string>
     <string name="setup_navbar_footer">您稍后可以在“设置 &gt; 外观 &gt; 导航栏样式”中更改此设置。</string>
     <string name="setup_permission_alarms_title">闹钟和提醒</string>
-    <string name="setup_permission_alarms_description">可选，但如果您使用睡眠定时器并希望 PixelPlayer 准时停止播放，则推荐使用。</string>
+    <string name="setup_permission_alarms_description">可选，但如果您使用睡眠定时器并希望 PixlAudio 准时停止播放，则推荐使用。</string>
     <string name="setup_grant_permission_generic">授予权限</string>
     <string name="setup_battery_optimization_title">电池优化</string>
-    <string name="setup_battery_optimization_description">某些 Android 设备会强制结束后台应用。请为 PixelPlayer 禁用电池优化，以防止意外的播放中断。</string>
+    <string name="setup_battery_optimization_description">某些 Android 设备会强制结束后台应用。请为 PixlAudio 禁用电池优化，以防止意外的播放中断。</string>
     <string name="setup_disable_battery_optimization">禁用优化</string>
     <string name="setup_all_set_title">一切就绪！</string>
     <string name="setup_all_set_body">您已准备好享受音乐了。</string>

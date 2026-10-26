@@ -10,7 +10,9 @@ import androidx.security.crypto.MasterKey
 import com.theveloper.pixelplay.BuildConfig
 import com.theveloper.pixelplay.data.network.spotify.SpotifyAuthApiService
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -171,8 +173,11 @@ class SpotifyAuthManager @Inject constructor(
     /**
      * Procesa la vuelta del navegador: valida el `state`, canjea el código por tokens
      * y los guarda.
+     *
+     * NonCancellable: once Spotify has accepted the code it won't accept it again, so a caller
+     * cancelled mid-exchange must not throw the tokens away.
      */
-    suspend fun handleAuthorizationResponse(uri: Uri): Result<Unit> = withContext(Dispatchers.IO) {
+    suspend fun handleAuthorizationResponse(uri: Uri): Result<Unit> = withContext(NonCancellable + Dispatchers.IO) {
         val error = uri.getQueryParameter("error")
         if (!error.isNullOrBlank()) {
             _lastError.value = error
@@ -220,6 +225,8 @@ class SpotifyAuthManager @Inject constructor(
                 Timber.i("Spotify token exchange granted scope: \"${body.scope}\"")
                 Result.success(Unit)
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Timber.e(e, "Fallo al canjear el código de Spotify")
             _lastError.value = e.message
@@ -265,7 +272,10 @@ class SpotifyAuthManager @Inject constructor(
         refreshAccessTokenLocked().isSuccess
     }
 
-    private suspend fun refreshAccessTokenLocked(): Result<String> = withContext(Dispatchers.IO) {
+    // NonCancellable: Spotify rotates the refresh token on every grant. If the caller is cancelled (a
+    // search keystroke, a stopped worker) after Spotify processed the grant, dropping the response would
+    // lose the only valid refresh token and the next refresh would sign the user out.
+    private suspend fun refreshAccessTokenLocked(): Result<String> = withContext(NonCancellable + Dispatchers.IO) {
         val refreshToken = prefs.getString(KEY_REFRESH_TOKEN, null)
         if (refreshToken.isNullOrBlank()) {
             return@withContext Result.failure(IllegalStateException("sin refresh token"))
@@ -296,6 +306,8 @@ class SpotifyAuthManager @Inject constructor(
             // (not just the latest login) actually carries the playlist scopes.
             Timber.i("Spotify token refresh carries scope: \"${body.scope}\"")
             Result.success(accessToken)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Timber.e(e, "Fallo al refrescar el token de Spotify")
             _lastError.value = e.message
@@ -317,7 +329,9 @@ class SpotifyAuthManager @Inject constructor(
         if (!refreshToken.isNullOrBlank()) {
             editor.putString(KEY_REFRESH_TOKEN, refreshToken)
         }
-        editor.apply()
+        // commit(), not apply(): the rotated refresh token must be on disk before we return, or a
+        // process death right after a refresh loses it. Callers are already on Dispatchers.IO.
+        editor.commit()
         _isLoggedIn.value = prefs.getString(KEY_REFRESH_TOKEN, null) != null
     }
 

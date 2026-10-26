@@ -83,6 +83,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.core.view.HapticFeedbackConstantsCompat
+import com.theveloper.pixelplay.BuildConfig
 import com.theveloper.pixelplay.R
 import com.theveloper.pixelplay.presentation.components.CollapsibleCommonTopBar
 import com.theveloper.pixelplay.presentation.components.rememberCollapseFraction
@@ -222,8 +223,12 @@ fun SettingsScreen(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.fillMaxSize()
         ) {
-            item {
-                PlusSettingsItem(onClick = { navController.navigateSafely(Screen.Plus.route) })
+            // Plus only shows once checkout is wired into the build (or in Developer mode); otherwise every
+            // button on it ends in a 'checkout is not connected' dialog.
+            if (BuildConfig.PLUS_CHECKOUT_URL.isNotBlank() || developerMode) {
+                item {
+                    PlusSettingsItem(onClick = { navController.navigateSafely(Screen.Plus.route) })
+                }
             }
             item {
                 val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
@@ -342,7 +347,7 @@ private fun PlusSettingsItem(onClick: () -> Unit) {
             }
             Spacer(Modifier.width(16.dp))
             Column(Modifier.weight(1f)) {
-                Text("PixelPlayer Plus", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = colors.onPrimaryContainer)
+                Text("PixlAudio Plus", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = colors.onPrimaryContainer)
                 Text("One-time support for future music tools", style = MaterialTheme.typography.bodyMedium, color = colors.onPrimaryContainer.copy(alpha = .78f))
             }
             Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = colors.onPrimaryContainer)

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <resources>
-    <string name="app_name">PixelPlayer</string>
+    <string name="app_name">PixlAudio</string>
     <string name="app_tagline">Pemutar Musik</string>
     <string name="app_name_change_title">Perubahan Nama Aplikasi</string>
     <string name="app_name_change_message">Kami telah mengubah nama aplikasi kami dari PixelPlay menjadi PixelPlayer karena masalah terkait merek dagang. Teruslah mendengarkan!</string>
@@ -13,7 +13,7 @@
 
     <!-- All files access dialog-->
     <string name="all_files_access_title">Izin Khusus Diperlukan</string>
-    <string name="all_files_access_description">Untuk mengedit metadata lagu (file .mp3), PixelPlayer memerlukan akses khusus ke semua file. Ini memungkinkan kami untuk mengubah tag lagu secara langsung. Mohon berikan izin ini di layar berikutnya untuk mengaktifkan pengeditan metadata.</string>
+    <string name="all_files_access_description">Untuk mengedit metadata lagu (file .mp3), PixlAudio memerlukan akses khusus ke semua file. Ini memungkinkan kami untuk mengubah tag lagu secara langsung. Mohon berikan izin ini di layar berikutnya untuk mengaktifkan pengeditan metadata.</string>
     <string name="grant_permission_button">Berikan Izin</string>
 
     <!-- External Player -->
@@ -32,14 +32,14 @@
     <string name="playstore_dialog_action_open">Buka Play Store</string>
     <string name="playstore_dialog_action_continue_beta">Lanjutkan beta</string>
     <string name="playstore_dialog_link_pending">Tautan Play Store akan diaktifkan dari konfigurasi GitHub.</string>
-    <string name="playstore_dialog_title">PixelPlayer kini tersedia di Google Play</string>
+    <string name="playstore_dialog_title">PixlAudio kini tersedia di Google Play</string>
     <string name="playstore_dialog_body">Gunakan saluran stabil di Google Play untuk pembaruan rilis sementara kami tetap mengaktifkan build beta.</string>
-    <string name="playstore_dialog_app_name">PixelPlayer</string>
+    <string name="playstore_dialog_app_name">PixlAudio</string>
     <string name="playstore_dialog_release_announcement">Pengumuman rilis</string>
     <string name="playstore_dialog_coming_soon">Segera hadir</string>
 
     <!-- Brick breaker -->
-    <string name="easter_egg_thank_you">Terima kasih telah menggunakan PixelPlayer!</string>
+    <string name="easter_egg_thank_you">Terima kasih telah menggunakan PixlAudio!</string>
     <string name="brick_high">TERTINGGI %1$d</string>
     <string name="brick_cd_close">Tutup</string>
     <string name="brick_stat_score">SKOR</string>

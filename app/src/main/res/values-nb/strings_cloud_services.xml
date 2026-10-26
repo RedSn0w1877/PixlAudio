@@ -179,7 +179,7 @@
     <string name="auth_gdrive_connect_subtitle">Strøm musikkfiler direkte fra din Google Drive</string>
     <string name="auth_gdrive_connect_title">Koble til Google Drive</string>
     <string name="auth_gdrive_connected_toast">Google Drive tilkoblet!</string>
-    <string name="auth_gdrive_create_action">Opprett \"PixelPlayer Music\"</string>
+    <string name="auth_gdrive_create_action">Opprett \"PixlAudio Music\"</string>
     <string name="auth_gdrive_create_subtitle">Opprett en ny mappe for musikken din her</string>
     <string name="auth_gdrive_empty_msg">Ingen mapper her</string>
     <string name="auth_gdrive_open_cd">Åpne mappe</string>
@@ -214,7 +214,7 @@
     <string name="auth_netease_http_error">HTTP %1$d under lasting av NetEase.</string>
     <string name="auth_netease_incomplete_error">Innlogging ikke oppdaget ennå. Fullfør NetEase-innlogging før du trykker Ferdig.</string>
     <string name="auth_netease_login_title">Logg inn på NetEase Music</string>
-    <string name="auth_netease_security_msg">Sikkerhetsmerknad: passordet ditt tastes kun inn på NetEase sine nettsider. PixelPlayer lagrer sesjonsinformasjon (MUSIC_U) for å synkronisere biblioteket ditt.</string>
+    <string name="auth_netease_security_msg">Sikkerhetsmerknad: passordet ditt tastes kun inn på NetEase sine nettsider. PixlAudio lagrer sesjonsinformasjon (MUSIC_U) for å synkronisere biblioteket ditt.</string>
     <string name="auth_netease_title">NetEase Music</string>
 
     <!-- QQ Music Web Login -->
@@ -223,6 +223,6 @@
     <string name="auth_qq_http_error">HTTP %1$d under lasting av QQ Music.</string>
     <string name="auth_qq_incomplete_error">Innlogging ikke oppdaget ennå. Fullfør QQ Music-innlogging før du trykker Ferdig.</string>
     <string name="auth_qq_login_title">Logg inn på QQ Music</string>
-    <string name="auth_qq_security_msg">Sikkerhetsmerknad: passordet ditt tastes kun inn på QQ Musics nettsider. PixelPlayer lagrer sesjonsinformasjon for å synkronisere biblioteket ditt.</string>
+    <string name="auth_qq_security_msg">Sikkerhetsmerknad: passordet ditt tastes kun inn på QQ Musics nettsider. PixlAudio lagrer sesjonsinformasjon for å synkronisere biblioteket ditt.</string>
     <string name="auth_qq_title">QQ Music</string>
 </resources>

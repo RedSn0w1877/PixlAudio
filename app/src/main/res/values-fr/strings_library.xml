@@ -151,7 +151,7 @@
     <string name="song_info_set_sound_as_long">Définir comme sonnerie/alarme</string>
     <string name="song_info_cd_set_sound_as">Choisissez comment utiliser cette chanson comme son système</string>
     <string name="song_info_tone_picker_title">Utiliser cette chanson comme</string>
-    <string name="song_info_tone_picker_body">Choisissez où PixelPlayer doit installer ce son.</string>
+    <string name="song_info_tone_picker_body">Choisissez où PixlAudio doit installer ce son.</string>
     <string name="song_info_tone_ringtone_title">Sonnerie du téléphone</string>
     <string name="song_info_tone_ringtone_subtitle">Appels entrants</string>
     <string name="song_info_tone_notification_title">Son de notification</string>
@@ -165,7 +165,7 @@
     <string name="song_info_tone_ringtone_label">sonnerie</string>
     <string name="song_info_tone_notification_label">son de notification</string>
     <string name="song_info_tone_alarm_label">son d\'alarme</string>
-    <string name="song_info_ringtone_permission_prompt">Activez la modification des paramètres système, puis revenez à PixelPlayer to finish automatically.</string>
+    <string name="song_info_ringtone_permission_prompt">Activez la modification des paramètres système, puis revenez à PixlAudio to finish automatically.</string>
     <string name="song_info_ringtone_permission_missing">La modification des paramètres système n\'a pas été activée.</string>
     <string name="song_info_ringtone_success">« %1$s » a été défini comme votre sonnerie</string>
     <string name="song_info_ringtone_local_only">Seules les chansons locales peuvent être utilisées comme sonneries.</string>
@@ -492,7 +492,7 @@
     <string name="playlist_view_model_share_failed">Échec du partage : %1$s</string>
     <string name="playlist_view_model_none_to_export">Aucune playlist à exporter</string>
     <string name="playlist_view_model_export_failed">Export failed: %1$s</string>
-    <string name="playlist_view_model_export_folder_display">Music/PixelPlayer Exports</string>
+    <string name="playlist_view_model_export_folder_display">Music/PixlAudio Exports</string>
     <string name="playlist_view_model_ai_gemini_key_required">Veuillez configurer votre clé API Gemini dans les paramètres.</string>
     <string name="playlist_view_model_restored_toast">Playlist restaurée</string>
     <plurals name="playlist_view_model_sharing_message">
@@ -552,7 +552,7 @@
     <string name="ai_state_error_api_key">Veuillez configurer une clé API valide pour le fournisseur d\'IA sélectionné dans les paramètres.</string>
     <string name="ai_state_error_generic">Erreur d\'IA : %s</string>
     <string name="ai_state_error_quota">Le fournisseur d\'IA sélectionné a rejeté la requête car le compte n\'a plus de crédits ou de quota disponible.</string>
-    <string name="ai_state_error_model_unavailable">Le modèle d\'IA sélectionné n\'est plus disponible. PixelPlayer a tenté de basculer automatiquement vers un modèle pris en charge.</string>
+    <string name="ai_state_error_model_unavailable">Le modèle d\'IA sélectionné n\'est plus disponible. PixlAudio a tenté de basculer automatiquement vers un modèle pris en charge.</string>
     <string name="ai_state_no_songs_found">L\'IA n\'a trouvé aucune chanson pour votre demande.</string>
     <string name="ai_state_prompt_empty">Écrivez une idée pour votre Daily Mix</string>
     <string name="ai_state_daily_mix_updated">Daily Mix mis à jour avec l\'IA</string>

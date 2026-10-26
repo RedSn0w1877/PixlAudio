@@ -184,7 +184,7 @@
     <string name="auth_gdrive_connect_subtitle">Слушайте музыку напрямую из Google Drive</string>
     <string name="auth_gdrive_connect_title">Подключить Google Drive</string>
     <string name="auth_gdrive_connected_toast">Google Drive подключён!</string>
-    <string name="auth_gdrive_create_action">Создать «PixelPlayer Music»</string>
+    <string name="auth_gdrive_create_action">Создать «PixlAudio Music»</string>
     <string name="auth_gdrive_create_subtitle">Создать здесь новую папку для музыки</string>
     <string name="auth_gdrive_empty_msg">Здесь нет папок</string>
     <string name="auth_gdrive_open_cd">Открыть папку</string>
@@ -219,7 +219,7 @@
     <string name="auth_netease_http_error">HTTP %1$d при загрузке NetEase.</string>
     <string name="auth_netease_incomplete_error">Вход ещё не обнаружен. Завершите вход в NetEase Music перед нажатием «Готово».</string>
     <string name="auth_netease_login_title">Вход в NetEase Music</string>
-    <string name="auth_netease_security_msg">Примечание по безопасности: ваш пароль вводится только на страницах NetEase. PixelPlayer сохраняет cookies сессии (MUSIC_U) для синхронизации вашей медиатеки.</string>
+    <string name="auth_netease_security_msg">Примечание по безопасности: ваш пароль вводится только на страницах NetEase. PixlAudio сохраняет cookies сессии (MUSIC_U) для синхронизации вашей медиатеки.</string>
     <string name="auth_netease_title">NetEase Music</string>
 
     <!-- QQ Music Web Login -->
@@ -228,6 +228,6 @@
     <string name="auth_qq_http_error">HTTP %1$d при загрузке QQ Music.</string>
     <string name="auth_qq_incomplete_error">Вход ещё не обнаружен. Завершите вход в QQ Music перед нажатием «Готово».</string>
     <string name="auth_qq_login_title">Вход в QQ Music</string>
-    <string name="auth_qq_security_msg">Примечание по безопасности: ваш пароль вводится только на страницах QQ Music. PixelPlayer сохраняет cookies сессии для синхронизации вашей медиатеки.</string>
+    <string name="auth_qq_security_msg">Примечание по безопасности: ваш пароль вводится только на страницах QQ Music. PixlAudio сохраняет cookies сессии для синхронизации вашей медиатеки.</string>
     <string name="auth_qq_title">QQ Music</string>
 </resources>

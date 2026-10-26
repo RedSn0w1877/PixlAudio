@@ -197,7 +197,7 @@
     <string name="presentation_batch_g_artist_group_by_album_artist">التجميع حسب فنان الألبوم</string>
     <string name="presentation_batch_g_artist_group_by_album_artist_sub">إظهار ألبومات العمل المشترك تحت اسم الفنان الرئيسي</string>
     <string name="presentation_batch_g_artist_info_title">حول تحليل الفنانين المتعددين</string>
-    <string name="presentation_batch_g_artist_info_body">يقوم PixelPlayer بفصل علامات الفنانين باستخدام محددات الرموز مثل (/, ;, &amp;) ومحددات الكلمات مثل (feat., ft., vs., x). يتم مطابقة محددات الكلمات دون الحساسية لحالة الأحرف.\n\nتكتشف ميزة "استخراج الفنانين من العنوان" الأنماط مثل (feat. Artist) في عناوين الأغاني.\n\nيمكن استخدام الشرطة المائلة الخلفية (\\) لتخطي محددات الرموز.</string>
+    <string name="presentation_batch_g_artist_info_body">يقوم PixlAudio بفصل علامات الفنانين باستخدام محددات الرموز مثل (/, ;, &amp;) ومحددات الكلمات مثل (feat., ft., vs., x). يتم مطابقة محددات الكلمات دون الحساسية لحالة الأحرف.\n\nتكتشف ميزة "استخراج الفنانين من العنوان" الأنماط مثل (feat. Artist) في عناوين الأغاني.\n\nيمكن استخدام الشرطة المائلة الخلفية (\\) لتخطي محددات الرموز.</string>
     <string name="presentation_batch_g_artist_example_arrow"> ← </string>
     <string name="presentation_batch_g_artist_examples_title">أمثلة</string>
     <string name="presentation_batch_g_artist_ex_1_in">\"Artist1/Artist2\"</string>
@@ -287,9 +287,9 @@
     <string name="presentation_batch_g_playstore_open">فتح متجر Play</string>
     <string name="presentation_batch_g_playstore_continue_beta">متابعة النسخة التجريبية</string>
     <string name="presentation_batch_g_playstore_link_pending">سيتم تفعيل رابط متجر Play من تكوين GitHub.</string>
-    <string name="presentation_batch_g_playstore_title">PixelPlayer متاح الآن على Google Play</string>
+    <string name="presentation_batch_g_playstore_title">PixlAudio متاح الآن على Google Play</string>
     <string name="presentation_batch_g_playstore_body">استخدم القناة المستقرة على Google Play للحصول على التحديثات الرسمية بينما نبقي البناء التجريبي نشطاً.</string>
-    <string name="presentation_batch_g_playstore_app_name">PixelPlayer</string>
+    <string name="presentation_batch_g_playstore_app_name">PixlAudio</string>
     <string name="presentation_batch_g_playstore_release_announcement">إعلان الإصدار</string>
     <string name="presentation_batch_g_playstore_coming_soon">قريباً</string>
 
@@ -312,7 +312,7 @@
 
     <!-- Beta Sheets Info -->
     <string name="presentation_batch_g_beta_sheet_version">الإصدار التجريبي 0.7.0</string>
-    <string name="presentation_batch_g_beta_sheet_welcome_title">مرحباً بك في PixelPlayer 0.7.0-beta</string>
+    <string name="presentation_batch_g_beta_sheet_welcome_title">مرحباً بك في PixlAudio 0.7.0-beta</string>
     <string name="presentation_batch_g_beta_sheet_welcome_body">أنت تستخدم بناءً تجريبياً قد يحتوي على أخطاء، أو حالات توقف مفاجئ، أو ميزات تجريبية. ساعدنا في التحسين من خلال الإبلاغ عن المشكلات.</string>
     <string name="presentation_batch_g_beta_sheet_expect_title">ماذا تتوقع</string>
     <string name="presentation_batch_g_beta_sheet_expect_1">قد تحدث أخطاء، توقفات مفاجئة، أو ميزات غير مكتملة بشكل غير متوقع.</string>
@@ -329,7 +329,7 @@
     <string name="presentation_batch_g_beta_sheet_report_summary">قائمة مراجعة سريعة قبل فتح تذكرة مشكلة جديدة.</string>
     <string name="presentation_batch_g_beta_sheet_before_title">قبل فتح تذكرة مشكلة</string>
     <string name="presentation_batch_g_beta_sheet_before_1">ابحث في المشكلات المفتوحة والمغلقة الحالية لتجنب التكرار.</string>
-    <string name="presentation_batch_g_beta_sheet_before_2">حدث إلى آخر إصدار من PixelPlayer وتأكد من استمرار حدوث المشكلة.</string>
+    <string name="presentation_batch_g_beta_sheet_before_2">حدث إلى آخر إصدار من PixlAudio وتأكد من استمرار حدوث المشكلة.</string>
     <string name="presentation_batch_g_beta_sheet_before_3">أعد تشغيل التطبيق وتأكد من بقاء المشكلة قائمّة.</string>
     <string name="presentation_batch_g_beta_sheet_before_4">حاول تكرار حدوث المشكلة واكتب الخطوات الدقيقة لذلك.</string>
     <string name="presentation_batch_g_beta_sheet_issue_type_title">ما هو نوع المشكلة؟</string>
@@ -347,7 +347,7 @@
     <string name="presentation_batch_g_beta_sheet_bug_screenshot">لقطة شاشة / فيديو: إن وجد.</string>
     <string name="presentation_batch_g_beta_sheet_bug_logs">السجلات / تتبع الكومة (Stack trace): إن وجد.</string>
     <string name="presentation_batch_g_beta_sheet_env_title">البيئة البرمجية</string>
-    <string name="presentation_batch_g_beta_sheet_env_version">إصدار PixelPlayer:</string>
+    <string name="presentation_batch_g_beta_sheet_env_version">إصدار PixlAudio:</string>
     <string name="presentation_batch_g_beta_sheet_env_source">مصدر التثبيت: إصدار GitHub، بناء تصحيح خطأ، بناء ليلي، إلخ.</string>
     <string name="presentation_batch_g_beta_sheet_env_android">إصدار أندرويد:</string>
     <string name="presentation_batch_g_beta_sheet_env_device">موديل الجهاز:</string>
@@ -393,7 +393,7 @@
     <string name="presentation_batch_g_album_sel_queue_hint">ميزة (إضافة للقائمة وتشغيل) تحترم ترتيب تحديدك تماماً.</string>
     <string name="presentation_batch_g_album_sel_limit">الحد الأقصى: %1$d ألبومات لكل تحديد.</string>
     <string name="presentation_batch_g_album_sel_add_queue_play">إضافة إلى قائمة الانتظار وتشغيل</string>
-    <string name="presentation_batch_g_app_name">PixelPlayer</string>
+    <string name="presentation_batch_g_app_name">PixlAudio</string>
     <string name="presentation_batch_g_app_tagline">مشغل موسيقى</string>
     <string name="presentation_batch_g_brick_high">أعلى %1$d</string>
     <string name="presentation_batch_g_brick_cd_close">إغلاق</string>
@@ -445,7 +445,7 @@
     <string name="presentation_batch_g_cast_playing">جاري التشغيل</string>
     <string name="presentation_batch_g_cast_paused">موقوف مؤقتاً</string>
     <string name="presentation_batch_g_cast_perm_title">استعد للاتصال</string>
-    <string name="presentation_batch_g_cast_perm_body">اسمح لـ PixelPlayer برؤية أجهزتك القريبة وشبكة الـ Wi-Fi الحالية حتى نتمكن من إبقاء البث وصوت البلوتوث ومكبرات الصوت متزامنة.</string>
+    <string name="presentation_batch_g_cast_perm_body">اسمح لـ PixlAudio برؤية أجهزتك القريبة وشبكة الـ Wi-Fi الحالية حتى نتمكن من إبقاء البث وصوت البلوتوث ومكبرات الصوت متزامنة.</string>
     <string name="presentation_batch_g_cast_perm_nearby_title">الأجهزة القريبة</string>
     <string name="presentation_batch_g_cast_perm_nearby_desc">مطلوب لقراءة والتحكم في معدات صوت البلوتوث المتصلة.</string>
     <string name="presentation_batch_g_cast_perm_location_title">الموقع لشبكة الـ Wi‑Fi</string>

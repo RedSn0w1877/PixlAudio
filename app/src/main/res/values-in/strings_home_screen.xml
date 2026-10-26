@@ -11,7 +11,7 @@
     <!-- BetaInfoBottomSheet -->
     <string name="beta_sheet_version">Beta 0.7.5</string>
     <string name="beta_sheet_letter">β</string>
-    <string name="beta_sheet_welcome_title">Selamat datang di PixelPlayer 0.7.5-beta</string>
+    <string name="beta_sheet_welcome_title">Selamat datang di PixlAudio 0.7.5-beta</string>
     <string name="beta_sheet_welcome_body">Anda menggunakan versi beta yang mungkin berisi bug, crash, atau fitur eksperimental. Bantu kami meningkatkannya dengan melaporkan masalah.</string>
     <string name="beta_sheet_expect_title">Yang perlu diharapkan</string>
     <string name="beta_sheet_expect_1">Bug, crash, atau fitur yang belum selesai dapat terjadi sewaktu-waktu.</string>
@@ -28,7 +28,7 @@
     <string name="beta_sheet_report_summary">Checklist singkat sebelum membuat issue baru.</string>
     <string name="beta_sheet_before_title">Sebelum membuat issue</string>
     <string name="beta_sheet_before_1">Cari issue terbuka dan tertutup yang sudah ada untuk menghindari duplikat.</string>
-    <string name="beta_sheet_before_2">Perbarui ke versi PixelPlayer terbaru dan pastikan masalah masih terjadi.</string>
+    <string name="beta_sheet_before_2">Perbarui ke versi PixlAudio terbaru dan pastikan masalah masih terjadi.</string>
     <string name="beta_sheet_before_3">Mulai ulang aplikasi dan pastikan masalah tetap terjadi.</string>
     <string name="beta_sheet_before_4">Coba reproduksi masalah dan catat langkah-langkahnya secara jelas.</string>
     <string name="beta_sheet_issue_type_title">Jenis issue apa?</string>
@@ -46,7 +46,7 @@
     <string name="beta_sheet_bug_screenshot">Screenshot / video: jika tersedia.</string>
     <string name="beta_sheet_bug_logs">Log / stack trace: jika tersedia.</string>
     <string name="beta_sheet_env_title">Lingkungan</string>
-    <string name="beta_sheet_env_version">Versi PixelPlayer:</string>
+    <string name="beta_sheet_env_version">Versi PixlAudio:</string>
     <string name="beta_sheet_env_source">Sumber instalasi: GitHub Release, debug build, nightly build, dll.</string>
     <string name="beta_sheet_env_android">Versi Android:</string>
     <string name="beta_sheet_env_device">Model perangkat:</string>
@@ -92,7 +92,7 @@
     <string name="crash_report_stack_preview_label">Stack trace (pratinjau):</string>
     <string name="crash_report_clipboard_label">Log crash</string>
     <string name="crash_report_toast_log_copied">Log crash disalin ke papan klip</string>
-    <string name="crash_report_share_subject">Laporan crash PixelPlayer</string>
+    <string name="crash_report_share_subject">Laporan crash PixlAudio</string>
     <string name="crash_report_share_chooser">Bagikan laporan crash</string>
 
     <!-- Home Option -->

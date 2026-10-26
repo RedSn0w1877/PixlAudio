@@ -41,6 +41,7 @@ import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -128,6 +129,9 @@ class AskTaizoViewModel @Inject constructor(
     private var profile: TaizoProfile? = null
     /** Song + queue the last turn described, so an unchanged now-playing block isn't repeated. */
     private var lastNowSignature: String? = null
+
+    /** The now-playing signature of the turn in flight; becomes [lastNowSignature] only once that turn is in the history. */
+    private var pendingNowSignature: String? = null
     private var responseJob: Job? = null
     private val pendingConfirmations = HashMap<Long, CompletableDeferred<Boolean>>()
     private val memory = TaizoMemory()
@@ -176,7 +180,10 @@ class AskTaizoViewModel @Inject constructor(
         val userItem = TaizoChatItem.User(nextId(), text)
         _uiState.update { it.copy(items = it.items + userItem, input = "", isResponding = true) }
 
-        responseJob = viewModelScope.launch {
+        // LAZY so responseJob is this job before its body runs. A stopped turn can still be unwinding when the next
+        // one starts; only the current turn may finish the bubbles and clear isResponding.
+        val job = viewModelScope.launch(start = CoroutineStart.LAZY) {
+            val myJob = coroutineContext[Job]
             try {
                 when (val route = aiHandler.currentRoute()) {
                     is AiRoute.Claude -> {
@@ -198,11 +205,15 @@ class AskTaizoViewModel @Inject constructor(
                 Timber.tag(TAG).w(e, "Ask Taizo turn failed")
                 appendItem(TaizoChatItem.Assistant(nextId(), context.getString(R.string.taizo_error_generic), streaming = false, isError = true))
             } finally {
-                finishStreamingItems()
-                _uiState.update { it.copy(isResponding = false) }
-                persist()
+                if (responseJob === myJob) {
+                    finishStreamingItems()
+                    _uiState.update { it.copy(isResponding = false) }
+                    persist()
+                }
             }
         }
+        responseJob = job
+        job.start()
     }
 
     /** Stops the answer being written; what arrived so far stays, marked "(stopped)". */
@@ -210,6 +221,8 @@ class AskTaizoViewModel @Inject constructor(
         val job = responseJob ?: return
         pendingConfirmations.values.forEach { it.complete(false) }
         job.cancel()
+        // The stopped turn never reaches the history, so the next one must carry the full now-playing block.
+        lastNowSignature = null
         _uiState.update { state ->
             state.copy(
                 isResponding = false,
@@ -350,6 +363,8 @@ class AskTaizoViewModel @Inject constructor(
                 effort = TaizoContext.effortFor(text),
             )
             history = TaizoAgent.trimHistory(result.history)
+            // A refused turn leaves the history as it was, so its now-playing block never got in.
+            if (result.outcome != TaizoAgent.Outcome.REFUSED) lastNowSignature = pendingNowSignature
             // A taste change makes the cached profile (and its digest) stale: rebuild it for the next turn.
             if (toolExecutor.consumeTasteChanged()) profile = null
             val finalText = synchronized(streamed) { streamed.toString().trim() }
@@ -370,13 +385,32 @@ class AskTaizoViewModel @Inject constructor(
             memory.add(text, finalText.take(MEMORY_REPLY_CHARS))
         } catch (e: ClaudeException) {
             if (!e.fallsBackOnDevice) throw e
-            // Claude dropped out mid-way: this answer comes from the phone instead.
-            removeItem(assistant.id)
+            lastNowSignature = null
             val noteRes = when (e.failure) {
                 ClaudeFailure.OVER_BUDGET -> R.string.taizo_note_over_budget
                 ClaudeFailure.OFFLINE -> R.string.taizo_note_offline
                 else -> R.string.taizo_note_unavailable
             }
+            if (toolExecutor.consumeTasteChanged()) profile = null
+            if (toolExecutor.ranSideEffectsThisTurn()) {
+                // Tools already acted (played, queued, made a playlist...): asking the phone again would do it
+                // twice. Keep what Claude wrote and say why it stopped.
+                val partial = synchronized(streamed) { streamed.toString().trim() }
+                updateAssistant(assistant.id) {
+                    it.copy(
+                        text = partial.ifBlank { context.getString(R.string.taizo_error_generic) },
+                        streaming = false,
+                        activityRes = null,
+                        isError = partial.isBlank(),
+                    )
+                }
+                if (_uiState.value.items.none { it is TaizoChatItem.Note && it.textRes == noteRes }) {
+                    insertBefore(assistant.id, TaizoChatItem.Note(nextId(), noteRes))
+                }
+                return
+            }
+            // Claude dropped out mid-way: this answer comes from the phone instead.
+            removeItem(assistant.id)
             _uiState.update { it.copy(mode = TaizoMode.ON_DEVICE) }
             answerOnPhoneEngine(text, forceOnDevice = true, noteRes = noteRes)
         }
@@ -427,7 +461,7 @@ class AskTaizoViewModel @Inject constructor(
         val upNext = if (index >= 0 && index < queue.size) queue.drop(index + 1) else queue
         val signature = now?.songId + "|" + upNext.take(TaizoContext.QUEUE_PREVIEW).joinToString(",") { it.id }
         val includeDetails = signature != lastNowSignature
-        lastNowSignature = signature
+        pendingNowSignature = signature
         val time = LocalDateTime.now().format(DateTimeFormatter.ofPattern("EEEE d MMMM yyyy, HH:mm", Locale.ENGLISH))
         val nowBlock = TaizoContext.nowPlayingBlock(now, upNext, includeDetails, time)
         return buildJsonArray {

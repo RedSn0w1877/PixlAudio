@@ -2,7 +2,7 @@
 <resources>
     <!-- Navigation / misc -->
     <string name="nav_error_genre_id_missing">خطأ: معرف النوع (Genre ID) مفقود</string>
-    <string name="easter_egg_thank_you">شكراً لك على استخدام PixelPlayer!</string>
+    <string name="easter_egg_thank_you">شكراً لك على استخدام PixlAudio!</string>
 
     <!-- Word delimiter config -->
     <string name="word_delimiter_section_title">محددات الكلمات الحالية</string>
@@ -97,15 +97,15 @@
     <string name="setup_permission_notifications_description">قم بتمكين الإشعارات للتحكم في موسيقاك من شاشة القفل ولوحة الإشعارات.</string>
     <string name="setup_enable_notifications">تمكين الإشعارات</string>
     <string name="setup_permission_alarms_title">التنبيهات والتذكيرات</string>
-    <string name="setup_permission_alarms_description">اختياري، ولكن موصى به إذا كنت تستخدم مؤقت النوم وتريد أن يقوم PixelPlayer بإيقاف التشغيل في الوقت المحدد تماماً.</string>
+    <string name="setup_permission_alarms_description">اختياري، ولكن موصى به إذا كنت تستخدم مؤقت النوم وتريد أن يقوم PixlAudio بإيقاف التشغيل في الوقت المحدد تماماً.</string>
     <string name="setup_grant_permission_generic">منح الإذن</string>
     <string name="setup_backup_have_title">هل لديك نسخة احتياطية؟</string>
-    <string name="setup_backup_have_description">إذا كان لديك نسخة احتياطية من PixelPlayer بالفعل، فاستعدها الآن لتخطي معظم خطوات الإعداد المتبقية على هذا الجهاز.</string>
+    <string name="setup_backup_have_description">إذا كان لديك نسخة احتياطية من PixlAudio بالفعل، فاستعدها الآن لتخطي معظم خطوات الإعداد المتبقية على هذا الجهاز.</string>
     <string name="setup_inspecting_backup">جاري فحص النسخة الاحتياطية</string>
     <string name="setup_restoring_backup">جاري استعادة النسخة الاحتياطية</string>
     <string name="setup_import_backup">استيراد نسخة احتياطية</string>
     <string name="setup_theme_dark_title">داكن</string>
-    <string name="setup_theme_dark_description">المظهر الداكن الافتراضي لـ Material 3 في تطبيق PixelPlayer.</string>
+    <string name="setup_theme_dark_description">المظهر الداكن الافتراضي لـ Material 3 في تطبيق PixlAudio.</string>
     <string name="setup_theme_light_title">فاتح</string>
     <string name="setup_theme_light_description">مظهر Material 3 أكثر سطوعاً في جميع أنحاء التطبيق.</string>
     <string name="setup_theme_follow_title">تتبع النظام</string>
@@ -114,7 +114,7 @@
     <string name="setup_compact_mode_tab_hint">يتم استخدام صف علامات التبويب القياسي</string>
     <string name="setup_preview_songs_label">الأغاني</string>
     <string name="setup_battery_optimization_title">تحسين استهلاك البطارية</string>
-    <string name="setup_battery_optimization_description">تقوم بعض أجهزة Android بإغلاق تطبيقات الخلفية بشكل حاد. قم بتعطيل تحسين البطارية لتطبيق PixelPlayer لمنع انقطاع التشغيل غير المتوقع.</string>
+    <string name="setup_battery_optimization_description">تقوم بعض أجهزة Android بإغلاق تطبيقات الخلفية بشكل حاد. قم بتعطيل تحسين البطارية لتطبيق PixlAudio لمنع انقطاع التشغيل غير المتوقع.</string>
     <string name="setup_disable_battery_optimization">تعطيل التحسين</string>
     <string name="setup_nav_floating_pill_description">شريط كبسولة عائم بزوايا مستديرة</string>
     <string name="setup_nav_full_width_description">شريط قياسي بالعرض الكامل</string>
@@ -146,7 +146,7 @@
     <string name="crash_report_stack_preview_label">تتبع الكومة (معاينة):</string>
     <string name="crash_report_clipboard_label">سجل التعطل</string>
     <string name="toast_crash_log_copied">تم نسخ سجل التعطل إلى الحافظة</string>
-    <string name="crash_report_share_subject">تقرير تعطل PixelPlayer</string>
+    <string name="crash_report_share_subject">تقرير تعطل PixlAudio</string>
     <string name="crash_report_share_chooser">مشاركة تقرير التعطل</string>
     <string name="action_copy">نسخ</string>
     <string name="action_share">مشاركة</string>
@@ -171,13 +171,13 @@
 
     <!-- About -->
     <string name="about_no_contributors">لم يتم العثور على مساهمين حالياً. يرجى المحاولة مرة أخرى لاحقاً.</string>
-    <string name="about_app_name">PixelPlayer</string>
+    <string name="about_app_name">PixlAudio</string>
     <string name="about_tagline">مشغل موسيقى مفتوح المصدر تم بناؤه مع مجتمعه.</string>
     <string name="about_version_format">الإصدار v%1$s</string>
     <string name="about_contributions_format">%1$d مساهمة</string>
     <string name="screen_about">حول التطبيق</string>
     <string name="about_maintainer_title">المشرف الرئيسي</string>
-    <string name="about_maintainer_subtitle">الشخص الذي يقف وراء PixelPlayer.</string>
+    <string name="about_maintainer_subtitle">الشخص الذي يقف وراء PixlAudio.</string>
     <string name="about_spotlight_title">أضواء على المجتمع</string>
     <string name="about_spotlight_subtitle">تقدير وتكريم للمتعاونين ذوي التأثير الكبير.</string>
     <string name="about_contributors_section_title">المساهمون في المشروع مفتوح المصدر</string>

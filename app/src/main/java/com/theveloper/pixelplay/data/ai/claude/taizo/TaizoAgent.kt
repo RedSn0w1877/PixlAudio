@@ -25,6 +25,12 @@ interface TaizoToolRunner {
      */
     fun beginTurn(userMessage: String) {}
 
+    /**
+     * Called when text from outside the user's own message reaches the model in this turn (a web search or fetch
+     * result). From then on every settings change in the turn asks for a tap, whatever the model claims.
+     */
+    fun noteUntrustedContent() {}
+
     /** The question to ask before running this call (a big playlist, replacing the queue), or null to run it now. */
     suspend fun confirmationFor(name: String, input: JsonObject): String?
 
@@ -117,7 +123,11 @@ class TaizoAgent(
                 },
                 onBlockStart = { block ->
                     when (block.str("type")) {
-                        "server_tool_use" -> listener.onActivity(block.str("name").orEmpty(), isServerTool = true)
+                        "server_tool_use" -> {
+                            tools.noteUntrustedContent()
+                            listener.onActivity(block.str("name").orEmpty(), isServerTool = true)
+                        }
+                        "web_search_tool_result", "web_fetch_tool_result" -> tools.noteUntrustedContent()
                         "tool_use" -> listener.onActivity(block.str("name").orEmpty(), isServerTool = false)
                     }
                 },

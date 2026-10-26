@@ -111,7 +111,7 @@
     <string name="song_info_set_ringtone">تعيين كنغمة رنين</string>
     <string name="cd_set_song_as_ringtone">تعيين الأغنية كنغمة رنين</string>
     <string name="song_info_tone_picker_title">استخدام هذه الأغنية كـ</string>
-    <string name="song_info_tone_picker_body">اختر المكان الذي يجب أن يقوم PixelPlayer بتثبيت هذا الصوت فيه.</string>
+    <string name="song_info_tone_picker_body">اختر المكان الذي يجب أن يقوم PixlAudio بتثبيت هذا الصوت فيه.</string>
     <string name="song_info_tone_ringtone_title">نغمة رنين الهاتف</string>
     <string name="song_info_tone_ringtone_subtitle">المكالمات الواردة</string>
     <string name="song_info_tone_notification_title">صوت الإشعارات</string>
@@ -125,7 +125,7 @@
     <string name="song_info_tone_ringtone_label">نغمة رنين</string>
     <string name="song_info_tone_notification_label">صوت إشعارات</string>
     <string name="song_info_tone_alarm_label">صوت منبه</string>
-    <string name="song_info_ringtone_permission_prompt">يرجى تمكين إذن "تعديل إعدادات النظام"، ثم العودة إلى PixelPlayer لإنهاء الإجراء تلقائياً.</string>
+    <string name="song_info_ringtone_permission_prompt">يرجى تمكين إذن "تعديل إعدادات النظام"، ثم العودة إلى PixlAudio لإنهاء الإجراء تلقائياً.</string>
     <string name="song_info_ringtone_permission_missing">لم يتم تمكين إذن تعديل إعدادات النظام.</string>
     <string name="song_info_ringtone_success">تم تعيين \"%1$s\" كنغمة رنين لك</string>
     <string name="song_info_ringtone_local_only">يمكن استخدام الأغاني المحلية فقط كنغمات رنين.</string>

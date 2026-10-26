@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">PixelPlayer</string>
+    <string name="app_name">PixlAudio</string>
     <string name="app_tagline">Musikkspiller</string>
     <string name="app_name_change_title">Endring av app-navn</string>
     <string name="app_name_change_message">Vi har endret appens navn fra PixelPlay til PixelPlayer på grunn av et varemerkeproblem. Fortsett spillingen!</string>
@@ -13,7 +13,7 @@
 
     <!-- All files access dialog-->
     <string name="all_files_access_title">Spesiell tillatelse kreves</string>
-    <string name="all_files_access_description">For å redigere sang-metadata (.mp3-filer) trenger PixelPlayer spesiell tilgang til alle filer. Dette lar oss endre spor-tagger direkte. Vennligst gi denne tillatelsen på neste skjerm for å aktivere redigering av metadata.</string>
+    <string name="all_files_access_description">For å redigere sang-metadata (.mp3-filer) trenger PixlAudio spesiell tilgang til alle filer. Dette lar oss endre spor-tagger direkte. Vennligst gi denne tillatelsen på neste skjerm for å aktivere redigering av metadata.</string>
     <string name="grant_permission_button">Gi tillatelse</string>
 
     <!-- External Player -->
@@ -32,14 +32,14 @@
     <string name="playstore_dialog_action_open">Åpne Play Store</string>
     <string name="playstore_dialog_action_continue_beta">Fortsett beta</string>
     <string name="playstore_dialog_link_pending">Play Store-lenken vil bli aktivert snart.</string>
-    <string name="playstore_dialog_title">PixelPlayer er nå tilgjengelig på Google Play</string>
+    <string name="playstore_dialog_title">PixlAudio er nå tilgjengelig på Google Play</string>
     <string name="playstore_dialog_body">Bruk den stabile versjonen på Google Play for oppdateringer, mens vi holder beta-versjonene aktive.</string>
-    <string name="playstore_dialog_app_name">PixelPlayer</string>
+    <string name="playstore_dialog_app_name">PixlAudio</string>
     <string name="playstore_dialog_release_announcement">Lanseringsmelding</string>
     <string name="playstore_dialog_coming_soon">Kommer snart</string>
 
     <!-- Brick breaker -->
-    <string name="easter_egg_thank_you">Takk for at du bruker PixelPlayer!</string>
+    <string name="easter_egg_thank_you">Takk for at du bruker PixlAudio!</string>
     <string name="brick_high">REKORD %1$d</string>
     <string name="brick_cd_close">Lukk</string>
     <string name="brick_stat_score">POENG</string>
