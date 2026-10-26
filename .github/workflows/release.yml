@@ -87,8 +87,8 @@ jobs:
           SUFFIX="${GITHUB_REF_NAME##*-}"
           NOTES="handoff/release-notes-$SUFFIX.md"
           if [ -f "$NOTES" ]; then
-            gh release create "$GITHUB_REF_NAME" release-upload/*.apk --prerelease --title "$GITHUB_REF_NAME" --notes-file "$NOTES"
+            gh release create "$GITHUB_REF_NAME" release-upload/*.apk --draft --prerelease --title "$GITHUB_REF_NAME" --notes-file "$NOTES"
           else
             echo "No $NOTES; using generated notes."
-            gh release create "$GITHUB_REF_NAME" release-upload/*.apk --prerelease --title "$GITHUB_REF_NAME" --generate-notes
+            gh release create "$GITHUB_REF_NAME" release-upload/*.apk --draft --prerelease --title "$GITHUB_REF_NAME" --generate-notes
           fi
