@@ -223,9 +223,11 @@ class SpotifyStreamProxy @Inject constructor(
         if (videoUnavailable && (lastRematch == null || System.currentTimeMillis() - lastRematch > REMATCH_MEMORY_MS)) {
             val song = spotifyDao.getSongBySpotifyId(id)
             if (song != null && song.matchState != SpotifyMatchState.MANUAL) {
+                val replacement = withTimeoutOrNull(25_000L) { trackMatcher.findMatchFanOut(song, setOf(videoId)) }
+                // Remembered only once the search actually ran: if the caller's timeout cancels it, we never get
+                // here and the next attempt may re-match. Still set before the recursive resolve below.
                 if (rematchedAtMs.size > 256) rematchedAtMs.clear()
                 rematchedAtMs[id] = System.currentTimeMillis()
-                val replacement = withTimeoutOrNull(25_000L) { trackMatcher.findMatchFanOut(song, setOf(videoId)) }
                 if (replacement != null && replacement.videoId != videoId &&
                     CloudStreamSecurity.validateYouTubeVideoId(replacement.videoId)
                 ) {

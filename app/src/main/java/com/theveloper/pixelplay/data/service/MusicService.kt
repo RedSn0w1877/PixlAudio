@@ -167,12 +167,21 @@ internal fun isBlockedSkipForward(
  * Whether the restored queue starts playing. A play press that reached the still-empty player
  * before the restore (widget, headset button on a cold start) is the user's latest intent and
  * wins over the state the queue was saved in.
+ *
+ * A queue saved as playing only resumes by itself when it was saved moments ago
+ * ([RESTORE_PLAYING_MAX_AGE_MS]): after a crash, an OOM kill or installing an update over a playing
+ * app, opening the app hours later must not start audio on its own.
  */
 internal fun shouldPlayRestoredQueue(
     snapshotWasPlaying: Boolean,
     keepPlayingInBackground: Boolean,
-    playPressedBeforeRestore: Boolean
-): Boolean = (snapshotWasPlaying && keepPlayingInBackground) || playPressedBeforeRestore
+    playPressedBeforeRestore: Boolean,
+    snapshotAgeMs: Long = 0L,
+): Boolean =
+    (snapshotWasPlaying && keepPlayingInBackground && snapshotAgeMs in 0L..RESTORE_PLAYING_MAX_AGE_MS) ||
+        playPressedBeforeRestore
+
+internal const val RESTORE_PLAYING_MAX_AGE_MS = 120_000L
 
 @UnstableApi
 @AndroidEntryPoint
@@ -2288,7 +2297,8 @@ class MusicService : MediaLibraryService() {
             val playNow = shouldPlayRestoredQueue(
                 snapshotWasPlaying = snapshot.playWhenReady,
                 keepPlayingInBackground = allowBackgroundPlayback,
-                playPressedBeforeRestore = player.playWhenReady
+                playPressedBeforeRestore = player.playWhenReady,
+                snapshotAgeMs = System.currentTimeMillis() - snapshot.savedAtEpochMs,
             )
             restoredPlaying = playNow
 

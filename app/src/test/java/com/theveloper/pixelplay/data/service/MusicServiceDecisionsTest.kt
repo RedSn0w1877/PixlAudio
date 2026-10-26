@@ -58,4 +58,12 @@ class MusicServiceDecisionsTest {
         // Background playback off: a queue saved as playing is restored paused.
         assertFalse(shouldPlayRestoredQueue(true, false, false))
     }
+
+    @Test
+    fun `a queue saved as playing long ago is restored paused`() {
+        assertTrue(shouldPlayRestoredQueue(true, true, false, snapshotAgeMs = 30_000L))
+        assertFalse(shouldPlayRestoredQueue(true, true, false, snapshotAgeMs = 3 * 60 * 60 * 1000L))
+        // A play press still wins.
+        assertTrue(shouldPlayRestoredQueue(true, true, true, snapshotAgeMs = 3 * 60 * 60 * 1000L))
+    }
 }
