@@ -20,8 +20,8 @@ data class ClaudeBudgetState(
 }
 
 /**
- * The per-device monthly budget for the built-in Claude key (default $5, Developer mode
- * $0–$20). Device-local on purpose: its own SharedPreferences file, never part of the settings
+ * The per-device monthly budget for the built-in Claude key (default $50, Developer mode
+ * $0–$200). Device-local on purpose: its own SharedPreferences file, never part of the settings
  * DataStore that .pxpl backups carry, so a restore on another phone doesn't bring this phone's
  * spending along. Counts only the built-in key; "Cloud assistants" with the user's own keys are
  * theirs to pay for.
