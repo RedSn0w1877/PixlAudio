@@ -185,6 +185,11 @@ class ListeningHistoryRepository @Inject constructor(
         if (enabled) scope.launch { sync(force = true) }
     }
 
+    /** Both automatic imports on (they default on) without starting a sync: repairs a stored "off". */
+    suspend fun ensureAutoSyncOn() {
+        prefsStore.edit { it[KEY_SPOTIFY_ENABLED] = true; it[KEY_YOUTUBE_ENABLED] = true }
+    }
+
     suspend fun dismissHomeCard() {
         prefsStore.edit { it[KEY_HOME_CARD_DISMISSED] = true }
     }

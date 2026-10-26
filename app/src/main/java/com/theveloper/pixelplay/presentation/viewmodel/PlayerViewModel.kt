@@ -1761,20 +1761,22 @@ class PlayerViewModel @Inject constructor(
 
         // Load initial sort options ONCE at startup.
         viewModelScope.launch {
+            // Settle the stored sorts first (idempotent) so the first read below sees the new defaults.
+            userPreferencesRepository.ensureLibrarySortDefaults()
             val initialSongSort = resolveSortOption(
                 userPreferencesRepository.songsSortOptionFlow.first(),
                 SortOption.SONGS,
-                SortOption.SongTitleAZ
+                SortOption.SongDateAdded
             )
             val initialAlbumSort = resolveSortOption(
                 userPreferencesRepository.albumsSortOptionFlow.first(),
                 SortOption.ALBUMS,
-                SortOption.AlbumTitleAZ
+                SortOption.AlbumDateAdded
             )
             val initialArtistSort = resolveSortOption(
                 userPreferencesRepository.artistsSortOptionFlow.first(),
                 SortOption.ARTISTS,
-                SortOption.ArtistNameAZ
+                SortOption.ArtistDateAdded
             )
             val initialFolderSort = resolveSortOption(
                 userPreferencesRepository.foldersSortOptionFlow.first(),
@@ -3179,9 +3181,6 @@ class PlayerViewModel @Inject constructor(
 
     /** The lyrics toolbar's Sing: vocals off / on, rendering the instrumental first if needed. */
     fun toggleSing() = lyricsSing.onSingTapped()
-
-    /** The lyrics toolbar's Translate when the lyrics have no translation yet: translate on this phone. */
-    fun translateLyricsOnDevice() = lyricsTranslation.translateCurrent()
 
     fun saveBatchMetadata(
         songs: List<Song>,

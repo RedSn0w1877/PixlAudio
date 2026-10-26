@@ -11,6 +11,7 @@ import com.theveloper.pixelplay.data.service.player.DualPlayerEngine
 import com.theveloper.pixelplay.data.service.player.PendingSeek
 import com.theveloper.pixelplay.data.service.player.PlayerTransport
 import com.theveloper.pixelplay.data.service.player.QueueAttachGate
+import com.theveloper.pixelplay.data.service.player.SeekPositionPolicy
 import com.theveloper.pixelplay.data.preferences.UserPreferencesRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
@@ -288,6 +289,30 @@ class PlaybackStateHolder @Inject constructor(
 
     fun syncCurrentPositionFromPlayer(mediaId: String?, reportedPositionMs: Long) {
         _currentPosition.value = resolveUiPosition(mediaId, reportedPositionMs)
+    }
+
+    /**
+     * The player reported a seek (the controller's position discontinuity): a restart, "previous"
+     * inside a song, or a seek made from the notification, a watch or a car. The progress poll
+     * does not sample while paused, so without this the bar kept the old position until play.
+     *
+     * A paused-seek override that disagrees with the new position is stale (typically a slider
+     * seek made earlier on this same song) and is dropped first, otherwise [resolveUiPosition]
+     * would keep returning it, and would return it again for a restart to 0.
+     */
+    fun onPlayerSeekDiscontinuity(mediaId: String?, newPositionMs: Long) {
+        val safeMediaId = mediaId?.takeIf { it.isNotBlank() }
+        val staleOverride = safeMediaId != null &&
+            pausedPositionOverrideMediaId == safeMediaId &&
+            SeekPositionPolicy.shouldDropPausedOverride(
+                overrideMs = pausedPositionOverrideMs,
+                newPositionMs = newPositionMs,
+                toleranceMs = DURATION_MISMATCH_TOLERANCE_MS
+            )
+        if (staleOverride) {
+            clearCurrentPositionHints(safeMediaId)
+        }
+        syncCurrentPositionFromPlayer(safeMediaId, newPositionMs)
     }
 
     /**

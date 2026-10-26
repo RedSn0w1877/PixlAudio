@@ -372,9 +372,7 @@ class PlayerViewModelTest {
         @Test
         fun `toolbar taps go to their holders`() {
             playerViewModel.toggleSing()
-            playerViewModel.translateLyricsOnDevice()
             verify { mockLyricsSing.onSingTapped() }
-            verify { mockLyricsTranslation.translateCurrent() }
         }
 
         @Test

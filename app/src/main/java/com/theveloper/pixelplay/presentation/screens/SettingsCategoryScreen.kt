@@ -622,7 +622,9 @@ fun SettingsCategoryScreen(
                                     ),
                                     selectedKey = uiState.playerThemePreference,
                                     onSelectionChanged = { settingsViewModel.setPlayerThemePreference(it) },
-                                    leadingIcon = { Icon(Icons.Outlined.PlayCircle, null, tint = MaterialTheme.colorScheme.secondary) }
+                                    leadingIcon = { Icon(Icons.Outlined.PlayCircle, null, tint = MaterialTheme.colorScheme.secondary) },
+                                    // Locked (album art) until it is fixed.
+                                    lockedNote = stringResource(R.string.common_broken_fix_soon)
                                 )
                                 ThemeSelectorItem(
                                     label = stringResource(R.string.settings_player_ambient_effects_title),
@@ -1063,12 +1065,6 @@ fun SettingsCategoryScreen(
                     }
                 }
                 SettingsCategory.AI_INTEGRATION -> {
-                    item(key = "ai_intelligence_card", contentType = "settings_subsection") {
-                        Column {
-                            com.theveloper.pixelplay.presentation.components.MusicIntelligenceSettingsCard()
-                            Spacer(Modifier.height(20.dp))
-                        }
-                    }
                     // Where AI runs (one plain line) and Ask Taizo, for everyone.
                     item(key = "ai_claude_status", contentType = "settings_subsection") {
                         Column {

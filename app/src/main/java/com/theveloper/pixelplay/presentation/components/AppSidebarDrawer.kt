@@ -23,6 +23,7 @@ import androidx.compose.material3.NavigationDrawerItemDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -134,14 +135,22 @@ private fun DrawerContent(
                 )
             },
             label = {
-                Text(
-                    text = stringResource(R.string.settings_category_equalizer_title),
-                    style = MaterialTheme.typography.labelLarge
-                )
+                Column {
+                    Text(
+                        text = stringResource(R.string.settings_category_equalizer_title),
+                        style = MaterialTheme.typography.labelLarge
+                    )
+                    Text(
+                        text = stringResource(R.string.common_broken_fix_soon),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
             },
-            selected = selectedRoute == DrawerDestination.Equalizer.route,
-            onClick = { onDestinationSelected(DrawerDestination.Equalizer) },
-            modifier = Modifier.padding(vertical = 4.dp),
+            selected = false,
+            // Locked until the equalizer is fixed: greyed out and it doesn't open.
+            onClick = {},
+            modifier = Modifier.padding(vertical = 4.dp).alpha(0.55f),
             colors = NavigationDrawerItemDefaults.colors(
                 selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
                 selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,

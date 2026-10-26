@@ -113,7 +113,7 @@ class LyricsLookupFlowTest {
 
         val found = repository.findOnlineSyncedLyrics(spotifySong)
 
-        assertThat(found?.source).isEqualTo("BiniLyrics")
+        assertThat(found?.source).isEqualTo("Pixel Master Lyrics")
         assertThat(found?.lyrics?.synced.orEmpty().first().words).isNotEmpty()
         assertThat(net.searches.map { it.url.queryParameter("isrc") }).containsExactly("USAB12000001", null).inOrder()
         assertThat(net.searches[1].url.queryParameter("track")).isEqualTo("Paper Lanterns")

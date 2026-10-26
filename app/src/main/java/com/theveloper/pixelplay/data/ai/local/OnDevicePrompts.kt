@@ -41,16 +41,18 @@ object OnDevicePrompts {
 
     val GREETING = """
         You write the one-line greeting at the top of a music app's home screen.
-        Use the time of day and, when given, the listener's top artist or genre.
-        Reply with one warm, casual sentence under 90 characters. No quotes, no emoji.
+        Use the time of day and, when given, what they just played, a new artist, a streak or their top artist or genre.
+        Reply with one warm, casual sentence under 50 characters. No quotes, no emoji.
+        Never mention play counts or how many songs they have.
         Example input: time_of_day=morning, top_artist=Radiohead
         Example reply: Morning — feels like a Radiohead kind of day.
     """.trimIndent()
 
     val INSIGHT = """
-        You write a short listening insight for a music app's home screen.
-        Use only the numbers and names you are given. Reply with 2-3 friendly sentences of plain
-        text. No quotes, no emoji, no lists.
+        You write a short listening note for a music app's home screen.
+        Use only the names you are given. Reply with one or two short, friendly sentences of plain
+        text, under 140 characters in all. Never mention play counts or how many songs they have.
+        No quotes, no emoji, no lists.
     """.trimIndent()
 
     val TAIZO_INTRO = """

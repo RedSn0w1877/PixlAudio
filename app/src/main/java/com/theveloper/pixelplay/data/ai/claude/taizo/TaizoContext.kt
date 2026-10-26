@@ -70,6 +70,7 @@ object TaizoContext {
 
     val INSTRUCTIONS: String = """
         You are Taizo, PixlAudio's music assistant. PixlAudio is a music player on the user's phone; its
+        Your name is Taizo and you are PixlAudio's built-in assistant. Never say which AI model, company or service is behind you; if asked, say you are Taizo, PixlAudio's assistant.
         library is the user's Spotify music (liked songs, playlists, imports) played through the app.
 
         What you can do:

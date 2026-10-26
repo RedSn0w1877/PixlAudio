@@ -295,8 +295,7 @@ fun ExperimentalSettingsScreen(
                                                 text = "TAIS Engine 2's zero-latency vocal reducer — attenuates the " +
                                                 "center-panned mix instantly. This is separate from the real " +
                                                     "AI separation model (see \"Make an instrumental\" below), which does a " +
-                                                    "separate vocal and instrumental tracks using MDX-Net. The active " +
-                                                    "processor and benchmark are shown in Music Intelligence settings.",
+                                                    "separate vocal and instrumental tracks using MDX-Net.",
                                                 style = MaterialTheme.typography.bodyMedium,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                                             )

@@ -601,15 +601,21 @@ class MusicService : MediaLibraryService() {
         // Restore equalizer state from preferences and only attach audio effects when
         // the user actually has at least one effect enabled for the current session.
         serviceScope.launch {
-            val eqEnabled = equalizerPreferencesRepository.equalizerEnabledFlow.first()
+            // The equalizer is locked while it is broken ("Broken, fix soon" in Settings): every effect
+            // stays off, whatever an old build or a restored backup stored, so nothing half-works.
+            val eqEnabled = false
             val presetName = equalizerPreferencesRepository.equalizerPresetFlow.first()
             val customBands = equalizerPreferencesRepository.equalizerCustomBandsFlow.first()
-            val bassBoostEnabled = equalizerPreferencesRepository.bassBoostEnabledFlow.first()
+            val bassBoostEnabled = false
             val bassBoostStrength = equalizerPreferencesRepository.bassBoostStrengthFlow.first()
-            val virtualizerEnabled = equalizerPreferencesRepository.virtualizerEnabledFlow.first()
+            val virtualizerEnabled = false
             val virtualizerStrength = equalizerPreferencesRepository.virtualizerStrengthFlow.first()
-            val loudnessEnabled = equalizerPreferencesRepository.loudnessEnhancerEnabledFlow.first()
+            val loudnessEnabled = false
             val loudnessStrength = equalizerPreferencesRepository.loudnessEnhancerStrengthFlow.first()
+            if (equalizerPreferencesRepository.equalizerEnabledFlow.first()) equalizerPreferencesRepository.setEqualizerEnabled(false)
+            if (equalizerPreferencesRepository.bassBoostEnabledFlow.first()) equalizerPreferencesRepository.setBassBoostEnabled(false)
+            if (equalizerPreferencesRepository.virtualizerEnabledFlow.first()) equalizerPreferencesRepository.setVirtualizerEnabled(false)
+            if (equalizerPreferencesRepository.loudnessEnhancerEnabledFlow.first()) equalizerPreferencesRepository.setLoudnessEnhancerEnabled(false)
 
             equalizerManager.restoreState(
                 eqEnabled, presetName, customBands,
