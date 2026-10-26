@@ -1984,6 +1984,8 @@ private fun EfficientSlider(
         value = { valueState.value },
         onValueChange = onValueChangeWithHaptics,
         onValueCommit = onValueCommit,
+        // A gesture a parent cancelled never commits: still drop the drag value.
+        onInteractionEnd = onScrubEnd,
         // The value is already frame-accurate (frame clock), so no per-sample tween.
         frameAccurateValue = true,
         interactionSource = interactionSource,
