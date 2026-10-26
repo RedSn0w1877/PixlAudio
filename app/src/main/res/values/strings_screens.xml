@@ -12,10 +12,10 @@
     <string name="setup_beta_symbol">β</string>
     <string name="setup_beta_label">Beta</string>
     <string name="setup_intro_body">Let\'s get everything set up for you.</string>
-    <string name="setup_permission_granted">Permission Granted</string>
+    <string name="setup_permission_granted">Permission granted</string>
     <string name="setup_permission_notifications_title">Notifications</string>
     <string name="setup_permission_notifications_description">Enable notifications to control your music from the lock screen and notification shade.</string>
-    <string name="setup_enable_notifications">Enable Notifications</string>
+    <string name="setup_enable_notifications">Enable notifications</string>
     <string name="setup_backup_have_title">Do you have a backup?</string>
     <string name="setup_backup_have_description">If you already have a PixlAudio backup, restore it now and skip most of the remaining setup on this device.</string>
     <string name="setup_import_backup">Import backup</string>
@@ -40,7 +40,7 @@
     <string name="setup_theme_follow_title">Follow system</string>
     <string name="setup_theme_follow_description">Match your phone\'s current appearance setting.</string>
     <string name="setup_recommended">Recommended</string>
-    <string name="setup_theme_footer">You can change this later in Settings &gt; Appearance &gt; App Theme.</string>
+    <string name="setup_theme_footer">You can change this later in Settings &gt; Appearance &gt; App theme.</string>
     <string name="setup_library_layout_title">Library Layout</string>
     <string name="setup_library_layout_subtitle">Choose your preferred way to navigate your library.</string>
     <string name="setup_preview_songs_label">Songs</string>
@@ -50,14 +50,14 @@
     <string name="setup_tab_songs">SONGS</string>
     <string name="setup_tab_albums">ALBUMS</string>
     <string name="setup_tab_artists">ARTISTS</string>
-    <string name="setup_library_layout_footer">You can change this later in Settings &gt; Appearance &gt; Library Navigation.</string>
+    <string name="setup_library_layout_footer">You can change this later in Settings &gt; Appearance &gt; Library navigation.</string>
     <string name="setup_app_navigation_title">App Navigation</string>
     <string name="setup_app_navigation_subtitle">Choose the style of the bottom navigation bar.</string>
     <string name="setup_navbar_default_style">Default Style</string>
     <string name="setup_nav_floating_pill_description">Floating pill with rounded corners</string>
     <string name="setup_nav_full_width_description">Standard full-width bar</string>
     <string name="setup_customize_corner_radius">Customize Corner Radius</string>
-    <string name="setup_navbar_footer">You can change this later in Settings &gt; Appearance &gt; Navbar Style.</string>
+    <string name="setup_navbar_footer">You can change this later in Settings &gt; Appearance &gt; Navigation bar style.</string>
     <string name="setup_permission_alarms_title">Alarms &amp; Reminders</string>
     <string name="setup_permission_alarms_description">Optional, but recommended if you use Sleep Timer and want PixlAudio to stop playback exactly on time.</string>
     <string name="setup_grant_permission_generic">Grant Permission</string>
@@ -66,7 +66,7 @@
     <string name="setup_disable_battery_optimization">Disable Optimization</string>
     <string name="setup_all_set_title">All Set!</string>
     <string name="setup_all_set_body">You\'re ready to enjoy your music.</string>
-    <string name="setup_spotify_title">Spotify users, listen up!</string>
+    <string name="setup_spotify_title">Connect Spotify</string>
     <string name="setup_spotify_description">Please sign in with Spotify right here. Your liked songs and playlists come straight into PixlAudio.</string>
     <string name="setup_spotify_button">Sign in with Spotify</string>
     <string name="setup_spotify_connected">Spotify connected</string>

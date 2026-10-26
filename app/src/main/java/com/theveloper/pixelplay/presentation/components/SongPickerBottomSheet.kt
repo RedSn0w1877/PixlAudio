@@ -363,7 +363,7 @@ private fun SongPickerSearchField(
         trailingIcon = {
             if (searchQuery.isNotEmpty()) {
                 IconButton(onClick = { onSearchQueryChange("") }) {
-                    Icon(Icons.Filled.Clear, null)
+                    Icon(Icons.Filled.Clear, contentDescription = stringResource(R.string.search_cd_clear_search_query))
                 }
             }
         }

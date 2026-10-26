@@ -402,15 +402,15 @@
     <!-- Backup & Restore category -->
     <string name="settings_backup_how_dialog_title">How backup works</string>
     <string name="settings_backup_how_dialog_body">Choose sections, export a .pxpl file, and import it later. Restore only replaces the sections you select.</string>
-    <string name="settings_create_backup_section">Create Backup</string>
-    <string name="settings_export_backup_title">Export Backup</string>
+    <string name="settings_create_backup_section">Create backup</string>
+    <string name="settings_export_backup_title">Export backup</string>
     <string name="settings_export_backup_none">No sections selected.</string>
     <string name="settings_export_backup_all">All sections selected.</string>
     <string name="settings_export_backup_partial">Selected %1$d of %2$d sections.</string>
     <string name="settings_export_backup_subtitle">%1$s Creates a .pxpl backup file.</string>
     <string name="settings_action_select_export">Select &amp; Export</string>
-    <string name="settings_restore_backup_section">Restore Backup</string>
-    <string name="settings_import_backup_title">Import Backup</string>
+    <string name="settings_restore_backup_section">Restore backup</string>
+    <string name="settings_import_backup_title">Import backup</string>
     <string name="settings_action_select_restore">Select &amp; Restore</string>
     <string name="settings_import_backup_subtitle">Browse or pick from recent backups. Selected data will replace current data.</string>
 

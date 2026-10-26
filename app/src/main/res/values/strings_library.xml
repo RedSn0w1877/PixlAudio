@@ -100,18 +100,18 @@
     <string name="library_empty_songs_offline_subtitle">Try another source filter or rescan your device library.</string>
     <string name="library_empty_songs_online_title">No cloud songs found</string>
     <string name="library_empty_songs_online_subtitle">Import your Spotify library to see songs here.</string>
-    <string name="library_empty_albums_all_title">No albums available</string>
-    <string name="library_empty_albums_all_subtitle">Albums will appear here as soon as your library has grouped tracks.</string>
+    <string name="library_empty_albums_all_title">No albums yet</string>
+    <string name="library_empty_albums_all_subtitle">Connect Spotify to bring in your music.</string>
     <string name="library_empty_albums_offline_title">No local albums found</string>
     <string name="library_empty_albums_offline_subtitle">Local songs are required to build local album groups.</string>
     <string name="library_empty_albums_online_title">No cloud albums found</string>
-    <string name="library_empty_albums_online_subtitle">Cloud songs with album data will appear here after sync.</string>
-    <string name="library_empty_artists_all_title">No artists available</string>
-    <string name="library_empty_artists_all_subtitle">Artists are shown after songs are indexed from any source.</string>
+    <string name="library_empty_albums_online_subtitle">Albums show up once your Spotify songs are in.</string>
+    <string name="library_empty_artists_all_title">No artists yet</string>
+    <string name="library_empty_artists_all_subtitle">They show up once your Spotify songs are in.</string>
     <string name="library_empty_artists_offline_title">No local artists found</string>
     <string name="library_empty_artists_offline_subtitle">No artist metadata is available for local songs right now.</string>
     <string name="library_empty_artists_online_title">No cloud artists found</string>
-    <string name="library_empty_artists_online_subtitle">Cloud artist entries appear when remote songs are synced.</string>
+    <string name="library_empty_artists_online_subtitle">Artists show up once your Spotify songs are in.</string>
     <string name="library_empty_liked_all_title">No liked songs yet</string>
     <string name="library_empty_liked_all_subtitle">Tap the heart icon while playing a song to save it here.</string>
     <string name="library_empty_liked_offline_title">No liked local songs</string>
@@ -119,7 +119,7 @@
     <string name="library_empty_liked_online_title">No liked cloud songs</string>
     <string name="library_empty_liked_online_subtitle">Like a song to see it in this view.</string>
     <string name="library_empty_folders_title">No folders found</string>
-    <string name="library_empty_folders_subtitle">Internal storage folders with music will appear here.</string>
+    <string name="library_empty_folders_subtitle">Your music comes from Spotify, so there are no folders to show.</string>
     <string name="library_empty_playlists_title">No playlists yet</string>
     <string name="library_empty_playlists_subtitle">Create your first playlist to organize your library.</string>
 
