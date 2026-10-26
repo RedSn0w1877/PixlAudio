@@ -2,6 +2,7 @@ package com.theveloper.pixelplay.presentation.spotify.dashboard
 
 import com.theveloper.pixelplay.presentation.components.AdaptiveAlertDialog
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import com.theveloper.pixelplay.R
 import androidx.compose.foundation.layout.Box
@@ -449,7 +450,11 @@ private fun AccountCard(
             }
 
             Text(
-                text = "${uiState.totalSongs} tracks across ${uiState.playlists.size} playlists",
+                text = stringResource(
+                    R.string.spotify_tracks_across_playlists,
+                    pluralStringResource(R.plurals.spotify_tracks_count, uiState.totalSongs, uiState.totalSongs),
+                    pluralStringResource(R.plurals.spotify_playlists_count, uiState.playlists.size, uiState.playlists.size),
+                ),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -932,7 +937,7 @@ private fun PlaylistRow(playlist: SpotifyPlaylistEntity) {
                 )
                 Spacer(Modifier.height(2.dp))
                 Text(
-                    text = "${playlist.songCount} tracks",
+                    text = pluralStringResource(R.plurals.spotify_tracks_count, playlist.songCount, playlist.songCount),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

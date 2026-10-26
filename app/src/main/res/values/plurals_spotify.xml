@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Spotify dashboard and browse counts. -->
+    <plurals name="spotify_tracks_count">
+        <item quantity="one">%d track</item>
+        <item quantity="other">%d tracks</item>
+    </plurals>
+    <plurals name="spotify_playlists_count">
+        <item quantity="one">%d playlist</item>
+        <item quantity="other">%d playlists</item>
+    </plurals>
+    <!-- %1$s = "N tracks", %2$s = "M playlists" -->
+    <string name="spotify_tracks_across_playlists">%1$s across %2$s</string>
+    <plurals name="spotify_browse_added_tracks">
+        <item quantity="one">Added %1$d track from %2$s. Finding audio now.</item>
+        <item quantity="other">Added %1$d tracks from %2$s. Finding audio now.</item>
+    </plurals>
+</resources>

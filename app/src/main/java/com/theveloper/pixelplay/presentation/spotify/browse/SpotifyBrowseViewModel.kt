@@ -3,6 +3,7 @@ package com.theveloper.pixelplay.presentation.spotify.browse
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.theveloper.pixelplay.R
 import com.theveloper.pixelplay.data.network.spotify.SpotifyAlbumFull
 import com.theveloper.pixelplay.data.network.spotify.SpotifyArtistFull
 import com.theveloper.pixelplay.data.network.spotify.SpotifyTrack
@@ -196,7 +197,7 @@ class SpotifyBrowseViewModel @Inject constructor(
                     message = when {
                         added == 0 -> "$label was already in your library — finding audio now."
                         tracks.size == 1 -> "Added \"$label\". Finding audio for it now."
-                        else -> "Added $added tracks from $label. Finding audio now."
+                        else -> context.resources.getQuantityString(R.plurals.spotify_browse_added_tracks, added, added, label)
                     }
                 )
             }
