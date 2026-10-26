@@ -2,6 +2,7 @@ package com.theveloper.pixelplay.presentation.screens.setup
 
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
