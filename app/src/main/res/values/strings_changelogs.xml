@@ -6,6 +6,40 @@
     <string name="changelog_sec_fixes">Fixes</string>
     <string name="changelog_sec_whats_new">What\'s New</string>
     <string name="changelog_sec_added">Added</string>
+    <string name="changelog_sec_changed">Changed</string>
+    <string name="changelog_sec_fixed_faster">Fixed and faster</string>
+    <string name="changelog_sec_good_to_know">Good to know</string>
+    <string-array name="changelog_076b3_whats_new">
+        <item>Ask Taizo: a music assistant you can chat with. Ask for songs, playlists or recommendations. When you\'re online it can also search the web and tune your taste for you.</item>
+        <item>Taste controls: boost, play less of, mute or block any artist or song, on top of what the app learns from your listening. Blocked artists never show up in your mixes.</item>
+        <item>Listening history import: bring in your history from Spotify (and some from YouTube Music) so recommendations fit you from day one.</item>
+        <item>Music haptics: feel the beat through your phone\'s vibration.</item>
+        <item>New gestures: double-tap the cover to like a song, long-press for quick actions, and swipe or long-press the mini player.</item>
+        <item>Find in playlist: pull down or tap search to filter a playlist.</item>
+        <item>Accent color: pick one for the whole app in Settings &gt; Appearance.</item>
+        <item>Sing mode: instrumental versions start within seconds with a one-minute preview, and \"Prepare songs ahead\" gets your next songs ready in advance.</item>
+        <item>Lyrics: new Translate and Sing buttons, and the screen stays on while you read along.</item>
+        <item>Spotify Connect: the volume buttons control your speaker, and the player shows where your music is playing.</item>
+        <item>Simpler Settings: technical options are tucked behind Developer mode, and you choose whether processing happens on your phone or in the cloud.</item>
+    </string-array>
+    <string-array name="changelog_076b3_changed">
+        <item>A fresh Material 3 Expressive look, with a new logo and notification icon.</item>
+        <item>Your music now comes from Spotify only. The app no longer scans songs stored on your phone.</item>
+    </string-array>
+    <string-array name="changelog_076b3_fixes">
+        <item>Play, pause, skip and rewind work reliably again, even while a song is loading.</item>
+        <item>A song whose video won\'t play is matched to another one instead of being skipped every time.</item>
+        <item>Spotify import is faster and more reliable.</item>
+        <item>Fixed a crash on startup.</item>
+        <item>Songs start sooner, and the next song is prepared ahead of time (less on mobile data, none in Data Saver).</item>
+        <item>Smoother scrolling and animations on Home, Search, the queue and Settings.</item>
+        <item>Lyrics load faster and retry when they fail.</item>
+        <item>A shareable diagnostics log in Settings &gt; About helps you report problems.</item>
+    </string-array>
+    <string-array name="changelog_076b3_good_to_know">
+        <item>To import your Spotify history you may need to reconnect Spotify once.</item>
+        <item>Beta 3 is signed with a new permanent key. If it won\'t install over your current version, uninstall the old one first. Future updates will install normally.</item>
+    </string-array>
     <string-array name="changelog_076_whats_new">
         <item>Streaming audio quality now automatically uses the highest bitrate available (Ultrasound tier) — no setup needed, though a Low/Standard/High/Ultrasound picker is available in Settings if you want to reduce mobile data use.</item>
         <item>Tapping a song in Search that isn\'t in your library yet now adds it and plays it immediately, instead of just saving it for later.</item>
