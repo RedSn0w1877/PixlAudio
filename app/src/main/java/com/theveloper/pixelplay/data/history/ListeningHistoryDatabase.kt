@@ -142,6 +142,15 @@ data class TrackAggregateRow(
     @ColumnInfo(name = "listenedMs") val listenedMs: Long,
 )
 
+/** How an artist's imported plays ended: every row counted, finished ([PlayOutcome.COMPLETED]) and skipped early ([PlayOutcome.SKIPPED]). */
+data class ArtistOutcomeRow(
+    @ColumnInfo(name = "name") val name: String,
+    @ColumnInfo(name = "artistKey") val artistKey: String,
+    @ColumnInfo(name = "plays") val plays: Int,
+    @ColumnInfo(name = "completed") val completed: Int,
+    @ColumnInfo(name = "skipped") val skipped: Int,
+)
+
 @Dao
 abstract class ListeningHistoryDao {
 
@@ -209,6 +218,32 @@ abstract class ListeningHistoryDao {
         """
     )
     abstract suspend fun topTracks(sinceMs: Long, limit: Int): List<TrackAggregateRow>
+
+    /** Per artist, how many imported plays were finished and how many skipped early (Ask Taizo's taste profile). */
+    @Query(
+        """
+        SELECT MAX(artist_name) AS name, artist_key AS artistKey, COUNT(*) AS plays,
+               COALESCE(SUM(CASE WHEN outcome = 1 THEN 1 ELSE 0 END), 0) AS completed,
+               COALESCE(SUM(CASE WHEN outcome = 2 THEN 1 ELSE 0 END), 0) AS skipped
+        FROM imported_plays
+        WHERE artist_key != ''
+        GROUP BY artist_key
+        ORDER BY plays DESC
+        LIMIT :limit
+        """
+    )
+    abstract suspend fun artistOutcomes(limit: Int): List<ArtistOutcomeRow>
+
+    /** When heard plays from [sources] happened, newest first (a part-of-day and weekday split; capped by [limit]). */
+    @Query(
+        """
+        SELECT played_at FROM imported_plays
+        WHERE source IN (:sources) AND qualified = 1 AND played_at >= :sinceMs
+        ORDER BY played_at DESC
+        LIMIT :limit
+        """
+    )
+    abstract suspend fun playTimes(sources: List<String>, sinceMs: Long, limit: Int): List<Long>
 
     /**
      * A play the Web API reported that the export also holds (timestamps a second or so apart): keep the

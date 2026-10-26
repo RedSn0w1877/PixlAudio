@@ -52,6 +52,8 @@ data class AutoCandidateFacts(
     val blockedArtist: Boolean = false,
     /** The song's audio is already on this phone: the first version only prepares such songs. */
     val audioCached: Boolean = false,
+    /** What the listener asked Ask Taizo to favour (>1) or avoid (<1) for this song, artist, genre or album; 1.0 = nothing. */
+    val tasteMultiplier: Double = 1.0,
 )
 
 /** A ranked candidate: its score, and the album boost inside it (for the "Why these songs" list). */
@@ -140,7 +142,10 @@ object CloudAutoPrepare {
         val addRecency = if (facts.dateAddedMs > 0) {
             ADD_RECENCY_WEIGHT * 2.0.pow(-daysSince(facts.dateAddedMs, nowMs) / ADD_HALF_LIFE_DAYS)
         } else 0.0
-        return favorite + plays + playRecency + addRecency + facts.neighbourBoost - SKIP_WEIGHT * skipRate(facts)
+        val base = favorite + plays + playRecency + addRecency + facts.neighbourBoost - SKIP_WEIGHT * skipRate(facts)
+        // An explicit taste change scales the score either way (a negative score gets worse under a reduce).
+        val taste = facts.tasteMultiplier
+        return if (taste == 1.0) base else if (base >= 0.0) base * taste else base / taste
     }
 
     private fun daysSince(thenMs: Long, nowMs: Long): Double = max(nowMs - thenMs, 0L) / DAY_MS

@@ -30,6 +30,7 @@ class TaizoContextProvider @Inject constructor(
     private val taste: MusicTasteRepository,
     private val lyricsRepository: LyricsRepository,
     private val isrcResolver: SongIsrcResolver,
+    private val tasteProfiles: TasteProfileProvider,
 ) {
     suspend fun profile(): TaizoProfile = withContext(Dispatchers.IO) {
         val songs = safely { musicRepository.getAllSongsOnce() }.orEmpty()
@@ -56,6 +57,8 @@ class TaizoContextProvider @Inject constructor(
             playlists = safely { playlists.userPlaylistsFlow.first() }.orEmpty().map { it.name }.take(MAX_PLAYLISTS),
             skips = tasteState?.skips ?: 0,
             completions = tasteState?.completions ?: 0,
+            // Read from the same stores as get_taste_profile (cached until a new play or taste change).
+            tasteDigest = safely { tasteProfiles.digest() },
         )
     }
 

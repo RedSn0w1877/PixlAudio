@@ -28,6 +28,7 @@ class DailyMixManager @Inject constructor(
     @ApplicationContext private val context: Context,
     private val engagementDao: EngagementDao,
     private val tasteRepository: com.theveloper.pixelplay.data.recommendation.MusicTasteRepository,
+    private val tasteAdjustments: com.theveloper.pixelplay.data.recommendation.TasteAdjustmentRepository,
     private val blockedArtists: com.theveloper.pixelplay.data.blocking.BlockedArtistsRepository
 ) {
 
@@ -417,6 +418,9 @@ class DailyMixManager @Inject constructor(
         return personalizedPicks(allSongs, favoriteSongIds, limit, java.time.LocalDate.now().toEpochDay() + 42).map { it.song }
     }
 
+    /** The explicit taste adjustments mixes follow (muted and blocked songs must also stay out of catalog discoveries). */
+    suspend fun tasteAdjustmentSnapshot() = tasteAdjustments.snapshot()
+
     suspend fun personalizedPicks(
         allSongsIncludingBlocked: List<Song>, favoriteSongIds: Set<String>, limit: Int = 30,
         seed: Long = java.time.LocalDate.now().toEpochDay()
@@ -443,7 +447,8 @@ class DailyMixManager @Inject constructor(
         val normalizedFavorites = favoriteSongIds + allSongs.filter { "spotify_${it.spotifyId}" in favoriteSongIds }.map { it.id }
         val ranked = com.theveloper.pixelplay.data.recommendation.MusicRecommendationEngine.rank(
             allSongs, normalizedFavorites, signals, normalizedHistory, System.currentTimeMillis(), seed,
-            artistPriors = tasteRepository.importedArtistPriors()
+            artistPriors = tasteRepository.importedArtistPriors(),
+            adjustments = tasteAdjustments.snapshot()
         )
         return com.theveloper.pixelplay.data.recommendation.MusicRecommendationEngine.select(
             ranked, limit, tasteRepository.state.first().exploration

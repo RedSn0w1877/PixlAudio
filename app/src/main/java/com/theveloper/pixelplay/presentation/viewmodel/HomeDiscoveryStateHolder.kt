@@ -13,6 +13,7 @@ import com.theveloper.pixelplay.data.recommendation.HomeRecommendationPlanner
 import com.theveloper.pixelplay.data.recommendation.MusicRecommendationEngine
 import com.theveloper.pixelplay.data.recommendation.MusicTasteRepository
 import com.theveloper.pixelplay.data.recommendation.MuselleVariant
+import com.theveloper.pixelplay.data.recommendation.TasteAdjustmentRepository
 import com.theveloper.pixelplay.data.premium.PlusLicenseManager
 import com.theveloper.pixelplay.data.preferences.UserPreferencesRepository
 import com.theveloper.pixelplay.data.repository.MusicRepository
@@ -58,7 +59,8 @@ class HomeDiscoveryStateHolder @Inject constructor(
     private val engagement: EngagementDao,
     private val taste: MusicTasteRepository,
     private val catalog: HomeCatalogRepository,
-    private val blockedArtists: com.theveloper.pixelplay.data.blocking.BlockedArtistsRepository
+    private val blockedArtists: com.theveloper.pixelplay.data.blocking.BlockedArtistsRepository,
+    private val tasteAdjustments: TasteAdjustmentRepository
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     // The ranking/planning passes are pure CPU over the whole library: run them on one Default
@@ -72,6 +74,12 @@ class HomeDiscoveryStateHolder @Inject constructor(
     // Written on IO when a refresh finishes, read on Main.
     @Volatile private var lastRefreshFinishedAt = 0L
     @Volatile private var lastRefreshHadLibrary = false
+
+    init {
+        // A taste change (boost, mute, block...) makes the snapshot stale: the next visit to Home re-plans
+        // instead of waiting out the short auto-refresh window.
+        scope.launch { tasteAdjustments.version.collect { lastRefreshFinishedAt = 0L } }
+    }
 
     // Called on Main by the ViewModel; keep one catalog refresh in flight across Home recreation.
     fun refresh(force: Boolean = false) {
@@ -98,6 +106,8 @@ class HomeDiscoveryStateHolder @Inject constructor(
                 // Listening history imported from Spotify / YouTube Music: play counts and artist affinity.
                 val importedHistory = taste.importedHistory()
                 val artistPriors = taste.importedArtistPriors()
+                // What the listener asked Ask Taizo to favour, mute or block.
+                val adjustments = tasteAdjustments.snapshot()
                 val (signals, history) = withContext(planningDispatcher) {
                     val storedHistory = engagements.associate { it.songId to MusicRecommendationEngine.History(
                         it.playCount, it.totalPlayDurationMs, it.lastPlayedTimestamp
@@ -120,7 +130,7 @@ class HomeDiscoveryStateHolder @Inject constructor(
                             discoveries = blockedArtists.current.filterAllowed(snapshot.discoveries.map { it.song }),
                             releases = blockedArtists.current.filterAllowed(snapshot.releases.filter { HomeRecommendationPlanner.isRecentRelease(it.releaseDate, LocalDate.now()) }.map { it.song }),
                             nowMs = now, seed = LocalDate.now().toEpochDay(), variant = variant,
-                            artistPriors = artistPriors
+                            artistPriors = artistPriors, adjustments = adjustments
                         )
                     }
                     mutableState.update { it.copy(mixes = planned.mixes, shelves = planned.shelves, discoveryEnabled = enabled) }
@@ -133,7 +143,7 @@ class HomeDiscoveryStateHolder @Inject constructor(
                 if (enabled && library.isNotEmpty() && catalog.isRefreshDue(force)) {
                     val seeds = withContext(planningDispatcher) {
                         MusicRecommendationEngine.select(
-                            MusicRecommendationEngine.rank(library, favorites, signals, history, now, LocalDate.now().toEpochDay(), artistPriors), 20
+                            MusicRecommendationEngine.rank(library, favorites, signals, history, now, LocalDate.now().toEpochDay(), artistPriors, adjustments), 20
                         ).map { it.song }
                     }
                     val refreshed = catalog.refresh(seeds, library, force)

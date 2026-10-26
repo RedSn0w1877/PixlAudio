@@ -28,6 +28,7 @@ import androidx.compose.material.icons.rounded.DeleteSweep
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.Sync
+import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.UploadFile
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -52,6 +53,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -64,6 +66,7 @@ import com.theveloper.pixelplay.data.history.ListeningHistoryStatus
 import com.theveloper.pixelplay.presentation.navigation.Screen
 import com.theveloper.pixelplay.presentation.navigation.navigateSafely
 import com.theveloper.pixelplay.presentation.viewmodel.ListeningHistoryViewModel
+import com.theveloper.pixelplay.presentation.viewmodel.TasteChangesViewModel
 import java.text.NumberFormat
 
 private const val SPOTIFY_PRIVACY_URL = "https://www.spotify.com/account/privacy/"
@@ -109,8 +112,10 @@ private fun openUrl(context: Context, url: String) {
 fun SettingsListeningHistorySection(
     navController: NavController,
     viewModel: ListeningHistoryViewModel = hiltViewModel(),
+    tasteChanges: TasteChangesViewModel = hiltViewModel(),
 ) {
     val status by viewModel.status.collectAsStateWithLifecycle()
+    val tasteCount = tasteChanges.adjustments.collectAsStateWithLifecycle().value.size
     val context = LocalContext.current
     val tint = MaterialTheme.colorScheme.secondary
     var confirmClear by remember { mutableStateOf(false) }
@@ -152,6 +157,15 @@ fun SettingsListeningHistorySection(
                 leadingIcon = { Icon(Icons.Rounded.UploadFile, null, tint = tint) },
                 trailingIcon = { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, null) },
                 onClick = { navController.navigateSafely(Screen.ListeningHistory.route) }
+            )
+            // What Ask Taizo was told to boost, reduce, mute or block: visible and undoable here.
+            SettingsItem(
+                title = stringResource(R.string.taste_changes_title),
+                subtitle = if (tasteCount == 0) stringResource(R.string.taste_changes_row_none)
+                else pluralStringResource(R.plurals.taste_changes_row_count, tasteCount, tasteCount),
+                leadingIcon = { Icon(Icons.Rounded.Tune, null, tint = tint) },
+                trailingIcon = { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, null) },
+                onClick = { navController.navigateSafely(Screen.TasteChanges.route) }
             )
             if (status.totalPlays > 0) {
                 SettingsItem(
