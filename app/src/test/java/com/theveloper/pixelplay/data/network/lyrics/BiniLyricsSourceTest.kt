@@ -91,7 +91,7 @@ class BiniLyricsSourceTest {
         assertThat(match.candidate.isrc).isEqualTo("USAB12000001")
         assertThat(match.isWordTimed).isTrue()
         assertThat(match.lyrics.areFromRemote).isTrue()
-        assertThat(match.lyrics.document!!.metadata.source).isEqualTo("BiniLyrics")
+        assertThat(match.lyrics.document!!.metadata.source).isEqualTo("Pixel Master Lyrics")
         assertThat(match.lyrics.synced!!.first().words!!.map { it.word }).containsExactly("Lan", "terns", "glow").inOrder()
         assertThat(requests.none { it.url.queryParameter("track") != null }).isTrue()
         assertThat(requests.last().url.toString()).isEqualTo("https://lrc.red/s/USAB12000001.ttml")
