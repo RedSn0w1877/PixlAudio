@@ -15,6 +15,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.InternalCoroutinesApi
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.job
@@ -89,6 +90,8 @@ class SdkClaudeTransport @Inject constructor() : ClaudeTransport {
         )
     }
 
+    // InternalCoroutinesApi: invokeOnCompletion(onCancelling = true), see below.
+    @OptIn(InternalCoroutinesApi::class)
     override suspend fun stream(
         request: ClaudeRequest,
         onText: (String) -> Unit,
@@ -100,8 +103,10 @@ class SdkClaudeTransport @Inject constructor() : ClaudeTransport {
         val job = currentCoroutineContext().job
         call {
             client().messages().withRawResponse().createStreaming(params).use { response ->
-                // Cancelling the coroutine closes the stream, which unblocks readLine().
-                val closer = job.invokeOnCompletion { runCatching { response.close() } }
+                // Cancelling the coroutine closes the stream, which unblocks readLine(). onCancelling: the job
+                // only *completes* once this blocking read returns, so a plain completion handler would leave
+                // the stream open until the next SSE line arrived.
+                val closer = job.invokeOnCompletion(onCancelling = true) { runCatching { response.close() } }
                 try {
                     response.body().bufferedReader(Charsets.UTF_8).use { reader ->
                         while (true) {
