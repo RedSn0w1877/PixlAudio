@@ -243,8 +243,6 @@ fun LyricsSheet(
     translationStateFlow: StateFlow<LyricsTranslateUiState>? = null,
     /** The Sing button (LyricsSingStateHolder). */
     singUiFlow: StateFlow<SingUi>? = null,
-    /** Translate when the lyrics have no translation yet: translate them on this phone. */
-    onTranslateOnDevice: () -> Unit = {},
     /** Sing: vocals off / on, rendering the instrumental first when there is none. */
     onSing: () -> Unit = {},
     /**
@@ -381,11 +379,9 @@ fun LyricsSheet(
     var showSyncControls by remember { mutableStateOf(false) }
     var previewSeekPositionMs by remember(currentSong?.id) { mutableStateOf<Long?>(null) }
 
-    // Synced vs plain is automatic (synced when there are synced lines); the More sheet's
-    // "Show as plain text" switch overrides it for the current song only.
-    var plainTextOverride by remember(currentSong?.id) { mutableStateOf(false) }
-    val showSyncedLyrics: Boolean? = remember(lyrics, plainTextOverride) {
-        when (resolveLyricsDisplay(lyrics, plainTextOverride)) {
+    // Synced vs plain is automatic: synced when there are synced lines.
+    val showSyncedLyrics: Boolean? = remember(lyrics) {
+        when (resolveLyricsDisplay(lyrics, plainOverride = false)) {
             LyricsDisplay.SYNCED -> true
             LyricsDisplay.PLAIN -> false
             LyricsDisplay.NONE -> null
@@ -576,7 +572,8 @@ fun LyricsSheet(
                     }
                 }
             }
-            else -> onTranslateOnDevice()
+            // No translation yet: translate with AI (the on-device translator was removed).
+            else -> onTranslateViaAi()
         }
     }
     val onTranslateViaAiTap: () -> Unit = {
@@ -1088,14 +1085,6 @@ fun LyricsSheet(
                         resetImmersiveTimer()
                         onSetImmersiveTemporarilyDisabled(it)
                     },
-                    // Synced lyrics only: plain-only lyrics are plain text already.
-                    showAsPlainText = plainTextOverride,
-                    onShowAsPlainTextChange = if (hasSyncedLyrics) {
-                        { enabled ->
-                            resetImmersiveTimer()
-                            plainTextOverride = enabled
-                        }
-                    } else null,
                     lyricsAlignment = lyricsAlignment,
                     onLyricsAlignmentChange = { newAlignment ->
                         coroutineScope.launch {

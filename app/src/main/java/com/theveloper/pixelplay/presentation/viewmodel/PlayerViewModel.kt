@@ -3180,9 +3180,6 @@ class PlayerViewModel @Inject constructor(
     /** The lyrics toolbar's Sing: vocals off / on, rendering the instrumental first if needed. */
     fun toggleSing() = lyricsSing.onSingTapped()
 
-    /** The lyrics toolbar's Translate when the lyrics have no translation yet: translate on this phone. */
-    fun translateLyricsOnDevice() = lyricsTranslation.translateCurrent()
-
     fun saveBatchMetadata(
         songs: List<Song>,
         title: String?,

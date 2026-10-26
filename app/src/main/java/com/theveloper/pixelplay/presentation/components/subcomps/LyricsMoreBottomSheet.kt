@@ -29,7 +29,6 @@ import androidx.compose.material.icons.rounded.Abc
 import androidx.compose.material.icons.rounded.FormatAlignCenter
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.Translate
-import androidx.compose.material.icons.automirrored.rounded.Notes
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.VisibilityOff
@@ -46,7 +45,10 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.disabled
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
@@ -80,10 +82,6 @@ fun LyricsMoreBottomSheet(
     onToggleSyncControls: () -> Unit,
     isImmersiveTemporarilyDisabled: Boolean,
     onSetImmersiveTemporarilyDisabled: (Boolean) -> Unit,
-    /** The current song shows as plain text even though it has synced lines. */
-    showAsPlainText: Boolean,
-    /** Null hides the "Show as plain text" switch (lyrics with no synced lines are plain already). */
-    onShowAsPlainTextChange: ((Boolean) -> Unit)?,
     lyricsAlignment: String,
     onLyricsAlignmentChange: (String) -> Unit,
     hasTranslatedLyrics: Boolean,
@@ -461,15 +459,12 @@ fun LyricsMoreBottomSheet(
             }
 
             // Control Settings Group
-            // (isSyncVisible / isImmersiveVisible key on showSyncedLyrics, which is false while
-            // "Show as plain text" is on: plain text has no sync to adjust or immersion.)
-            val isPlainTextVisible = onShowAsPlainTextChange != null
             val isSyncVisible = showSyncedLyrics
             val isRomanizationVisible = hasRomanizedLyrics
             val isTranslationVisible = hasTranslatedLyrics
             val isImmersiveVisible = showSyncedLyrics && immersiveLyricsEnabled
             val controlRows = listOf(
-                isPlainTextVisible, isSyncVisible, isRomanizationVisible, isTranslationVisible, isImmersiveVisible
+                isSyncVisible, isRomanizationVisible, isTranslationVisible, isImmersiveVisible
             )
             val controlCount = controlRows.count { it }
             // Each visible row's shape from its position in the group (first / middle / last).
@@ -489,50 +484,16 @@ fun LyricsMoreBottomSheet(
                         style = MaterialTheme.typography.bodyLargeEmphasized
                     )
 
-                    if (isPlainTextVisible) {
-                        ListItem(
-                            headlineContent = { Text(stringResource(R.string.lyrics_show_plain_text)) },
-                            leadingContent = {
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Rounded.Notes,
-                                    contentDescription = null
-                                )
-                            },
-                            trailingContent = {
-                                Switch(
-                                    checked = showAsPlainText,
-                                    onCheckedChange = { onShowAsPlainTextChange?.invoke(it) },
-                                    colors = SwitchDefaults.colors(
-                                        checkedThumbColor = onAccentColor,
-                                        checkedTrackColor = accentColor,
-                                        uncheckedThumbColor = rowContent,
-                                        uncheckedTrackColor = rowContent.copy(alpha = 0.3f)
-                                    )
-                                )
-                            },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(controlShape(0))
-                                .background(itemBackgroundColor)
-                                .clickable { onShowAsPlainTextChange?.invoke(!showAsPlainText) },
-                            colors = ListItemDefaults.colors(
-                                containerColor = Color.Transparent,
-                                headlineColor = rowContent,
-                                leadingIconColor = rowContent
-                            )
-                        )
-                    }
-
                     if (isSyncVisible) {
                         ListItem(
                             headlineContent = {
-                                Text(
-                                    if (isSyncControlsVisible) {
-                                        stringResource(R.string.lyrics_controls_hide_sync)
-                                    } else {
-                                        stringResource(R.string.lyrics_controls_adjust_sync)
-                                    }
-                                )
+                                Text(stringResource(R.string.lyrics_controls_adjust_sync))
+                            },
+                            // Locked: the sync controls are broken for now, so the row is greyed out,
+                            // can't be tapped and says so. (isSyncControlsVisible / onToggleSyncControls
+                            // stay wired for when it is fixed.)
+                            supportingContent = {
+                                Text(stringResource(R.string.common_broken_fix_soon))
                             },
                             leadingContent = {
                                 Icon(
@@ -542,15 +503,14 @@ fun LyricsMoreBottomSheet(
                             },
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(controlShape(1))
+                                .clip(controlShape(0))
                                 .background(itemBackgroundColor)
-                                .clickable {
-                                    onDismissRequest()
-                                    onToggleSyncControls()
-                                },
+                                .alpha(0.5f)
+                                .semantics { disabled() },
                             colors = ListItemDefaults.colors(
                                 containerColor = Color.Transparent,
                                 headlineColor = rowContent,
+                                supportingColor = rowContent,
                                 leadingIconColor = rowContent
                             )
                         )
@@ -579,7 +539,7 @@ fun LyricsMoreBottomSheet(
                             },
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(controlShape(2))
+                                .clip(controlShape(1))
                                 .background(itemBackgroundColor)
                                 .clickable { onShowRomanizationChange(!showRomanization) },
                             colors = ListItemDefaults.colors(
@@ -613,7 +573,7 @@ fun LyricsMoreBottomSheet(
                             },
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(controlShape(3))
+                                .clip(controlShape(2))
                                 .background(itemBackgroundColor)
                                 .clickable { onShowTranslationChange(!showTranslation) },
                             colors = ListItemDefaults.colors(
@@ -651,7 +611,7 @@ fun LyricsMoreBottomSheet(
                             },
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(controlShape(4))
+                                .clip(controlShape(3))
                                 .background(itemBackgroundColor)
                                 // The whole row is the target, as for the other switch rows.
                                 .clickable { onSetImmersiveTemporarilyDisabled(!isImmersiveTemporarilyDisabled) },

@@ -874,7 +874,6 @@ fun FullPlayerContent(
             onToggleStudioInstrumental = playerViewModel::toggleSing,
             translationStateFlow = playerViewModel.lyricsTranslationState,
             singUiFlow = playerViewModel.singUi,
-            onTranslateOnDevice = playerViewModel::translateLyricsOnDevice,
             onSing = playerViewModel::toggleSing,
             // The full player stays composed after it collapses: lyrics left open must not keep
             // the screen on over the library.
