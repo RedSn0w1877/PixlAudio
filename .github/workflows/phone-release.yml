@@ -94,7 +94,7 @@ jobs:
           done
 
       - name: Upload Phone split APK artifacts
-        uses: actions/upload-artifact@v7.0.1
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: PixelPlay-phone-release-split-apks
           path: |
