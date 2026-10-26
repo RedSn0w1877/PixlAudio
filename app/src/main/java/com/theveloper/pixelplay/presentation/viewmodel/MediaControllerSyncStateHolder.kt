@@ -19,6 +19,7 @@ import com.theveloper.pixelplay.data.model.Song
 import com.theveloper.pixelplay.data.preferences.UserPreferencesRepository
 import com.theveloper.pixelplay.data.repository.MusicRepository
 import com.theveloper.pixelplay.data.service.player.DualPlayerEngine
+import com.theveloper.pixelplay.data.service.player.SeekPositionPolicy
 import com.theveloper.pixelplay.utils.MediaItemBuilder
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.android.scopes.ViewModelScoped
@@ -598,6 +599,21 @@ class MediaControllerSyncStateHolder @Inject constructor(
                 ) {
                     playbackStateHolder.startProgressUpdates()
                 }
+            }
+
+            override fun onPositionDiscontinuity(
+                oldPosition: Player.PositionInfo,
+                newPosition: Player.PositionInfo,
+                reason: Int
+            ) {
+                if (isRemoteSessionControllingPlayback()) return
+                // A restart, "previous" inside a song, or a seek from the notification/watch/car.
+                // The progress poll is idle while paused, so push the new position right now.
+                if (!SeekPositionPolicy.isSeekDiscontinuity(reason)) return
+                playbackStateHolder.onPlayerSeekDiscontinuity(
+                    mediaId = newPosition.mediaItem?.mediaId ?: playerCtrl.currentMediaItem?.mediaId,
+                    newPositionMs = newPosition.positionMs
+                )
             }
 
             override fun onAvailableCommandsChanged(availableCommands: Player.Commands) {
