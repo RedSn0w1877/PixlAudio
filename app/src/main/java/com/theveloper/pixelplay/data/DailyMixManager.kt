@@ -434,13 +434,16 @@ class DailyMixManager @Inject constructor(
             song.id to (storedSignals[song.id] ?: storedSignals["spotify_${song.spotifyId}"]
                 ?: com.theveloper.pixelplay.data.recommendation.MusicRecommendationEngine.Signal())
         }
+        // Plays imported from Spotify / YouTube Music (already weighted and time-decayed) add to this app's own.
+        val importedHistory = tasteRepository.importedHistory()
         val normalizedHistory = allSongs.associate { song ->
-            song.id to (history[song.id] ?: history["spotify_${song.spotifyId}"]
-                ?: com.theveloper.pixelplay.data.recommendation.MusicRecommendationEngine.History())
+            val local = history[song.id] ?: history["spotify_${song.spotifyId}"]
+            song.id to com.theveloper.pixelplay.data.history.ImportedTasteMerge.history(local, importedHistory[song.id])
         }
         val normalizedFavorites = favoriteSongIds + allSongs.filter { "spotify_${it.spotifyId}" in favoriteSongIds }.map { it.id }
         val ranked = com.theveloper.pixelplay.data.recommendation.MusicRecommendationEngine.rank(
-            allSongs, normalizedFavorites, signals, normalizedHistory, System.currentTimeMillis(), seed
+            allSongs, normalizedFavorites, signals, normalizedHistory, System.currentTimeMillis(), seed,
+            artistPriors = tasteRepository.importedArtistPriors()
         )
         return com.theveloper.pixelplay.data.recommendation.MusicRecommendationEngine.select(
             ranked, limit, tasteRepository.state.first().exploration

@@ -21,10 +21,11 @@ object Muselle {
         signals: Map<String, MusicRecommendationEngine.Signal>,
         history: Map<String, MusicRecommendationEngine.History>,
         nowMs: Long,
-        seed: Long
+        seed: Long,
+        artistPriors: Map<String, Double> = emptyMap()
     ): List<MusicRecommendationEngine.Pick> = when (variant) {
-        MuselleVariant.BASIC -> MusicRecommendationEngine.rank(songs, favorites, signals, history, nowMs, seed)
-        MuselleVariant.PLUS -> Muselle2.rank(songs, favorites, signals, history, nowMs, seed)
+        MuselleVariant.BASIC -> MusicRecommendationEngine.rank(songs, favorites, signals, history, nowMs, seed, artistPriors)
+        MuselleVariant.PLUS -> Muselle2.rank(songs, favorites, signals, history, nowMs, seed, artistPriors)
     }
 }
 
@@ -36,9 +37,10 @@ object Muselle2 {
         signals: Map<String, MusicRecommendationEngine.Signal>,
         history: Map<String, MusicRecommendationEngine.History>,
         nowMs: Long,
-        seed: Long
+        seed: Long,
+        artistPriors: Map<String, Double> = emptyMap()
     ): List<MusicRecommendationEngine.Pick> {
-        val baseline = MusicRecommendationEngine.rank(songs, favorites, signals, history, nowMs, seed)
+        val baseline = MusicRecommendationEngine.rank(songs, favorites, signals, history, nowMs, seed, artistPriors)
         if (baseline.size < 2) return baseline
         val artistCounts = baseline.groupingBy { MusicRecommendationEngine.artistKey(it.song) }.eachCount()
         val genreCounts = baseline.groupingBy { it.song.genre?.trim()?.lowercase().orEmpty() }.eachCount()

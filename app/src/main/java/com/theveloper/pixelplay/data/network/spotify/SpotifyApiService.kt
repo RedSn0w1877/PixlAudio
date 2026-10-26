@@ -176,6 +176,28 @@ interface SpotifyApiService {
         @Query("offset") offset: Int = 0
     ): Response<SpotifyArtistsPage>
 
+    // ─── Historial de escucha ──────────────────────────────────────────
+
+    /**
+     * The last 50 tracks played (Spotify keeps no more than that here). Needs `user-read-recently-played`.
+     * @param after only plays after this Unix time in ms.
+     */
+    @GET("v1/me/player/recently-played")
+    suspend fun getRecentlyPlayed(
+        @Header("Authorization") authorization: String,
+        @Query("limit") limit: Int = 50,
+        @Query("after") after: Long? = null
+    ): Response<SpotifyRecentlyPlayedPage>
+
+    /** Followed artists, cursor-paged by the last artist id. Needs `user-follow-read`. */
+    @GET("v1/me/following")
+    suspend fun getFollowedArtists(
+        @Header("Authorization") authorization: String,
+        @Query("type") type: String = "artist",
+        @Query("limit") limit: Int = 50,
+        @Query("after") after: String? = null
+    ): Response<SpotifyFollowedArtistsResponse>
+
     companion object {
         // `track` was the field name on the old, now-removed /tracks endpoint. /items
         // renamed it to `item` (a oneOf TrackObject/EpisodeObject) and kept `track` only as

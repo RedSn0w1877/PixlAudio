@@ -385,11 +385,15 @@ class SpotifyAuthManager @Inject constructor(
          * `user-read-playback-state` and `user-modify-playback-state` drive Spotify Connect
          * output (list devices, read playback, send commands). They were added later still, so
          * accounts linked before them have to reconnect once, exactly like `user-top-read`.
+         *
+         * `user-read-recently-played` and `user-follow-read` feed the listening-history import (recent plays
+         * and followed artists); accounts linked before them reconnect once from the dashboard banner.
          */
         private const val SCOPES =
             "user-library-read playlist-read-private playlist-read-collaborative " +
                 "user-read-private user-top-read " +
-                "user-read-playback-state user-modify-playback-state"
+                "user-read-playback-state user-modify-playback-state " +
+                "user-read-recently-played user-follow-read"
 
         /** The scopes the library import reads with; without one of them playlists/likes answer 403. */
         val IMPORT_SCOPES: Set<String> =
@@ -397,6 +401,9 @@ class SpotifyAuthManager @Inject constructor(
 
         /** The scopes Spotify Connect output needs. */
         val CONNECT_SCOPES: Set<String> = setOf("user-read-playback-state", "user-modify-playback-state")
+
+        /** The scopes the listening-history sync reads with (recent plays, top lists, followed artists). */
+        val HISTORY_SCOPES: Set<String> = setOf("user-read-recently-played", "user-top-read", "user-follow-read")
 
         private const val PREFS_NAME = "spotify_prefs"
         private const val PREFS_NAME_FALLBACK = "spotify_prefs_plain"

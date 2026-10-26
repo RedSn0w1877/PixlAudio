@@ -21,6 +21,24 @@ import javax.inject.Singleton
 
 private val Context.musicTasteStore by preferencesDataStore("music_intelligence")
 
+/**
+ * What listening history imported from Spotify / YouTube Music adds to learning (see `data.history`), kept in
+ * its own file: [MusicTasteRepository.record] rewrites the live store on every track change and must not drag
+ * this (possibly large) snapshot along each time.
+ */
+private val Context.importedTasteStore by preferencesDataStore("music_intelligence_imported")
+
+/**
+ * The imported contribution, already weighted (Spotify 1.0, YouTube Music 0.35) and time-decayed. Persisted with
+ * Gson by field name (kept by R8, see proguard-rules.pro).
+ */
+data class ImportedTasteSnapshot(
+    val signals: Map<String, MusicRecommendationEngine.Signal> = emptyMap(),
+    val history: Map<String, MusicRecommendationEngine.History> = emptyMap(),
+    val artistPriors: Map<String, Double> = emptyMap(),
+    val builtAtMs: Long = 0L
+)
+
 data class MusicIntelligenceState(
     val learningEnabled: Boolean = true,
     val discoveryEnabled: Boolean = true,
@@ -34,7 +52,7 @@ data class MusicIntelligenceState(
 
 /** Dedicated durable DataStore: survives cache cleanup; only playback feedback is retained locally. */
 @Singleton
-class MusicTasteRepository @Inject constructor(@ApplicationContext context: Context) {
+class MusicTasteRepository @Inject constructor(@ApplicationContext private val context: Context) {
     private val store = context.musicTasteStore
     private val gson = Gson()
     private val signalType = object : TypeToken<Map<String, MusicRecommendationEngine.Signal>>() {}.type
@@ -54,10 +72,93 @@ class MusicTasteRepository @Inject constructor(@ApplicationContext context: Cont
         )
     }.flowOn(Dispatchers.IO)
 
+    /**
+     * Live playback feedback plus the imported history's sessions/completions/skips for the same songs
+     * (empty while learning is off).
+     */
     suspend fun signals(): Map<String, MusicRecommendationEngine.Signal> {
+        val prefs = data.first()
+        if (prefs[LEARNING] == false) return emptyMap()
+        val live = decode(prefs[SIGNALS])
+        val imported = importedTaste().signals
+        if (imported.isEmpty()) return live
+        if (live.isEmpty()) return imported
+        val merged = HashMap<String, MusicRecommendationEngine.Signal>(live.size + imported.size)
+        merged.putAll(live)
+        // Imported entries are keyed by the library row id; live feedback for a streamed song may sit under its
+        // `spotify_` alias instead. Fold such an alias into the row id so the two add up rather than one hiding
+        // the other (readers look the row id up first).
+        for ((key, signal) in live) {
+            val canonical = com.theveloper.pixelplay.data.tais.TaisInstrumentalIndex.canonicalSongId(key)
+            if (canonical != key && canonical in imported) {
+                merged.remove(key)
+                val existing = merged[canonical]
+                merged[canonical] = if (existing == null) signal else mergeSignal(existing, signal)
+            }
+        }
+        for ((songId, signal) in imported) {
+            val existing = merged[songId]
+            merged[songId] = if (existing == null) signal else mergeSignal(existing, signal)
+        }
+        return merged
+    }
+
+    /** The playback feedback recorded in this app only, without imported history. */
+    suspend fun liveSignals(): Map<String, MusicRecommendationEngine.Signal> {
         val prefs = data.first()
         return if (prefs[LEARNING] != false) decode(prefs[SIGNALS]) else emptyMap()
     }
+
+    // ─── Imported listening history ────────────────────────────────────
+
+    private val importedStore = context.importedTasteStore
+    private val importedData = importedStore.data.catch { if (it is IOException) emit(emptyPreferences()) else throw it }
+    @Volatile private var importedCache: Pair<String, ImportedTasteSnapshot>? = null
+
+    suspend fun importedTaste(): ImportedTasteSnapshot {
+        val raw = importedData.first()[IMPORTED] ?: return ImportedTasteSnapshot()
+        importedCache?.let { (cachedRaw, cached) -> if (cachedRaw == raw) return cached }
+        val parsed = runCatching { gson.fromJson(raw, ImportedTasteSnapshot::class.java) }.getOrNull()
+            ?.let { sanitize(it) } ?: ImportedTasteSnapshot()
+        importedCache = raw to parsed
+        return parsed
+    }
+
+    /** Play counts and last plays from imported history, by library song id (merged into engagement by readers). */
+    suspend fun importedHistory(): Map<String, MusicRecommendationEngine.History> = importedTaste().history
+
+    /** Imported artist affinity (normalised name → -1..1), including artists with no song in the library. */
+    suspend fun importedArtistPriors(): Map<String, Double> = importedTaste().artistPriors
+
+    suspend fun saveImportedTaste(snapshot: ImportedTasteSnapshot) {
+        val encoded = gson.toJson(snapshot)
+        importedStore.edit { it[IMPORTED] = encoded }
+        importedCache = encoded to snapshot
+    }
+
+    suspend fun clearImportedTaste() {
+        importedStore.edit { it.remove(IMPORTED) }
+        importedCache = null
+    }
+
+    /** Gson leaves missing fields null even when Kotlin says they cannot be. */
+    @Suppress("SENSELESS_COMPARISON", "UNNECESSARY_SAFE_CALL")
+    private fun sanitize(snapshot: ImportedTasteSnapshot): ImportedTasteSnapshot = ImportedTasteSnapshot(
+        signals = snapshot.signals?.filterValues { it != null } ?: emptyMap(),
+        history = snapshot.history?.filterValues { it != null } ?: emptyMap(),
+        artistPriors = snapshot.artistPriors?.filterValues { it != null } ?: emptyMap(),
+        builtAtMs = snapshot.builtAtMs
+    )
+
+    private fun mergeSignal(a: MusicRecommendationEngine.Signal, b: MusicRecommendationEngine.Signal) =
+        MusicRecommendationEngine.Signal(
+            sessions = (a.sessions.toLong() + b.sessions).coerceAtMost(1_000_000L).toInt(),
+            completions = (a.completions.toLong() + b.completions).coerceAtMost(1_000_000L).toInt(),
+            earlySkips = (a.earlySkips.toLong() + b.earlySkips).coerceAtMost(1_000_000L).toInt(),
+            voluntaryPlays = (a.voluntaryPlays.toLong() + b.voluntaryPlays).coerceAtMost(1_000_000L).toInt(),
+            lastPlayedMs = maxOf(a.lastPlayedMs, b.lastPlayedMs),
+            listenedMs = a.listenedMs + b.listenedMs
+        )
 
     suspend fun record(songId: String, listenedMs: Long, durationMs: Long, voluntary: Boolean, changedTrack: Boolean, timestamp: Long) {
         if (songId.isBlank() || listenedMs < 5_000) return
@@ -105,5 +206,6 @@ class MusicTasteRepository @Inject constructor(@ApplicationContext context: Cont
         val DISCOVERY = booleanPreferencesKey("discovery_enabled")
         val EXPLORATION = floatPreferencesKey("exploration_fraction")
         val REPORT = stringPreferencesKey("last_report")
+        val IMPORTED = stringPreferencesKey("imported_taste_v1")
     }
 }

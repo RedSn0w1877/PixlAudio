@@ -55,6 +55,11 @@ data class SpotifyDashboardUiState(
      * with). Signing in again fixes it. NOT raised for a single refused playlist.
      */
     val reconnectRequired: Boolean = false,
+    /**
+     * The login works but was granted before PixlAudio asked to read recently played songs and followed artists
+     * (listening-history import). Reconnecting once adds them.
+     */
+    val historyReconnectNeeded: Boolean = false,
     /** Playlists the import left out, each with its reason. */
     val skippedPlaylists: List<SkippedPlaylist> = emptyList(),
     /** 0-100 while the import runs, null otherwise. */
@@ -121,7 +126,8 @@ class SpotifyDashboardViewModel @Inject constructor(
         youTubeError,
         repository.reconnectRequired,
         repository.skippedPlaylists,
-        matchJob
+        matchJob,
+        authManager.grantedScopes
     ) { values ->
         @Suppress("UNCHECKED_CAST")
         val loggedIn = values[0] as Boolean
@@ -138,6 +144,7 @@ class SpotifyDashboardViewModel @Inject constructor(
         val reconnect = values[11] as Boolean
         val skipped = values[12] as List<SkippedPlaylist>
         val match = values[13] as JobView
+        val historyMissing = authManager.missingScopes(SpotifyAuthManager.HISTORY_SCOPES)
 
         SpotifyDashboardUiState(
             isLoggedIn = loggedIn,
@@ -162,6 +169,7 @@ class SpotifyDashboardViewModel @Inject constructor(
             youTubeSignInPrompt = ytPrompt,
             youTubeSignInError = ytError,
             reconnectRequired = reconnect,
+            historyReconnectNeeded = loggedIn && !reconnect && !historyMissing.isNullOrEmpty(),
             skippedPlaylists = skipped
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SpotifyDashboardUiState())

@@ -44,9 +44,15 @@ object MusicRecommendationEngine {
         )
     }
 
+    /**
+     * @param artistPriors normalised artist name → affinity in -1..1 learned from listening history imported
+     *   from Spotify / YouTube Music (see `data.history`). It covers artists with no song in the library too,
+     *   which is what lets discoveries from an artist the listener plays elsewhere rank up. Empty = no effect.
+     */
     fun rank(
         songs: List<Song>, favorites: Set<String>, signals: Map<String, Signal>,
-        history: Map<String, History>, nowMs: Long, seed: Long
+        history: Map<String, History>, nowMs: Long, seed: Long,
+        artistPriors: Map<String, Double> = emptyMap()
     ): List<Pick> {
         val candidates = songs.filter { it.title.isNotBlank() }.distinctBy { it.id }
             .groupBy(::recordingKey).entries.map { (recordingKey, versions) ->
@@ -78,6 +84,15 @@ object MusicRecommendationEngine {
                 signal.earlySkips * 1.1).coerceIn(-4.0, 6.0) * decay
             artistWeights.merge(candidate.artistKey, weight, Double::plus)
             candidate.genreKey?.let { genreWeights.merge(it, weight, Double::plus) }
+        }
+        if (artistPriors.isNotEmpty()) {
+            // Once per artist (not per song), so a big discography doesn't multiply the imported affinity.
+            val seenArtists = HashSet<String>()
+            for (candidate in candidates) {
+                if (!seenArtists.add(candidate.artistKey)) continue
+                val prior = artistPrior(candidate.song, artistPriors)
+                if (prior != 0.0) artistWeights.merge(candidate.artistKey, prior * ARTIST_PRIOR_SCALE, Double::plus)
+            }
         }
         val artistScale = artistWeights.values.maxOfOrNull { kotlin.math.abs(it) }?.coerceAtLeast(1.0) ?: 1.0
         val genreScale = genreWeights.values.maxOfOrNull { kotlin.math.abs(it) }?.coerceAtLeast(1.0) ?: 1.0
@@ -191,6 +206,24 @@ object MusicRecommendationEngine {
         }
         return selected.map { it.pick }
     }
+
+    /**
+     * The imported affinity of a song's artists. Library rows join Spotify's credits with ", ": the strongest
+     * positive credit wins; with only negative ones, the most negative.
+     */
+    private fun artistPrior(song: Song, priors: Map<String, Double>): Double {
+        var best = 0.0
+        var worst = 0.0
+        for (part in song.artist.split(',')) {
+            val value = priors[normalize(part.trim().removeSuffix(" - Topic"))] ?: continue
+            if (value > best) best = value
+            if (value < worst) worst = value
+        }
+        return if (best > 0.0) best else worst
+    }
+
+    /** An imported artist affinity of 1.0 weighs like a favorite plus a few finished plays (see the -4..6 clamp). */
+    private const val ARTIST_PRIOR_SCALE = 3.0
 
     fun artistKey(song: Song): String = normalize(song.artist).ifBlank { "unknown:${song.id}" }
     private fun genreKey(song: Song): String? = song.genre?.let(::normalize)?.takeUnless { it.isBlank() || it == "unknown" }

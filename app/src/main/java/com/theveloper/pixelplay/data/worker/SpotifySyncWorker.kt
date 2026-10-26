@@ -75,6 +75,8 @@ class SpotifySyncWorker @AssistedInject constructor(
             // Importar solo trae metadatos; el audio lo busca el emparejador después. Se
             // lanza aunque queden playlists por bajar: puede ir emparejando lo que ya hay.
             SpotifyMatchWorker.enqueue(applicationContext)
+            // New library songs change which imported plays map to them; the history sync (or a re-map) follows.
+            runCatching { com.theveloper.pixelplay.data.history.ListeningHistorySyncWorker.enqueue(applicationContext) }
 
             if (!result.isComplete && !isStopped && !result.needsReconnect && continuation < MAX_CONTINUATIONS) {
                 // Rate limited: come back after the time Spotify asked for, not immediately.

@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.theveloper.pixelplay.data.database.EngagementDao
+import com.theveloper.pixelplay.data.history.ImportedTasteMerge
 import com.theveloper.pixelplay.data.model.Song
 import com.theveloper.pixelplay.data.recommendation.HomeCatalogRepository
 import com.theveloper.pixelplay.data.recommendation.HomeCatalogSnapshot
@@ -94,12 +95,17 @@ class HomeDiscoveryStateHolder @Inject constructor(
                 val favorites = music.getFavoriteSongIdsOnce()
                 val storedSignals = taste.signals()
                 val engagements = engagement.getAllEngagements()
+                // Listening history imported from Spotify / YouTube Music: play counts and artist affinity.
+                val importedHistory = taste.importedHistory()
+                val artistPriors = taste.importedArtistPriors()
                 val (signals, history) = withContext(planningDispatcher) {
                     val storedHistory = engagements.associate { it.songId to MusicRecommendationEngine.History(
                         it.playCount, it.totalPlayDurationMs, it.lastPlayedTimestamp
                     ) }
                     val signals = library.associate { it.id to (storedSignals[it.id] ?: storedSignals["spotify_${it.spotifyId}"] ?: MusicRecommendationEngine.Signal()) }
-                    val history = library.associate { it.id to (storedHistory[it.id] ?: storedHistory["spotify_${it.spotifyId}"] ?: MusicRecommendationEngine.History()) }
+                    val history = library.associate {
+                        it.id to ImportedTasteMerge.history(storedHistory[it.id] ?: storedHistory["spotify_${it.spotifyId}"], importedHistory[it.id])
+                    }
                     signals to history
                 }
                 val enabled = taste.state.first().discoveryEnabled
@@ -113,7 +119,8 @@ class HomeDiscoveryStateHolder @Inject constructor(
                             library, favorites, signals, history,
                             discoveries = blockedArtists.current.filterAllowed(snapshot.discoveries.map { it.song }),
                             releases = blockedArtists.current.filterAllowed(snapshot.releases.filter { HomeRecommendationPlanner.isRecentRelease(it.releaseDate, LocalDate.now()) }.map { it.song }),
-                            nowMs = now, seed = LocalDate.now().toEpochDay(), variant = variant
+                            nowMs = now, seed = LocalDate.now().toEpochDay(), variant = variant,
+                            artistPriors = artistPriors
                         )
                     }
                     mutableState.update { it.copy(mixes = planned.mixes, shelves = planned.shelves, discoveryEnabled = enabled) }
@@ -126,7 +133,7 @@ class HomeDiscoveryStateHolder @Inject constructor(
                 if (enabled && library.isNotEmpty() && catalog.isRefreshDue(force)) {
                     val seeds = withContext(planningDispatcher) {
                         MusicRecommendationEngine.select(
-                            MusicRecommendationEngine.rank(library, favorites, signals, history, now, LocalDate.now().toEpochDay()), 20
+                            MusicRecommendationEngine.rank(library, favorites, signals, history, now, LocalDate.now().toEpochDay(), artistPriors), 20
                         ).map { it.song }
                     }
                     val refreshed = catalog.refresh(seeds, library, force)

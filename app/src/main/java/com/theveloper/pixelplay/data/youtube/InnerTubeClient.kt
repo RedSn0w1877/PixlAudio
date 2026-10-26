@@ -47,6 +47,12 @@ data class YouTubeAudioFormat(
     val isMuxedFallback: Boolean = false
 )
 
+/** One shelf of YouTube Music's history page: "Today", "Yesterday", "This week", "March 2025"… */
+data class YouTubeHistoryShelf(
+    val label: String,
+    val items: List<YouTubeSearchResult>
+)
+
 data class YouTubePlayerResponse(
     val status: String,
     val reason: String?,
@@ -261,6 +267,51 @@ class InnerTubeClient @Inject constructor(
         )
     }
 
+    // ─── Historial de YouTube Music ────────────────────────────────────
+
+    /**
+     * The signed-in account's YouTube Music listening history (`browse` `FEmusic_history`), first page only,
+     * grouped by the page's own day/week/month shelves. Null when not signed in or the request failed: this is
+     * private API and breaks when YouTube changes things, so callers treat null as "no data", never as an error.
+     *
+     * WEB_REMIX is the music.youtube.com web client: it is in yt-dlp's SUPPORTS_COOKIES, so the cookie and the
+     * SAPISIDHASH (computed for the music.youtube.com origin) may be attached. The native clients must never get it.
+     */
+    suspend fun fetchMusicHistory(): List<YouTubeHistoryShelf>? = withContext(Dispatchers.IO) {
+        val profile = InnerTubeContexts.WEB_REMIX
+        val cookie = authManager.cookie?.takeIf { profile.supportsCookies } ?: return@withContext null
+        val origin = InnerTubeContexts.originFor(profile)
+        val sapisidHeader = authManager.sapisidHashAuthorization(origin) ?: return@withContext null
+        // Same order as fetchPlayer: a real visitorData always goes along (a stale placeholder gets refused).
+        val visitorData = poTokenProvider.anonymousVisitorData() ?: authManager.currentVisitorData()
+        val body = InnerTubeContexts.buildContext(profile, visitorData).apply {
+            put("browseId", MUSIC_HISTORY_BROWSE_ID)
+        }
+        val json = post(
+            url = InnerTubeContexts.endpoint(profile, "browse"),
+            body = body,
+            profile = profile,
+            cookie = cookie,
+            sapisidAuth = sapisidHeader,
+            origin = origin
+        ) ?: return@withContext null
+        val shelves = mutableListOf<YouTubeHistoryShelf>()
+        collectByKey(json, "musicShelfRenderer") { shelf ->
+            val label = collectRuns(shelf.optJSONObject("title")).joinToString("").trim()
+            val contents = shelf.optJSONArray("contents")
+            val items = mutableListOf<YouTubeSearchResult>()
+            if (contents != null) {
+                for (i in 0 until contents.length()) {
+                    val renderer = contents.optJSONObject(i)?.optJSONObject("musicResponsiveListItemRenderer") ?: continue
+                    parseSearchItem(renderer)?.let(items::add)
+                }
+            }
+            if (items.isNotEmpty()) shelves += YouTubeHistoryShelf(label, items)
+            true
+        }
+        shelves
+    }
+
     // ─── Internos ──────────────────────────────────────────────────────
 
     private suspend fun post(
@@ -443,6 +494,9 @@ class InnerTubeClient @Inject constructor(
 
         /** mp4 360p con audio+vídeo juntos; el único itag exento de PoToken en yt-dlp. */
         const val MUXED_FALLBACK_ITAG = 18
+
+        /** YouTube Music's "History" page. */
+        const val MUSIC_HISTORY_BROWSE_ID = "FEmusic_history"
     }
 }
 
