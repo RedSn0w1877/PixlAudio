@@ -1,6 +1,8 @@
 package com.theveloper.pixelplay.data.spatial.playback
 
 import androidx.media3.common.C
+import androidx.media3.common.MediaItem
+import androidx.media3.common.Timeline
 import androidx.media3.common.audio.AudioProcessor
 import androidx.media3.common.audio.AudioProcessor.AudioFormat
 import com.theveloper.pixelplay.data.spatial.SpatialFixtures
@@ -30,7 +32,12 @@ class SpatialStageProcessorTest {
     private class FakeLink(override var state: SpatialStageState) : SpatialStageLink {
         val renders = mutableMapOf<String, SpatialRender>()
         val reports = mutableListOf<Triple<String?, SpatialRender?, Boolean>>()
-        override fun renditionOf(uri: String?): SpatialRender? = uri?.let { renders[it] }
+
+        /** Answers for items with no URI (a MediaItem built on the JVM has none), in the order they are looked up. */
+        val byLookup = ArrayDeque<SpatialRender?>()
+
+        override fun renditionOf(uri: String?): SpatialRender? =
+            if (uri == null && byLookup.isNotEmpty()) byLookup.removeFirst() else uri?.let { renders[it] }
         override fun onStreamStarted(mediaId: String?, render: SpatialRender?, formatSupported: Boolean) {
             reports += Triple(mediaId, render, formatSupported)
         }
@@ -310,6 +317,37 @@ class SpatialStageProcessorTest {
     }
 
     @Test
+    fun `an item boundary that needs a new AudioTrack decides for the new item`() {
+        // A 48 kHz stream, then a 44.1 kHz render: the AudioTrack cannot be reused, so DefaultAudioSink drains, flushes
+        // once with the OLD item's metadata (its own flush, before it takes the new configuration), then with the new
+        // item's twice (the second after the new AudioTrack starts), with no configure between the three.
+        val items = Items(listOf("s1", "r1"))
+        val link = link().also { it.byLookup += listOf(null, null, render) }
+        val processor = SpatialStageProcessor(link)
+        processor.configure(AudioFormat(48_000, 2, C.ENCODING_PCM_16BIT))
+        processor.flush(at(items, 0))
+        process(processor, tone(4_800))
+        processor.configure(AudioFormat(44_100, 2, C.ENCODING_PCM_16BIT))
+        processor.queueEndOfStream()
+        processor.flush(at(items, 0))
+        processor.flush(at(items, 1))
+        processor.flush(at(items, 1))
+
+        assertEquals(listOf("s1", "s1", "r1"), link.reports.map { it.first })
+        assertEquals(render, link.reports.last().second)
+        // The render is never spatialized twice: dry from its first sample, the input delayed by lowDelay.
+        val delay = tables.preset(SpatialProfile.STUDIO, 44_100)!!.lowDelay
+        val input = tone(4_410, rate = 44_100)
+        val output = process(processor, input)
+        for (frame in 0 until 4_410) {
+            for (ch in 0..1) {
+                val expected = if (frame >= delay) input[(frame - delay) * 2 + ch] else 0.toShort()
+                assertEquals(expected, output[frame * 2 + ch], "frame $frame")
+            }
+        }
+    }
+
+    @Test
     fun `16-bit output saturates instead of wrapping`() {
         assertEquals(32_767, SpatialStageProcessor.toShort(1.5f))
         assertEquals(-32_768, SpatialStageProcessor.toShort(-1.5f))
@@ -323,6 +361,26 @@ class SpatialStageProcessorTest {
         }
         return different > (input.size / 2 - from) / 2
     }
+
+    /** Items with one period each, whose uid is its index: enough for the stage to find an item by its period. */
+    private class Items(ids: List<String>) : Timeline() {
+        private val items = ids.map { MediaItem.Builder().setMediaId(it).build() }
+        override fun getWindowCount(): Int = items.size
+        override fun getWindow(windowIndex: Int, window: Window, defaultPositionProjectionUs: Long): Window =
+            window.set(
+                windowIndex, items[windowIndex], null, C.TIME_UNSET, C.TIME_UNSET, C.TIME_UNSET, true, false, null,
+                0L, C.TIME_UNSET, windowIndex, windowIndex, 0L,
+            )
+        override fun getPeriodCount(): Int = items.size
+        override fun getPeriod(periodIndex: Int, period: Period, setIds: Boolean): Period =
+            period.set(periodIndex, periodIndex, periodIndex, C.TIME_UNSET, 0L)
+        override fun getIndexOfPeriod(uid: Any): Int = if (uid is Int && uid in items.indices) uid else C.INDEX_UNSET
+        override fun getUidOfPeriod(periodIndex: Int): Any = periodIndex
+    }
+
+    /** The metadata of a flush that names item [index] of [timeline]. */
+    private fun at(timeline: Timeline, index: Int, offsetUs: Long = 0L): AudioProcessor.StreamMetadata =
+        AudioProcessor.StreamMetadata.Builder().setTimeline(timeline).setPeriodUid(index).setPositionOffsetUs(offsetUs).build()
 
     private companion object {
         /** The processor's block: buffers of this many frames reach the kernel unsplit. */

@@ -20,7 +20,9 @@ import kotlin.math.abs
  *   left out of the pipeline for that stream (§6.3: such a song plays without the stage).
  * - **Per item** (§6.3, integration map 2.3): a flush that follows a `configure` is a new stream; its
  *   [AudioProcessor.StreamMetadata] names the item, and an item that is already a spatial render is bypassed from its
- *   first sample, so it is never spatialized twice. A flush without a `configure` is a seek: the history starts over.
+ *   first sample, so it is never spatialized twice (a boundary that needs a new AudioTrack, at another rate, first
+ *   flushes with the old item's metadata: any flush that names another item decides again). A flush without a
+ *   `configure` is a seek: the history starts over.
  *   An item boundary at the same rate keeps the history (gapless stays gapless) and ramps any change in 10 ms.
  * - **New playback parameters** (a speed change, skip silence): `DefaultAudioSink` drains the chain (end of stream),
  *   then flushes it with no `configure`, at the position where the audio simply carries on. That is not a seek: the
@@ -55,6 +57,9 @@ class SpatialStageProcessor internal constructor(
     /** This stream is already a spatial render: the stage stays dry for it. */
     private var renderItem = false
 
+    /** The period [renderItem] was decided for (null: none yet). */
+    private var decidedPeriodUid: Any? = null
+
     private var lastState: SpatialStageState? = null
 
     /** Input frames queued since the last flush (where the stream carries on from, with [lastOffsetUs]). */
@@ -87,10 +92,15 @@ class SpatialStageProcessor internal constructor(
         var identity: String? = null
         var mediaId: String? = null
         var identified = false
-        if (newStream) {
+        // A new stream names its item. So does a flush with no configure that names another item than the one decided:
+        // a boundary that needs a new AudioTrack (another rate) flushes first with the old item's metadata (the sink's
+        // own flush, before it takes the new configuration), then with the new item's.
+        val uid = streamMetadata.periodUid
+        if (newStream || (uid != null && uid != decidedPeriodUid)) {
             val item = itemOf(streamMetadata)
             if (item != null) {
                 identified = true
+                decidedPeriodUid = uid
                 mediaId = item.mediaId
                 identity = item.localConfiguration?.uri?.toString()
             }
@@ -117,7 +127,7 @@ class SpatialStageProcessor internal constructor(
     /**
      * The flush's decision, apart from the timeline so tests can drive it: [newStream] false is a seek, unless the
      * audio [carriesOn] (new playback parameters: history and mix stay); [identified] says whether the stream's item
-     * was found (else the previous item's decision stays, integration map 2.3).
+     * was found and is decided now (else the previous item's decision stays, integration map 2.3).
      */
     internal fun onStreamStarting(
         newStream: Boolean,
@@ -128,7 +138,7 @@ class SpatialStageProcessor internal constructor(
     ) {
         configuredSinceFlush = false
         val supported = outputAudioFormat != AudioFormat.NOT_SET
-        if (newStream && identified) {
+        if (identified) {
             val render = link.renditionOf(uri)
             renderItem = render != null
             link.onStreamStarted(mediaId, render, supported)
@@ -255,6 +265,7 @@ class SpatialStageProcessor internal constructor(
         configuredSinceFlush = false
         activeRate = 0
         renderItem = false
+        decidedPeriodUid = null
         lastState = null
         framesSinceFlush = 0
         drained = false
