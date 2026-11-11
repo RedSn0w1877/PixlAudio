@@ -7,15 +7,17 @@ This file says where everything is in the Android code, what is already there fo
 
 - Written on branch `audio-foundation`. **Line numbers are those of that branch's head.** `MusicService.kt` already
   includes the foundation's own 13 lines, so its numbers are 4 to 13 higher than on `audio-hq`/`main`.
-- **The spec changed twice on 2026-11-11 and this file follows it as of `audio-hq` 5eb5222.** First it was settled
-  (stored forms, two switches, money, slots, timeout, status lines, level note); then **the owner cut Enhanced
-  audio**: no restoration, no `enhance` task, no `enhanced.*` object, no `enhanced.enabled` setting, and code or
-  contract types that still carry any of those names "are to be removed, not left dormant". The contract code on
-  this branch has none of it. The on-device tables were regenerated twice the same day; this branch has the
-  newest. `handoff/2026-11-11-spatial-roadmap.md` (also here) explains the whole pipeline; the spec rules.
-  This file says "settled" where the spec answers something that was open when it was first written.
+- **The spec changed three times on 2026-11-11 and this file follows it as of `audio-hq` 8c8d1ee.** First it was
+  settled (stored forms, two switches, money, slots, timeout, status lines, level note); then **the owner cut
+  Enhanced audio**: no restoration, no `enhance` task, no `enhanced.*` object, no `enhanced.enabled` setting, and
+  code or contract types that still carry any of those names "are to be removed, not left dormant" (the contract
+  code on this branch has none of it); then it answered this file's own open questions (a `downloading` state,
+  `queued` with a reason and two more status lines, the offload gap, Hi-Fi float output, rates the stage does not
+  take). The on-device tables were regenerated three times the same day; this branch has the newest.
+  `handoff/2026-11-11-spatial-roadmap.md` (also here) explains the whole pipeline; the spec rules. This file says
+  "settled" where the spec answers something that was open when it was first written.
 - **Before you start, check that `audio-hq` has not moved again**: `git log --oneline -3 origin/audio-hq` should
-  start at 5eb5222. If it does not, the spec or the tables may be newer than this file.
+  start at 8c8d1ee. If it does not, the spec or the tables may be newer than this file.
 - `Name.kt:120` is a line; `120-140` a range. Paths without a root are under
   `app/src/main/java/com/theveloper/pixelplay/`.
 - "Verified" means read in the code or in the library's class files. Nothing here was run on a phone.
@@ -24,7 +26,8 @@ This file says where everything is in the Android code, what is already there fo
 ## 0. The five things that will bite you
 
 1. **Hi-Fi mode switches the whole processor chain off.** With float output on, Media3 1.11.1 leaves the custom
-   `AudioProcessor`s out of the pipeline (2.4). The on-device stage needs float output off.
+   `AudioProcessor`s out of the pipeline (2.4). The on-device stage needs float output off. Settled (spec §6.3):
+   "Spatial wins: while a profile is selected and Spatial is active, float output is off."
 2. **What `resolveCloudUri` answers must not change during one item.** It runs again on every seek that re-opens
    the source; switching from the stream to a FLAC render mid-item feeds the wrong bytes to an extractor that is
    already chosen (2.6, trap 1).
@@ -46,7 +49,7 @@ Everything compiles and is green in CI (section 7). All of it is behind no-ops: 
 | `data/spatial/SpatialProfile.kt` | `SpatialProfile` (ids `studio`, `wide`, `intimate`, `hall`, `surround`, `night`; `OFF_ID`, `DEFAULT`, `fromId`) and `SpatialContract` (`LIB_V = 1`, `ENGINE_ID`, `PREVIEW_ASSET`, `PREVIEW_SCHEMA`, `PREVIEW_VERSION`). |
 | `data/spatial/SpatialSettings.kt` | `SpatialRouteMode` and the immutable `SpatialSettings` snapshot (spec §6.1), with `storageBytes`, `monthlyCapMicroUsd`, `defaults(builtInCloudKeys)`, and the limits of the stored forms (`MIN/MAX_STORAGE_MB` 256..65536, `MIN/MAX_DAILY_AHEAD` 1..100, `clampStorageMb`, `clampDailyAhead`). |
 | `data/spatial/SpatialSettingsRepository.kt` | The settings in the shared `settings` DataStore under the spec's key names and stored forms. The only writer. `settings: Flow`, `current()`, `defaults`, one setter per key. |
-| `data/spatial/SpatialRendition.kt` | `SpatialRenditionStatus` (spec §6.1 states plus `DOWNLOADING`; `shown(library, onDeviceAudible)`, `isInFlight`), `SpatialRendition`, `SpatialBlock`, `SpatialAudible`, `SpatialRender`, `SpatialLibraryStats`, `SpatialLibraryEvent`, `SpatialStatusLine` (one case per row of spec §6.5's table, + `of(...)`). |
+| `data/spatial/SpatialRendition.kt` | `SpatialRenditionStatus` (spec §6.1's states, with `queued` as three cases: `QUEUED`, `WAITING_FOR_NETWORK`, `CAP_REACHED`; `shown(library, onDeviceAudible)`, `isQueued`), `SpatialRendition`, `SpatialBlock`, `SpatialAudible`, `SpatialRender`, `SpatialLibraryStats`, `SpatialLibraryEvent`, `SpatialStatusLine` (one case per row of spec §6.5's table, + `of(...)`). |
 | `data/spatial/SpatialLibrary.kt` | The seam CLOUD implements (`cloudRendersOn`, `localRender`, `request`, `status`, `events`, `stats`, `markPlayed`, `removeAll`), and `NoOpSpatialLibrary`. |
 | `data/spatial/SpatialPlayback.kt` | The seam ENGINE implements, and `NoOpSpatialPlayback`. |
 | `data/spatial/SpatialLibraryModule.kt` | Hilt: `provideSpatialLibrary()`. **CLOUD's file.** |
@@ -98,9 +101,10 @@ From the settled spec (and the same as the iOS contract, `PixlModel/CloudAudio/`
    together. **CLOUD implements it** (`CloudStudioSettings.settings` and `SpatialSettingsRepository.settings`); the
    no-op says false. With built-in keys both switches default to on.
 3. **The status line has one case per row of §6.5's table** (`SpatialStatusLine`): `ON_PHONE_FOR_NOW`,
-   `GETTING_CLOUD_VERSION`, `CLOUD_VERSION`, `ON_PHONE_ONLY`, `CLOUD_FAILED`, `HEADPHONES_ONLY`, `PAUSED_FOR_SING`,
-   plus `NONE`. `SpatialStatusLine.of(settings, audible, status, cloudRendersOn)` checks them in the order iOS does:
-   off or nothing loaded, the route, Sing, a cloud render, then the on-device cases.
+   `WAITING_FOR_WIFI`, `CLOUD_LIMIT_REACHED`, `GETTING_CLOUD_VERSION`, `CLOUD_VERSION`, `ON_PHONE_ONLY`,
+   `CLOUD_FAILED`, `HEADPHONES_ONLY`, `PAUSED_FOR_SING`, plus `NONE`.
+   `SpatialStatusLine.of(settings, audible, status, cloudRendersOn)` checks them in the order iOS does: off or
+   nothing loaded, the route, Sing, a cloud render, then the on-device cases.
 4. **Spatial only** (the cut): seven settings, no `enhanced.enabled`; `request(songId, videoId, profile)` and
    `markPlayed(videoId, profile)` always take a profile; a job is `tasks: ["spatial"]` with one render entry; a
    render's diagnostics are source codec, stem mode and loudness (the manifest has no cutoff any more).
@@ -109,21 +113,26 @@ From the settled spec (and the same as the iOS contract, `PixlModel/CloudAudio/`
 
 Decided here because the spec does not say (tell the lead if one is wrong):
 
-6. **`DOWNLOADING` is a status of its own.** §6.1 lists `none, preview, queued, processing, ready, failed`; §6.5 has a
-   row "render downloading" with its own line, so the library must be able to say it. `QUEUED` covers the
-   shared-library check, preparing, uploading and waiting for a worker; `PROCESSING` is the GPU.
+6. **The spec's `queued` is three enum cases.** §6.1 (settled): "`downloading` is a state of its own on both
+   platforms", and "a render that is wanted but cannot start yet is `queued` with a reason: `waitingForNetwork` …
+   or `capReached`". The contract has `DOWNLOADING`, and writes the reasons as the cases `WAITING_FOR_NETWORK` and
+   `CAP_REACHED` next to `QUEUED` (`isQueued` is true for all three), so the seam stays one
+   `Flow<SpatialRenditionStatus>`. `QUEUED` covers the shared-library check, preparing, uploading and waiting for a
+   worker; `PROCESSING` is the GPU. **CLOUD reports the two reasons** (3.4).
 7. **`PREVIEW` is the player's fact, not the library's** (as on iOS): `SpatialLibrary.status` never returns it;
    `SpatialRenditionStatus.shown(library, onDeviceAudible)` turns the library's `NONE` into `PREVIEW` while the
    on-device stage plays, and the holder's `currentStatus` applies it. ENGINE does not write statuses.
 8. **The on-device cases of the line**: cloud renders off → `ON_PHONE_ONLY`; `FAILED` → `CLOUD_FAILED`;
-   `DOWNLOADING`, and `READY` while the stage still plays (the fade is next) → `GETTING_CLOUD_VERSION`; everything
-   else (`NONE`, `PREVIEW`, `QUEUED`, `PROCESSING`) → `ON_PHONE_FOR_NOW`, which is iOS's rule. It means the line
-   promises "about a minute" even when the library cannot start (the month's cap is reached, no allowed network):
-   section 9, question 1.
+   `WAITING_FOR_NETWORK` → `WAITING_FOR_WIFI`; `CAP_REACHED` → `CLOUD_LIMIT_REACHED`; `DOWNLOADING`, and `READY`
+   while the stage still plays (the fade is next) → `GETTING_CLOUD_VERSION`; everything else (`NONE`, `PREVIEW`,
+   `QUEUED`, `PROCESSING`) → `ON_PHONE_FOR_NOW`. Cloud renders off is checked first, so with a switch off the
+   line never talks about Wi-Fi or the limit.
 9. **`SpatialBlock`**: `ROUTE` covers every output the headphones rule rejects, another device (Cast, Spotify
    Connect) included, and shows "Headphones only. Plug in to hear it."; `REMOTE` is only for another device while
-   `spatial.route` is `always`; `FORMAT` is a rate the stage does not take. The last two have no row in §6.5 and
-   show nothing. When several hold, ENGINE reports the first of `ROUTE`, `SING`, `REMOTE`, `FORMAT`.
+   `spatial.route` is `always`, and shows nothing (§6.5 has no row); `FORMAT` is a rate the stage does not take:
+   settled (§6.3), it "plays without the on-device stage; the cloud render still works … No status line of its
+   own", so ENGINE still calls `request` for it and the line is empty until the render plays. When several hold,
+   ENGINE reports the first of `ROUTE`, `SING`, `REMOTE`, `FORMAT`.
 10. **`markPlayed`** exists because the storage budget evicts least-recently-played first and only the player knows
     what played.
 11. **`SpatialTablesTest` pins no generated number.** It checks that the app's two copies equal the handoff copies
@@ -294,7 +303,10 @@ Alternatives that were looked at:
   selection is not `isEquivalent` to the old one, the renderer gets a new stream and is disabled and enabled again,
   and `MediaCodecAudioRenderer.onDisabled` flushes the sink. Expect a short gap at the current position; its length
   was not measured. A song that was not offloaded is left alone. So turn offload off once, when a profile is
-  selected (or at start-up with Spatial on), not at each song.
+  selected (or at start-up with Spatial on), not at each song. **Settled (spec §6.3): "Turning a profile on
+  mid-song on a phone that was using offload costs one short gap, once; that is accepted (offload stays on for
+  everyone who has no profile selected)."** So do not switch offload off for people who never pick a profile, and
+  give it back when the profile goes to Off.
 - `disableAudioOffloadForSession` (987-1001) rebuilds the players when the HAL stalls; it skips the rebuild while
   `exactTimingSessions > 0`. Consider the same guard for the new flag.
 
@@ -325,10 +337,13 @@ run**: not `MidSideVocalProcessor`, not the haptics tee, and not a stage added t
 chain always gets 16-bit PCM (the 16-bit conversion runs before it), so the stage only needs a 16-bit path with
 float maths inside and a saturating write (spec §7).
 
-**ENGINE: build the sinks with float output off while a profile is selected**, for example
-`val floatOutput = hiFiModeEnabled && !spatialStageWanted` at 1134 and 1178, with one
-`rebuildPlayersPreservingMasterState` when it flips. Say in your handoff note that Spatial audio and Hi-Fi mode do
-not combine (Hi-Fi is Developer mode only and off by default).
+**Settled (spec §6.3): "Android's Hi-Fi float output leaves custom processors out of the pipeline, so Spatial
+wins: while a profile is selected and Spatial is active, float output is off."** ENGINE: build the sinks with
+float output off in that state, for example `val floatOutput = hiFiModeEnabled && !spatialActive` at 1134 and
+1178, with one `rebuildPlayersPreservingMasterState` when it flips. Note what "active" drags in: with Hi-Fi on, a
+route change (headphones in or out) or Sing going on or off flips it and rebuilds both players mid-song. Hi-Fi is
+a Developer mode switch and off by default, so few people will meet it; if the rebuild is ugly there, keeping
+float off for as long as a profile is selected is the smaller evil, and say which you did in your handoff note.
 
 ### 2.5 `MidSideVocalProcessor`: the precedent for a live parameter (`data/service/player/MidSideVocalProcessor.kt`)
 
@@ -693,6 +708,13 @@ Also relevant:
   cap. `SpatialSettings.monthlyCapMicroUsd` is the library cap in the engine's unit (`null` = no limit);
   `dailyAhead` is the background queue's daily count. Publish the library's month and day in
   `SpatialLibraryStats.spentThisMonthMicroUsd` and `sentToday` (Developer mode's rows read them).
+- **Settled (spec §6.1): "A render that is wanted but cannot start yet is `queued` with a reason:
+  `waitingForNetwork` (no network the person allows) or `capReached` (the month's limit)."** Report them from
+  `SpatialLibrary.status` as `SpatialRenditionStatus.WAITING_FOR_NETWORK` and `CAP_REACHED`, and move on to
+  `QUEUED` by yourself when the network comes back or the month turns. Each has its own line in the sheet. The
+  engine has both facts today, but as notices for the whole queue (`CloudNotice.CAP_REACHED`, 1363-1370; the
+  "Use mobile data" switch, `CloudSettingsSnapshot.useCellular`), not per song: the library has to keep them per
+  song and profile.
 - The actual cost of a finished job: `CloudCost.actualMicroUsd(timings, gpu, fallbackPrice)` (521-526) from the
   manifest's `timings.totalMs` and `coldStartMs`. A job whose outputs were all `exists` costs a few seconds.
 - A fetch from the shared library (spec §6.2 step 2) costs nothing and is not a job at all.
@@ -846,6 +868,8 @@ Also relevant:
   | Case | Line |
   |---|---|
   | `ON_PHONE_FOR_NOW` | On your phone for now. The cloud version takes about a minute. |
+  | `WAITING_FOR_WIFI` | On your phone for now. The cloud version waits for Wi-Fi. |
+  | `CLOUD_LIMIT_REACHED` | On your phone only. This month's cloud limit is reached. |
   | `GETTING_CLOUD_VERSION` | Getting the cloud version. |
   | `CLOUD_VERSION` | Playing the cloud version. |
   | `ON_PHONE_ONLY` | On your phone only. Turn on cloud renders for the full version. |
@@ -910,10 +934,10 @@ Also relevant:
 - The table: `assets/spatial_preview_v1.json`, read with `context.assets.open(SpatialContract.PREVIEW_ASSET)`.
   Top level `schema`, `v`, `engine`, `headroomDb` (4.0), `profiles`; six profiles × `"44100"` and `"48000"`; each
   preset has `xoverHz` (120.0), `lowDelay` (50-55), `taps` (192), `direct` and `cross` (192 floats each), `sparseL`
-  and `sparseR` (40 triples `[delaySamples, gainFromLeft, gainFromRight]` each), `gain` (0.568-0.654). The largest
+  and `sparseR` (40 triples `[delaySamples, gainFromLeft, gainFromRight]` each), `gain` (0.566-0.626). The largest
   sparse delay is 8,559 samples (`hall` at 48 kHz), so the ring is 16,384. Some numbers are written with an
-  exponent. These are the values of the third table of 2026-11-11 (the first had `lowDelay` 38-47 and `gain`
-  0.43-0.66, the second 39-52 and 0.575-0.661); **read every one from the file and
+  exponent. These are the values of the fourth table of 2026-11-11 (the first had `lowDelay` 38-47 and `gain`
+  0.43-0.66, the second 39-52 and 0.575-0.661, the third 50-55 and 0.568-0.654); **read every one from the file and
   hard-code none**, the worker retunes them.
 - Parse it once, off the main thread, into primitive arrays; keep the parsed table in a singleton. `org.json` is
   stubbed in JVM unit tests (`unitTests.isReturnDefaultValues = true`), so **parse with kotlinx.serialization**
@@ -1033,21 +1057,23 @@ Where two agents meet, and who moves:
 
 ## 9. Open questions for the lead
 
-The spec as of `audio-hq` 5eb5222 answers what this list first asked: Enhanced audio is cut; every state has a
-line; "4 dB under stereo" is expected and the sheet says so; the swap lines up by media time; `library.source`
-names the stream, so the itag accessor is needed. What is still open:
+The spec as of `audio-hq` 8c8d1ee answers everything this list asked before: Enhanced audio is cut; every state
+has a line, the two "wanted but cannot start" ones included; `downloading` is a state of its own on both
+platforms; "4 dB under stereo" is expected and the sheet says so; the swap lines up by media time;
+`library.source` names the stream, so the itag accessor is needed; the offload gap is accepted; Spatial wins over
+Hi-Fi float output; a rate the stage does not take plays without it and has no line of its own. What is left is
+small:
 
-1. **The line when a render is wanted but cannot start** (the month's cap is reached, or no network the person
-   allows): the contract shows "On your phone for now. The cloud version takes about a minute.", which is the same
-   rule as iOS and is not true there. A row for it in §6.5, or leave it?
-2. **"Render downloading" needs a status of its own** to show "Getting the cloud version."; Android has
-   `DOWNLOADING`, the iOS contract (as of its `audio-foundation` 315c556) folds it into `processing`. The two apps
-   should agree.
-3. **Hi-Fi mode and Spatial audio do not combine on Android** (2.4). Is "Spatial wins while a profile is selected"
-   the wanted rule? (Hi-Fi is a Developer mode switch, off by default.)
-4. **Picking a profile mid-song on a phone with audio offload on gives one short gap** (2.4), because offload has to
-   go off for the processors to run. Accept it, or keep offload off for everyone from now on?
-5. **Another device with `spatial.route = always`, and a rate the stage does not take**, have no row in §6.5; the
-   contract shows nothing (`SpatialBlock.REMOTE`, `FORMAT`).
-6. **Prepare ahead** without a charger and with downloads (3.5) is a new battery and data cost next to Sing's
+1. **Another device while `spatial.route` is `always`** (`SpatialBlock.REMOTE`) has no row in §6.5; the contract
+   shows nothing there.
+2. **`READY` while the on-device stage still plays** (the render is on the phone and the fade has not happened
+   yet, or will not this play because under 20 s are left) shows "Getting the cloud version." That is this
+   contract's choice; the spec has no row for it.
+3. **Float output and "Spatial is active"** (2.4): taken literally the rule rebuilds both players when headphones
+   go in or out while Hi-Fi mode is on. ENGINE is told it may keep float off for as long as a profile is selected
+   instead, and to say which it did.
+4. **Prepare ahead** without a charger and with downloads (3.5) is a new battery and data cost next to Sing's
    rules. It is what §6.4 says; this only flags that the existing conditions cannot be reused as they are.
+5. **The two apps' contracts were compared once**, against the iOS `audio-foundation` at 315c556, before the cut
+   and before the last spec change. Someone should compare them again when both have followed 8c8d1ee: the status
+   cases, the line for each, and whether the master switch is part of "cloud renders are off".
