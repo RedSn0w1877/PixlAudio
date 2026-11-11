@@ -293,6 +293,28 @@ class CloudLibraryJobsTest {
         assertEquals(CloudJobState.IMPORTED, engine.job(render.jobKey)!!.state)
     }
 
+    @Test fun `a Sing still steps a library job aside after the library spent more than Sing's whole cap`() = runBlocking {
+        // This month's library spend ($5) is the library's own, well past Sing's $3: it must not cost Sing its priority.
+        store.saved = listOf(
+            CloudJobRecord(jobKey = keys.removeFirst(), songId = song.id, videoId = "ZD6rXLXZOEI", tasks = listOf(CloudTask.SPATIAL),
+                origin = CloudJobOrigin.LIBRARY, state = CloudJobState.IMPORTED, costMicroUsd = 5_000_000,
+                completedAtMs = now, importedAtMs = now, createdAtMs = now,
+                library = CloudLibraryJob("ZD6rXLXZOEI", listOf("studio"), renders = mapOf("studio" to "ok"), imported = listOf("studio"))),
+        )
+        runpod.finishImmediately = false
+        val engine = engine()
+        val render = engine.sendRender(ahead = true)
+        engine.workerPass(now + passMs)
+        val waiting = engine.job(render.jobKey)!!
+        assertEquals(CloudJobState.SUBMITTED, waiting.state)
+        val sing = engine.startSing(song) as CloudSingStart.Started
+        now += 1_000
+        engine.workerPass(now + passMs)
+        // The library job waiting in RunPod's queue stepped aside, the Sing went out first, and the library job behind it.
+        assertEquals(listOf(waiting.runpodJobId), runpod.cancelled)
+        assertEquals(listOf(render.jobKey, sing.jobKey, render.jobKey), runpod.runs.map { it.input.jobKey })
+    }
+
     @Test fun `the shared library is read through signed lib keys only`() = runBlocking {
         val engine = engine()
         bucket.objects["lib/v1/$video/sp-studio.json"] = "{}".toByteArray()
@@ -427,7 +449,11 @@ class CloudLibraryJobsTest {
 
         override suspend fun status(jobId: String): RunPodJob =
             finished[jobId]?.let { RunPodJob(jobId, "COMPLETED", result = it) } ?: RunPodJob(jobId, "IN_QUEUE")
-        override suspend fun cancel(jobId: String): RunPodJob? = RunPodJob(jobId, "CANCELLED")
+        val cancelled = mutableListOf<String>()
+        override suspend fun cancel(jobId: String): RunPodJob? {
+            cancelled += jobId
+            return RunPodJob(jobId, "CANCELLED")
+        }
         override suspend fun health() = RunPodHealth(idleWorkers = 1)
 
         fun completeAll() {

@@ -1524,11 +1524,16 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
         val candidates = CloudPriorityLane.cancelOrder(CloudPriorityLane.pausable(jobs, priority.jobKey), jobs)
         if (candidates.isEmpty()) return
         // Making room only helps when the priority job can go out: inside what is left of the month once the jobs
-        // that step aside no longer count as at RunPod (they count again when they are sent behind it).
+        // that step aside no longer count as at RunPod (they count again when they are sent behind it). That month is
+        // the shared cap's, the one the submit checks: Spatial audio's library jobs have their own (cloud-audio-spec
+        // §6.1 "Money"), so neither their spend nor their stepping aside counts here, and a Sing still goes ahead of
+        // them however much the library spent (§6.2 step 3).
         val price = settings.effectivePricePerSecondMicroUsd
         val monthStart = deps.monthStartMs(time)
-        val freed = candidates.filter { it.isRunningAtRunPod }.sumOf { CloudCost.estimatedSeconds(it.plan, it.quality) * price }
-        val committed = CloudBudget.committedMicroUsd(jobs, monthStart, price) + deps.settings.removedSpendMicroUsd(monthStart) - freed
+        val freed = candidates.filter { it.isRunningAtRunPod && !it.isLibrary }
+            .sumOf { CloudCost.estimatedSeconds(it.plan, it.quality) * price }
+        val committed = CloudBudget.committedMicroUsd(CloudBudget.studioRecords(jobs), monthStart, price) +
+            deps.settings.removedSpendMicroUsd(monthStart) - freed
         val estimate = CloudCost.estimatedSeconds(priority.plan, priority.quality) * price
         if (!CloudBudget.allows(estimate, settings.effectiveMonthlyCapMicroUsd, committed.coerceAtLeast(0))) return
 
