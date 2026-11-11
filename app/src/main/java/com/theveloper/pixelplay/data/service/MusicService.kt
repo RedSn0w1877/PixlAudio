@@ -232,6 +232,10 @@ class MusicService : MediaLibraryService() {
     lateinit var musicHaptics: com.theveloper.pixelplay.data.haptics.MusicHapticsEngine
     @Inject
     lateinit var singClipEvents: com.theveloper.pixelplay.data.service.player.SingClipEvents
+    @Inject
+    lateinit var spatialSettingsRepository: com.theveloper.pixelplay.data.spatial.SpatialSettingsRepository
+    @Inject
+    lateinit var spatialPlayback: com.theveloper.pixelplay.data.spatial.SpatialPlayback
 
     /**
      * The MediaSession's player while a Spotify Connect session runs (wrapping the local player,
@@ -666,6 +670,15 @@ class MusicService : MediaLibraryService() {
         serviceScope.launch {
             userPreferencesRepository.taisVocalAttenuationFlow.collect { amount ->
                 engine.setVocalAttenuation(amount)
+            }
+        }
+
+        // Spatial audio and Enhanced audio (handoff/2026-11-10-plans/cloud-audio-spec.md §6.1, §6.3): the stored
+        // settings reach the player here, like Hi-Fi mode above, so they apply with or without the app's UI. The
+        // first value arrives as soon as the store is read; applying the same settings again changes nothing.
+        serviceScope.launch {
+            spatialSettingsRepository.settings.collect { settings ->
+                spatialPlayback.apply(settings)
             }
         }
 
