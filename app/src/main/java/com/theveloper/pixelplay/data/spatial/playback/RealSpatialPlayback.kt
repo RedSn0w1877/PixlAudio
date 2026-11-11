@@ -2,6 +2,7 @@ package com.theveloper.pixelplay.data.spatial.playback
 
 import android.content.Context
 import android.os.SystemClock
+import androidx.annotation.VisibleForTesting
 import androidx.media3.common.Player
 import com.theveloper.pixelplay.data.database.SpotifyDao
 import com.theveloper.pixelplay.data.service.player.RenditionSwapTiming
@@ -15,6 +16,7 @@ import com.theveloper.pixelplay.data.spatial.SpatialRender
 import com.theveloper.pixelplay.data.spatial.SpatialSettings
 import com.theveloper.pixelplay.data.stream.CloudStreamSecurity
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -89,6 +91,17 @@ class RealSpatialPlayback @Inject constructor(
     private var swapTriedKey: String? = null
     private var retryJob: Job? = null
     private var libraryEpoch = 0
+
+    /**
+     * Sing switches to its instrumental under way ([yieldToSing] to [endSingSwitch]). Sing prepares, lines up and
+     * waits for its start with nothing of it heard yet, so neither [Host.isSingAudible] nor [Host.singOwnsVolume] holds;
+     * no render may start meanwhile.
+     */
+    private var singSwitches = 0
+
+    /** Where the render lookup runs. */
+    @VisibleForTesting
+    internal var ioDispatcher: CoroutineDispatcher = Dispatchers.IO
 
     /** §6.3 "Level": what the normalisation gain is multiplied by now (1 while stereo). Read by ReplayGain. */
     @Volatile
@@ -167,7 +180,11 @@ class RealSpatialPlayback @Inject constructor(
 
     /** Sing's instrumental came or went. */
     fun onSingChanged() {
-        if (host?.isSingAudible() != true) singReturning = false
+        if (host?.isSingAudible() != true) {
+            singReturning = false
+            // A render that gave way to Sing may take over again now (within the 20 s rule).
+            swapTriedKey = null
+        }
         refresh()
     }
 
@@ -187,12 +204,27 @@ class RealSpatialPlayback @Inject constructor(
     /** The render heard on the second player changed (a fade finished, a song change let it go). */
     fun onSwapChanged() = refresh()
 
-    /** Sing is about to fade to the instrumental: a render on the second player gives the main player back first. */
+    /**
+     * Sing is about to fade to the instrumental: a render on the second player gives the main player back first, and no
+     * render starts (nor finishes fading in) until [endSingSwitch]. The service calls [endSingSwitch] in a `finally`
+     * after Sing's switch, this call included.
+     *
+     * The render is not re-armed here: it may take over again when Sing ends ([onSingChanged]) or did not take over
+     * ([endSingSwitch]). Re-arming it now let it fade straight back in while Sing was still preparing its own fade, both
+     * then writing the main player's volume.
+     */
     suspend fun yieldToSing() {
+        singSwitches++
         val h = host ?: return
-        // When Sing ends, the render may take over again (within the 20 s rule).
-        swapTriedKey = null
         if (h.swap.audibleRender != null || h.swap.isRamping) h.swap.fadeToMain(h.mainPlayer())
+    }
+
+    /** Sing's switch to the instrumental is over, done or not. When Sing did not take over, a render may come back. */
+    fun endSingSwitch() {
+        if (singSwitches == 0) return
+        singSwitches--
+        if (singSwitches == 0 && host?.isSingAudible() != true) swapTriedKey = null
+        refresh()
     }
 
     /** Cast or Spotify Connect started or stopped. */
@@ -350,7 +382,7 @@ class RealSpatialPlayback @Inject constructor(
         val swap = h.swap
         val main = h.mainPlayer()
         val profile = settings?.profile
-        val wanted = if (active && !h.singOwnsVolume()) profile else null
+        val wanted = if (active && !h.singOwnsVolume() && singSwitches == 0) profile else null
         val stream = currentStream()
         // (The swap lets go of its render at every song change, so what it holds is always this song's.)
         when (SpatialRenditionRule.plan(wanted, stream?.render?.profile, swap.audibleRender?.profile)) {
@@ -364,28 +396,38 @@ class RealSpatialPlayback @Inject constructor(
                 val vid = videoId ?: return
                 if (stream == null) return
                 val song = songId
+                // The main player must be on this song. An overlap hand-over (crossfade) changes it without a transition
+                // of its own, so until the service reports the new song this one may be the last song's: its render
+                // would be faded in at the new song's position, over the new song.
+                if (main.currentMediaItem?.mediaId != song) return
+                val stillWanted = {
+                    host === h && songId == song && settings?.profile == want && active && singSwitches == 0 &&
+                        !h.singOwnsVolume() && h.mainPlayer().currentMediaItem?.mediaId == song
+                }
                 val key = "$song|$vid|${want.id}|$libraryEpoch"
                 // One lookup per song, profile and library change (a memory or file check, off the main thread).
                 val local = if (key == lookedUpKey) {
                     lookedUpRender
                 } else {
-                    val found = withContext(Dispatchers.IO) {
+                    val found = withContext(ioDispatcher) {
                         library.localRender(vid, want)?.takeIf { it.videoId == vid && it.profile == want && it.file.isFile }
                     }
-                    if (host !== h || songId != song || settings?.profile != want || !active) return
+                    if (!stillWanted()) return
                     lookedUpKey = key
                     lookedUpRender = found
                     found
                 }
-                if (local == null || !SpatialRenditionRule.hasTimeLeft(main.currentPosition, SpatialSwapMath.durationMs(main.duration, local))) {
+                // (Read again: the engine may have rebuilt its player during the lookup.)
+                val player = h.mainPlayer()
+                if (local == null || !SpatialRenditionRule.hasTimeLeft(player.currentPosition, SpatialSwapMath.durationMs(player.duration, local))) {
                     // Another profile's render is heard and this one's is not here (or too late in the song): back to
                     // the stream with the stage. Otherwise the next play starts on it.
-                    if (swap.audibleRender != null) swap.fadeToMain(main)
+                    if (swap.audibleRender != null) swap.fadeToMain(player)
                     return
                 }
                 if (key == swapTriedKey) return
                 val settled = SpatialRenditionRule.nothingInFlight(
-                    playerReady = main.playbackState == Player.STATE_READY,
+                    playerReady = player.playbackState == Player.STATE_READY,
                     msSinceSeek = SystemClock.elapsedRealtime() - lastSeekAtMs,
                     transitionRunning = h.isTransitionRunning(),
                 )
@@ -395,11 +437,10 @@ class RealSpatialPlayback @Inject constructor(
                     return
                 }
                 swapTriedKey = key
-                val stillWanted = { host === h && songId == song && settings?.profile == want && active }
                 val swapped = if (swap.audibleRender == null) {
-                    swap.fadeIn(main, local, stillWanted)
+                    swap.fadeIn(player, local, stillWanted)
                 } else {
-                    swap.crossTo(main, local, stillWanted)
+                    swap.crossTo(player, local, stillWanted)
                 }
                 if (swapped) library.markPlayed(local.videoId, local.profile)
             }

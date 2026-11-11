@@ -233,6 +233,27 @@ internal fun loadControlBufferProfileFor(isLowRamDevice: Boolean): LoadControlBu
 }
 
 /**
+ * [DualPlayerEngine.resolveMediaItem]'s rule: an item resolved ahead of its player (the crossfade player, a restored
+ * queue, the watch) gets its stream's URI baked in ([streamUri]: the complete local copy or the loopback proxy), but
+ * never a Spatial audio render's ([startsOnRender], cloud-audio-spec §6.3).
+ *
+ * A baked render outlived the decision it came from: the queue snapshot persisted it, so after a restart it played as
+ * a plain file (spatialized a second time, or spatial with Spatial audio off, with no status or request) and failed
+ * once the render was removed; within a run a repeat or a previous replayed it whatever the settings were by then.
+ * Left `spotify://`, the item's data source decides at its first open and records the render for the stage.
+ */
+internal suspend fun withBakedStream(
+    mediaItem: MediaItem,
+    uri: Uri,
+    startsOnRender: suspend () -> Boolean,
+    streamUri: suspend () -> Uri,
+): MediaItem {
+    if (startsOnRender()) return mediaItem
+    val resolved = streamUri()
+    return if (resolved == uri) mediaItem else mediaItem.buildUpon().setUri(resolved).build()
+}
+
+/**
  * Manages two ExoPlayer instances (A and B) to enable seamless transitions.
  *
  * Player A is the designated "master" player. During a crossfade the MediaSession can
@@ -1504,8 +1525,8 @@ class DualPlayerEngine @Inject constructor(
 
     /**
      * What a `spotify://` item plays: with Spatial audio active, the song's local render when there is one (§6.3), else
-     * the stream ([resolveStreamUri]). The callers that bake the answer into an item (the crossfade player, a restored
-     * queue, the watch) thereby start the song on its render too; the stage recognises the baked file.
+     * the stream ([resolveStreamUri]). Only warms things up: no item is ever given a render's URI ([resolveMediaItem]);
+     * an item's data source makes that choice at its first open ([newItemResolver]).
      */
     suspend fun resolveCloudUri(uri: Uri): Uri = withContext(Dispatchers.IO) {
         if (uri.scheme == "spotify") {
@@ -1557,14 +1578,26 @@ class DualPlayerEngine @Inject constructor(
         Uri.parse(proxyUrl)
     }
 
+    /**
+     * [mediaItem] resolved ahead of its player (the crossfade player, a restored queue, the watch): a `spotify://` item
+     * gets its stream baked in, but a song that starts on a Spatial audio render keeps `spotify://` ([withBakedStream]).
+     */
     suspend fun resolveMediaItem(mediaItem: MediaItem): MediaItem {
         val uri = mediaItem.localConfiguration?.uri ?: return mediaItem
         val scheme = uri.scheme
         // Use CLOUD_PROXY_SCHEMES: http/https resolve directly via ExoPlayer and never
         // reach resolveCloudUri, so checking them wastes an IO dispatch.
         if (scheme !in CLOUD_PROXY_SCHEMES) return mediaItem
-        val resolvedUri = resolveCloudUri(uri)
-        return if (resolvedUri == uri) mediaItem else mediaItem.buildUpon().setUri(resolvedUri).build()
+        return withBakedStream(
+            mediaItem = mediaItem,
+            uri = uri,
+            startsOnRender = {
+                withContext(Dispatchers.IO) {
+                    spotifyIdOf(uri)?.let { id -> spatialStartResolver.get().renderAtStart(id) } != null
+                }
+            },
+            streamUri = { resolveStreamUri(uri) },
+        )
     }
 
     suspend fun prepareNext(target: TransitionTarget, startPositionMs: Long = 0L) {

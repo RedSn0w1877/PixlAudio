@@ -6,6 +6,7 @@ import android.os.SystemClock
 import androidx.media3.common.AudioAttributes as Media3AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
@@ -35,6 +36,9 @@ import kotlin.math.abs
  * player's volume at once: the service fades a render out before a Sing fade starts, and Spatial audio is not active
  * while Sing's instrumental is (§6.3), so this class starts nothing then.
  *
+ * The second player moves only while the main player does ([followMain]): it pauses while the main player buffers (a
+ * seek outside the buffer, a stall), so the local file never runs ahead of a stream that reloads.
+ *
  * Main thread only.
  */
 class SpatialRenditionSwap(
@@ -48,17 +52,49 @@ class SpatialRenditionSwap(
     private val incomingVolumeTarget: () -> Float = { 1f },
     /** [audibleRender] changed. */
     private val onAudibleChanged: () -> Unit = {},
+    /**
+     * A level written to the main player while a render is heard (the person's volume slider, ReplayGain) became the
+     * render's level. The service hands it on to ReplayGain, which recognises its own writes and keeps the person's
+     * level for the next song.
+     */
+    private val onLevelAbsorbed: (Float) -> Unit = {},
+    /** Builds a bare second player (tests hand in fakes). */
+    private val newPlayer: () -> ExoPlayer = { ExoPlayer.Builder(context).build() },
+    private val clock: () -> Long = SystemClock::elapsedRealtime,
 ) {
     private var shadowPlayer: ExoPlayer? = null
     private var incomingPlayer: ExoPlayer? = null
-    private var mainPlayerRef: Player? = null
     private var currentSongId: String? = null
     private var resyncJob: Job? = null
     private var baseVolume = 1f
     private var echoVolume: Float? = null
     private var generation = 0
     private val switchLock = Mutex()
-    private val clock: () -> Long = SystemClock::elapsedRealtime
+
+    /** Follows the main player's own play state ([followMain]). */
+    private val mainListener = object : Player.Listener {
+        override fun onIsPlayingChanged(isPlaying: Boolean) = followMain()
+    }
+
+    /** The second players' errors: a render that dies while heard must not leave silence (the main player is muted). */
+    private val renderPlayerListener = object : Player.Listener {
+        override fun onPlayerError(error: PlaybackException) = onRenderPlayerError(error)
+    }
+
+    /** The main player the second player follows; [mainListener] is on it while it is set. */
+    private var mainPlayerRef: Player? = null
+        set(value) {
+            if (field === value) return
+            field?.let { old ->
+                try {
+                    old.removeListener(mainListener)
+                } catch (e: Exception) {
+                    Timber.tag(TAG).d(e, "The old main player is gone")
+                }
+            }
+            field = value
+            value?.addListener(mainListener)
+        }
 
     /** The render heard instead of the main player (null: the main player is heard). */
     var audibleRender: SpatialRender? = null
@@ -108,9 +144,10 @@ class SpatialRenditionSwap(
             mainPlayerRef = mainPlayer
             startResyncLoop()
             val gen = generation
+            // (A player that failed is never faded in: its error ends the swap, the main player back at its level.)
             val valid = {
-                generation == gen && shadowPlayer === player && currentSongId == songId && !isTransitionRunning() &&
-                    stillWanted()
+                generation == gen && shadowPlayer === player && player.playerError == null && currentSongId == songId &&
+                    !isTransitionRunning() && stillWanted()
             }
             if (!awaitReady(player, valid) || !align(mainPlayer, player, render, valid)) {
                 if (generation == gen) teardown()
@@ -155,9 +192,10 @@ class SpatialRenditionSwap(
             val next = createPlayer(render, main) ?: return@withLock false
             incomingPlayer = next
             val gen = generation
+            // (An incoming player that failed is let go of: the render heard stays.)
             val valid = {
-                generation == gen && shadowPlayer === old && incomingPlayer === next && currentSongId == songId &&
-                    !isTransitionRunning() && stillWanted()
+                generation == gen && shadowPlayer === old && incomingPlayer === next && next.playerError == null &&
+                    currentSongId == songId && !isTransitionRunning() && stillWanted()
             }
             var completed = false
             try {
@@ -245,25 +283,32 @@ class SpatialRenditionSwap(
         teardown()
     }
 
-    private fun createPlayer(render: SpatialRender, mainPlayer: Player): ExoPlayer? = try {
-        ExoPlayer.Builder(context).build().apply {
-            val attrs = Media3AudioAttributes.Builder()
-                .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
-                .setUsage(C.USAGE_MEDIA)
-                .build()
-            setAudioAttributes(attrs, /* handleAudioFocus = */ false)
-            setWakeMode(C.WAKE_MODE_LOCAL)
-            audioSessionIdProvider().takeIf { it > 0 }?.let { setAudioSessionId(it) }
-            volume = 0f
-            setMediaItem(MediaItem.fromUri(Uri.fromFile(render.file)))
-            prepare()
-            playbackParameters = mainPlayer.playbackParameters
-            seekTo(SpatialSwapMath.alignTargetMs(mainPlayer.currentPosition, 0L, SpatialSwapMath.renderDurationMs(render)))
-            playWhenReady = mainPlayer.playWhenReady
+    private fun createPlayer(render: SpatialRender, mainPlayer: Player): ExoPlayer? {
+        var built: ExoPlayer? = null
+        return try {
+            newPlayer().apply {
+                built = this
+                addListener(renderPlayerListener)
+                val attrs = Media3AudioAttributes.Builder()
+                    .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
+                    .setUsage(C.USAGE_MEDIA)
+                    .build()
+                setAudioAttributes(attrs, /* handleAudioFocus = */ false)
+                setWakeMode(C.WAKE_MODE_LOCAL)
+                audioSessionIdProvider().takeIf { it > 0 }?.let { setAudioSessionId(it) }
+                volume = 0f
+                setMediaItem(MediaItem.fromUri(Uri.fromFile(render.file)))
+                prepare()
+                playbackParameters = mainPlayer.playbackParameters
+                seekTo(SpatialSwapMath.alignTargetMs(mainPlayer.currentPosition, 0L, SpatialSwapMath.renderDurationMs(render)))
+                // Only while the main player moves, not while it buffers ([followMain]).
+                playWhenReady = mainPlayer.isPlaying
+            }
+        } catch (e: Exception) {
+            Timber.tag(TAG).w(e, "Could not prepare the render %s", render.file.name)
+            built?.let(::releaseQuietly)
+            null
         }
-    } catch (e: Exception) {
-        Timber.tag(TAG).w(e, "Could not prepare the render %s", render.file.name)
-        null
     }
 
     private fun startResyncLoop() {
@@ -296,9 +341,33 @@ class SpatialRenditionSwap(
         }
     }
 
+    /** The session player's play/pause ([playWhenReady] false also while another device plays). */
     fun onPlayWhenReadyChanged(playWhenReady: Boolean) {
-        shadowPlayer?.playWhenReady = playWhenReady
-        incomingPlayer?.playWhenReady = playWhenReady
+        if (playWhenReady) {
+            followMain()
+        } else {
+            shadowPlayer?.playWhenReady = false
+            incomingPlayer?.playWhenReady = false
+        }
+    }
+
+    /**
+     * The second players move only while the main player does. A seek outside the main player's buffer (every seek
+     * back) or a stall leaves it buffering with play still on while the local render would be ready in tens of ms: the
+     * render waits, then starts again from the main player's media time when it moves on. Otherwise it ran ahead of the
+     * reloading stream until the next resync sought the heard render back over the same stretch.
+     */
+    private fun followMain() {
+        val main = mainPlayerRef ?: return
+        val moving = main.isPlaying
+        val shadow = shadowPlayer
+        // Not in the middle of a fade: a seek there would be heard (the resync waits for the same reason).
+        if (moving && shadow != null && !isRamping) {
+            val target = main.currentPosition
+            if (abs(shadow.currentPosition - target) > DRIFT_TOLERANCE_MS) shadow.seekTo(target)
+        }
+        if (shadow != null && shadow.playWhenReady != moving) shadow.playWhenReady = moving
+        incomingPlayer?.let { if (it.playWhenReady != moving) it.playWhenReady = moving }
     }
 
     private suspend fun awaitReady(player: ExoPlayer, valid: () -> Boolean): Boolean {
@@ -320,7 +389,7 @@ class SpatialRenditionSwap(
      */
     private suspend fun align(main: Player, player: ExoPlayer, render: SpatialRender, valid: () -> Boolean): Boolean {
         val renderMs = SpatialSwapMath.renderDurationMs(render)
-        player.playWhenReady = main.playWhenReady
+        player.playWhenReady = main.isPlaying
         if (!main.isPlaying) {
             val at = SpatialSwapMath.alignTargetMs(main.currentPosition, 0L, renderMs)
             if (player.currentPosition != at) {
@@ -381,6 +450,8 @@ class SpatialRenditionSwap(
         if (volume > VOLUME_EPSILON) {
             baseVolume = volume
             shadow.volume = volume
+            // The person's level must outlive this render (ReplayGain restores it at the next song).
+            onLevelAbsorbed(volume)
             echoVolume = 0f
             player.volume = 0f
         }
@@ -397,6 +468,23 @@ class SpatialRenditionSwap(
             echoVolume = 0f
             newMain.volume = 0f
         }
+        followMain()
+    }
+
+    /**
+     * A second player failed (an AudioSink or decoder error, e.g. after a route change). The one heard gives the main
+     * player back at once: it is silent already, so there is nothing to fade, and the main player is at 0 with no other
+     * error recovery for this player. The caller keeps the render tried for this song, so it is not started again.
+     */
+    private fun onRenderPlayerError(error: PlaybackException) {
+        val shadow = shadowPlayer ?: return
+        // The incoming player of a profile change: crossTo lets go of it (its check sees the error).
+        if (shadow.playerError == null) return
+        // Still fading in: fadeIn's check sees the error and puts the main player back.
+        if (audibleRender == null) return
+        Timber.tag(TAG).w(error, "The render heard failed: back to the main player")
+        mainPlayerRef?.let { restoreMasterVolume(it) }
+        teardown()
     }
 
     /** An overlap transition ended: the next song took over (the render played out), or it was cancelled. */
@@ -427,6 +515,7 @@ class SpatialRenditionSwap(
 
     private fun releaseQuietly(player: ExoPlayer) {
         try {
+            player.removeListener(renderPlayerListener)
             player.release()
         } catch (e: Exception) {
             Timber.tag(TAG).d(e, "Releasing the render player failed")
