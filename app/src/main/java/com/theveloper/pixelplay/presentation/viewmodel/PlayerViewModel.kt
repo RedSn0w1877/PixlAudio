@@ -474,7 +474,7 @@ class PlayerViewModel @Inject constructor(
         userPreferencesRepository.audioQualityFlow.stateIn(
             viewModelScope,
             SharingStarted.WhileSubscribed(5000),
-            com.theveloper.pixelplay.data.preferences.AudioQuality.ULTRASOUND
+            com.theveloper.pixelplay.data.preferences.AudioQuality.DEFAULT
         )
 
     /** Which ambient background style the full player shows (exclusive, not layered). */

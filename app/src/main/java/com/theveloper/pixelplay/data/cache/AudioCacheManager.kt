@@ -337,6 +337,7 @@ class AudioCacheManager @Inject constructor(
     }
 
     private fun extensionFor(contentType: String?): String = when {
+        contentType?.contains("flac", ignoreCase = true) == true -> ".flac"
         contentType?.contains("webm", ignoreCase = true) == true -> ".webm"
         contentType?.contains("ogg", ignoreCase = true) == true -> ".ogg"
         contentType?.contains("mpeg", ignoreCase = true) == true -> ".mp3"

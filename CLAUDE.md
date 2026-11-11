@@ -92,7 +92,21 @@ Spotify's Web API returns **metadata only** — no audio, and preview URLs are g
 
 Browsing the Spotify catalogue (search, artist top-tracks and albums, the user's most-played) lives in `presentation/spotify/browse`. Drill-down is ViewModel state rather than nav routes, so going back doesn't re-fetch. Tracks found there are imported into a synthetic `SpotifyPlaylistEntity.BROWSE_ID` playlist and then go through the same matcher as everything else. Reading most-played needs the `user-top-read` scope, which was added after the first release — accounts linked before it must reconnect once.
 
-Audio tops out at roughly 256 kbps: YouTube serves no lossless stream by any route, so `pickBestAudio()` just takes the highest bitrate on offer.
+YouTube audio tops out at roughly 256 kbps (no lossless stream by any route), so `pickBestAudio()` just takes the highest bitrate on offer.
+
+**SpotiFLAC (`data/spotiflac/`) is tried before YouTube** when it finds the track and the audio quality setting allows. The tiers (`AudioQuality`) are:
+- **Low / Medium / High:** YouTube capped at 96 / 160 / 256 kbps. SpotiFLAC is used only as a last resort, when YouTube has nothing.
+- **Pro (the default):** SpotiFLAC first if the file is at most 48 kHz.
+- **Studio Pro:** SpotiFLAC first at any rate.
+
+Old stored values map over in `AudioQuality.fromStoredName`: Standard becomes Medium, Ultrasound becomes Pro.
+
+`SpotifyStreamProxy.resolveStreamUrl` follows that order. SpotiFLAC is also skipped for manual YouTube matches, and for two minutes after its URL failed. The lookup gets 6 s, then the YouTube chain runs.
+
+The only live provider is Monochrome (`tracks.monochrome.st`):
+- `/search/tracks?q=isrc:<ISRC>` finds the exact recording in one request; a bare ISRC is matched as text, not as the code. The fallback is a text search scored by `SpotiFLACMatcher`.
+- The audio comes from `/track/<trackId>` with byte ranges, always sent as `application/octet-stream`. Its catalogue mixes 16-bit/44.1 kHz FLAC, 24-bit FLAC up to 176.4 kHz (~6 Mbps) and a few AAC-in-MP4 files.
+- So the proxy reads the first 64 bytes before serving anything (`CloudStreamProxy.acceptStreamHead` → `AudioFileFacts`). It labels the response from the real format, remembers the rate per track, and on Pro turns a file over 48 kHz down for YouTube. Each Monochrome request takes about 1 s to answer, and each connection is capped near 0.3 MB/s, about twice what FLAC plays at. So the proxy fetches SpotiFLAC URLs as 1 MB pieces, three at a time (`upstreamChunkSize` / `upstreamParallelism` → `ParallelPieces`), and still never splices another source in mid-song. Tidal HiFi instances are a second provider slot, but none ship: all four original instances were dead or parked by 2026-11-11. A parked domain left in `TRUSTED_AUDIO_HOST_SUFFIXES` would let whoever buys it feed audio through the proxy, so keep that list to hosts a resolver can actually return. Same rules as iOS (`PixlNet/SpotiFLAC/`).
 
 **Which InnerTube client resolves the audio is the whole ballgame** (`InnerTubeContexts.kt`). Playback works because of `VISIONOS` — the only client in yt-dlp's table declaring neither a `GVS_PO_TOKEN_POLICY` (so its audio needs no PoToken and never arrives truncated) nor `REQUIRE_JS_PLAYER` (so it returns direct URLs, no `base.js`). It leads `PLAYER_PROFILES` for that reason. The others each toll: `IOS`/`ANDROID_VR` return direct URLs but require a GVS PoToken, so their audio **cuts off around 47-53 s**; `WEB` now returns audio as SABR-only entries (`initRange`/`indexRange`/`contentLength` but no `url` and no `signatureCipher`), i.e. nothing playable. Two invariants:
 
@@ -136,7 +150,7 @@ The app scheme is Material You ("Dynamic", the default) or the accent the user p
 
 ## CI
 
-GitHub Actions (JDK 21, Temurin): `phone-debug.yml` on push/PR to `master` (assembles + verifies split APK signatures), `phone-release.yml`, `wearos-apk.yml`, `nightly-apk.yml`, and CodeQL (`java-kotlin`) which builds `:app:assembleDebug :wear:assembleDebug`. No workflow runs the test tasks — run them locally.
+GitHub Actions (JDK 21, Temurin): `android-ci.yml` on every push and PR ("Compile, test, build debug APK": runs `:app:testDebugUnitTest`), `phone-debug.yml` on push/PR to `main` (assembles + verifies split APK signatures), `phone-release.yml`, `wearos-apk.yml`, `nightly-apk.yml`, and CodeQL (`java-kotlin`) which builds `:app:assembleDebug :wear:assembleDebug`. Instrumented tests still only run locally.
 
 ## License
 
