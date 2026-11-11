@@ -157,6 +157,18 @@ class CloudSpatialLibraryTest {
         assertEquals(SpatialRenditionStatus.NONE, status(SpatialProfile.HALL))
     }
 
+    @Test fun `a shared render that lost its audio is sent to be made again, a plain miss is a plain job`() = runBlocking {
+        publish()
+        engine.objects.remove(CloudKeys.libraryAudio(video, "studio")) // the manifest stays: the worker would say `exists`
+        library.requestNow("s1", video, SpatialProfile.STUDIO)
+        assertEquals(listOf(Triple(video, "studio", false)), engine.sent)
+        assertEquals(listOf(true), engine.forced)
+        expect(SpatialRenditionStatus.QUEUED)
+        // A render the library doesn't have at all.
+        library.requestNow("s2", "ZD6rXLXZOEI", SpatialProfile.STUDIO)
+        assertEquals(listOf(true, false), engine.forced)
+    }
+
     @Test fun `with no network the person allows it waits, and starts when one comes back`() = runBlocking {
         network.value = SpatialNetwork(connected = true, unmetered = false)
         eventually("the library saw the network") { status() == SpatialRenditionStatus.NONE }
@@ -288,6 +300,8 @@ class CloudSpatialLibraryTest {
         val fetches = mutableListOf<String>()
         var fetchError: Exception? = null
         val sent = mutableListOf<Triple<String, String, Boolean>>()
+        /** Each job's "render it again regardless" flag, in order. */
+        val forced = mutableListOf<Boolean>()
         var capReached = false
         var refusal: CloudLibrarySend.Refused? = null
         /** Runs as a job is being added (what the person does meanwhile). */
@@ -319,11 +333,18 @@ class CloudSpatialLibraryTest {
             destination.writeBytes(data)
             return CloudTransferResult.Ok
         }
-        override suspend fun sendLibraryJob(songId: String, videoId: String, profileId: String, ahead: Boolean): CloudLibrarySend {
+        override suspend fun sendLibraryJob(
+            songId: String,
+            videoId: String,
+            profileId: String,
+            ahead: Boolean,
+            forceRender: Boolean,
+        ): CloudLibrarySend {
             if (capReached) return CloudLibrarySend.CapReached
             refusal?.let { return it }
             beforeSend?.invoke()
             sent += Triple(videoId, profileId, ahead)
+            forced += forceRender
             val existing = list.value.lastOrNull { it.state.isPending && it.library?.videoId == videoId }
             if (existing != null) {
                 val promoted = existing.copy(library = existing.library!!.copy(ahead = existing.isLibraryAhead && ahead))

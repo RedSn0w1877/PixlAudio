@@ -805,9 +805,17 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
      * with every library job not yet at RunPod, must fit `cloudAudio.monthlyCapUSD` (Sing's cap and its $3 rule play
      * no part). A pending job for the same video and profile is returned instead of a second one; one from the
      * background queue becomes the person's when the song is played ([ahead] false), so it follows the person's network
-     * rule from then on. A new job of the background queue counts toward its day.
+     * rule from then on. A new job of the background queue counts toward its day. [forceRender]: the shared library has
+     * this render's manifest but not its audio (the library's lookup found that), so the new job renders it again
+     * without the worker's "already there" check ([CloudLibraryJob.forceRender]).
      */
-    suspend fun sendLibraryJob(songId: String, videoId: String, profileId: String, ahead: Boolean): CloudLibrarySend {
+    suspend fun sendLibraryJob(
+        songId: String,
+        videoId: String,
+        profileId: String,
+        ahead: Boolean,
+        forceRender: Boolean = false,
+    ): CloudLibrarySend {
         loadForDisplay()
         if (!deps.settings.snapshot().enabled) return CloudLibrarySend.Refused("Cloud processing is off.")
         if (!CloudKeys.isValidVideoId(videoId) || SpatialProfile.fromId(profileId) == null) {
@@ -840,7 +848,11 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
                     artist = song.artist, videoId = videoId, songDurationMs = song.durationMs,
                     batchId = deps.newJobKey(), isStreamed = song.isStreamed, tasks = listOf(CloudTask.SPATIAL),
                     quality = CloudSeparationQuality.STANDARD, outputCodec = CloudOutputCodec.FLAC,
-                    origin = CloudJobOrigin.LIBRARY, library = CloudLibraryJob(videoId, listOf(profileId), ahead = ahead),
+                    origin = CloudJobOrigin.LIBRARY,
+                    library = CloudLibraryJob(
+                        videoId, listOf(profileId), ahead = ahead,
+                        forceRender = if (forceRender) listOf(profileId) else emptyList(),
+                    ),
                     createdAtMs = time,
                 )
                 result = record
@@ -2146,7 +2158,7 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
         if (result is CloudTransferResult.Failed) {
             staged.delete()
             if (result.status == 404) {
-                renderGone(jobKey)
+                renderAudioMissing(jobKey, videoId, profile, clients)
             } else {
                 update(jobKey) { it.on(CloudJobEvent.RESULTS_READY, now) }
                 fail(jobKey, "Download: ${CloudRedaction.redact(result.message)}", null, retryable = true)
@@ -2182,6 +2194,42 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
     private suspend fun renderGone(jobKey: String) {
         update(jobKey) { it.on(CloudJobEvent.REQUEUE, now) }
         fail(jobKey, "The render was gone from the library; the song will be processed again.", null, retryable = true)
+    }
+
+    /**
+     * A delivered render's audio wasn't in the library (404). The manifest decides what that means. Gone too: the render
+     * is going away (the janitor deletes the manifest first), so the job runs again and the worker, finding no manifest,
+     * renders it ([renderGone]). Still there: the library entry is broken (its audio was deleted on its own), and the
+     * worker would only answer `exists` again: sent round as before, the job would loop (each pass a paid run and a full
+     * re-upload, the attempts reset by every result). So the job goes round once more without the "already there" check
+     * for that profile ([CloudLibraryJob.forceRender]), and the worker renders it again, overwriting both objects; if the
+     * audio is missing once more after that, the job stops (and the library's failure backoff applies).
+     */
+    private suspend fun renderAudioMissing(jobKey: String, videoId: String, profile: String, clients: Clients) {
+        val manifest = try {
+            clients.objects.get(CloudKeys.libraryManifest(videoId, profile))
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            update(jobKey) { it.on(CloudJobEvent.RESULTS_READY, now) }
+            fail(jobKey, "Download: ${CloudRedaction.redact(error.message ?: "network error")}", null, retryable = true)
+            return
+        }
+        if (manifest == null) {
+            renderGone(jobKey)
+            return
+        }
+        val record = job(jobKey) ?: return
+        if (profile in record.library?.forceRender.orEmpty()) {
+            fail(jobKey, "The render's audio is missing from the library even after it was made again.", null, retryable = false)
+            return
+        }
+        // Not a failure of this job (no attempt used up, no wait): the same job, asked differently.
+        update(jobKey) { current ->
+            val job = current.library ?: return@update current
+            current.copy(library = job.copy(forceRender = (job.forceRender + profile).distinct())).on(CloudJobEvent.REQUEUE, now)
+        }
+        deps.scheduler.requestPass()
     }
 
     /**

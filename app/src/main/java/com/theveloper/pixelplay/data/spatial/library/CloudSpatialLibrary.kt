@@ -18,6 +18,7 @@ import com.theveloper.pixelplay.data.spatial.SpatialRender
 import com.theveloper.pixelplay.data.spatial.SpatialRenditionStatus
 import com.theveloper.pixelplay.data.spatial.SpatialSettings
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -49,7 +50,14 @@ interface SpatialCloudEngine {
     suspend fun load()
     suspend fun fetchLibraryObject(key: String): ByteArray?
     suspend fun downloadLibraryObject(key: String, destination: File): CloudTransferResult
-    suspend fun sendLibraryJob(songId: String, videoId: String, profileId: String, ahead: Boolean): CloudLibrarySend
+    /** [forceRender]: render it again without the worker's "already there" check (the library's entry lost its audio). */
+    suspend fun sendLibraryJob(
+        songId: String,
+        videoId: String,
+        profileId: String,
+        ahead: Boolean,
+        forceRender: Boolean = false,
+    ): CloudLibrarySend
     suspend fun cancelPendingLibrary(matches: (CloudJobRecord) -> Boolean)
     suspend fun libraryCapAllows(durationMs: Long): Boolean
     fun libraryCommittedMicroUsd(): Long
@@ -65,8 +73,8 @@ class EngineSpatialCloud(private val engine: CloudStudioEngine) : SpatialCloudEn
     override suspend fun fetchLibraryObject(key: String): ByteArray? = engine.fetchLibraryObject(key)
     override suspend fun downloadLibraryObject(key: String, destination: File): CloudTransferResult =
         engine.downloadLibraryObject(key, destination)
-    override suspend fun sendLibraryJob(songId: String, videoId: String, profileId: String, ahead: Boolean) =
-        engine.sendLibraryJob(songId, videoId, profileId, ahead)
+    override suspend fun sendLibraryJob(songId: String, videoId: String, profileId: String, ahead: Boolean, forceRender: Boolean) =
+        engine.sendLibraryJob(songId, videoId, profileId, ahead, forceRender)
     override suspend fun cancelPendingLibrary(matches: (CloudJobRecord) -> Boolean) = engine.cancelPendingLibrary(matches)
     override suspend fun libraryCapAllows(durationMs: Long): Boolean = engine.libraryCapAllows(durationMs)
     override fun libraryCommittedMicroUsd(): Long = engine.libraryCommittedThisMonthMicroUsd()
@@ -137,6 +145,8 @@ class CloudSpatialLibrary(
     private val activities = MutableStateFlow<Map<SpatialRenderKey, SpatialActivity>>(emptyMap())
     /** Wants that can't start yet, oldest first (guarded by [lock]). */
     private val parked = LinkedHashMap<SpatialRenderKey, Want>()
+    /** Renders the shared library has a manifest for but no audio: their job renders them again (see [fetchShared]). */
+    private val brokenEntries: MutableSet<SpatialRenderKey> = ConcurrentHashMap.newKeySet()
     private val lock = Mutex()
 
     override val cloudRendersOn: StateFlow<Boolean> = _cloudRendersOn.asStateFlow()
@@ -245,7 +255,7 @@ class CloudSpatialLibrary(
 
     override suspend fun sendAhead(songId: String, videoId: String, profile: SpatialProfile): CloudLibrarySend {
         if (!aheadWants(profile)) return CloudLibrarySend.Refused("The background queue isn't preparing this profile.")
-        val sent = engine.sendLibraryJob(songId, videoId, profile.id, ahead = true)
+        val sent = sendJob(songId, SpatialRenderKey(videoId, profile), ahead = true)
         when {
             sent is CloudLibrarySend.Sent && !aheadWants(profile) -> {
                 // The settings changed while the job was being added, after their own cancel ran: it goes too. (A job
@@ -303,7 +313,7 @@ class CloudSpatialLibrary(
                 SharedLookup.MISSING -> Unit
             }
             setActivity(key, SpatialActivity.SENDING)
-            when (val sent = engine.sendLibraryJob(want.songId, key.videoId, key.profile.id, want.ahead)) {
+            when (val sent = sendJob(want.songId, key, want.ahead)) {
                 is CloudLibrarySend.Sent -> release(key) // the job carries the status from here
                 CloudLibrarySend.CapReached -> park(key, want, SpatialActivity.CAP_REACHED)
                 // A song the cloud can't take (over 15 minutes, gone from the library) is the render failing: its status
@@ -356,14 +366,32 @@ class CloudSpatialLibrary(
             CloudTransferResult.Ok -> Unit
             is CloudTransferResult.Failed -> {
                 staged.delete()
-                // The janitor removes the manifest before the audio; a missing file means the render is going away.
-                return if (result.status == 404) SharedLookup.MISSING else SharedLookup.ERROR
+                if (result.status != 404) return SharedLookup.ERROR
+                // The janitor removes the manifest before the audio: a render going away has no manifest any more, and a
+                // job makes it again. One whose manifest is still there lost its audio on its own: the worker would only
+                // answer `exists` for it, so its job renders it without that check (else the job would loop, a paid run
+                // and a full upload each time, until the manifest expires).
+                if (engine.fetchLibraryObject(CloudKeys.libraryManifest(key.videoId, key.profile.id)) != null) {
+                    if (brokenEntries.size >= MAX_PARKED) brokenEntries.clear()
+                    brokenEntries += key
+                } else {
+                    brokenEntries -= key
+                }
+                return SharedLookup.MISSING
             }
         }
+        brokenEntries -= key
         val refusal = store.installRender(key.videoId, key.profile.id, staged, manifestBytes)
         if (refusal != null) return SharedLookup.ERROR
         ledger.clear(key, nowMs() + 1)
         return SharedLookup.FOUND
+    }
+
+    /** Sends [key]'s library job, rendered again regardless when the shared library's entry for it lost its audio. */
+    private suspend fun sendJob(songId: String, key: SpatialRenderKey, ahead: Boolean): CloudLibrarySend {
+        val sent = engine.sendLibraryJob(songId, key.videoId, key.profile.id, ahead, forceRender = key in brokenEntries)
+        if (sent is CloudLibrarySend.Sent) brokenEntries -= key
+        return sent
     }
 
     private fun networkAllows(ahead: Boolean): Boolean {

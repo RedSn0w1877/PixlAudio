@@ -138,9 +138,10 @@ object CloudJobBuilder {
 
     /**
      * `input.library` of a Spatial audio job (cloud-audio-spec §4): one render entry per profile, each with presigned
-     * URLs for its canonical keys (`audioPut`, `manifestPut`, and `manifestGet` for the worker's "already there" check),
-     * and `source` naming the stream the audio came from. Null when the job's facts are not valid (a bad video id, no
-     * profile, an unknown or repeated one, more than six) or a URL can't be signed.
+     * URLs for its canonical keys (`audioPut`, `manifestPut`, and `manifestGet` for the worker's "already there" check,
+     * left out for a profile the job must render again: [CloudLibraryJob.forceRender]), and `source` naming the stream
+     * the audio came from. Null when the job's facts are not valid (a bad video id, no profile, an unknown or repeated
+     * one, more than six) or a URL can't be signed.
      */
     fun libraryRequest(job: CloudLibraryJob, seconds: Int, presign: CloudPresign): CloudLibraryRequest? {
         val videoId = job.videoId
@@ -155,7 +156,7 @@ object CloudJobBuilder {
                 profile = profile,
                 audioPut = presign("PUT", audioKey, seconds) ?: return null,
                 manifestPut = presign("PUT", manifestKey, seconds) ?: return null,
-                manifestGet = presign("GET", manifestKey, seconds) ?: return null,
+                manifestGet = if (profile in job.forceRender) null else presign("GET", manifestKey, seconds) ?: return null,
             )
         }
         val codec = job.sourceCodec?.trim()?.lowercase()?.takeIf { it.isNotEmpty() }?.take(MAX_SOURCE_CODEC_CHARS)

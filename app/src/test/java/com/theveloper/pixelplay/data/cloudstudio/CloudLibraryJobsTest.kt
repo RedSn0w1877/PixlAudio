@@ -241,6 +241,54 @@ class CloudLibraryJobsTest {
         assertTrue(libraryHost.installed.isEmpty())
     }
 
+    @Test fun `a library entry that lost its audio is rendered again once, never sent round forever`() = runBlocking {
+        // The shared library has the render's manifest, but its audio was deleted on its own.
+        bucket.objects[CloudKeys.libraryManifest(video, "studio")] = runpod.renderManifest(video, "studio", ByteArray(3_000) { 7 })
+        val engine = engine()
+        val record = engine.sendRender()
+        engine.workerPass(now + passMs)
+        // The worker could only answer `exists`: the job goes round at once without that check, no attempt used up.
+        val again = engine.job(record.jobKey)!!
+        assertEquals(CloudJobState.QUEUED, again.state)
+        assertEquals(listOf("studio"), again.library?.forceRender)
+        assertEquals(0, again.attempts)
+        assertNull(again.nextAttemptAtMs)
+        now += 60_000
+        engine.workerPass(now + passMs)
+        val done = engine.job(record.jobKey)!!
+        assertEquals(CloudJobState.IMPORTED, done.state, "last error: ${done.lastError}")
+        assertEquals(2, runpod.runs.size)
+        assertNotNull(runpod.runs[0].input.library!!.renders.single().manifestGet)
+        assertNull(runpod.runs[1].input.library!!.renders.single().manifestGet)
+        assertNotNull(libraryHost.installed[video to "studio"])
+        // Mended for every other device too.
+        assertTrue(CloudKeys.libraryAudio(video, "studio") in bucket.objects)
+    }
+
+    @Test fun `a render whose audio is missing again after it was made again stops its job`() = runBlocking {
+        bucket.objects[CloudKeys.libraryManifest(video, "studio")] = runpod.renderManifest(video, "studio", ByteArray(3_000) { 7 })
+        runpod.dropAudio = true
+        val engine = engine()
+        val record = engine.sendRender()
+        repeat(4) {
+            engine.workerPass(now + passMs)
+            now += 10L * 60_000
+        }
+        val stopped = engine.job(record.jobKey)!!
+        assertEquals(CloudJobState.FAILED, stopped.state)
+        assertEquals(2, runpod.runs.size, "one forced render, no loop")
+        assertTrue(libraryHost.installed.isEmpty())
+    }
+
+    @Test fun `a library job asked to render again leaves out the already-there check`() = runBlocking {
+        val engine = engine()
+        val forced = (engine.sendLibraryJob(song.id, video, "studio", ahead = false, forceRender = true) as CloudLibrarySend.Sent).record
+        assertEquals(listOf("studio"), forced.library?.forceRender)
+        engine.workerPass(now + passMs)
+        assertNull(runpod.runs.single().input.library!!.renders.single().manifestGet)
+        assertEquals(CloudJobState.IMPORTED, engine.job(forced.jobKey)!!.state)
+    }
+
     @Test fun `a damaged render isn't stored and is fetched again later`() = runBlocking {
         val engine = engine()
         val record = engine.sendRender()
@@ -457,6 +505,8 @@ class CloudLibraryJobsTest {
         val failing = HashSet<String>()
         var janitor = false
         var damage = false
+        /** The audio of a render never stays in the library (deleted on its own right after the worker wrote it). */
+        var dropAudio = false
         var lastAudio: ByteArray? = null
         private val pending = mutableListOf<Pair<String, CloudJobRequest>>()
         /** Finished runs: `/status` answers COMPLETED with the manifest (the clock stands still, so listings don't repeat). */
@@ -497,13 +547,22 @@ class CloudLibraryJobsTest {
                     }
                     val audioKey = CloudKeys.libraryAudio(library.videoId, profile)
                     val manifestKey = CloudKeys.libraryManifest(library.videoId, profile)
-                    val existed = manifestKey in bucket.objects
+                    // The worker's "already there" check (spec §4): asked, and a valid manifest is there, it writes
+                    // nothing and answers `exists`, naming the audio as that manifest does.
+                    val existing = bucket.objects[manifestKey]?.takeIf { target.manifestGet != null }?.let(SpatialManifests::decode)
+                    if (existing != null) {
+                        renders[profile] = CloudLibraryRenderState.EXISTS
+                        outputs[CloudKeys.librarySlot(profile)] = CloudOutputFile(audioKey, existing.audio.bytes,
+                            existing.audio.sha256, "flac", null, 48_000, 9_600_000)
+                        continue
+                    }
                     val audio = bucket.objects[audioKey] ?: ByteArray(3_000) { (it % 89).toByte() }
                     lastAudio = audio
                     bucket.objects[audioKey] = if (damage) audio.copyOf().also { it[0] = 99 } else audio
                     bucket.objects[manifestKey] = renderManifest(library.videoId, profile, audio)
                     if (janitor) bucket.objects.remove(manifestKey)
-                    renders[profile] = if (existed) CloudLibraryRenderState.EXISTS else CloudLibraryRenderState.OK
+                    if (dropAudio) bucket.objects.remove(audioKey)
+                    renders[profile] = CloudLibraryRenderState.OK
                     outputs[CloudKeys.librarySlot(profile)] = CloudOutputFile(audioKey, audio.size.toLong(),
                         CloudDigest.sha256Hex(audio), "flac", null, 48_000, 9_600_000)
                 }
@@ -535,7 +594,7 @@ class CloudLibraryJobsTest {
             return result
         }
 
-        private fun renderManifest(videoId: String, profile: String, audio: ByteArray): ByteArray {
+        fun renderManifest(videoId: String, profile: String, audio: ByteArray): ByteArray {
             val base = SpatialManifests.decode(CloudFixtures.worker("library.render.spatial.json").toByteArray())!!
             val manifest = base.copy(videoId = videoId, profile = profile, audio = base.audio.copy(
                 key = CloudKeys.libraryAudio(videoId, profile), bytes = audio.size.toLong(), sha256 = CloudDigest.sha256Hex(audio)))
