@@ -412,10 +412,23 @@ class CloudSpatialLibrary(
         if (on && before != null && before.monthlyCapUsd != spatial.monthlyCapUsd) resume(SpatialActivity.CAP_REACHED)
     }
 
+    /**
+     * Finished library jobs already fed to the ledger in this process (job key → the record as read). The list is read
+     * again on every change (a status poll every 15 s while jobs run) and keeps delivered jobs 30 days: each is handled
+     * once, not on every read. The ledger itself is idempotent, so a new process simply reads them all once.
+     */
+    private val outcomesApplied = HashMap<String, CloudJobRecord>()
+
     /** Library jobs that ended feed the failure backoff: a failed job or render counts once, a delivered one clears it. */
     private fun recordOutcomes(jobs: List<CloudJobRecord>) {
+        val finished = HashSet<String>()
         for (record in jobs) {
             val job = record.library ?: continue
+            if (!record.state.isFinished) continue
+            finished += record.jobKey
+            // The engine keeps a record's instance until the record changes.
+            if (outcomesApplied[record.jobKey] === record) continue
+            outcomesApplied[record.jobKey] = record
             val at = record.updatedAtMs ?: record.createdAtMs
             for (profile in job.profiles.mapNotNull(SpatialProfile::fromId)) {
                 val key = SpatialRenderKey(job.videoId, profile)
@@ -431,6 +444,7 @@ class CloudSpatialLibrary(
                 }
             }
         }
+        outcomesApplied.keys.retainAll(finished)
     }
 
     // ─── Status (§6.1) ──────────────────────────────────────────────────────────────────────
