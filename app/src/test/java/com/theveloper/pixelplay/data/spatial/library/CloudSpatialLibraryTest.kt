@@ -157,6 +157,18 @@ class CloudSpatialLibraryTest {
         assertEquals(SpatialRenditionStatus.NONE, status(SpatialProfile.HALL))
     }
 
+    @Test fun `a shared render that lost its audio is sent to be made again, a plain miss is a plain job`() = runBlocking {
+        publish()
+        engine.objects.remove(CloudKeys.libraryAudio(video, "studio")) // the manifest stays: the worker would say `exists`
+        library.requestNow("s1", video, SpatialProfile.STUDIO)
+        assertEquals(listOf(Triple(video, "studio", false)), engine.sent)
+        assertEquals(listOf(true), engine.forced)
+        expect(SpatialRenditionStatus.QUEUED)
+        // A render the library doesn't have at all.
+        library.requestNow("s2", "ZD6rXLXZOEI", SpatialProfile.STUDIO)
+        assertEquals(listOf(true, false), engine.forced)
+    }
+
     @Test fun `with no network the person allows it waits, and starts when one comes back`() = runBlocking {
         network.value = SpatialNetwork(connected = true, unmetered = false)
         eventually("the library saw the network") { status() == SpatialRenditionStatus.NONE }
@@ -207,6 +219,22 @@ class CloudSpatialLibraryTest {
         eventually("the failure cleared") { ledger.failure(SpatialRenderKey(video, SpatialProfile.STUDIO)) == null }
     }
 
+    @Test fun `a song the cloud can't take shows as failed and isn't asked for again on every play`() = runBlocking {
+        // Over 15 minutes: the shared library can't have it and the engine refuses the job.
+        engine.refusal = CloudLibrarySend.Refused("This song is longer than 15 minutes.", permanent = true)
+        library.requestNow("s1", video, SpatialProfile.STUDIO)
+        assertEquals(SpatialRenditionStatus.FAILED, status())
+        assertEquals(1, ledger.failure(SpatialRenderKey(video, SpatialProfile.STUDIO))?.count)
+        library.requestNow("s1", video, SpatialProfile.STUDIO)
+        assertEquals(1, engine.fetches.size, "no new lookup inside the backoff")
+        // A switch that went off between the check and the job is no failure of the song.
+        val other = "ZD6rXLXZOEI"
+        engine.refusal = CloudLibrarySend.Refused("Cloud renders are off.")
+        library.requestNow("s2", other, SpatialProfile.STUDIO)
+        assertEquals(SpatialRenditionStatus.NONE, library.status(other, SpatialProfile.STUDIO).first())
+        assertEquals(null, ledger.failure(SpatialRenderKey(other, SpatialProfile.STUDIO)))
+    }
+
     @Test fun `the person playing a song takes over the background queue's job for it`() = runBlocking {
         engine.list.value = listOf(engine.record(CloudJobState.UPLOADED, ahead = true))
         library.requestNow("s1", video, SpatialProfile.STUDIO)
@@ -226,6 +254,30 @@ class CloudSpatialLibraryTest {
         assertEquals(SharedLookup.BUSY, library.lookUp("s2", "ZD6rXLXZOEI", SpatialProfile.STUDIO))
         assertTrue(library.sendAhead("s2", "ZD6rXLXZOEI", SpatialProfile.STUDIO) is CloudLibrarySend.Sent)
         assertEquals(Triple("ZD6rXLXZOEI", "studio", true), engine.sent.last())
+    }
+
+    @Test fun `the background queue only looks up and sends the selected profile, while prepare ahead is on`() = runBlocking {
+        assertEquals(SharedLookup.BUSY, library.lookUp("s1", video, SpatialProfile.HALL))
+        assertTrue(library.sendAhead("s1", video, SpatialProfile.HALL) is CloudLibrarySend.Refused)
+        assertTrue(engine.fetches.isEmpty())
+        assertTrue(engine.sent.isEmpty())
+        // The person picks another profile just as a job of the old one is being added (after the settings' own cancel
+        // of the queue's jobs ran): that job doesn't stay either.
+        engine.beforeSend = {
+            val seen = schedules.size
+            spatial.update { it.copy(profile = SpatialProfile.HALL) }
+            eventually("the library saw the new profile") { schedules.size > seen }
+        }
+        assertTrue(library.sendAhead("s1", video, SpatialProfile.STUDIO) is CloudLibrarySend.Refused)
+        assertEquals(1, engine.sent.size)
+        assertTrue(engine.list.value.none { it.state.isPending }, "jobs: ${engine.list.value}")
+        // With prepare ahead off nothing goes, whatever the profile.
+        engine.beforeSend = null
+        spatial.update { it.copy(prepareAhead = false) }
+        eventually("prepare ahead seen off") { schedules.last() == false }
+        assertTrue(library.sendAhead("s1", video, SpatialProfile.HALL) is CloudLibrarySend.Refused)
+        assertEquals(SharedLookup.BUSY, library.lookUp("s1", video, SpatialProfile.HALL))
+        assertEquals(1, engine.sent.size)
     }
 
     @Test fun `stats are the store's songs and bytes with the library's own month`() = runBlocking {
@@ -248,7 +300,12 @@ class CloudSpatialLibraryTest {
         val fetches = mutableListOf<String>()
         var fetchError: Exception? = null
         val sent = mutableListOf<Triple<String, String, Boolean>>()
+        /** Each job's "render it again regardless" flag, in order. */
+        val forced = mutableListOf<Boolean>()
         var capReached = false
+        var refusal: CloudLibrarySend.Refused? = null
+        /** Runs as a job is being added (what the person does meanwhile). */
+        var beforeSend: (suspend () -> Unit)? = null
         var cancelledAll = 0
         var committed = 0L
         var today = 0
@@ -276,9 +333,18 @@ class CloudSpatialLibraryTest {
             destination.writeBytes(data)
             return CloudTransferResult.Ok
         }
-        override suspend fun sendLibraryJob(songId: String, videoId: String, profileId: String, ahead: Boolean): CloudLibrarySend {
+        override suspend fun sendLibraryJob(
+            songId: String,
+            videoId: String,
+            profileId: String,
+            ahead: Boolean,
+            forceRender: Boolean,
+        ): CloudLibrarySend {
             if (capReached) return CloudLibrarySend.CapReached
+            refusal?.let { return it }
+            beforeSend?.invoke()
             sent += Triple(videoId, profileId, ahead)
+            forced += forceRender
             val existing = list.value.lastOrNull { it.state.isPending && it.library?.videoId == videoId }
             if (existing != null) {
                 val promoted = existing.copy(library = existing.library!!.copy(ahead = existing.isLibraryAhead && ahead))

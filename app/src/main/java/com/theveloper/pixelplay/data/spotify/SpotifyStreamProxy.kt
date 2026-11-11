@@ -11,6 +11,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 import com.theveloper.pixelplay.data.stream.CloudStreamProxy
 import com.theveloper.pixelplay.data.stream.CloudStreamSecurity
+import com.theveloper.pixelplay.data.stream.StreamItag
 import com.theveloper.pixelplay.data.youtube.ChainedYouTubeStreamResolver
 import com.theveloper.pixelplay.data.youtube.newpipe.NewPipeStreamResolver
 import com.theveloper.pixelplay.data.youtube.piped.PipedStreamResolver
@@ -18,6 +19,13 @@ import okhttp3.OkHttpClient
 import timber.log.Timber
 import javax.inject.Inject
 import javax.inject.Singleton
+
+/**
+ * The stream [SpotifyStreamProxy] serves for a song: the YouTube video its URL was resolved for, the stream's itag, and
+ * its length in bytes (the URL's `clen`; null when the URL doesn't say). A file of exactly that length fetched from the
+ * proxy is that stream, byte for byte.
+ */
+data class StreamSource(val videoId: String, val itag: Int?, val contentLength: Long?)
 
 /**
  * Proxy HTTP local que sirve el audio de una pista de Spotify.
@@ -81,7 +89,7 @@ class SpotifyStreamProxy @Inject constructor(
      * googlevideo también responde con 403, indistinguible del resto. Cada URL es única por
      * resolución, así que usarla de clave elimina la carrera sin más.
      */
-    private data class StreamIdentity(val userAgent: String, val strategy: String?)
+    private data class StreamIdentity(val userAgent: String, val strategy: String?, val videoId: String? = null)
     private val identityByUrl = java.util.Collections.synchronizedMap(
         object : LinkedHashMap<String, StreamIdentity>(128, 0.75f, true) {
             override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, StreamIdentity>?) = size > 256
@@ -120,8 +128,28 @@ class SpotifyStreamProxy @Inject constructor(
         .mapTo(HashSet()) { it.name }
 
 
-    private fun rememberUserAgent(url: String, userAgent: String, strategy: String?) {
-        identityByUrl[url] = StreamIdentity(userAgent, strategy)
+    private fun rememberUserAgent(url: String, userAgent: String, strategy: String?, videoId: String) {
+        identityByUrl[url] = StreamIdentity(userAgent, strategy, videoId)
+    }
+
+    /**
+     * The stream this proxy serves for [spotifyId] while it is [videoId]'s: the YouTube video its URL was resolved for,
+     * with that stream's itag and length. The URL cache is keyed by Spotify id and a changed match doesn't reach it (the
+     * dashboard's Test playback, a catalog play), so a cached URL resolved for another video is dropped and resolved
+     * again once. Null when nothing resolves, or the song now resolves to another video (its match changed again, or an
+     * unplayable video was re-matched meanwhile). Resolves on demand (network), never downloads audio. Cloud Studio's
+     * Spatial audio jobs use it to prove the audio they upload is the video their render is stored under.
+     */
+    suspend fun streamSourceFor(spotifyId: String, videoId: String): StreamSource? {
+        if (!validateId(spotifyId) || !CloudStreamSecurity.validateYouTubeVideoId(videoId)) return null
+        repeat(2) { attempt ->
+            val url = getOrFetchStreamUrl(spotifyId) ?: return null
+            if (identityByUrl[url]?.videoId == videoId) {
+                return StreamSource(videoId, StreamItag.fromUrl(url), StreamItag.contentLengthFromUrl(url))
+            }
+            if (attempt == 0) invalidateCachedUrl(spotifyId)
+        }
+        return null
     }
 
     override fun upstreamHeaders(id: String, url: String): Map<String, String> {
@@ -195,7 +223,7 @@ class SpotifyStreamProxy @Inject constructor(
         // unplayable, none said OK; the bot wall is not counted).
         val videoUnavailable = resolved == null && streamResolver.lastResolveVideoUnavailable
         if (resolved != null) {
-            rememberUserAgent(resolved.url, resolved.userAgent, resolved.strategyName)
+            rememberUserAgent(resolved.url, resolved.userAgent, resolved.strategyName, videoId)
             reportResolved(resolved.url, resolved.strategyName, resolved.nTransformMs)
             return resolved.url
         }
@@ -203,7 +231,7 @@ class SpotifyStreamProxy @Inject constructor(
 
         val pipedResolved = if ("Piped" in excluded) null else withTimeoutOrNull(15_000L) { pipedStreamResolver.resolve(videoId) }
         if (pipedResolved != null) {
-            rememberUserAgent(pipedResolved.url, pipedResolved.userAgent, "Piped")
+            rememberUserAgent(pipedResolved.url, pipedResolved.userAgent, "Piped", videoId)
             reportResolved(pipedResolved.url, "Piped", null)
             return pipedResolved.url
         }
@@ -211,7 +239,7 @@ class SpotifyStreamProxy @Inject constructor(
 
         val newPipeResolved = if ("NewPipe" in excluded) null else withTimeoutOrNull(20_000L) { newPipeStreamResolver.resolve(videoId) }
         if (newPipeResolved != null) {
-            rememberUserAgent(newPipeResolved.url, newPipeResolved.userAgent, "NewPipe")
+            rememberUserAgent(newPipeResolved.url, newPipeResolved.userAgent, "NewPipe", videoId)
             reportResolved(newPipeResolved.url, "NewPipe", null)
             return newPipeResolved.url
         }

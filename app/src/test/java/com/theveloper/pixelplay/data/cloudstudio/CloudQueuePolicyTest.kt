@@ -509,6 +509,23 @@ class CloudQueuePolicyTest {
         assertFalse(CloudBurstMarks.moreComing(emptyList(), 1_000_000, 192, outOfTime = false))
     }
 
+    @Test fun `a Spatial audio library job on its way is weighed against the library's month, not Sing's`() {
+        val render = CloudJobRecord(
+            jobKey = "3d9f0c52-7a41-4e8b-b6f3-91c2d5e7a8aa", songId = "s", tasks = listOf(CloudTask.SPATIAL), isStreamed = true,
+            songDurationMs = 240_000, origin = CloudJobOrigin.LIBRARY, library = CloudLibraryJob("J7p4bzqLvCw", listOf("studio")),
+        )
+        val one = CloudCost.estimatedSeconds(render.plan, render.quality) * 192
+        // Sing's month is spent, the library's isn't: the workers stay up for the library's next render.
+        assertTrue(CloudBurstMarks.moreComing(listOf(render), 0, 192, outOfTime = false, libraryRoomMicroUsd = one))
+        assertTrue(CloudBurstMarks.moreComing(listOf(render), 0, 192, outOfTime = false, libraryRoomMicroUsd = null), "No limit")
+        // The library's month is spent, Sing's isn't: that render isn't coming.
+        assertFalse(CloudBurstMarks.moreComing(listOf(render), 10_000_000, 192, outOfTime = false, libraryRoomMicroUsd = one - 1))
+        // A Sing job on its way still goes by Sing's room.
+        val sing = laneJob("q", state = CloudJobState.QUEUED, origin = CloudJobOrigin.SING, runpodId = null, submittedAt = null)
+        assertFalse(CloudBurstMarks.moreComing(listOf(sing), 0, 192, outOfTime = false, libraryRoomMicroUsd = null))
+        assertFalse(CloudBurstMarks.moreComing(listOf(render), 0, 192, outOfTime = true, libraryRoomMicroUsd = null))
+    }
+
     @Test fun `jobs that step aside for a clip wait for its song`() {
         val full = laneJob("F", state = CloudJobState.UPLOADING, origin = CloudJobOrigin.SING, runpodId = null, submittedAt = null)
         val clip = clipOf("C", "F")

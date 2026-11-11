@@ -60,13 +60,18 @@ interface CloudStudioHost {
     suspend fun discardClips(songId: String) {}
 
     /**
-     * The audio a Spatial audio job uploads (cloud-audio-spec §6.2 step 3, §6.4): the song's audio already on this phone,
-     * else, when [allowDownload], a fresh copy fetched for it. Library jobs never make a song a permanent download: the
-     * render is keyed by the video and lined up by media time, so nothing has to stay. Null when there is none. The
-     * default falls back on Sing's sources.
+     * The audio a Spatial audio job uploads (cloud-audio-spec §6.2 step 3, §6.4), which must be YouTube video [videoId]'s
+     * (the render is stored under that video in the shared library, for every device): the song's audio already on this
+     * phone when it is that video's, else, when [allowDownload], a fresh copy of that video's stream. Library jobs never
+     * make a song a permanent download: the render is keyed by the video and lined up by media time, so nothing has to
+     * stay. Null when there is none; [CloudWrongAudioException] when the song no longer plays [videoId]. A source made
+     * only for the job is let go with [releaseLibraryAudioSource] once prepared. The default falls back on Sing's sources.
      */
-    suspend fun libraryAudioSource(song: CloudSong, allowDownload: Boolean): String? =
+    suspend fun libraryAudioSource(song: CloudSong, videoId: String, allowDownload: Boolean): String? =
         cachedAudioSource(song) ?: if (allowDownload) audioSource(song) else null
+
+    /** The job prepared its upload from [source] (a [libraryAudioSource]): a copy made only for it can go. */
+    fun releaseLibraryAudioSource(source: String) {}
 
     /** The itag of the stream the song plays (the stream proxy's cached URL), or null. Never touches the network. */
     suspend fun streamItag(song: CloudSong): Int? = null
@@ -127,6 +132,12 @@ data class CloudPreparedAudio(
 
 /** Preparing failed; [isDecodeFailure] means trying again won't help. */
 class CloudPrepareException(message: String, val isDecodeFailure: Boolean = false) : Exception(message)
+
+/**
+ * A Spatial audio job's audio can't be its video's: the song now plays another YouTube video, so whatever this phone
+ * could send would be stored under the wrong video in the shared library. Trying again won't help; the job stops.
+ */
+class CloudWrongAudioException(message: String) : Exception(message)
 
 /** Prepares a song's audio for upload ([LiveCloudAudioPreparer]). */
 interface CloudAudioPreparing {

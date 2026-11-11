@@ -99,8 +99,12 @@ sealed interface CloudLibrarySend {
     /** This month's limit for library jobs (`cloudAudio.monthlyCapUSD`) can't take it: it waits (`capReached`). */
     data object CapReached : CloudLibrarySend
 
-    /** It can't be a job (a switch is off, the song is gone or too long): nothing happens, [reason] says why. */
-    data class Refused(val reason: String) : CloudLibrarySend
+    /**
+     * It can't be a job (a switch is off, the song is gone or too long): nothing happens, [reason] says why. [permanent]:
+     * asking again won't change it (the song itself can't be rendered: too long, gone, not a video or profile the
+     * library takes), unlike a switch that is off for now.
+     */
+    data class Refused(val reason: String, val permanent: Boolean = false) : CloudLibrarySend
 }
 
 /** Why the cloud can't take a Sing (plain reasons the Sing button turns into a sentence). */
@@ -801,13 +805,21 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
      * with every library job not yet at RunPod, must fit `cloudAudio.monthlyCapUSD` (Sing's cap and its $3 rule play
      * no part). A pending job for the same video and profile is returned instead of a second one; one from the
      * background queue becomes the person's when the song is played ([ahead] false), so it follows the person's network
-     * rule from then on. A new job of the background queue counts toward its day.
+     * rule from then on. A new job of the background queue counts toward its day. [forceRender]: the shared library has
+     * this render's manifest but not its audio (the library's lookup found that), so the new job renders it again
+     * without the worker's "already there" check ([CloudLibraryJob.forceRender]).
      */
-    suspend fun sendLibraryJob(songId: String, videoId: String, profileId: String, ahead: Boolean): CloudLibrarySend {
+    suspend fun sendLibraryJob(
+        songId: String,
+        videoId: String,
+        profileId: String,
+        ahead: Boolean,
+        forceRender: Boolean = false,
+    ): CloudLibrarySend {
         loadForDisplay()
         if (!deps.settings.snapshot().enabled) return CloudLibrarySend.Refused("Cloud processing is off.")
         if (!CloudKeys.isValidVideoId(videoId) || SpatialProfile.fromId(profileId) == null) {
-            return CloudLibrarySend.Refused("Not a song and profile the library takes.")
+            return CloudLibrarySend.Refused("Not a song and profile the library takes.", permanent = true)
         }
         readLibrarySettings()
         val gate = library
@@ -815,8 +827,11 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
         pendingLibraryJob(jobs, videoId, profileId)?.let { existing ->
             return CloudLibrarySend.Sent(if (existing.isLibraryAhead && !ahead) promoteLibraryJob(existing) else existing)
         }
-        val song = deps.host.song(songId) ?: return CloudLibrarySend.Refused("This song is no longer in your library.")
-        if (song.durationMs > CloudLimits.MAX_DURATION_MS) return CloudLibrarySend.Refused("This song is longer than 15 minutes.")
+        val song = deps.host.song(songId)
+            ?: return CloudLibrarySend.Refused("This song is no longer in your library.", permanent = true)
+        if (song.durationMs > CloudLimits.MAX_DURATION_MS) {
+            return CloudLibrarySend.Refused("This song is longer than 15 minutes.", permanent = true)
+        }
         if (!libraryCapAllows(song.durationMs, gate)) return CloudLibrarySend.CapReached
         val time = now
         var result: CloudJobRecord? = null
@@ -833,7 +848,11 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
                     artist = song.artist, videoId = videoId, songDurationMs = song.durationMs,
                     batchId = deps.newJobKey(), isStreamed = song.isStreamed, tasks = listOf(CloudTask.SPATIAL),
                     quality = CloudSeparationQuality.STANDARD, outputCodec = CloudOutputCodec.FLAC,
-                    origin = CloudJobOrigin.LIBRARY, library = CloudLibraryJob(videoId, listOf(profileId), ahead = ahead),
+                    origin = CloudJobOrigin.LIBRARY,
+                    library = CloudLibraryJob(
+                        videoId, listOf(profileId), ahead = ahead,
+                        forceRender = if (forceRender) listOf(profileId) else emptyList(),
+                    ),
                     createdAtMs = time,
                 )
                 result = record
@@ -841,7 +860,7 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
                 list + record
             }
         }
-        val record = result ?: return CloudLibrarySend.Refused("The job couldn't be added.")
+        val record = result ?: return CloudLibrarySend.Refused("The job couldn't be added.", permanent = true)
         if (ahead && created) {
             // The background queue's day is counted apart from the list, so clearing it gives no room back.
             deps.settings.addLibraryAheadDayCount(1, deps.dayStartMs(time))
@@ -1331,6 +1350,8 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
             fail(jobKey, "This song is no longer in your library.", null, retryable = false)
             return
         }
+        // A source made for a library job alone (a fresh copy of its video's stream) goes once the upload is prepared.
+        var librarySource: String? = null
         try {
             val libraryJob = record.library
             if (libraryJob != null) {
@@ -1344,9 +1365,11 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
             }
             // An automatic job only uses audio already on the phone, never a fresh download through the YouTube layer;
             // if that audio is gone it quietly drops (the ranker may pick the song again later). A Spatial audio job may
-            // fetch the song (spec §6.4), but never as a permanent download.
+            // fetch the song (spec §6.4), but never as a permanent download, and only audio proven to be its video's (a
+            // cached file is keyed by the Spotify id, and may be the video the song played before it was matched again).
             val source = when {
-                libraryJob != null -> deps.host.libraryAudioSource(song, allowDownload = true) ?: run {
+                libraryJob != null -> deps.host.libraryAudioSource(song, libraryJob.videoId, allowDownload = true)
+                    ?.also { librarySource = it } ?: run {
                     fail(jobKey, "This song has no audio this phone can send.", null, retryable = false)
                     return
                 }
@@ -1403,10 +1426,13 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
             throw error
         } catch (error: Exception) {
             val message = error.message?.takeIf { it.isNotBlank() } ?: "Couldn't prepare this song."
-            val decodeFailure = (error as? CloudPrepareException)?.isDecodeFailure == true
+            // A decode that can't work, or a song that plays another video than the render's: trying again won't help.
+            val noRetry = (error as? CloudPrepareException)?.isDecodeFailure == true || error is CloudWrongAudioException
             deps.preparer.removeUpload(jobKey)
             update(jobKey) { it.on(CloudJobEvent.REQUEUE, now) }
-            fail(jobKey, CloudRedaction.redact(message), null, retryable = !decodeFailure)
+            fail(jobKey, CloudRedaction.redact(message), null, retryable = !noRetry)
+        } finally {
+            librarySource?.let { source -> runCatching { deps.host.releaseLibraryAudioSource(source) } }
         }
     }
 
@@ -1517,11 +1543,16 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
         val candidates = CloudPriorityLane.cancelOrder(CloudPriorityLane.pausable(jobs, priority.jobKey), jobs)
         if (candidates.isEmpty()) return
         // Making room only helps when the priority job can go out: inside what is left of the month once the jobs
-        // that step aside no longer count as at RunPod (they count again when they are sent behind it).
+        // that step aside no longer count as at RunPod (they count again when they are sent behind it). That month is
+        // the shared cap's, the one the submit checks: Spatial audio's library jobs have their own (cloud-audio-spec
+        // §6.1 "Money"), so neither their spend nor their stepping aside counts here, and a Sing still goes ahead of
+        // them however much the library spent (§6.2 step 3).
         val price = settings.effectivePricePerSecondMicroUsd
         val monthStart = deps.monthStartMs(time)
-        val freed = candidates.filter { it.isRunningAtRunPod }.sumOf { CloudCost.estimatedSeconds(it.plan, it.quality) * price }
-        val committed = CloudBudget.committedMicroUsd(jobs, monthStart, price) + deps.settings.removedSpendMicroUsd(monthStart) - freed
+        val freed = candidates.filter { it.isRunningAtRunPod && !it.isLibrary }
+            .sumOf { CloudCost.estimatedSeconds(it.plan, it.quality) * price }
+        val committed = CloudBudget.committedMicroUsd(CloudBudget.studioRecords(jobs), monthStart, price) +
+            deps.settings.removedSpendMicroUsd(monthStart) - freed
         val estimate = CloudCost.estimatedSeconds(priority.plan, priority.quality) * price
         if (!CloudBudget.allows(estimate, settings.effectiveMonthlyCapMicroUsd, committed.coerceAtLeast(0))) return
 
@@ -1708,7 +1739,16 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
             CloudBudget.committedMicroUsd(CloudBudget.studioRecords(jobs), monthStart, price) +
                 deps.settings.removedSpendMicroUsd(monthStart) + tail.filterNot { it.isLibrary }.sumOf { it.estimateMicroUsd },
         )
-        val moreComing = CloudBurstMarks.moreComing(jobsOnTheWay(settings), room, price, outOfTime)
+        // A library job on its way is checked against the library's own month (null: "No limit"), with the library jobs
+        // of this burst counted as sent: Sing's cap running out doesn't mean the library's next render isn't coming.
+        val libraryRoom = library.monthlyCapMicroUsd?.let { cap ->
+            CloudBudget.remainingMicroUsd(
+                cap,
+                CloudBudget.libraryCommittedMicroUsd(jobs, monthStart, price, deps.settings.removedLibrarySpendMicroUsd(monthStart)) +
+                    tail.filter { it.isLibrary }.sumOf { it.estimateMicroUsd },
+            )
+        }
+        val moreComing = CloudBurstMarks.moreComing(jobsOnTheWay(settings), room, price, outOfTime, libraryRoomMicroUsd = libraryRoom)
         val marks = CloudBurstMarks.marks(tail.map { job(it.jobKey) }, jobs, moreComing)
         for ((index, pending) in tail.withIndex()) {
             if (!submit(pending, lastInBatch = marks[index], clients)) return
@@ -2125,7 +2165,7 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
         if (result is CloudTransferResult.Failed) {
             staged.delete()
             if (result.status == 404) {
-                renderGone(jobKey)
+                renderAudioMissing(jobKey, videoId, profile, clients)
             } else {
                 update(jobKey) { it.on(CloudJobEvent.RESULTS_READY, now) }
                 fail(jobKey, "Download: ${CloudRedaction.redact(result.message)}", null, retryable = true)
@@ -2161,6 +2201,42 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
     private suspend fun renderGone(jobKey: String) {
         update(jobKey) { it.on(CloudJobEvent.REQUEUE, now) }
         fail(jobKey, "The render was gone from the library; the song will be processed again.", null, retryable = true)
+    }
+
+    /**
+     * A delivered render's audio wasn't in the library (404). The manifest decides what that means. Gone too: the render
+     * is going away (the janitor deletes the manifest first), so the job runs again and the worker, finding no manifest,
+     * renders it ([renderGone]). Still there: the library entry is broken (its audio was deleted on its own), and the
+     * worker would only answer `exists` again: sent round as before, the job would loop (each pass a paid run and a full
+     * re-upload, the attempts reset by every result). So the job goes round once more without the "already there" check
+     * for that profile ([CloudLibraryJob.forceRender]), and the worker renders it again, overwriting both objects; if the
+     * audio is missing once more after that, the job stops (and the library's failure backoff applies).
+     */
+    private suspend fun renderAudioMissing(jobKey: String, videoId: String, profile: String, clients: Clients) {
+        val manifest = try {
+            clients.objects.get(CloudKeys.libraryManifest(videoId, profile))
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            update(jobKey) { it.on(CloudJobEvent.RESULTS_READY, now) }
+            fail(jobKey, "Download: ${CloudRedaction.redact(error.message ?: "network error")}", null, retryable = true)
+            return
+        }
+        if (manifest == null) {
+            renderGone(jobKey)
+            return
+        }
+        val record = job(jobKey) ?: return
+        if (profile in record.library?.forceRender.orEmpty()) {
+            fail(jobKey, "The render's audio is missing from the library even after it was made again.", null, retryable = false)
+            return
+        }
+        // Not a failure of this job (no attempt used up, no wait): the same job, asked differently.
+        update(jobKey) { current ->
+            val job = current.library ?: return@update current
+            current.copy(library = job.copy(forceRender = (job.forceRender + profile).distinct())).on(CloudJobEvent.REQUEUE, now)
+        }
+        deps.scheduler.requestPass()
     }
 
     /**

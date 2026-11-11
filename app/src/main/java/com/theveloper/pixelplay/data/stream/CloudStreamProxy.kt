@@ -458,16 +458,21 @@ abstract class CloudStreamProxy<K : Any>(
         }
 }
 
-/** Reads the `itag` query parameter of a stream URL without `android.net.Uri` (pure, so it is unit-tested). */
+/** Reads the `itag` (and `clen`) query parameters of a stream URL without `android.net.Uri` (pure, so it is unit-tested). */
 object StreamItag {
     /** The URL's `itag` as a non-negative integer, or null when there is none or it is not a number. */
-    fun fromUrl(url: String): Int? {
+    fun fromUrl(url: String): Int? = parameter(url, "itag")?.toIntOrNull()?.takeIf { it >= 0 }
+
+    /** The URL's `clen` (the stream's length in bytes, googlevideo's own) when it is a positive number, else null. */
+    fun contentLengthFromUrl(url: String): Long? = parameter(url, "clen")?.toLongOrNull()?.takeIf { it > 0 }
+
+    /** The first value of the query parameter [name] (an empty string when it has none), or null when it is absent. */
+    private fun parameter(url: String, name: String): String? {
         val query = url.substringAfter('?', "").substringBefore('#')
         if (query.isEmpty()) return null
         for (pair in query.split('&')) {
-            val name = pair.substringBefore('=')
-            if (name != "itag") continue
-            return pair.substringAfter('=', "").toIntOrNull()?.takeIf { it >= 0 }
+            if (pair.substringBefore('=') != name) continue
+            return pair.substringAfter('=', "")
         }
         return null
     }

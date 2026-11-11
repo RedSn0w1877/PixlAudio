@@ -142,6 +142,36 @@ class SpatialLibraryRulesTest {
         assertNull(ledger.failure(SpatialRenderKey("v%010d".format(SpatialFailureLedger.MAX_ENTRIES + 9), SpatialProfile.STUDIO)))
     }
 
+    @Test fun `a full ledger isn't rewritten for successes and failures older than everything it keeps`() {
+        var saves = 0
+        val ledger = SpatialFailureLedger(save = { saves++ })
+        val start = 10L * 86_400_000
+        fun keyOf(prefix: String, index: Int) = SpatialRenderKey(prefix + "%010d".format(index), SpatialProfile.STUDIO)
+        for (index in 0 until SpatialFailureLedger.MAX_ENTRIES) ledger.clear(keyOf("n", index), start + 1_000 + index)
+        val saved = saves
+        val version = ledger.version.value
+        // Delivered jobs stay on the list 30 days and are read on every change of it: once the ledger is full, the
+        // older ones would be dropped as soon as they went in, so nothing is written for them, however often.
+        repeat(3) {
+            for (index in 0 until 100) ledger.clear(keyOf("o", index), start + index)
+        }
+        assertEquals(saved, saves)
+        assertEquals(version, ledger.version.value)
+        // A failure reported that late changes nothing either (and is still answered).
+        assertEquals(1, ledger.recordFailure(keyOf("o", 0), start)?.count)
+        assertNull(ledger.failure(keyOf("o", 0)))
+        assertEquals(saved, saves)
+        // Anything newer still goes in, and the oldest entry makes room for it.
+        assertEquals(1, ledger.recordFailure(keyOf("f", 0), start + 5_000)?.count)
+        assertEquals(1, ledger.failure(keyOf("f", 0))?.count)
+        assertEquals(saved + 1, saves)
+        ledger.clear(keyOf("c", 0), start + 6_000)
+        assertEquals(saved + 2, saves)
+        assertTrue(ledger.version.value > version)
+        // A success remembered before still holds a late failure back (the full ledger changes nothing about that).
+        assertNull(ledger.recordFailure(keyOf("c", 0), start + 5_500))
+    }
+
     @Test fun `the person's network rule for cloud work, and the queue's Wi-Fi only`() {
         val wifi = SpatialNetwork(connected = true, unmetered = true)
         val mobile = SpatialNetwork(connected = true, unmetered = false)

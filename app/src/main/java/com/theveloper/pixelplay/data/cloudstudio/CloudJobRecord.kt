@@ -38,6 +38,13 @@ data class CloudLibraryJob(
     val stemMode: String? = null,
     /** Profiles whose render was downloaded, verified and stored in this phone's local store. */
     val imported: List<String> = emptyList(),
+    /**
+     * Profiles the shared library had a manifest for but no audio (deleted on its own, or a janitor run whose manifest
+     * delete failed): the worker would only answer `exists` for them, so this job asks without the "already there" check
+     * (no `manifestGet`) and the worker renders them again, overwriting both objects. Once per profile: if the audio is
+     * missing again after that, the job stops.
+     */
+    val forceRender: List<String> = emptyList(),
 ) {
     /** The profiles the result says are in the library now (made by this job or already there): the ones to download. */
     val delivered: List<String>

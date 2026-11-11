@@ -20,4 +20,14 @@ class StreamItagTest {
         assertNull(StreamItag.fromUrl("https://x.test/videoplayback?xitag=251"))
         assertNull(StreamItag.fromUrl("https://x.test/videoplayback?itag=-1"))
     }
+
+    @Test fun `the stream's length comes from its clen, when the URL has a real one`() {
+        assertEquals(3_412_208L, StreamItag.contentLengthFromUrl("https://rr1---sn-x.googlevideo.com/videoplayback?itag=251&clen=3412208&dur=202.001"))
+        assertEquals(9_999_999_999L, StreamItag.contentLengthFromUrl("https://x.test/v?clen=9999999999#t=1"))
+        assertNull(StreamItag.contentLengthFromUrl("https://x.test/videoplayback?itag=251"))
+        assertNull(StreamItag.contentLengthFromUrl("https://x.test/videoplayback?clen="))
+        assertNull(StreamItag.contentLengthFromUrl("https://x.test/videoplayback?clen=0"))
+        assertNull(StreamItag.contentLengthFromUrl("https://x.test/videoplayback?clen=x1"))
+        assertNull(StreamItag.contentLengthFromUrl("https://x.test/videoplayback?xclen=12"))
+    }
 }

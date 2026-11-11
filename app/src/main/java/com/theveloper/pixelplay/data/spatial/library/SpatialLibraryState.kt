@@ -56,6 +56,8 @@ class SpatialFailureLedger(
         val before = entries[name]
         if (before != null && (atMs <= before.lastFailedAtMs || atMs <= before.clearedAtMs)) return before.failure
         val after = Entry((before?.count ?: 0) + 1, atMs, before?.clearedAtMs ?: 0L)
+        // A new entry a full ledger would drop at once changes nothing: no write.
+        if (before == null && wouldDropAtOnce(atMs)) return after.failure
         entries[name] = after
         prune(atMs)
         persist()
@@ -71,10 +73,20 @@ class SpatialFailureLedger(
         val name = name(key)
         val before = entries[name]
         if (before != null && (before.lastFailedAtMs >= atMs || before.clearedAtMs >= atMs)) return
+        // The job list keeps delivered jobs 30 days and is read on every change: a success older than everything a full
+        // ledger keeps would be dropped at once, so it isn't written (and the whole file isn't rewritten for it).
+        if (before == null && wouldDropAtOnce(atMs)) return
         entries[name] = Entry(0, before?.lastFailedAtMs ?: 0L, atMs)
         prune(atMs)
         persist()
     }
+
+    /**
+     * A new entry at [atMs] would be the first [prune] drops: the ledger is full and every entry in it is at least as
+     * new (none of them is old enough to forget then, so nothing else would change either).
+     */
+    private fun wouldDropAtOnce(atMs: Long): Boolean =
+        entries.size >= MAX_ENTRIES && entries.values.all { atMs <= it.latestMs }
 
     private fun prune(nowMs: Long) {
         entries.entries.removeAll { nowMs - it.value.latestMs > FORGET_AFTER_MS }

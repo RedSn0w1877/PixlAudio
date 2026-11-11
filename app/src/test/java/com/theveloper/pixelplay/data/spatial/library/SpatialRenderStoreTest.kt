@@ -259,6 +259,51 @@ class SpatialRenderStoreTest {
         assertNotNull(store.localRender("J7p4bzqLvCw", SpatialProfile.STUDIO))
     }
 
+    @Test fun `removing every render keeps the playing song's audio for the player until another song's render plays`() = runBlocking {
+        val store = store()
+        val seen = events(store)
+        assertNull(store.put("J7p4bzqLvCw"))
+        assertNull(store.put("J7p4bzqLvCw", SpatialProfile.WIDE, seed = 4))
+        assertNull(store.put("ZD6rXLXZOEI", seed = 2))
+        // The main player started the Studio render; a mid-song swap then played Wide (the main still reads Studio).
+        store.markPlayed("J7p4bzqLvCw", SpatialProfile.STUDIO)
+        store.markPlayed("J7p4bzqLvCw", SpatialProfile.WIDE)
+        store.removeAll()
+        eventually { seen.lastOrNull() == SpatialLibraryEvent.Removed(null) }
+        // No render is left, in the index or on disk for the next start…
+        assertNull(store.localRender("J7p4bzqLvCw", SpatialProfile.STUDIO))
+        assertNull(store.localRender("J7p4bzqLvCw", SpatialProfile.WIDE))
+        assertEquals(SpatialStoreUsage(), store.usage.value)
+        assertTrue(store.renders.value.isEmpty())
+        assertFalse(File(root, "J7p4bzqLvCw/sp-studio.json").exists())
+        assertFalse(File(root, "J7p4bzqLvCw/sp-wide.json").exists())
+        assertFalse(File(root, "ZD6rXLXZOEI").exists())
+        // …but the files the players are reading stay for their next seek.
+        assertTrue(File(root, "J7p4bzqLvCw/sp-studio.flac").isFile)
+        assertTrue(File(root, "J7p4bzqLvCw/sp-wide.flac").isFile)
+        // The same song's render stored again meanwhile is kept when the leftover goes.
+        assertNull(store.put("J7p4bzqLvCw", SpatialProfile.NIGHT, seed = 5))
+        // Another song's render plays: the player is done with the leftover.
+        assertNull(store.put("AAAAAAAAAAA", seed = 3))
+        store.markPlayed("AAAAAAAAAAA", SpatialProfile.STUDIO)
+        eventually { !File(root, "J7p4bzqLvCw/sp-studio.flac").exists() && !File(root, "J7p4bzqLvCw/sp-wide.flac").exists() }
+        assertNotNull(store.localRender("J7p4bzqLvCw", SpatialProfile.NIGHT))
+        assertNotNull(store.localRender("AAAAAAAAAAA", SpatialProfile.STUDIO))
+    }
+
+    @Test fun `what removing every render left for the player is gone after a restart`() = runBlocking {
+        val first = store()
+        assertNull(first.put("J7p4bzqLvCw"))
+        first.markPlayed("J7p4bzqLvCw", SpatialProfile.STUDIO)
+        first.removeAll()
+        assertTrue(File(root, "J7p4bzqLvCw/sp-studio.flac").isFile)
+        val fresh = store()
+        assertNull(fresh.localRender("J7p4bzqLvCw", SpatialProfile.STUDIO))
+        fresh.ensureIndexed()
+        assertTrue(fresh.renders.value.isEmpty())
+        assertFalse(File(root, "J7p4bzqLvCw").exists())
+    }
+
     @Test fun `the eviction order is least recently played first, by song`() {
         val items = listOf(
             SpatialEviction.Item("a", 10, 300), SpatialEviction.Item("a", 10, 100),
