@@ -207,6 +207,22 @@ class CloudSpatialLibraryTest {
         eventually("the failure cleared") { ledger.failure(SpatialRenderKey(video, SpatialProfile.STUDIO)) == null }
     }
 
+    @Test fun `a song the cloud can't take shows as failed and isn't asked for again on every play`() = runBlocking {
+        // Over 15 minutes: the shared library can't have it and the engine refuses the job.
+        engine.refusal = CloudLibrarySend.Refused("This song is longer than 15 minutes.", permanent = true)
+        library.requestNow("s1", video, SpatialProfile.STUDIO)
+        assertEquals(SpatialRenditionStatus.FAILED, status())
+        assertEquals(1, ledger.failure(SpatialRenderKey(video, SpatialProfile.STUDIO))?.count)
+        library.requestNow("s1", video, SpatialProfile.STUDIO)
+        assertEquals(1, engine.fetches.size, "no new lookup inside the backoff")
+        // A switch that went off between the check and the job is no failure of the song.
+        val other = "ZD6rXLXZOEI"
+        engine.refusal = CloudLibrarySend.Refused("Cloud renders are off.")
+        library.requestNow("s2", other, SpatialProfile.STUDIO)
+        assertEquals(SpatialRenditionStatus.NONE, library.status(other, SpatialProfile.STUDIO).first())
+        assertEquals(null, ledger.failure(SpatialRenderKey(other, SpatialProfile.STUDIO)))
+    }
+
     @Test fun `the person playing a song takes over the background queue's job for it`() = runBlocking {
         engine.list.value = listOf(engine.record(CloudJobState.UPLOADED, ahead = true))
         library.requestNow("s1", video, SpatialProfile.STUDIO)
@@ -249,6 +265,7 @@ class CloudSpatialLibraryTest {
         var fetchError: Exception? = null
         val sent = mutableListOf<Triple<String, String, Boolean>>()
         var capReached = false
+        var refusal: CloudLibrarySend.Refused? = null
         var cancelledAll = 0
         var committed = 0L
         var today = 0
@@ -278,6 +295,7 @@ class CloudSpatialLibraryTest {
         }
         override suspend fun sendLibraryJob(songId: String, videoId: String, profileId: String, ahead: Boolean): CloudLibrarySend {
             if (capReached) return CloudLibrarySend.CapReached
+            refusal?.let { return it }
             sent += Triple(videoId, profileId, ahead)
             val existing = list.value.lastOrNull { it.state.isPending && it.library?.videoId == videoId }
             if (existing != null) {

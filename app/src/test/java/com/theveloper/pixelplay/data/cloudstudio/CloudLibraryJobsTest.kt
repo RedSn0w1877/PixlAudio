@@ -30,6 +30,8 @@ class CloudLibraryJobsTest {
     private val keys = ArrayDeque((1..50).map { "%08x-0000-4000-8000-%012x".format(it, it) })
     private val video = "J7p4bzqLvCw"
     private val song = CloudSong("spotify_x", "Song", "Artist", "Album", 200_000, isStreamed = true, hasAudioSource = true)
+    /** A live set: longer than the 15 minutes the cloud takes. */
+    private val longSong = CloudSong("spotify_long", "Live set", "Artist", "Album", 16 * 60_000L, isStreamed = true, hasAudioSource = true)
     private var unmetered = true
     private var aheadOk = true
     private var library = CloudLibrarySettings(enabled = true, monthlyCapMicroUsd = 30_000_000)
@@ -112,6 +114,18 @@ class CloudLibraryJobsTest {
         // What can't be a job isn't one.
         assertTrue(engine.sendLibraryJob(song.id, "spotify:x", "studio", false) is CloudLibrarySend.Refused)
         assertTrue(engine.sendLibraryJob(song.id, video, "atmos", false) is CloudLibrarySend.Refused)
+    }
+
+    @Test fun `what rules the song out is refused for good, a switch only for now`() = runBlocking {
+        val engine = engine()
+        assertTrue((engine.sendLibraryJob(longSong.id, video, "studio", false) as CloudLibrarySend.Refused).permanent)
+        assertTrue((engine.sendLibraryJob("gone", video, "studio", false) as CloudLibrarySend.Refused).permanent)
+        assertTrue((engine.sendLibraryJob(song.id, "spotify:x", "studio", false) as CloudLibrarySend.Refused).permanent)
+        library = library.copy(enabled = false)
+        assertFalse((engine.sendLibraryJob(song.id, video, "studio", false) as CloudLibrarySend.Refused).permanent)
+        settings.snapshot = settings.snapshot.copy(enabled = false)
+        assertFalse((engine.sendLibraryJob(song.id, video, "studio", false) as CloudLibrarySend.Refused).permanent)
+        assertTrue(engine.state.value.jobs.isEmpty())
     }
 
     @Test fun `library jobs have their own cap, and Sing's cap and its 3 dollar rule don't hold them`() = runBlocking {
@@ -320,7 +334,7 @@ class CloudLibraryJobsTest {
     private inner class Host : CloudStudioHost {
         val libraryAudioCalls = mutableListOf<Boolean>()
         var audioSourceCalls = 0
-        override suspend fun song(id: String) = song.takeIf { it.id == id }
+        override suspend fun song(id: String) = listOf(song, longSong).firstOrNull { it.id == id }
         override suspend fun librarySongs() = listOf(song)
         override suspend fun audioSource(song: CloudSong): String { audioSourceCalls++; return "content://${song.id}" }
         override suspend fun cachedAudioSource(song: CloudSong): String? = null

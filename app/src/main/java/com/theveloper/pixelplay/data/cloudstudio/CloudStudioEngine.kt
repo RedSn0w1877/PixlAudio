@@ -99,8 +99,12 @@ sealed interface CloudLibrarySend {
     /** This month's limit for library jobs (`cloudAudio.monthlyCapUSD`) can't take it: it waits (`capReached`). */
     data object CapReached : CloudLibrarySend
 
-    /** It can't be a job (a switch is off, the song is gone or too long): nothing happens, [reason] says why. */
-    data class Refused(val reason: String) : CloudLibrarySend
+    /**
+     * It can't be a job (a switch is off, the song is gone or too long): nothing happens, [reason] says why. [permanent]:
+     * asking again won't change it (the song itself can't be rendered: too long, gone, not a video or profile the
+     * library takes), unlike a switch that is off for now.
+     */
+    data class Refused(val reason: String, val permanent: Boolean = false) : CloudLibrarySend
 }
 
 /** Why the cloud can't take a Sing (plain reasons the Sing button turns into a sentence). */
@@ -807,7 +811,7 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
         loadForDisplay()
         if (!deps.settings.snapshot().enabled) return CloudLibrarySend.Refused("Cloud processing is off.")
         if (!CloudKeys.isValidVideoId(videoId) || SpatialProfile.fromId(profileId) == null) {
-            return CloudLibrarySend.Refused("Not a song and profile the library takes.")
+            return CloudLibrarySend.Refused("Not a song and profile the library takes.", permanent = true)
         }
         readLibrarySettings()
         val gate = library
@@ -815,8 +819,11 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
         pendingLibraryJob(jobs, videoId, profileId)?.let { existing ->
             return CloudLibrarySend.Sent(if (existing.isLibraryAhead && !ahead) promoteLibraryJob(existing) else existing)
         }
-        val song = deps.host.song(songId) ?: return CloudLibrarySend.Refused("This song is no longer in your library.")
-        if (song.durationMs > CloudLimits.MAX_DURATION_MS) return CloudLibrarySend.Refused("This song is longer than 15 minutes.")
+        val song = deps.host.song(songId)
+            ?: return CloudLibrarySend.Refused("This song is no longer in your library.", permanent = true)
+        if (song.durationMs > CloudLimits.MAX_DURATION_MS) {
+            return CloudLibrarySend.Refused("This song is longer than 15 minutes.", permanent = true)
+        }
         if (!libraryCapAllows(song.durationMs, gate)) return CloudLibrarySend.CapReached
         val time = now
         var result: CloudJobRecord? = null
@@ -841,7 +848,7 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
                 list + record
             }
         }
-        val record = result ?: return CloudLibrarySend.Refused("The job couldn't be added.")
+        val record = result ?: return CloudLibrarySend.Refused("The job couldn't be added.", permanent = true)
         if (ahead && created) {
             // The background queue's day is counted apart from the list, so clearing it gives no room back.
             deps.settings.addLibraryAheadDayCount(1, deps.dayStartMs(time))

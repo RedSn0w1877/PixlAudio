@@ -280,10 +280,13 @@ class CloudSpatialLibrary(
                 SharedLookup.MISSING -> Unit
             }
             setActivity(key, SpatialActivity.SENDING)
-            when (engine.sendLibraryJob(want.songId, key.videoId, key.profile.id, want.ahead)) {
+            when (val sent = engine.sendLibraryJob(want.songId, key.videoId, key.profile.id, want.ahead)) {
                 is CloudLibrarySend.Sent -> release(key) // the job carries the status from here
                 CloudLibrarySend.CapReached -> park(key, want, SpatialActivity.CAP_REACHED)
-                is CloudLibrarySend.Refused -> release(key)
+                // A song the cloud can't take (over 15 minutes, gone from the library) is the render failing: its status
+                // says so (not "the cloud version takes about a minute" forever) and the backoff stops a lookup and a
+                // refusal on every play. A switch that went off meanwhile is no failure of the song.
+                is CloudLibrarySend.Refused -> if (sent.permanent) failed(key) else release(key)
             }
         } catch (error: CancellationException) {
             release(key)
