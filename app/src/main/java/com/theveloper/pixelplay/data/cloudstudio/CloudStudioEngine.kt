@@ -1,6 +1,7 @@
 package com.theveloper.pixelplay.data.cloudstudio
 
 import com.theveloper.pixelplay.data.cloudstudio.auto.CloudAutoPrepare
+import com.theveloper.pixelplay.data.spatial.SpatialProfile
 import com.theveloper.pixelplay.data.tais.TaisInstrumentalIndex
 import com.theveloper.pixelplay.data.worker.AutomaticStudioPolicy
 import java.io.File
@@ -90,6 +91,22 @@ sealed interface CloudSingStart {
     data class Unavailable(val reason: CloudSingUnavailable) : CloudSingStart
 }
 
+/** What asking for a Spatial audio library job did ([CloudStudioEngine.sendLibraryJob]). */
+sealed interface CloudLibrarySend {
+    /** The job is on its way: a new one, or the one already pending for the same video and profile. */
+    data class Sent(val record: CloudJobRecord) : CloudLibrarySend
+
+    /** This month's limit for library jobs (`cloudAudio.monthlyCapUSD`) can't take it: it waits (`capReached`). */
+    data object CapReached : CloudLibrarySend
+
+    /**
+     * It can't be a job (a switch is off, the song is gone or too long): nothing happens, [reason] says why. [permanent]:
+     * asking again won't change it (the song itself can't be rendered: too long, gone, not a video or profile the
+     * library takes), unlike a switch that is off for now.
+     */
+    data class Refused(val reason: String, val permanent: Boolean = false) : CloudLibrarySend
+}
+
 /** Why the cloud can't take a Sing (plain reasons the Sing button turns into a sentence). */
 enum class CloudSingUnavailable {
     /** Cloud processing is switched off. */
@@ -168,6 +185,11 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
     private var lastUrgentRequestAtMs = 0L
     /** Wakes the foreground loop out of its wait: a priority job arrived, so its rhythm just got faster. */
     private val pollWake = Channel<Unit>(Channel.CONFLATED)
+    /**
+     * Spatial audio's own settings as a pass last read them ([CloudStudioDependencies.librarySettings]). "Off" until the
+     * first pass of this process read them, so a library job never moves on a guess.
+     */
+    @Volatile private var library = CloudLibrarySettings()
 
     private class Clients(val runpod: RunPodJobsApi, val objects: CloudObjectStoring)
 
@@ -179,43 +201,86 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
 
     fun job(jobKey: String): CloudJobRecord? = jobs.firstOrNull { it.jobKey == jobKey }
 
-    /** The song has a job that isn't finished (a Sing's preview clip doesn't count: it never makes the instrumental). */
-    fun hasPendingJob(songId: String): Boolean = jobs.any { it.songId == songId && it.state.isPending && !it.isClip }
+    /**
+     * The song has a job that isn't finished (a Sing's preview clip doesn't count: it never makes the instrumental; nor
+     * does a Spatial audio library job, whose results are renders, not the song's instrumental).
+     */
+    fun hasPendingJob(songId: String): Boolean =
+        jobs.any { it.songId == songId && it.state.isPending && !it.isClip && !it.isLibrary }
 
-    /** "Cloud: 12 waiting, 1 processing" (null when nothing is pending). Preview clips are part of their song's Sing. */
+    /**
+     * "Cloud: 12 waiting, 1 processing" (null when nothing is pending), with Spatial audio's library jobs counted on
+     * their own ("… · Spatial audio: 1 processing"). Preview clips are part of their song's Sing.
+     */
     fun summaryLine(): String? {
         val active = jobs.filter { it.state.isPending && !it.isClip }
         if (active.isEmpty()) return null
+        val (library, studio) = active.partition { it.isLibrary }
+        return listOfNotNull(summaryPart("Cloud", studio), summaryPart("Spatial audio", library)).joinToString(" · ")
+    }
+
+    private fun summaryPart(name: String, active: List<CloudJobRecord>): String? {
+        if (active.isEmpty()) return null
         val processing = active.count { it.state == CloudJobState.RUNNING }
         val waiting = active.size - processing
-        return "Cloud: " + listOfNotNull(
+        return "$name: " + listOfNotNull(
             "$waiting waiting".takeIf { waiting > 0 },
             "$processing processing".takeIf { processing > 0 },
         ).joinToString(", ")
     }
 
     /**
-     * The month's committed spend (recorded costs plus estimates of jobs at RunPod, and what jobs since taken off the
-     * list spent this month).
+     * The month's committed spend under the shared cap (recorded costs plus estimates of jobs at RunPod, and what jobs
+     * since taken off the list spent this month). Spatial audio's library jobs have their own month and are not in it
+     * ([libraryCommittedThisMonthMicroUsd], cloud-audio-spec §6.1 "Money").
      */
     fun committedThisMonthMicroUsd(): Long {
         val monthStart = deps.monthStartMs(now)
-        return CloudBudget.committedMicroUsd(jobs, monthStart, deps.settings.snapshot().effectivePricePerSecondMicroUsd) +
-            deps.settings.removedSpendMicroUsd(monthStart)
+        return CloudBudget.committedMicroUsd(
+            CloudBudget.studioRecords(jobs), monthStart, deps.settings.snapshot().effectivePricePerSecondMicroUsd,
+        ) + deps.settings.removedSpendMicroUsd(monthStart)
     }
 
     /**
+     * What Spatial audio's library jobs have used or will use this month (their recorded costs, the estimate of those at
+     * RunPod, and what removed ones spent): their own sum under `cloudAudio.monthlyCapUSD`, none of Sing's in it.
+     */
+    fun libraryCommittedThisMonthMicroUsd(): Long {
+        val monthStart = deps.monthStartMs(now)
+        return CloudBudget.libraryCommittedMicroUsd(
+            jobs, monthStart, deps.settings.snapshot().effectivePricePerSecondMicroUsd,
+            deps.settings.removedLibrarySpendMicroUsd(monthStart),
+        )
+    }
+
+    /** What one more library job (a render of a song of [durationMs]) is estimated to cost, at the current price. */
+    fun libraryJobEstimateMicroUsd(durationMs: Long): Long {
+        val plan = CloudSongPlan("", listOf(CloudTask.SPATIAL), true, durationMs)
+        return CloudCost.estimatedSeconds(plan, CloudSeparationQuality.STANDARD) *
+            deps.settings.snapshot().effectivePricePerSecondMicroUsd
+    }
+
+    /** Songs the Spatial audio background queue sent today (out of `cloudAudio.dailyAhead`). */
+    fun libraryAheadSentToday(): Int = deps.settings.libraryAheadDayCount(deps.dayStartMs(now))
+
+    /**
      * Every job of the song (its library id or its Spotify alias, the same song), oldest first, as the list changes.
-     * Empty until the stored jobs are read ([loadForDisplay], which [startSing] does too).
+     * Empty until the stored jobs are read ([loadForDisplay], which [startSing] does too). Spatial audio's library jobs
+     * are not the song's instrumental work and are left out.
      */
     fun jobsFor(songId: String): Flow<List<CloudJobRecord>> {
         val canonical = TaisInstrumentalIndex.canonicalSongId(songId)
-        return _state.map { state -> state.jobs.filter { TaisInstrumentalIndex.canonicalSongId(it.songId) == canonical } }
-            .distinctUntilChanged()
+        return _state.map { state ->
+            state.jobs.filter { !it.isLibrary && TaisInstrumentalIndex.canonicalSongId(it.songId) == canonical }
+        }.distinctUntilChanged()
     }
 
-    /** The person has something here beyond automatic preparing (the "Cloud processing" notification is for that). */
-    fun hasWorkForThePerson(): Boolean = jobs.any { it.state.isPending && it.origin != CloudJobOrigin.AUTO }
+    /**
+     * The person has something here beyond automatic preparing (the "Cloud processing" notification is for that).
+     * Spatial audio's renders are quiet too (cloud-audio-spec §6.4: only the Active jobs row).
+     */
+    fun hasWorkForThePerson(): Boolean =
+        jobs.any { it.state.isPending && it.origin != CloudJobOrigin.AUTO && it.origin != CloudJobOrigin.LIBRARY }
 
     /** A Sing is at RunPod, or its results are being collected: the person is waiting on it. */
     fun isWaitingOnSing(): Boolean = jobs.any {
@@ -414,7 +479,7 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
     ): CloudBatchPreview {
         loadForDisplay()
         val host = deps.host
-        val pending = jobs.filter { it.state.isPending && !it.isClip }.map { it.songId }.toSet()
+        val pending = jobs.filter { it.state.isPending && !it.isClip && !it.isLibrary }.map { it.songId }.toSet()
         val facts = mutableListOf<CloudSongFacts>()
         val byId = LinkedHashMap<String, CloudSong>()
         for (song in songs) {
@@ -455,7 +520,7 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
             val out = list.toMutableList()
             for (plan in preview.plans) {
                 val song = byId[plan.songId] ?: continue
-                if (out.any { it.songId == song.id && it.state.isPending && !it.isClip }) continue
+                if (out.any { it.songId == song.id && it.state.isPending && !it.isClip && !it.isLibrary }) continue
                 out += CloudJobRecord(
                     jobKey = CloudKeys.jobKey(deps.newJobKey()), songId = song.id, title = song.title,
                     artist = song.artist, songDurationMs = song.durationMs, batchId = preview.id,
@@ -545,10 +610,11 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
         return CloudSingStart.Started(record.jobKey)
     }
 
-    /** The song's pending job that makes its instrumental (never a preview clip). */
+    /** The song's pending job that makes its instrumental (never a preview clip, never a Spatial audio library job). */
     private fun pendingJobFor(list: List<CloudJobRecord>, canonicalSongId: String): CloudJobRecord? =
         list.lastOrNull {
-            it.state.isPending && !it.isClip && TaisInstrumentalIndex.canonicalSongId(it.songId) == canonicalSongId
+            it.state.isPending && !it.isClip && !it.isLibrary &&
+                TaisInstrumentalIndex.canonicalSongId(it.songId) == canonicalSongId
         }
 
     private fun hasPendingClip(list: List<CloudJobRecord>, canonicalSongId: String): Boolean =
@@ -635,10 +701,15 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
         ensurePollLoop(requestWorker = false)
     }
 
-    /** An automatic upload in progress stops (it starts again from zero later) so the pass can reach the priority job. */
+    /**
+     * An automatic or Spatial audio upload in progress stops (it starts again from zero later) so the pass can reach the
+     * priority job: a Sing goes ahead of library jobs (cloud-audio-spec §6.2 step 3).
+     */
     private fun interruptAutoUploads() {
         for (record in jobs) {
-            if (record.origin == CloudJobOrigin.AUTO && record.state == CloudJobState.UPLOADING) {
+            if ((record.origin == CloudJobOrigin.AUTO || record.origin == CloudJobOrigin.LIBRARY) &&
+                record.state == CloudJobState.UPLOADING
+            ) {
                 transfersInFlight.remove(record.jobKey)?.cancel()
             }
         }
@@ -660,7 +731,8 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
         val dayStart = deps.dayStartMs(time)
         val room = settings.autoPrepareDailyCap - deps.settings.autoDayCount(dayStart)
         if (room <= 0) return 0
-        val pending = jobs.filter { it.state.isPending && !it.isClip }.map { TaisInstrumentalIndex.canonicalSongId(it.songId) }.toSet()
+        val pending = jobs.filter { it.state.isPending && !it.isClip && !it.isLibrary }
+            .map { TaisInstrumentalIndex.canonicalSongId(it.songId) }.toSet()
         val facts = mutableListOf<CloudSongFacts>()
         val byId = LinkedHashMap<String, CloudSong>()
         for (song in songs) {
@@ -690,7 +762,7 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
             val out = list.toMutableList()
             for (plan in plans) {
                 val song = byId[plan.songId] ?: continue
-                if (out.any { it.songId == song.id && it.state.isPending && !it.isClip }) continue
+                if (out.any { it.songId == song.id && it.state.isPending && !it.isClip && !it.isLibrary }) continue
                 out += CloudJobRecord(
                     jobKey = CloudKeys.jobKey(deps.newJobKey()), songId = song.id, title = song.title,
                     artist = song.artist, songDurationMs = song.durationMs, batchId = batchId,
@@ -721,6 +793,166 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
             // Nobody asked for these, so they leave the list instead of waiting there as "cancelled".
             remove(record.jobKey)
         }
+    }
+
+    // ─── Spatial audio library jobs (cloud-audio-spec §6.2 step 3, §6.4) ────────────────────
+
+    /**
+     * A Spatial audio render of [profileId] for the song [songId], which plays YouTube video [videoId]: a library job
+     * with `tasks: ["spatial"]` and one render entry, in the lane after Sing (never a priority job). The caller (the
+     * library) has checked the network and the shared library; this checks what makes a job at all (both switches, a
+     * valid video id and profile, the song, at most 15 minutes) and the library's own month: the job's estimate,
+     * with every library job not yet at RunPod, must fit `cloudAudio.monthlyCapUSD` (Sing's cap and its $3 rule play
+     * no part). A pending job for the same video and profile is returned instead of a second one; one from the
+     * background queue becomes the person's when the song is played ([ahead] false), so it follows the person's network
+     * rule from then on. A new job of the background queue counts toward its day. [forceRender]: the shared library has
+     * this render's manifest but not its audio (the library's lookup found that), so the new job renders it again
+     * without the worker's "already there" check ([CloudLibraryJob.forceRender]).
+     */
+    suspend fun sendLibraryJob(
+        songId: String,
+        videoId: String,
+        profileId: String,
+        ahead: Boolean,
+        forceRender: Boolean = false,
+    ): CloudLibrarySend {
+        loadForDisplay()
+        if (!deps.settings.snapshot().enabled) return CloudLibrarySend.Refused("Cloud processing is off.")
+        if (!CloudKeys.isValidVideoId(videoId) || SpatialProfile.fromId(profileId) == null) {
+            return CloudLibrarySend.Refused("Not a song and profile the library takes.", permanent = true)
+        }
+        readLibrarySettings()
+        val gate = library
+        if (!gate.enabled) return CloudLibrarySend.Refused("Cloud renders are off.")
+        pendingLibraryJob(jobs, videoId, profileId)?.let { existing ->
+            return CloudLibrarySend.Sent(if (existing.isLibraryAhead && !ahead) promoteLibraryJob(existing) else existing)
+        }
+        val song = deps.host.song(songId)
+            ?: return CloudLibrarySend.Refused("This song is no longer in your library.", permanent = true)
+        if (song.durationMs > CloudLimits.MAX_DURATION_MS) {
+            return CloudLibrarySend.Refused("This song is longer than 15 minutes.", permanent = true)
+        }
+        if (!libraryCapAllows(song.durationMs, gate)) return CloudLibrarySend.CapReached
+        val time = now
+        var result: CloudJobRecord? = null
+        var created = false
+        mutateJobs { list ->
+            val raced = pendingLibraryJob(list, videoId, profileId)
+            if (raced != null) {
+                result = raced
+                created = false
+                list
+            } else {
+                val record = CloudJobRecord(
+                    jobKey = CloudKeys.jobKey(deps.newJobKey()), songId = song.id, title = song.title,
+                    artist = song.artist, videoId = videoId, songDurationMs = song.durationMs,
+                    batchId = deps.newJobKey(), isStreamed = song.isStreamed, tasks = listOf(CloudTask.SPATIAL),
+                    quality = CloudSeparationQuality.STANDARD, outputCodec = CloudOutputCodec.FLAC,
+                    origin = CloudJobOrigin.LIBRARY,
+                    library = CloudLibraryJob(
+                        videoId, listOf(profileId), ahead = ahead,
+                        forceRender = if (forceRender) listOf(profileId) else emptyList(),
+                    ),
+                    createdAtMs = time,
+                )
+                result = record
+                created = true
+                list + record
+            }
+        }
+        val record = result ?: return CloudLibrarySend.Refused("The job couldn't be added.", permanent = true)
+        if (ahead && created) {
+            // The background queue's day is counted apart from the list, so clearing it gives no room back.
+            deps.settings.addLibraryAheadDayCount(1, deps.dayStartMs(time))
+        }
+        deps.scheduler.requestPass()
+        deps.scheduler.ensureWatch()
+        ensurePollLoop(requestWorker = false)
+        return CloudLibrarySend.Sent(record)
+    }
+
+    /**
+     * Whether one more library job for a song of [durationMs] fits the library's month: what library jobs committed
+     * (recorded costs, estimates at RunPod, removed jobs), plus every library job not yet at RunPod, plus this one.
+     */
+    suspend fun libraryCapAllows(durationMs: Long): Boolean {
+        readLibrarySettings()
+        return libraryCapAllows(durationMs, library)
+    }
+
+    private fun libraryCapAllows(durationMs: Long, gate: CloudLibrarySettings): Boolean {
+        val cap = gate.monthlyCapMicroUsd ?: return true
+        val price = deps.settings.snapshot().effectivePricePerSecondMicroUsd
+        val waiting = jobs.filter { it.isLibrary && it.state.isBeforeSubmit }
+            .sumOf { CloudCost.estimatedSeconds(it.plan, it.quality) * price }
+        return CloudBudget.allows(libraryJobEstimateMicroUsd(durationMs), cap, libraryCommittedThisMonthMicroUsd() + waiting)
+    }
+
+    private fun pendingLibraryJob(list: List<CloudJobRecord>, videoId: String, profileId: String): CloudJobRecord? =
+        list.lastOrNull { record ->
+            val job = record.library
+            job != null && record.state.isPending && job.videoId == videoId && profileId in job.profiles
+        }
+
+    /** The person plays the song now: the background queue's job becomes theirs (its Wi-Fi-only rule stops holding it). */
+    private suspend fun promoteLibraryJob(existing: CloudJobRecord): CloudJobRecord {
+        update(existing.jobKey) { record -> record.copy(library = record.library?.copy(ahead = false), updatedAtMs = now) }
+        deps.scheduler.requestPass()
+        return job(existing.jobKey) ?: existing
+    }
+
+    /**
+     * Library jobs still on the phone that [matches] picks stop and leave the list: Spatial's switch went off, or the
+     * background queue did, or its profile changed. Those already at RunPod are paid for and finish there.
+     */
+    suspend fun cancelPendingLibrary(matches: (CloudJobRecord) -> Boolean) {
+        loadForDisplay()
+        for (record in jobs.filter { it.isLibrary && it.state.isBeforeSubmit && matches(it) }) {
+            cancel(record.jobKey)
+            remove(record.jobKey)
+        }
+    }
+
+    /**
+     * The shared library's lookup (cloud-audio-spec §6.2 step 2): a signed GET of one `lib/` object, null when it is not
+     * there (404). Throws when the bucket can't be reached, or isn't set up. Nothing while the master switch is off.
+     */
+    suspend fun fetchLibraryObject(key: String): ByteArray? {
+        require(key.startsWith("lib/") && ".." !in key) { "Not a library key" }
+        val clients = libraryClients() ?: throw CloudStorageError.NotConfigured()
+        return clients.objects.get(key)
+    }
+
+    /** Downloads one `lib/` object (a render's FLAC) to [destination] through a signed GET. */
+    suspend fun downloadLibraryObject(key: String, destination: File): CloudTransferResult {
+        require(key.startsWith("lib/") && ".." !in key) { "Not a library key" }
+        val clients = libraryClients() ?: return CloudTransferResult.Failed("Storage isn't set up")
+        val url = clients.objects.presignedUrl("GET", key, CloudTiming.UPLOAD_PRESIGN_SECONDS)
+            ?: return CloudTransferResult.Failed("Storage isn't set up")
+        destination.parentFile?.mkdirs()
+        return try {
+            deps.transfers.download(url, destination) {}
+        } catch (error: CancellationException) {
+            destination.delete()
+            throw error
+        } catch (error: Exception) {
+            destination.delete()
+            CloudTransferResult.Failed(CloudRedaction.redact(error.message ?: "network error"))
+        }
+    }
+
+    /** Bucket clients for the library's own requests, built from the current keys (never cached across key changes). */
+    private suspend fun libraryClients(): Clients? {
+        val settings = deps.settings.snapshot()
+        if (!settings.enabled) return null
+        val config = if (settings.usesBuiltInKeys) {
+            resolveConfig(settings)
+        } else {
+            val secrets = deps.settings.secrets()
+            if (secrets.storageUnavailable || secrets.keysMissing) return null
+            ownConfig(settings, secrets.secrets)
+        }
+        return buildClients(config)
     }
 
     /** Stops a job wherever it is: its transfer, RunPod, and its objects in the bucket. */
@@ -784,10 +1016,14 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
             val (removed, kept) = list.partition(matches)
             if (removed.isNotEmpty()) {
                 val monthStart = deps.monthStartMs(now)
-                deps.settings.addRemovedSpend(CloudBudget.spentMicroUsd(removed, monthStart), monthStart)
+                deps.settings.addRemovedSpend(CloudBudget.spentMicroUsd(CloudBudget.studioRecords(removed), monthStart), monthStart)
                 // Automatic preparing has its own share of the month: its spend is kept apart too.
                 deps.settings.addRemovedAutoSpend(
                     CloudBudget.spentMicroUsd(removed.filter { it.origin == CloudJobOrigin.AUTO }, monthStart), monthStart
+                )
+                // Spatial audio's library jobs have a month of their own (cloud-audio-spec §6.1 "Money").
+                deps.settings.addRemovedLibrarySpend(
+                    CloudBudget.spentMicroUsd(removed.filter { it.isLibrary }, monthStart), monthStart
                 )
             }
             kept
@@ -825,6 +1061,7 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
     private suspend fun pass(mode: PassMode, deadlineMs: Long): CloudPassOutcome {
         jobsLock.withLock { loadLocked() }
         prune()
+        readLibrarySettings()
         val settings = deps.settings.snapshot()
         if (!settings.enabled) {
             setNotice(CloudNotice.OFF)
@@ -896,7 +1133,8 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
             var running = 0
             while (true) {
                 // The person can switch the feature (or mobile data) off, or leave Wi-Fi, mid-pass: read again before
-                // every pick, so nothing more is prepared, sent or spent after that.
+                // every pick, so nothing more is prepared, sent or spent after that. Spatial audio's switch too.
+                readLibrarySettings()
                 val current = deps.settings.snapshot()
                 val next = if (running < CloudLimits.PHONE_STEPS_AT_ONCE && now < deadlineMs && isActive && current.enabled) {
                     nextPhoneStep(handled, current)
@@ -955,22 +1193,49 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
 
     private fun transfersAllowed(settings: CloudSettingsSnapshot): Boolean = settings.useCellular || deps.isUnmetered()
 
+    /** Reads Spatial audio's settings for this pass; a failed read keeps the last ones (never a guess that sends). */
+    private suspend fun readLibrarySettings() {
+        library = try {
+            deps.librarySettings()
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            library
+        }
+    }
+
     /**
      * Whether the phone-step picker may take [record] now. The person's jobs wait for an unmetered network for steps
      * that move song data (unless mobile data is on); an automatic job's steps only run on a charger and Wi-Fi
      * ([autoOk] is [CloudStudioDependencies.autoWorkAllowed], read once by the caller), whatever the mobile-data
-     * setting says.
+     * setting says. A Spatial audio library job needs Spatial's own switch on; the song being played follows the
+     * person's rule, the background queue's jobs their own (Wi-Fi, battery not low, no Data Saver: spec §6.4).
      */
-    private fun stepAllowed(record: CloudJobRecord, settings: CloudSettingsSnapshot, autoOk: Boolean): Boolean =
-        if (record.origin == CloudJobOrigin.AUTO) autoOk else !movesData(record) || transfersAllowed(settings)
+    private fun stepAllowed(record: CloudJobRecord, settings: CloudSettingsSnapshot, autoOk: Boolean): Boolean = when {
+        record.isLibrary -> library.enabled &&
+            if (record.isLibraryAhead) deps.libraryAheadAllowed() else !movesData(record) || transfersAllowed(settings)
+        record.origin == CloudJobOrigin.AUTO -> autoOk
+        else -> !movesData(record) || transfersAllowed(settings)
+    }
 
     /** Whether [record]'s upload may start now (same rule as [stepAllowed], for the data it moves). */
-    private fun uploadAllowed(record: CloudJobRecord, settings: CloudSettingsSnapshot): Boolean =
-        if (record.origin == CloudJobOrigin.AUTO) deps.autoWorkAllowed() else transfersAllowed(settings)
+    private fun uploadAllowed(record: CloudJobRecord, settings: CloudSettingsSnapshot): Boolean = when {
+        record.isLibrary -> library.enabled &&
+            if (record.isLibraryAhead) deps.libraryAheadAllowed() else transfersAllowed(settings)
+        record.origin == CloudJobOrigin.AUTO -> deps.autoWorkAllowed()
+        else -> transfersAllowed(settings)
+    }
 
-    /** Whether [record]'s results may be downloaded now: an automatic job never uses mobile data. */
-    private fun downloadAllowed(record: CloudJobRecord, settings: CloudSettingsSnapshot): Boolean =
-        if (record.origin == CloudJobOrigin.AUTO) deps.isUnmetered() else transfersAllowed(settings)
+    /**
+     * Whether [record]'s results may be downloaded now: an automatic job never uses mobile data, and neither does the
+     * Spatial audio background queue (nor while Data Saver is on). With Spatial's switch off nothing is downloaded.
+     */
+    private fun downloadAllowed(record: CloudJobRecord, settings: CloudSettingsSnapshot): Boolean = when {
+        record.isLibrary -> library.enabled &&
+            if (record.isLibraryAhead) deps.libraryAheadAllowed() else transfersAllowed(settings)
+        record.origin == CloudJobOrigin.AUTO -> deps.isUnmetered()
+        else -> transfersAllowed(settings)
+    }
 
     /**
      * The priority lane makes room first, then the ready jobs go out as one burst. [outOfTime]: no more uploads in this
@@ -1004,10 +1269,19 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
         // An automatic job only waits for Wi-Fi to download (its other steps wait for the charger too, and the
         // automatic worker, not a Wi-Fi pass, starts them).
         val waitingForNetwork = settings.enabled && pending.any {
-            val waitsForDownload = it.state == CloudJobState.RESULTS_READY && CloudTask.INSTRUMENTAL in it.tasks &&
-                !it.importedInstrumental && it.outputs?.get(INSTRUMENTAL_SLOT) != null
-            if (it.origin == CloudJobOrigin.AUTO) waitsForDownload && !deps.isUnmetered()
-            else !transfersAllowed && (movesData(it) || waitsForDownload)
+            val waitsForDownload = it.state == CloudJobState.RESULTS_READY && (
+                if (it.isLibrary) !it.isFullyImported
+                else CloudTask.INSTRUMENTAL in it.tasks && !it.importedInstrumental && it.outputs?.get(INSTRUMENTAL_SLOT) != null
+                )
+            when {
+                // The Spatial audio background queue only moves data on an unmetered network, like automatic jobs.
+                it.isLibrary -> library.enabled && (
+                    if (it.isLibraryAhead) (waitsForDownload || isPhoneStep(it)) && !deps.isUnmetered()
+                    else !transfersAllowed && (movesData(it) || waitsForDownload)
+                    )
+                it.origin == CloudJobOrigin.AUTO -> waitsForDownload && !deps.isUnmetered()
+                else -> !transfersAllowed && (movesData(it) || waitsForDownload)
+            }
         }
         val retries = pending.mapNotNull { record -> record.nextAttemptAtMs?.takeIf { it > time } }
         val gates = pending.filter { it.state == CloudJobState.UPLOADED }
@@ -1076,16 +1350,38 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
             fail(jobKey, "This song is no longer in your library.", null, retryable = false)
             return
         }
+        // A source made for a library job alone (a fresh copy of its video's stream) goes once the upload is prepared.
+        var librarySource: String? = null
         try {
+            val libraryJob = record.library
+            if (libraryJob != null) {
+                // A render is keyed by its video (cloud-audio-spec §2): audio of another video must never go up under it.
+                val playing = deps.host.streamIdentity(song)
+                if (playing != null && playing != libraryJob.videoId) {
+                    fail(jobKey, "This song now plays a different YouTube video than the one the render was asked for.",
+                        null, retryable = false)
+                    return
+                }
+            }
             // An automatic job only uses audio already on the phone, never a fresh download through the YouTube layer;
-            // if that audio is gone it quietly drops (the ranker may pick the song again later).
-            val source = if (record.origin == CloudJobOrigin.AUTO) {
-                deps.host.cachedAudioSource(song) ?: run {
+            // if that audio is gone it quietly drops (the ranker may pick the song again later). A Spatial audio job may
+            // fetch the song (spec §6.4), but never as a permanent download, and only audio proven to be its video's (a
+            // cached file is keyed by the Spotify id, and may be the video the song played before it was matched again).
+            val source = when {
+                libraryJob != null -> deps.host.libraryAudioSource(song, libraryJob.videoId, allowDownload = true)
+                    ?.also { librarySource = it } ?: run {
+                    fail(jobKey, "This song has no audio this phone can send.", null, retryable = false)
+                    return
+                }
+                record.origin == CloudJobOrigin.AUTO -> deps.host.cachedAudioSource(song) ?: run {
                     dropAutoJob(jobKey)
                     return
                 }
-            } else deps.host.audioSource(song)
+                else -> deps.host.audioSource(song)
+            }
             val identity = if (record.isStreamed) deps.host.streamIdentity(song) else null
+            // `library.source` names the stream the audio came from (spec §6.2 step 3): the one the proxy holds now.
+            val sourceItag = if (libraryJob != null) deps.host.streamItag(song) else null
             val clipStart = record.clipStartMs
             // A streamed song's download always goes up decoded as FLAC (design §7.3): the worker then sees exactly
             // the samples this phone plays, whatever priming the download's container declares. So does the FLAC
@@ -1123,16 +1419,20 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
                     outputCodec = if (prepared.sampleRate > CloudLimits.MAX_AAC_SAMPLE_RATE) CloudOutputCodec.FLAC else r.outputCodec,
                     // A clip ends where its decode did (the song may be a little shorter than the library says).
                     clipEndMs = r.clipStartMs?.let { start -> start + prepared.durationMs } ?: r.clipEndMs,
+                    library = r.library?.copy(sourceItag = sourceItag, sourceCodec = prepared.sourceCodec),
                 ).on(CloudJobEvent.PREPARED, now)
             }
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
             val message = error.message?.takeIf { it.isNotBlank() } ?: "Couldn't prepare this song."
-            val decodeFailure = (error as? CloudPrepareException)?.isDecodeFailure == true
+            // A decode that can't work, or a song that plays another video than the render's: trying again won't help.
+            val noRetry = (error as? CloudPrepareException)?.isDecodeFailure == true || error is CloudWrongAudioException
             deps.preparer.removeUpload(jobKey)
             update(jobKey) { it.on(CloudJobEvent.REQUEUE, now) }
-            fail(jobKey, CloudRedaction.redact(message), null, retryable = !decodeFailure)
+            fail(jobKey, CloudRedaction.redact(message), null, retryable = !noRetry)
+        } finally {
+            librarySource?.let { source -> runCatching { deps.host.releaseLibraryAudioSource(source) } }
         }
     }
 
@@ -1243,11 +1543,16 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
         val candidates = CloudPriorityLane.cancelOrder(CloudPriorityLane.pausable(jobs, priority.jobKey), jobs)
         if (candidates.isEmpty()) return
         // Making room only helps when the priority job can go out: inside what is left of the month once the jobs
-        // that step aside no longer count as at RunPod (they count again when they are sent behind it).
+        // that step aside no longer count as at RunPod (they count again when they are sent behind it). That month is
+        // the shared cap's, the one the submit checks: Spatial audio's library jobs have their own (cloud-audio-spec
+        // §6.1 "Money"), so neither their spend nor their stepping aside counts here, and a Sing still goes ahead of
+        // them however much the library spent (§6.2 step 3).
         val price = settings.effectivePricePerSecondMicroUsd
         val monthStart = deps.monthStartMs(time)
-        val freed = candidates.filter { it.isRunningAtRunPod }.sumOf { CloudCost.estimatedSeconds(it.plan, it.quality) * price }
-        val committed = CloudBudget.committedMicroUsd(jobs, monthStart, price) + deps.settings.removedSpendMicroUsd(monthStart) - freed
+        val freed = candidates.filter { it.isRunningAtRunPod && !it.isLibrary }
+            .sumOf { CloudCost.estimatedSeconds(it.plan, it.quality) * price }
+        val committed = CloudBudget.committedMicroUsd(CloudBudget.studioRecords(jobs), monthStart, price) +
+            deps.settings.removedSpendMicroUsd(monthStart) - freed
         val estimate = CloudCost.estimatedSeconds(priority.plan, priority.quality) * price
         if (!CloudBudget.allows(estimate, settings.effectiveMonthlyCapMicroUsd, committed.coerceAtLeast(0))) return
 
@@ -1351,30 +1656,47 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
         val price = settings.effectivePricePerSecondMicroUsd
         val monthStart = deps.monthStartMs(time)
         val burst = CloudSubmitBurst<PendingSubmit>(workers)
+        // Once the shared cap stops one of Sing's or the person's jobs, none of those goes out after it in this pass;
+        // Spatial audio's library jobs have their own month and carry on (cloud-audio-spec §6.1 "Money").
+        var studioCapReached = false
         for (jobKey in CloudPriorityLane.submitOrder(ready, all)) {
             val record = job(jobKey) ?: continue
             if (record.state != CloudJobState.UPLOADED || !record.isDue(time)) continue
+            if (studioCapReached && !record.isLibrary) continue
+            // Spatial's own switch is off: its jobs wait on the phone (spec §6.1 "Two switches").
+            if (record.isLibrary && !library.enabled) continue
             if (CloudRetention.inputTooOldToSubmit(record.uploadedAtMs, time)) {
                 update(jobKey) { it.on(CloudJobEvent.REQUEUE, now) }
                 continue
             }
             // The held jobs aren't at RunPod yet, but they will be: count them. Jobs taken off the list still count.
             val held = burst.holding
-            val committed = CloudBudget.committedMicroUsd(jobs, monthStart, price) +
-                deps.settings.removedSpendMicroUsd(monthStart) + held.sumOf { it.estimateMicroUsd }
             val estimate = CloudCost.estimatedSeconds(record.plan, record.quality) * price
-            if (!CloudBudget.allows(estimate, settings.effectiveMonthlyCapMicroUsd, committed)) {
-                setNotice(CloudNotice.CAP_REACHED)
-                break // the jobs held so far still go out, as the burst's last
-            }
-            clearNotice(CloudNotice.CAP_REACHED)
-            if (record.origin == CloudJobOrigin.AUTO) {
-                // Automatic jobs also stay inside their own share of the month. One over it is left waiting (not failed,
-                // not the cap's notice) and the rest of the burst carries on: a Sing or a batch job is not held up by it.
-                val autoCommitted = CloudBudget.autoCommittedMicroUsd(jobs, monthStart, price, deps.settings.removedAutoSpendMicroUsd(monthStart)) +
-                    held.filter { it.origin == CloudJobOrigin.AUTO }.sumOf { it.estimateMicroUsd }
-                val capRemaining = CloudBudget.remainingMicroUsd(settings.effectiveMonthlyCapMicroUsd, committed)
-                if (!CloudBudget.allowsAuto(estimate, settings.effectiveAutoBudgetMicroUsd, autoCommitted, capRemaining)) continue
+            if (record.isLibrary) {
+                // Library jobs: their own sum under `cloudAudio.monthlyCapUSD`, never Sing's $3 clamp. One over it waits,
+                // uploaded (the library reports CAP_REACHED for its song), and the rest of the burst carries on.
+                val libraryCommitted = CloudBudget.libraryCommittedMicroUsd(
+                    jobs, monthStart, price, deps.settings.removedLibrarySpendMicroUsd(monthStart),
+                ) + held.filter { it.isLibrary }.sumOf { it.estimateMicroUsd }
+                if (!CloudBudget.allowsLibrary(estimate, library.monthlyCapMicroUsd, libraryCommitted)) continue
+            } else {
+                val committed = CloudBudget.committedMicroUsd(CloudBudget.studioRecords(jobs), monthStart, price) +
+                    deps.settings.removedSpendMicroUsd(monthStart) + held.filterNot { it.isLibrary }.sumOf { it.estimateMicroUsd }
+                if (!CloudBudget.allows(estimate, settings.effectiveMonthlyCapMicroUsd, committed)) {
+                    setNotice(CloudNotice.CAP_REACHED)
+                    studioCapReached = true // the jobs held so far still go out, as the burst's last
+                    continue
+                }
+                clearNotice(CloudNotice.CAP_REACHED)
+                if (record.origin == CloudJobOrigin.AUTO) {
+                    // Automatic jobs also stay inside their own share of the month. One over it is left waiting (not
+                    // failed, not the cap's notice) and the rest of the burst carries on: a Sing or a batch job is not
+                    // held up by it.
+                    val autoCommitted = CloudBudget.autoCommittedMicroUsd(jobs, monthStart, price, deps.settings.removedAutoSpendMicroUsd(monthStart)) +
+                        held.filter { it.origin == CloudJobOrigin.AUTO }.sumOf { it.estimateMicroUsd }
+                    val capRemaining = CloudBudget.remainingMicroUsd(settings.effectiveMonthlyCapMicroUsd, committed)
+                    if (!CloudBudget.allowsAuto(estimate, settings.effectiveAutoBudgetMicroUsd, autoCommitted, capRemaining)) continue
+                }
             }
             // The instrumental only: a job stored with the lyrics task before the cloud stopped timing lyrics doesn't ask
             // for them (the pass's settling drops the task; this keeps the request right whatever the record says).
@@ -1404,7 +1726,7 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
                 }
                 if (job(jobKey)?.state != CloudJobState.UPLOADED) continue
             }
-            val previous = burst.ready(PendingSubmit(jobKey, request, estimate, record.origin))
+            val previous = burst.ready(PendingSubmit(jobKey, request, estimate, record.origin, record.isLibrary))
             if (previous != null && !submit(previous, lastInBatch = false, clients)) return
         }
         val tail = burst.end()
@@ -1414,10 +1736,19 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
         // ends its own burst with the flag ([CloudBurstMarks]).
         val room = CloudBudget.remainingMicroUsd(
             settings.effectiveMonthlyCapMicroUsd,
-            CloudBudget.committedMicroUsd(jobs, monthStart, price) + deps.settings.removedSpendMicroUsd(monthStart) +
-                tail.sumOf { it.estimateMicroUsd },
+            CloudBudget.committedMicroUsd(CloudBudget.studioRecords(jobs), monthStart, price) +
+                deps.settings.removedSpendMicroUsd(monthStart) + tail.filterNot { it.isLibrary }.sumOf { it.estimateMicroUsd },
         )
-        val moreComing = CloudBurstMarks.moreComing(jobsOnTheWay(settings), room, price, outOfTime)
+        // A library job on its way is checked against the library's own month (null: "No limit"), with the library jobs
+        // of this burst counted as sent: Sing's cap running out doesn't mean the library's next render isn't coming.
+        val libraryRoom = library.monthlyCapMicroUsd?.let { cap ->
+            CloudBudget.remainingMicroUsd(
+                cap,
+                CloudBudget.libraryCommittedMicroUsd(jobs, monthStart, price, deps.settings.removedLibrarySpendMicroUsd(monthStart)) +
+                    tail.filter { it.isLibrary }.sumOf { it.estimateMicroUsd },
+            )
+        }
+        val moreComing = CloudBurstMarks.moreComing(jobsOnTheWay(settings), room, price, outOfTime, libraryRoomMicroUsd = libraryRoom)
         val marks = CloudBurstMarks.marks(tail.map { job(it.jobKey) }, jobs, moreComing)
         for ((index, pending) in tail.withIndex()) {
             if (!submit(pending, lastInBatch = marks[index], clients)) return
@@ -1444,6 +1775,8 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
         val request: CloudJobRequest,
         val estimateMicroUsd: Long,
         val origin: CloudJobOrigin = CloudJobOrigin.MANUAL,
+        /** A Spatial audio library job: counted in the library's month, not the shared cap. */
+        val isLibrary: Boolean = false,
     )
 
     /**
@@ -1591,7 +1924,7 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
         if (takeManifestIfPresent(jobKey, clients)) return
         val record = job(jobKey) ?: return
         val submitted = record.submittedAtMs ?: return
-        if (!CloudRetention.isPastTtl(submitted, now)) return
+        if (!CloudRetention.isPastTtl(submitted, now, CloudTiming.executionTimeoutMs(record.tasks))) return
         if (record.resubmits < 1) {
             update(jobKey) { it.copy(resubmits = it.resubmits + 1).on(CloudJobEvent.RESUBMIT, now) }
         } else {
@@ -1690,6 +2023,10 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
      */
     private suspend fun collect(jobKey: String, clients: Clients, transfersAllowed: Boolean) {
         val record = job(jobKey)?.takeIf { it.state == CloudJobState.RESULTS_READY } ?: return
+        if (record.isLibrary) {
+            collectLibrary(jobKey, clients, transfersAllowed)
+            return
+        }
         val song = deps.host.song(record.songId)
         if (song == null) {
             val keys = CloudJobBuilder.objectKeys(record)
@@ -1748,6 +2085,158 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
             return
         }
         finishIfDone(jobKey, clients)
+    }
+
+    /**
+     * A Spatial audio library job's results (cloud-audio-spec §6.2 step 4): the result manifest's `library` names each
+     * render's state; every `ok` or `exists` render is downloaded from its canonical `lib/` key, with its own manifest,
+     * and handed to the local store, which checks both before it takes them. The `lib/` objects are never deleted (other
+     * devices use them); `in/` and `out/<jobKey>/` go as for any job. The video the song plays now doesn't matter: a
+     * render is keyed by the video it was made from, and stays right for that video.
+     */
+    private suspend fun collectLibrary(jobKey: String, clients: Clients, transfersAllowed: Boolean) {
+        val record = job(jobKey)?.takeIf { it.state == CloudJobState.RESULTS_READY } ?: return
+        val libraryJob = record.library ?: return
+        if (!library.enabled) {
+            // Spatial's switch went off while the job ran: nothing is downloaded (spec §6.1 "Two switches"). The job ends
+            // here; its renders stay in the shared library, where a later lookup finds them once the switch is back on.
+            val keys = CloudJobBuilder.objectKeys(record)
+            update(jobKey) { it.on(CloudJobEvent.IMPORTED, now) }
+            cleanUpLocal(jobKey)
+            deleteRemote(keys, clients)
+            return
+        }
+        if (libraryJob.renders == null) {
+            // A result without its `library` block: a worker before 1.1.0 (it refuses the task) or a damaged manifest.
+            fail(jobKey, "The cloud worker didn't say what became of the Spatial audio render.", null, retryable = false)
+            return
+        }
+        // A job manifest's own entry for a render must name its canonical key, nothing else in the bucket.
+        for (profile in libraryJob.delivered) {
+            val named = record.outputs?.get(CloudKeys.librarySlot(profile))?.key ?: continue
+            if (named != CloudKeys.libraryAudio(libraryJob.videoId, profile)) {
+                fail(jobKey, "The result named a file outside the library.", null, retryable = false)
+                return
+            }
+        }
+        // Renders already on this phone (another job, or the shared library, brought them) need no download.
+        val present = libraryJob.awaitingDownload.filter { deps.libraryHost.hasRender(libraryJob.videoId, it) }
+        if (present.isNotEmpty()) markRendersImported(jobKey, present)
+        val awaiting = job(jobKey)?.library?.awaitingDownload.orEmpty()
+        if (awaiting.isNotEmpty()) {
+            if (!transfersAllowed) return // waits for a network the job's rules allow
+            for (profile in awaiting) {
+                if (!downloadRender(jobKey, profile, clients)) return
+            }
+        }
+        finishIfDone(jobKey, clients)
+    }
+
+    /** Downloads one render of a library job and hands it to the local store. False when the job can't go on now. */
+    private suspend fun downloadRender(jobKey: String, profile: String, clients: Clients): Boolean {
+        val videoId = job(jobKey)?.library?.videoId ?: return false
+        val manifest = try {
+            clients.objects.get(CloudKeys.libraryManifest(videoId, profile))
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            fail(jobKey, "Download: ${CloudRedaction.redact(error.message ?: "network error")}", null, retryable = true)
+            return false
+        }
+        if (manifest == null) {
+            // The library lost the render before this phone fetched it (the janitor or the lifecycle): make it again.
+            renderGone(jobKey)
+            return false
+        }
+        val url = clients.objects.presignedUrl("GET", CloudKeys.libraryAudio(videoId, profile), CloudTiming.UPLOAD_PRESIGN_SECONDS)
+            ?: return false
+        update(jobKey) { it.on(CloudJobEvent.DOWNLOAD_STARTED, now) }
+        deps.stagingDir.mkdirs()
+        val staged = File(deps.stagingDir, "$jobKey.${CloudKeys.librarySlot(profile)}.flac")
+        val result = try {
+            transfer(jobKey) { deps.transfers.download(url, staged) { progress(jobKey, it) } }
+        } finally {
+            clearProgress(jobKey)
+        }
+        if (result == null || job(jobKey)?.state != CloudJobState.DOWNLOADING) {
+            staged.delete()
+            return false
+        }
+        if (result is CloudTransferResult.Failed) {
+            staged.delete()
+            if (result.status == 404) {
+                renderAudioMissing(jobKey, videoId, profile, clients)
+            } else {
+                update(jobKey) { it.on(CloudJobEvent.RESULTS_READY, now) }
+                fail(jobKey, "Download: ${CloudRedaction.redact(result.message)}", null, retryable = true)
+            }
+            return false
+        }
+        val refusal = try {
+            deps.libraryHost.installRender(videoId, profile, staged, manifest)
+        } catch (error: CancellationException) {
+            staged.delete()
+            throw error
+        } catch (error: Exception) {
+            staged.delete()
+            error.message ?: "couldn't save the render"
+        }
+        if (refusal != null) {
+            update(jobKey) { it.on(CloudJobEvent.RESULTS_READY, now) }
+            fail(jobKey, "Import: ${CloudRedaction.redact(refusal)}", null, retryable = true)
+            return false
+        }
+        markRendersImported(jobKey, listOf(profile))
+        return true
+    }
+
+    private suspend fun markRendersImported(jobKey: String, profiles: List<String>) {
+        update(jobKey) { record ->
+            val job = record.library ?: return@update record
+            record.copy(library = job.copy(imported = (job.imported + profiles).distinct()))
+        }
+    }
+
+    /** A delivered render was gone from the library before it came down: the job runs again from the upload. */
+    private suspend fun renderGone(jobKey: String) {
+        update(jobKey) { it.on(CloudJobEvent.REQUEUE, now) }
+        fail(jobKey, "The render was gone from the library; the song will be processed again.", null, retryable = true)
+    }
+
+    /**
+     * A delivered render's audio wasn't in the library (404). The manifest decides what that means. Gone too: the render
+     * is going away (the janitor deletes the manifest first), so the job runs again and the worker, finding no manifest,
+     * renders it ([renderGone]). Still there: the library entry is broken (its audio was deleted on its own), and the
+     * worker would only answer `exists` again: sent round as before, the job would loop (each pass a paid run and a full
+     * re-upload, the attempts reset by every result). So the job goes round once more without the "already there" check
+     * for that profile ([CloudLibraryJob.forceRender]), and the worker renders it again, overwriting both objects; if the
+     * audio is missing once more after that, the job stops (and the library's failure backoff applies).
+     */
+    private suspend fun renderAudioMissing(jobKey: String, videoId: String, profile: String, clients: Clients) {
+        val manifest = try {
+            clients.objects.get(CloudKeys.libraryManifest(videoId, profile))
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            update(jobKey) { it.on(CloudJobEvent.RESULTS_READY, now) }
+            fail(jobKey, "Download: ${CloudRedaction.redact(error.message ?: "network error")}", null, retryable = true)
+            return
+        }
+        if (manifest == null) {
+            renderGone(jobKey)
+            return
+        }
+        val record = job(jobKey) ?: return
+        if (profile in record.library?.forceRender.orEmpty()) {
+            fail(jobKey, "The render's audio is missing from the library even after it was made again.", null, retryable = false)
+            return
+        }
+        // Not a failure of this job (no attempt used up, no wait): the same job, asked differently.
+        update(jobKey) { current ->
+            val job = current.library ?: return@update current
+            current.copy(library = job.copy(forceRender = (job.forceRender + profile).distinct())).on(CloudJobEvent.REQUEUE, now)
+        }
+        deps.scheduler.requestPass()
     }
 
     /**

@@ -233,6 +233,27 @@ internal fun loadControlBufferProfileFor(isLowRamDevice: Boolean): LoadControlBu
 }
 
 /**
+ * [DualPlayerEngine.resolveMediaItem]'s rule: an item resolved ahead of its player (the crossfade player, a restored
+ * queue, the watch) gets its stream's URI baked in ([streamUri]: the complete local copy or the loopback proxy), but
+ * never a Spatial audio render's ([startsOnRender], cloud-audio-spec §6.3).
+ *
+ * A baked render outlived the decision it came from: the queue snapshot persisted it, so after a restart it played as
+ * a plain file (spatialized a second time, or spatial with Spatial audio off, with no status or request) and failed
+ * once the render was removed; within a run a repeat or a previous replayed it whatever the settings were by then.
+ * Left `spotify://`, the item's data source decides at its first open and records the render for the stage.
+ */
+internal suspend fun withBakedStream(
+    mediaItem: MediaItem,
+    uri: Uri,
+    startsOnRender: suspend () -> Boolean,
+    streamUri: suspend () -> Uri,
+): MediaItem {
+    if (startsOnRender()) return mediaItem
+    val resolved = streamUri()
+    return if (resolved == uri) mediaItem else mediaItem.buildUpon().setUri(resolved).build()
+}
+
+/**
  * Manages two ExoPlayer instances (A and B) to enable seamless transitions.
  *
  * Player A is the designated "master" player. During a crossfade the MediaSession can
@@ -247,7 +268,10 @@ class DualPlayerEngine @Inject constructor(
     private val connectivityStateHolder: com.theveloper.pixelplay.presentation.viewmodel.ConnectivityStateHolder,
     private val spotifyStreamProxy: com.theveloper.pixelplay.data.spotify.SpotifyStreamProxy,
     private val audioCacheManager: com.theveloper.pixelplay.data.cache.AudioCacheManager,
-    private val musicHaptics: com.theveloper.pixelplay.data.haptics.MusicHapticsEngine
+    private val musicHaptics: com.theveloper.pixelplay.data.haptics.MusicHapticsEngine,
+    // Spatial audio (cloud-audio-spec §6.3, §7): the on-device stage in every sink, and the render a song starts on.
+    private val spatialStage: com.theveloper.pixelplay.data.spatial.playback.SpatialStage,
+    private val spatialStartResolver: javax.inject.Provider<com.theveloper.pixelplay.data.spatial.playback.SpatialStartResolver>,
 ) {
     private companion object {
         private const val AUDIO_OFFLOAD_STALL_FALLBACK_MS = 4_000L
@@ -988,6 +1012,9 @@ class DualPlayerEngine @Inject constructor(
         if (!audioOffloadEnabled) return
         // Offload is already off during an exact-timing session; a rebuild would drop its state.
         if (exactTimingSessions > 0) return
+        // Offload is not in use while a Spatial audio profile is selected: a stall then is not the HAL's, and a
+        // rebuild would only cut the song.
+        if (spatialProfileSelected) return
         if (transitionRunning) {
             Timber.tag("DualPlayerEngine").w("Skipping offload fallback during active transition. %s", reason)
             return
@@ -1131,7 +1158,7 @@ class DualPlayerEngine @Inject constructor(
                 enableAudioOutputPlaybackParams: Boolean
             ): AudioSink {
                 return DefaultAudioSink.Builder(context)
-                    .setEnableFloatOutput(hiFiModeEnabled)
+                    .setEnableFloatOutput(floatOutputEnabled)
                     .setEnableAudioOutputPlaybackParameters(enableAudioOutputPlaybackParams)
                     .setAudioProcessorChain(
                         DefaultAudioSink.DefaultAudioProcessorChain(
@@ -1139,7 +1166,10 @@ class DualPlayerEngine @Inject constructor(
                             SurroundDownmixProcessor(),
                             MidSideVocalProcessor { vocalAttenuation },
                             // Analysis only (music haptics): passes the audio through unchanged.
-                            androidx.media3.exoplayer.audio.TeeAudioProcessor(musicHaptics.createPcmSink())
+                            androidx.media3.exoplayer.audio.TeeAudioProcessor(musicHaptics.createPcmSink()),
+                            // Spatial audio's on-device stage (§7), last so haptics analyse the dry signal. A plain
+                            // copy until a profile is first selected; bypasses items that are already renders.
+                            spatialStage.newProcessor()
                         )
                     )
                     .build()
@@ -1175,7 +1205,7 @@ class DualPlayerEngine @Inject constructor(
             ) {
                 // Audio-only player: skip camera motion renderers.
             }
-        }.setEnableAudioFloatOutput(hiFiModeEnabled)
+        }.setEnableAudioFloatOutput(floatOutputEnabled)
          .setMediaCodecSelector(mediaCodecSelector)
          .setEnableDecoderFallback(true)
          .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
@@ -1185,10 +1215,21 @@ class DualPlayerEngine @Inject constructor(
             .setUsage(C.USAGE_MEDIA)
             .build()
             
-        val resolver = object : ResolvingDataSource.Resolver {
+        // One resolver per data source, and so per media period (ProgressiveMediaSource makes one data source for a
+        // period and reuses it for every load of it). The item's first open decides between a Spatial audio render
+        // and the stream (§6.3), and every later open of that item (a seek outside the buffer, a retry) keeps that
+        // answer: the extractor picked for the first bytes must keep getting the same file (integration map 2.6,
+        // trap 1). A render that arrives later is the mid-song swap's business, not this one's.
+        fun newItemResolver() = object : ResolvingDataSource.Resolver {
+            private var pinnedRender: Uri? = null
+            private var decided = false
+
             override fun resolveDataSpec(dataSpec: DataSpec): DataSpec {
                 val uri = dataSpec.uri
                 if (uri.scheme !in CLOUD_PROXY_SCHEMES) return dataSpec
+                pinnedRender?.let { return dataSpec.buildUpon().setUri(it).build() }
+                val firstOpen = !decided
+                decided = true
 
                 val originalUri = uri.toString()
 
@@ -1212,7 +1253,19 @@ class DualPlayerEngine @Inject constructor(
                 // que no consume el timeout HTTP.
                 val resolveStartedAtMs = SystemClock.elapsedRealtime()
                 val resolved = runBlocking {
-                    withTimeoutOrNull(CLOUD_RESOLVE_TIMEOUT_MS) { resolveCloudUri(uri) }
+                    withTimeoutOrNull(CLOUD_RESOLVE_TIMEOUT_MS) {
+                        val spotifyId = spotifyIdOf(uri)
+                        if (firstOpen && spotifyId != null) {
+                            // The registry the stage reads at this item's first sample: render (bypass) or stream.
+                            val render = spatialStartResolver.get().renderAtStart(spotifyId)
+                            spatialStage.recordItem(spotifyId, render?.second)
+                            if (render != null) {
+                                pinnedRender = render.first
+                                return@withTimeoutOrNull render.first
+                            }
+                        }
+                        resolveStreamUri(uri)
+                    }
                 }
                 spotifyIdOf(uri)?.let { id ->
                     StreamStartTimings.dataSpecResolved(
@@ -1243,7 +1296,9 @@ class DualPlayerEngine @Inject constructor(
             .setReadTimeoutMs(30_000)
             .setTransferListener(streamTransferListener)
         val dataSourceFactory = DefaultDataSource.Factory(context, httpDataSourceFactory)
-        val resolvingFactory = ResolvingDataSource.Factory(dataSourceFactory, resolver)
+        val resolvingFactory = DataSource.Factory {
+            ResolvingDataSource(dataSourceFactory.createDataSource(), newItemResolver())
+        }
         val extractorsFactory = DefaultExtractorsFactory()
             // FLAG_WORKAROUND_IGNORE_EDIT_LISTS intentionally removed: it breaks Opus files
             // by discarding the edit list that encodes the pre-skip (encoder delay), causing
@@ -1307,7 +1362,34 @@ class DualPlayerEngine @Inject constructor(
     /** Music haptics needs the decoded PCM, which a compressed offload path never exposes. */
     private var pcmAnalysisActive = false
 
-    private val offloadAllowed: Boolean get() = audioOffloadEnabled && exactTimingSessions == 0 && !pcmAnalysisActive
+    /**
+     * A Spatial audio profile is selected (§6.3): its on-device stage is a PCM processor, which runs neither under
+     * offload nor with float output. Offload goes off once when a profile is picked (one short gap if the song was
+     * offloaded; accepted) and comes back with Off. Not tied to the route: headphones in or out never cost a gap.
+     */
+    private var spatialProfileSelected = false
+
+    private val offloadAllowed: Boolean
+        get() = audioOffloadEnabled && exactTimingSessions == 0 && !pcmAnalysisActive && !spatialProfileSelected
+
+    /** Hi-Fi float output, unless Spatial audio needs the processor chain ("Spatial wins", §6.3). */
+    private val floatOutputEnabled: Boolean get() = hiFiModeEnabled && !spatialProfileSelected
+
+    /** Main thread. A profile was selected or Spatial audio switched off (the service follows the setting). */
+    fun setSpatialProfileSelected(selected: Boolean) {
+        if (spatialProfileSelected == selected) return
+        val floatBefore = floatOutputEnabled
+        spatialProfileSelected = selected
+        if (isReleased || !::playerA.isInitialized) return
+        if (floatOutputEnabled != floatBefore) {
+            // Float output leaves the custom processors out of the pipeline: rebuild with it off (or back on).
+            rebuildPlayersPreservingMasterState("Float output ${if (floatOutputEnabled) "on" else "off"} for Spatial audio")
+            return
+        }
+        if (exactTimingSessions > 0) return
+        applyOffloadMode(playerA, enabled = offloadAllowed)
+        playerB?.let { applyOffloadMode(it, enabled = offloadAllowed) }
+    }
 
     fun setPcmAnalysisActive(active: Boolean) {
         if (pcmAnalysisActive == active) return
@@ -1375,8 +1457,10 @@ class DualPlayerEngine @Inject constructor(
             Timber.tag("DualPlayerEngine").w("Hi-Fi mode requested but device does not support PCM_FLOAT")
             return
         }
+        val floatBefore = floatOutputEnabled
         hiFiModeEnabled = enabled
-        rebuildPlayersPreservingMasterState("Hi-Fi mode set to $enabled")
+        // With a Spatial audio profile selected float output stays off, so the players need no rebuild.
+        if (floatOutputEnabled != floatBefore) rebuildPlayersPreservingMasterState("Hi-Fi mode set to $enabled")
     }
 
     /**
@@ -1439,7 +1523,22 @@ class DualPlayerEngine @Inject constructor(
             .takeIf { it.isNotBlank() }
     }
 
+    /**
+     * What a `spotify://` item plays: with Spatial audio active, the song's local render when there is one (§6.3), else
+     * the stream ([resolveStreamUri]). Only warms things up: no item is ever given a render's URI ([resolveMediaItem]);
+     * an item's data source makes that choice at its first open ([newItemResolver]).
+     */
     suspend fun resolveCloudUri(uri: Uri): Uri = withContext(Dispatchers.IO) {
+        if (uri.scheme == "spotify") {
+            spotifyIdOf(uri)?.let { id ->
+                spatialStartResolver.get().renderAtStart(id)?.let { return@withContext it.first }
+            }
+        }
+        resolveStreamUri(uri)
+    }
+
+    /** The song's stream: its complete local copy, else the loopback proxy. Never a Spatial audio render. */
+    private suspend fun resolveStreamUri(uri: Uri): Uri = withContext(Dispatchers.IO) {
         val uriString = uri.toString()
 
         // Ojo: aquí NO se consulta resolvedUriCache. La URL del proxy lleva dentro el
@@ -1479,14 +1578,26 @@ class DualPlayerEngine @Inject constructor(
         Uri.parse(proxyUrl)
     }
 
+    /**
+     * [mediaItem] resolved ahead of its player (the crossfade player, a restored queue, the watch): a `spotify://` item
+     * gets its stream baked in, but a song that starts on a Spatial audio render keeps `spotify://` ([withBakedStream]).
+     */
     suspend fun resolveMediaItem(mediaItem: MediaItem): MediaItem {
         val uri = mediaItem.localConfiguration?.uri ?: return mediaItem
         val scheme = uri.scheme
         // Use CLOUD_PROXY_SCHEMES: http/https resolve directly via ExoPlayer and never
         // reach resolveCloudUri, so checking them wastes an IO dispatch.
         if (scheme !in CLOUD_PROXY_SCHEMES) return mediaItem
-        val resolvedUri = resolveCloudUri(uri)
-        return if (resolvedUri == uri) mediaItem else mediaItem.buildUpon().setUri(resolvedUri).build()
+        return withBakedStream(
+            mediaItem = mediaItem,
+            uri = uri,
+            startsOnRender = {
+                withContext(Dispatchers.IO) {
+                    spotifyIdOf(uri)?.let { id -> spatialStartResolver.get().renderAtStart(id) } != null
+                }
+            },
+            streamUri = { resolveStreamUri(uri) },
+        )
     }
 
     suspend fun prepareNext(target: TransitionTarget, startPositionMs: Long = 0L) {

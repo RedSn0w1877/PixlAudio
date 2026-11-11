@@ -132,6 +132,9 @@ import com.theveloper.pixelplay.presentation.components.LocalMaterialTheme
 import com.theveloper.pixelplay.presentation.components.LyricsSheet
 import com.theveloper.pixelplay.presentation.components.subcomps.FetchLyricsDialog
 import com.theveloper.pixelplay.presentation.model.LocalDeveloperMode
+import com.theveloper.pixelplay.presentation.spatial.SpatialAudioPlayerButton
+import com.theveloper.pixelplay.presentation.spatial.SpatialAudioSheet
+import com.theveloper.pixelplay.presentation.spatial.rememberSpatialFileInfoLabel
 import com.theveloper.pixelplay.presentation.viewmodel.LyricsSearchUiState
 import com.theveloper.pixelplay.presentation.viewmodel.PlayerSheetState
 import com.theveloper.pixelplay.presentation.viewmodel.PlayerViewModel
@@ -256,7 +259,8 @@ fun FullPlayerContent(
     var showArtistPicker by rememberSaveable { mutableStateOf(false) }
     var showTaizoSheet by remember { mutableStateOf(false) }
     val taizoSheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    
+    var showSpatialSheet by remember { mutableStateOf(false) }
+
     val lyricsSearchUiState by playerViewModel.lyricsSearchUiState.collectAsStateWithLifecycle()
     val syncChipDismissedIds by playerViewModel.lyricsSyncEditor.chipDismissedSongIds
         .collectAsStateWithLifecycle(initialValue = emptySet())
@@ -388,6 +392,18 @@ fun FullPlayerContent(
             onDismissRequest = { showTaizoSheet = false },
             sheetState = taizoSheetState
         )
+    }
+
+    // Spatial audio (cloud-audio-spec §6.5): the song row's button opens it; it wears the album-art colours.
+    val onSpatialClick = { showSpatialSheet = true }
+    if (showSpatialSheet) {
+        MaterialTheme(
+            colorScheme = LocalMaterialTheme.current,
+            typography = MaterialTheme.typography,
+            shapes = MaterialTheme.shapes
+        ) {
+            SpatialAudioSheet(onDismissRequest = { showSpatialSheet = false })
+        }
     }
 
     if (showFetchLyricsDialog) {
@@ -633,6 +649,7 @@ fun FullPlayerContent(
             isLandscape = false,
             onLyricsClick = onLyricsClick,
             onTaizoClick = onTaizoClick,
+            onSpatialClick = onSpatialClick,
             playerOnBaseColor = playerOnBaseColor,
             playerViewModel = playerViewModel,
             gradientEdgeColor = LocalMaterialTheme.current.primaryContainer,
@@ -657,6 +674,7 @@ fun FullPlayerContent(
             isLandscape = true,
             onLyricsClick = onLyricsClick,
             onTaizoClick = onTaizoClick,
+            onSpatialClick = onSpatialClick,
             playerOnBaseColor = playerOnBaseColor,
             playerViewModel = playerViewModel,
             gradientEdgeColor = LocalMaterialTheme.current.primaryContainer,
@@ -1308,6 +1326,7 @@ private fun FullPlayerSongMetadataSection(
     isLandscape: Boolean,
     onLyricsClick: () -> Unit,
     onTaizoClick: () -> Unit = {},
+    onSpatialClick: () -> Unit = {},
     playerOnBaseColor: Color,
     playerViewModel: PlayerViewModel,
     gradientEdgeColor: Color,
@@ -1349,6 +1368,7 @@ private fun FullPlayerSongMetadataSection(
                 .padding(start = 0.dp),
             onClickLyrics = onLyricsClick,
             onClickTaizo = onTaizoClick,
+            onClickSpatial = onSpatialClick,
             song = song,
             currentSongArtists = currentSongArtists,
             expansionFractionProvider = expansionFractionProvider,
@@ -1470,6 +1490,7 @@ private fun SongMetadataDisplaySection(
     chipContentColor: Color,
     onClickLyrics: () -> Unit,
     onClickTaizo: () -> Unit = {},
+    onClickSpatial: () -> Unit = {},
     showQueueButton: Boolean,
     onClickQueue: () -> Unit,
     onClickArtist: () -> Unit,
@@ -1636,6 +1657,14 @@ private fun SongMetadataDisplaySection(
                 modifier = Modifier.size(22.dp)
             )
         }
+
+        // Spatial audio (cloud-audio-spec §6.5): the third sibling, showing "Off" or the profile's name. It
+        // collects its own slice, so a profile change recomposes only the button.
+        SpatialAudioPlayerButton(
+            containerColor = chipColor,
+            contentColor = chipContentColor,
+            onClick = onClickSpatial
+        )
     }
 }
 
@@ -1720,14 +1749,22 @@ private fun PlayerProgressBarSection(
         kotlin.math.abs(reportedDuration - hintDuration) <= 1500L -> reportedDuration
         else -> minOf(reportedDuration, hintDuration)
     }
-    val audioMetaLabel = remember(showAudioFileInfo, audioMimeType, audioBitrate, audioSampleRate, audioQualityTierLabel) {
+    // Developer mode: say when Spatial audio is what plays (a cloud render is a FLAC the label would
+    // otherwise only call "FLAC"). Collected only while the label is shown.
+    val spatialFileInfo = if (showAudioFileInfo) rememberSpatialFileInfoLabel() else null
+    val audioMetaLabel = remember(showAudioFileInfo, audioMimeType, audioBitrate, audioSampleRate, audioQualityTierLabel, spatialFileInfo) {
         if (showAudioFileInfo) {
-            formatAudioMetaLabel(
+            val base = formatAudioMetaLabel(
                 mimeType = audioMimeType,
                 bitrate = audioBitrate,
                 sampleRate = audioSampleRate,
                 fallbackTierLabel = audioQualityTierLabel
             )
+            when {
+                spatialFileInfo == null -> base
+                base == null -> spatialFileInfo
+                else -> "$base • $spatialFileInfo"
+            }
         } else {
             null
         }

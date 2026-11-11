@@ -2,6 +2,7 @@ package com.theveloper.pixelplay.data.cloudstudio
 
 import android.content.Context
 import com.theveloper.pixelplay.data.cache.AudioCacheManager
+import com.theveloper.pixelplay.data.cache.AudioDownloadTransfer
 import com.theveloper.pixelplay.data.cache.RetainedAudioFiles
 import com.theveloper.pixelplay.data.database.SpotifyDao
 import com.theveloper.pixelplay.data.model.Song
@@ -11,6 +12,8 @@ import com.theveloper.pixelplay.data.tais.SingClipStore
 import com.theveloper.pixelplay.data.tais.TaisInstrumentalIndex
 import java.io.File
 import java.io.IOException
+import java.util.concurrent.TimeUnit
+import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
@@ -20,6 +23,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import okhttp3.OkHttpClient
 
 /**
  * The app around [CloudStudioEngine] (design §7.1 "small hooks", §7.5): the library, the instrumental store
@@ -82,6 +86,86 @@ class LiveCloudStudioHost(
         return withContext(Dispatchers.IO) { spotifyDao.getMatchedVideoId(spotifyId) }
     }
 
+    /**
+     * A Spatial audio job's audio, proven to be [videoId]'s ([CloudLibraryAudioFinder]): the complete copy on the phone
+     * when its length is exactly that video's stream, else (when allowed) a fresh copy: into the listening cache when
+     * the song has none, or a copy for the job alone when its cached file may be another video's (the match changed
+     * after it was cached). Never a permanent download: a render is keyed by the video and lined up by media time, so
+     * the song's file doesn't have to stay, and the background queue's songs must not pile up in Downloads.
+     */
+    override suspend fun libraryAudioSource(song: CloudSong, videoId: String, allowDownload: Boolean): String? {
+        val appSong = appSong(song.id) ?: return null
+        val spotifyId = appSong.spotifyId
+            ?: return appSong.contentUriString.ifBlank { appSong.path }.takeIf { it.isNotBlank() }
+        return libraryAudio.source(spotifyId, videoId, allowDownload)
+    }
+
+    override fun releaseLibraryAudioSource(source: String) = libraryAudio.release(source)
+
+    /** Built on first use (a library job's prepare, off the main thread): it touches the cache directory. */
+    private val libraryAudio by lazy {
+        CloudLibraryAudioFinder(
+            currentMatch = { spotifyId -> withContext(Dispatchers.IO) { spotifyDao.getMatchedVideoId(spotifyId) } },
+            streamSource = { spotifyId, videoId -> spotifyStreamProxy.streamSourceFor(spotifyId, videoId) },
+            cachedFile = { spotifyId -> audioCacheManager.getPlayableFile(spotifyId) },
+            cacheFresh = { spotifyId -> freshCacheCopy(spotifyId) },
+            download = { spotifyId, destination -> downloadFromProxy(spotifyId, destination) },
+            workDir = File(context.cacheDir, LIBRARY_AUDIO_DIR),
+        )
+    }
+
+    /** A fresh copy into the listening cache (the proxy's stream as it resolves now), or null when it couldn't be had. */
+    private suspend fun freshCacheCopy(spotifyId: String): File? {
+        for (attempt in 1..3) {
+            currentCoroutineContext().ensureActive()
+            val file = withTimeoutOrNull(DOWNLOAD_TIMEOUT_MS) {
+                audioCacheManager.downloadAndCache(spotifyStreamProxy, spotifyId, isPermanent = false)
+            }
+            if (file != null) return file
+            if (attempt < 3) delay(attempt * 2_000L)
+        }
+        return null
+    }
+
+    /** The proxy's stream for the song into [destination] (outside the cache: nothing else ever reads that file). */
+    private suspend fun downloadFromProxy(spotifyId: String, destination: File) {
+        var lastError: Exception? = null
+        for (attempt in 1..3) {
+            currentCoroutineContext().ensureActive()
+            try {
+                if (!spotifyStreamProxy.ensureReady()) throw IOException("The stream proxy isn't running.")
+                val url = spotifyStreamProxy.getProxyUrl(spotifyId)
+                if (url.isBlank()) throw IOException("The stream proxy isn't running.")
+                val done = withTimeoutOrNull(DOWNLOAD_TIMEOUT_MS) {
+                    withContext(Dispatchers.IO) { AudioDownloadTransfer.fetch(downloadClient, url, destination) }
+                    true
+                }
+                if (done == true) return
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                lastError = error
+            }
+            destination.delete()
+            if (attempt < 3) delay(attempt * 2_000L)
+        }
+        throw IOException("Couldn't download this song for the cloud. Check your connection; it will try again.", lastError)
+    }
+
+    /** A plain client for the local proxy (the app's default one rewrites the User-Agent; nothing here goes upstream). */
+    private val downloadClient by lazy {
+        OkHttpClient.Builder()
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(180, TimeUnit.SECONDS)
+            .callTimeout(20, TimeUnit.MINUTES)
+            .build()
+    }
+
+    override suspend fun streamItag(song: CloudSong): Int? {
+        val spotifyId = appSong(song.id)?.spotifyId ?: return null
+        return spotifyStreamProxy.cachedStreamItag(spotifyId)
+    }
+
     override suspend fun hasInstrumental(songId: String): Boolean = withContext(Dispatchers.IO) {
         TaisInstrumentalIndex.bestAvailableFile(context, songId) != null
     }
@@ -116,6 +200,8 @@ class LiveCloudStudioHost(
 
     companion object {
         private const val DOWNLOAD_TIMEOUT_MS = 90_000L
+        /** Under the caches: a library job's own copy of a song's stream while its upload is prepared. */
+        private const val LIBRARY_AUDIO_DIR = "cloud_library_audio"
     }
 }
 

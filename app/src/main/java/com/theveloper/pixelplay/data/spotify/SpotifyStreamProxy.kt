@@ -18,6 +18,7 @@ import com.theveloper.pixelplay.data.spotiflac.SpotiFLACResolvedStream
 import com.theveloper.pixelplay.data.spotiflac.toSpotiFLACQuery
 import com.theveloper.pixelplay.data.stream.CloudStreamProxy
 import com.theveloper.pixelplay.data.stream.CloudStreamSecurity
+import com.theveloper.pixelplay.data.stream.StreamItag
 import com.theveloper.pixelplay.data.youtube.ChainedYouTubeStreamResolver
 import com.theveloper.pixelplay.data.youtube.newpipe.NewPipeStreamResolver
 import com.theveloper.pixelplay.data.youtube.piped.PipedStreamResolver
@@ -27,6 +28,19 @@ import okhttp3.OkHttpClient
 import timber.log.Timber
 import javax.inject.Inject
 import javax.inject.Singleton
+
+/**
+ * The stream [SpotifyStreamProxy] serves for a song: the YouTube video its URL was resolved for, the stream's itag, and
+ * its length in bytes (the URL's `clen`; null when the URL doesn't say). A file of exactly that length fetched from the
+ * proxy is that stream, byte for byte. [isSpotiFLAC]: the song's SpotiFLAC file instead of the video's audio (no itag;
+ * its length is known once the proxy served it).
+ */
+data class StreamSource(
+    val videoId: String,
+    val itag: Int?,
+    val contentLength: Long?,
+    val isSpotiFLAC: Boolean = false
+)
 
 /**
  * Proxy HTTP local que sirve el audio de una pista de Spotify.
@@ -97,6 +111,8 @@ class SpotifyStreamProxy @Inject constructor(
     private data class StreamIdentity(
         val userAgent: String,
         val strategy: String?,
+        /** The YouTube video the URL was resolved for (null for a SpotiFLAC file). */
+        val videoId: String? = null,
         val mimeType: String? = null
     )
     private val identityByUrl = java.util.Collections.synchronizedMap(
@@ -200,9 +216,47 @@ class SpotifyStreamProxy @Inject constructor(
         url: String,
         userAgent: String,
         strategy: String?,
+        videoId: String? = null,
         mimeType: String? = null
     ) {
-        identityByUrl[url] = StreamIdentity(userAgent, strategy, mimeType)
+        identityByUrl[url] = StreamIdentity(userAgent, strategy, videoId, mimeType)
+    }
+
+    /**
+     * The stream this proxy serves for [spotifyId] while it is [videoId]'s: the YouTube video its URL was resolved for,
+     * with that stream's itag and length. The URL cache is keyed by Spotify id and a changed match doesn't reach it (the
+     * dashboard's Test playback, a catalog play), so a cached URL resolved for another video is dropped and resolved
+     * again once. Null when nothing resolves, or the song now resolves to another video (its match changed again, or an
+     * unplayable video was re-matched meanwhile). Resolves on demand (network), never downloads audio. Cloud Studio's
+     * Spatial audio jobs use it to prove the audio they upload is the video their render is stored under.
+     */
+    suspend fun streamSourceFor(spotifyId: String, videoId: String): StreamSource? {
+        if (!validateId(spotifyId) || !CloudStreamSecurity.validateYouTubeVideoId(videoId)) return null
+        repeat(2) { attempt ->
+            val url = getOrFetchStreamUrl(spotifyId) ?: return null
+            val identity = identityByUrl[url]
+            if (identity?.videoId == videoId) {
+                return StreamSource(videoId, StreamItag.fromUrl(url), StreamItag.contentLengthFromUrl(url))
+            }
+            // SpotiFLAC's file (Pro / Studio Pro): the song's own recording, found by its ISRC, is the render's source
+            // (Hoa, 2026-11-11: "the flac to basically be the source"). It is stored under the video all the same; a
+            // phone playing other audio of the song (the video, on a capped tier) won't switch to it mid-song when the
+            // lengths differ (SpatialRenditionRule.linesUp) and starts on it from the next play instead.
+            if (identity?.strategy == SPOTIFLAC_STRATEGY || (identity == null && isSpotiFLACUrl(url))) {
+                return StreamSource(videoId, itag = null, contentLength = spotiFLACTotalByUrl[url], isSpotiFLAC = true)
+            }
+            if (attempt == 0) invalidateCachedUrl(spotifyId)
+        }
+        return null
+    }
+
+    /** Each SpotiFLAC file's whole length once the proxy served it (its URL carries no `clen`). */
+    private val spotiFLACTotalByUrl = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+    override fun onUpstreamTotal(id: String, url: String, totalBytes: Long) {
+        if (!isSpotiFLACUrl(url)) return
+        if (spotiFLACTotalByUrl.size > 512) spotiFLACTotalByUrl.clear()
+        spotiFLACTotalByUrl[url] = totalBytes
     }
 
     override fun resolveResponseContentType(
@@ -362,7 +416,7 @@ class SpotifyStreamProxy @Inject constructor(
         // unplayable, none said OK; the bot wall is not counted).
         val videoUnavailable = resolved == null && streamResolver.lastResolveVideoUnavailable
         if (resolved != null) {
-            rememberUserAgent(resolved.url, resolved.userAgent, resolved.strategyName)
+            rememberUserAgent(resolved.url, resolved.userAgent, resolved.strategyName, videoId)
             reportResolved(resolved.url, resolved.strategyName, resolved.nTransformMs)
             return resolved.url
         }
@@ -370,7 +424,7 @@ class SpotifyStreamProxy @Inject constructor(
 
         val pipedResolved = if ("Piped" in excluded) null else withTimeoutOrNull(15_000L) { pipedStreamResolver.resolve(videoId) }
         if (pipedResolved != null) {
-            rememberUserAgent(pipedResolved.url, pipedResolved.userAgent, "Piped")
+            rememberUserAgent(pipedResolved.url, pipedResolved.userAgent, "Piped", videoId)
             reportResolved(pipedResolved.url, "Piped", null)
             return pipedResolved.url
         }
@@ -378,7 +432,7 @@ class SpotifyStreamProxy @Inject constructor(
 
         val newPipeResolved = if ("NewPipe" in excluded) null else withTimeoutOrNull(20_000L) { newPipeStreamResolver.resolve(videoId) }
         if (newPipeResolved != null) {
-            rememberUserAgent(newPipeResolved.url, newPipeResolved.userAgent, "NewPipe")
+            rememberUserAgent(newPipeResolved.url, newPipeResolved.userAgent, "NewPipe", videoId)
             reportResolved(newPipeResolved.url, "NewPipe", null)
             return newPipeResolved.url
         }

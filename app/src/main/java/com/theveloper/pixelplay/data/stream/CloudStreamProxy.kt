@@ -123,6 +123,13 @@ abstract class CloudStreamProxy<K : Any>(
 
     fun isReady(): Boolean = actualPort > 0
 
+    /**
+     * The `itag` of the stream URL cached for [id] right now (the upstream URL's own query parameter), or null when no
+     * URL is cached or it names none. Never resolves and never touches the network. A Spatial audio job names the stream
+     * its audio came from (`library.source.itag`, cloud-audio-spec §6.2 step 3): the stream this phone plays.
+     */
+    fun cachedStreamItag(id: K): Int? = urlCache.peek(id)?.let(StreamItag::fromUrl)
+
     @Synchronized
     fun startIfNeeded() {
         if (isReady() || startJob?.isActive == true) return
@@ -276,6 +283,9 @@ abstract class CloudStreamProxy<K : Any>(
      * that cap each connection below what lossless audio needs.
      */
     protected open fun upstreamParallelism(id: K, url: String): Int = 1
+
+    /** The whole length of [url]'s file, once an upstream answer has told it (a range's total, or a full body). */
+    protected open fun onUpstreamTotal(id: K, url: String, totalBytes: Long) = Unit
 
     /** Whether [acceptStreamHead] wants to see the first bytes of [url] before they are served. */
     protected open fun wantsStreamHead(id: K, url: String): Boolean = false
@@ -474,6 +484,7 @@ abstract class CloudStreamProxy<K : Any>(
                         originalItag = Uri.parse(url).getQueryParameter("itag")
                         val total = totalLength(first, url) ?: expectedTotal
                         expectedTotal = total
+                        if (total != null) onUpstreamTotal(id, url, total)
                         if (total != null && !CloudStreamSecurity.isAcceptableContentLength(total.toString())) {
                             call.respond(HttpStatusCode(413, "Payload Too Large"))
                             return@get
@@ -641,4 +652,24 @@ abstract class CloudStreamProxy<K : Any>(
                 }
             }
         }
+}
+
+/** Reads the `itag` (and `clen`) query parameters of a stream URL without `android.net.Uri` (pure, so it is unit-tested). */
+object StreamItag {
+    /** The URL's `itag` as a non-negative integer, or null when there is none or it is not a number. */
+    fun fromUrl(url: String): Int? = parameter(url, "itag")?.toIntOrNull()?.takeIf { it >= 0 }
+
+    /** The URL's `clen` (the stream's length in bytes, googlevideo's own) when it is a positive number, else null. */
+    fun contentLengthFromUrl(url: String): Long? = parameter(url, "clen")?.toLongOrNull()?.takeIf { it > 0 }
+
+    /** The first value of the query parameter [name] (an empty string when it has none), or null when it is absent. */
+    private fun parameter(url: String, name: String): String? {
+        val query = url.substringAfter('?', "").substringBefore('#')
+        if (query.isEmpty()) return null
+        for (pair in query.split('&')) {
+            if (pair.substringBefore('=') != name) continue
+            return pair.substringAfter('=', "")
+        }
+        return null
+    }
 }

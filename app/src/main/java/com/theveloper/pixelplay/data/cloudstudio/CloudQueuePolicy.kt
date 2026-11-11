@@ -1,5 +1,6 @@
 package com.theveloper.pixelplay.data.cloudstudio
 
+import com.theveloper.pixelplay.data.spatial.SpatialContract
 import java.time.Instant
 import java.time.ZoneId
 import java.time.ZoneOffset
@@ -29,6 +30,24 @@ object CloudKeys {
     fun lyrics(jobKey: String): String = "out/$jobKey/lyrics.json"
     /** The connection test's 1-byte object. */
     fun probe(id: String): String = "probe/$id"
+
+    /**
+     * The shared library (cloud-audio-spec §3): `lib/v<libV>/<videoId>/sp-<profile>.flac`, a Spatial audio render. The
+     * phone signs it like any other key and never deletes it (other devices use it).
+     */
+    fun libraryAudio(videoId: String, profileId: String, libV: Int = SpatialContract.LIB_V): String =
+        "lib/v$libV/$videoId/sp-$profileId.flac"
+
+    /** Its manifest, `lib/v<libV>/<videoId>/sp-<profile>.json`, written last: its presence means the render is complete. */
+    fun libraryManifest(videoId: String, profileId: String, libV: Int = SpatialContract.LIB_V): String =
+        "lib/v$libV/$videoId/sp-$profileId.json"
+
+    /** The output slot a render has in a job's manifest: `sp-<profile>` (its key is the `lib/` key). */
+    fun librarySlot(profileId: String): String = "sp-$profileId"
+
+    /** The library key's video id: `^[A-Za-z0-9_-]{11}$` (a YouTube video id, never a Spotify id). */
+    fun isValidVideoId(videoId: String): Boolean =
+        videoId.length == 11 && videoId.all { it in 'A'..'Z' || it in 'a'..'z' || it in '0'..'9' || it == '_' || it == '-' }
 
     /** The worker's jobKey rule: 36 characters of `0-9 a-f -` (a lower-case UUID). */
     fun isValidJobKey(key: String): Boolean =
@@ -120,6 +139,18 @@ object CloudTiming {
     const val UPLOAD_PRESIGN_SECONDS = 86_400
     /** The worker's URLs, signed at submission: `ttl + executionTimeout + 1 h` (263,700 s ≈ 73 h; R2's maximum is 7 d). */
     val WORKER_PRESIGN_SECONDS: Int = ((TTL_MS + EXECUTION_TIMEOUT_MS) / 1000).toInt() + 3_600
+    /**
+     * `policy.executionTimeout` of a job with library tasks (Spatial audio): 1 800 s, overriding the endpoint's
+     * (cloud-audio-spec §6.2 step 3). Sing's jobs keep [EXECUTION_TIMEOUT_MS].
+     */
+    const val LIBRARY_EXECUTION_TIMEOUT_MS: Long = 1_800_000
+
+    /** A job's `policy.executionTimeout`: [LIBRARY_EXECUTION_TIMEOUT_MS] when it has the `spatial` task. */
+    fun executionTimeoutMs(tasks: List<CloudTask>): Long =
+        if (CloudTask.SPATIAL in tasks) LIBRARY_EXECUTION_TIMEOUT_MS else EXECUTION_TIMEOUT_MS
+
+    /** How long a job's worker URLs are signed for: `ttl + its executionTimeout + 1 h` (264,600 s for a library job). */
+    fun workerPresignSeconds(tasks: List<CloudTask>): Int = ((TTL_MS + executionTimeoutMs(tasks)) / 1000).toInt() + 3_600
     /**
      * An input older than this is uploaded again instead of being submitted (upload age + ttl < the 7-day `in/`
      * lifecycle).
@@ -440,19 +471,25 @@ object CloudBurstMarks {
 
     /**
      * More of this phone's jobs are coming soon: one of [onTheWay] (due, and being prepared or uploaded, or waiting for a
-     * step the phone may take now; the engine picks them) still fits in [roomMicroUsd], what the month has left once the
-     * burst is out. A job the cap would stop isn't coming. [outOfTime] is a background pass with no time left to upload
-     * more: what is left waits for a later pass, so the tail is marked anyway.
+     * step the phone may take now; the engine picks them) still fits in what its month has left once the burst is out:
+     * [roomMicroUsd] for Sing's and the person's jobs (the shared cap), [libraryRoomMicroUsd] for Spatial audio's library
+     * jobs (their own cap, `cloudAudio.monthlyCapUSD`; null is "No limit"; the shared room when not given). A job its cap
+     * would stop isn't coming. [outOfTime] is a background pass with no time left to upload more: what is left waits for
+     * a later pass, so the tail is marked anyway.
      */
     fun moreComing(
         onTheWay: List<CloudJobRecord>,
         roomMicroUsd: Long,
         pricePerSecondMicroUsd: Long,
         outOfTime: Boolean,
+        libraryRoomMicroUsd: Long? = roomMicroUsd,
     ): Boolean {
         if (outOfTime) return false
         val price = max(pricePerSecondMicroUsd, 0)
-        return onTheWay.any { CloudCost.estimatedSeconds(it.plan, it.quality) * price <= roomMicroUsd }
+        return onTheWay.any { job ->
+            val room = if (job.isLibrary) libraryRoomMicroUsd ?: Long.MAX_VALUE else roomMicroUsd
+            CloudCost.estimatedSeconds(job.plan, job.quality) * price <= room
+        }
     }
 }
 
@@ -493,9 +530,19 @@ object CloudCost {
         return fallback
     }
 
+    /**
+     * Billed GPU seconds for one Spatial audio render of a warm 4-minute song: the six-stem cascade, one profile's render,
+     * the FLAC encode and the uploads. Not measured on the pools yet (cloud-audio-spec §9); the worker's example manifest
+     * of a 3:22 song took 73 s, which scales to about 87 s. Update it after the first bench.
+     */
+    const val WARM_SECONDS_SPATIAL: Long = 87
+
     /** Estimated GPU seconds for one song's plan (scaled by length: the figures are for a 4-minute song). */
     fun estimatedSeconds(plan: CloudSongPlan, quality: CloudSeparationQuality): Long {
-        var seconds = WARM_SECONDS_STANDARD
+        val spatial = CloudTask.SPATIAL in plan.tasks
+        // A job whose only task is `spatial` has no instrumental separation of its own (the cascade is in its figure).
+        var seconds = if (!spatial || plan.tasks.any { it != CloudTask.SPATIAL }) WARM_SECONDS_STANDARD else 0L
+        if (spatial) seconds += WARM_SECONDS_SPATIAL
         if (CloudTask.STEMS4 in plan.tasks) seconds += EXTRA_SECONDS_STEMS
         if (CloudSelector.quality(quality, plan.durationMs) == CloudSeparationQuality.BEST) seconds += EXTRA_SECONDS_BEST
         val scale = max(plan.durationMs.toDouble() / REFERENCE_SONG_MS.toDouble(), 0.25)
@@ -594,6 +641,31 @@ object CloudBudget {
         autoCommittedMicroUsd: Long,
         capRemainingMicroUsd: Long,
     ): Boolean = estimateMicroUsd <= min(remainingMicroUsd(autoBudgetMicroUsd, autoCommittedMicroUsd), max(capRemainingMicroUsd, 0))
+
+    // ─── Library jobs' own month (Spatial audio, cloud-audio-spec §6.1 "Money") ──────────────
+
+    /** Sing's and the person's jobs: the ones the shared cap ([CloudSettingsSnapshot.effectiveMonthlyCapMicroUsd]) counts. */
+    fun studioRecords(records: List<CloudJobRecord>): List<CloudJobRecord> = records.filterNot { it.isLibrary }
+
+    /**
+     * What library jobs have used or will use this month: their recorded costs, the estimate of those RunPod holds now,
+     * and what library jobs since taken off the list spent. Their own sum: none of Sing's jobs are in it, and it counts
+     * against nothing of Sing's.
+     */
+    fun libraryCommittedMicroUsd(
+        records: List<CloudJobRecord>,
+        monthStartMs: Long,
+        pricePerSecondMicroUsd: Long,
+        removedLibrarySpendMicroUsd: Long,
+    ): Long = committedMicroUsd(records.filter { it.isLibrary }, monthStartMs, pricePerSecondMicroUsd) +
+        max(removedLibrarySpendMicroUsd, 0)
+
+    /**
+     * A library job fits `cloudAudio.monthlyCapUSD` ([capMicroUsd]; null is "No limit"). Sing's $3 rule with the built-in
+     * keys never clamps this cap.
+     */
+    fun allowsLibrary(estimateMicroUsd: Long, capMicroUsd: Long?, libraryCommittedMicroUsd: Long): Boolean =
+        capMicroUsd == null || allows(estimateMicroUsd, capMicroUsd, libraryCommittedMicroUsd)
 }
 
 // ─── Priority lane ──────────────────────────────────────────────────────────────────────────────
@@ -663,11 +735,12 @@ object CloudPriorityLane {
 
     /**
      * Jobs that may step aside for [priorityJobKey]: waiting in RunPod's queue (`submitted`), not priority jobs
-     * themselves, started by an automatic pass or a batch. Never a running job.
+     * themselves, started by an automatic pass, a batch or the Spatial audio library (a Sing goes ahead of library jobs,
+     * cloud-audio-spec §6.2 step 3). Never a running job.
      */
     fun pausable(jobs: List<CloudJobRecord>, priorityJobKey: String): List<CloudJobRecord> = jobs.filter {
         it.jobKey != priorityJobKey && it.state == CloudJobState.SUBMITTED && it.runpodJobId != null && !it.isPriority &&
-            (it.origin == CloudJobOrigin.AUTO || it.origin == CloudJobOrigin.MANUAL)
+            (it.origin == CloudJobOrigin.AUTO || it.origin == CloudJobOrigin.MANUAL || it.origin == CloudJobOrigin.LIBRARY)
     }
 
     /** The newest-submitted job first: the tail of RunPod's queue is cancelled before its head. */
@@ -703,7 +776,7 @@ object CloudPriorityLane {
             if (!priority.state.isBeforeSubmit) return false
             return nowMs - (record.pausedAtMs ?: return false) < CloudTiming.PRIORITY_HOLD_MAX_MS
         }
-        if (record.origin == CloudJobOrigin.AUTO) {
+        if (record.origin == CloudJobOrigin.AUTO || record.origin == CloudJobOrigin.LIBRARY) {
             return jobs.any { priority ->
                 priority.isPriority && priority.jobKey != record.jobKey && priority.state.isBeforeSubmit &&
                     priority.jobKey !in goingOut &&
@@ -888,8 +961,8 @@ object CloudRetention {
     }
 
     /** A submitted job whose ttl (plus its execution time) has passed without a manifest in R2 is lost. */
-    fun isPastTtl(submittedAtMs: Long, nowMs: Long): Boolean =
-        nowMs - submittedAtMs > CloudTiming.TTL_MS + CloudTiming.EXECUTION_TIMEOUT_MS
+    fun isPastTtl(submittedAtMs: Long, nowMs: Long, executionTimeoutMs: Long = CloudTiming.EXECUTION_TIMEOUT_MS): Boolean =
+        nowMs - submittedAtMs > CloudTiming.TTL_MS + executionTimeoutMs
 
     /** The uploaded input is too old to submit (upload again first). */
     fun inputTooOldToSubmit(uploadedAtMs: Long?, nowMs: Long): Boolean =

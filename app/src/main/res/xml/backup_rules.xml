@@ -24,6 +24,11 @@
     <exclude domain="sharedpref" path="cloud_studio_secrets.xml"/>
     <exclude domain="sharedpref" path="cloud_studio_settings.xml"/>
 
+    <!-- Spatial audio: the downloaded renders (gigabytes of FLAC, fetched again from the shared library when wanted)
+         and the library's own bookkeeping stay on this phone only. -->
+    <exclude domain="file" path="cloud_audio/"/>
+    <exclude domain="sharedpref" path="spatial_library.xml"/>
+
     <!-- Spotify and YouTube sessions (refresh token, cookie): encrypted under a Keystore key that is never
          restored, and the plaintext fallback files must never be uploaded either. Sign in again after a restore. -->
     <exclude domain="sharedpref" path="spotify_prefs.xml"/>

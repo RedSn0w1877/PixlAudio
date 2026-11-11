@@ -1,5 +1,8 @@
 package com.theveloper.pixelplay.data.cloudstudio
 
+import com.theveloper.pixelplay.data.spatial.SpatialContract
+import com.theveloper.pixelplay.data.spatial.SpatialProfile
+
 // Builds the `/run` body for one job (design §1 step 3, §2.3), ported from the iOS app's `CloudJobBuilder.swift`:
 // every worker URL is presigned at the moment of submission, valid for `ttl + executionTimeout + 1 h`, so an expired
 // worker URL always means a job that never ran. The phone's own upload PUT is signed separately, right before each
@@ -88,7 +91,8 @@ object CloudJobBuilder {
         val sha = record.sha256 ?: return null
         val bytes = record.bytes ?: return null
         val durationMs = record.durationMs ?: return null
-        val seconds = CloudTiming.WORKER_PRESIGN_SECONDS
+        // A job with library tasks runs up to 30 minutes, and its URLs live that much longer (spec §6.2 step 3).
+        val seconds = CloudTiming.workerPresignSeconds(record.tasks)
         val jobKey = record.jobKey
         val get = presign("GET", inputKey, seconds) ?: return null
         val delete = presign("DELETE", inputKey, seconds) ?: return null
@@ -103,6 +107,11 @@ object CloudJobBuilder {
         val attemptPut = presign("PUT", attemptKey, seconds) ?: return null
         val wantsLyrics = CloudTask.LYRICS in record.tasks
         if (wantsLyrics && lyrics == null) return null
+        val library = if (CloudTask.SPATIAL in record.tasks) {
+            libraryRequest(record.library ?: return null, seconds, presign) ?: return null
+        } else null
+        // The codec is about the audio slots: a job with none (Spatial audio only) sends none (spec §4).
+        val hasAudioSlots = record.tasks.any { task -> task.outputSlots.any { it != "lyrics" } }
         val quality = CloudSelector.quality(record.quality, durationMs)
         val input = CloudJobInput(
             jobKey = jobKey,
@@ -111,19 +120,60 @@ object CloudJobBuilder {
             audio = CloudAudioInput(get = get, delete = delete, ext = ext, bytes = bytes, sha256 = sha.lowercase(),
                 durationMs = durationMs),
             tasks = record.tasks.map { it.wire },
-            // Lyrics alone still separate first (the aligner listens to the isolated vocals).
+            // Lyrics alone still separate first (the aligner listens to the isolated vocals). The six-stem separator of
+            // a Spatial audio render follows the same setting.
             separation = CloudSeparation(quality.wire),
             lyrics = if (wantsLyrics) lyrics else null,
+            library = library,
             output = CloudOutputRequest(
-                codec = record.outputCodec.wire,
-                kbps = if (record.outputCodec == CloudOutputCodec.AAC) CloudLimits.OUTPUT_KBPS else null,
+                codec = record.outputCodec.wire.takeIf { hasAudioSlots },
+                kbps = if (hasAudioSlots && record.outputCodec == CloudOutputCodec.AAC) CloudLimits.OUTPUT_KBPS else null,
                 put = put,
             ),
             guard = CloudJobGuard(manifestGet, attemptGet, attemptPut),
         )
-        return CloudJobRequest(input, CloudJobPolicy(CloudTiming.TTL_MS, CloudTiming.EXECUTION_TIMEOUT_MS))
+        return CloudJobRequest(input, CloudJobPolicy(CloudTiming.TTL_MS, CloudTiming.executionTimeoutMs(record.tasks)))
             .markingLastInBatch(lastInBatch)
     }
+
+    /**
+     * `input.library` of a Spatial audio job (cloud-audio-spec §4): one render entry per profile, each with presigned
+     * URLs for its canonical keys (`audioPut`, `manifestPut`, and `manifestGet` for the worker's "already there" check,
+     * left out for a profile the job must render again: [CloudLibraryJob.forceRender]), and `source` naming the stream
+     * the audio came from. Null when the job's facts are not valid (a bad video id, no profile, an unknown or repeated
+     * one, more than six) or a URL can't be signed.
+     */
+    fun libraryRequest(job: CloudLibraryJob, seconds: Int, presign: CloudPresign): CloudLibraryRequest? {
+        val videoId = job.videoId
+        if (!CloudKeys.isValidVideoId(videoId)) return null
+        val profiles = job.profiles
+        if (profiles.isEmpty() || profiles.size > MAX_LIBRARY_RENDERS || profiles.toSet().size != profiles.size) return null
+        if (profiles.any { SpatialProfile.fromId(it) == null }) return null
+        val renders = profiles.map { profile ->
+            val audioKey = CloudKeys.libraryAudio(videoId, profile)
+            val manifestKey = CloudKeys.libraryManifest(videoId, profile)
+            CloudLibraryRenderTarget(
+                profile = profile,
+                audioPut = presign("PUT", audioKey, seconds) ?: return null,
+                manifestPut = presign("PUT", manifestKey, seconds) ?: return null,
+                manifestGet = if (profile in job.forceRender) null else presign("GET", manifestKey, seconds) ?: return null,
+            )
+        }
+        val codec = job.sourceCodec?.trim()?.lowercase()?.takeIf { it.isNotEmpty() }?.take(MAX_SOURCE_CODEC_CHARS)
+        val itag = job.sourceItag?.takeIf { it >= 0 }
+        return CloudLibraryRequest(
+            v = SpatialContract.LIB_V,
+            videoId = videoId,
+            source = if (itag != null || codec != null) CloudLibrarySource(itag, codec) else null,
+            renders = renders,
+        )
+    }
+
+    /** The worker takes 1 to 6 render entries, one per profile. */
+    const val MAX_LIBRARY_RENDERS = 6
+
+    /** `library.source.codec` is at most 16 characters. */
+    private const val MAX_SOURCE_CODEC_CHARS = 16
 
     /**
      * Every object a job may leave in the bucket (deleted after import or on cancel): its input and outputs, the

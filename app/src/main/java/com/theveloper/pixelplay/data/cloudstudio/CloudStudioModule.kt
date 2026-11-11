@@ -9,7 +9,14 @@ import com.theveloper.pixelplay.data.cloudstudio.auto.CloudAutoConditions
 import com.theveloper.pixelplay.data.cloudstudio.auto.LiveCloudAutoEnvironment
 import com.theveloper.pixelplay.data.database.SpotifyDao
 import com.theveloper.pixelplay.data.repository.MusicRepository
+import com.theveloper.pixelplay.data.spatial.SpatialSettingsRepository
+import com.theveloper.pixelplay.data.spatial.library.SpatialAheadConditions
+import com.theveloper.pixelplay.data.spatial.library.SpatialAheadRules
+import com.theveloper.pixelplay.data.spatial.library.SpatialNetwork
+import com.theveloper.pixelplay.data.spatial.library.SpatialRenderStore
 import com.theveloper.pixelplay.data.spotify.SpotifyStreamProxy
+import com.theveloper.pixelplay.data.stream.StreamNetworkConditions
+import com.theveloper.pixelplay.data.stream.StreamPrefetchPolicy
 import com.theveloper.pixelplay.data.tais.TaisInstrumentalIndex
 import dagger.Module
 import dagger.Provides
@@ -87,6 +94,9 @@ object CloudStudioModule {
         instrumentalIndex: TaisInstrumentalIndex,
         workManager: WorkManager,
         builtIn: CloudBuiltInConfig,
+        renderStore: SpatialRenderStore,
+        spatialSettings: SpatialSettingsRepository,
+        networkConditions: StreamNetworkConditions,
     ): CloudStudioEngine {
         // The poll loop and the scheduler run here; an unexpected failure is logged (its class only) and never crashes.
         val scope = CoroutineScope(
@@ -132,6 +142,27 @@ object CloudStudioModule {
                 },
                 // An automatic job's own steps (preparing, uploading) only run on a charger and Wi-Fi.
                 autoWorkAllowed = { CloudAutoConditions.workAllowed(autoEnvironment.conditions()) },
+                // Spatial audio's library jobs (cloud-audio-spec §6.2): their renders go into the local store, they
+                // obey `spatial.cloud` and their own month, and the background queue's need Wi-Fi, a battery that
+                // isn't low and Data Saver off (§6.4).
+                libraryHost = renderStore,
+                librarySettings = {
+                    val spatial = spatialSettings.current()
+                    CloudLibrarySettings(enabled = spatial.cloud, monthlyCapMicroUsd = spatial.monthlyCapMicroUsd)
+                },
+                libraryAheadAllowed = {
+                    val network = networkConditions.current()
+                    SpatialAheadRules.block(
+                        SpatialAheadConditions(
+                            SpatialNetwork(
+                                connected = network.network != StreamPrefetchPolicy.Network.OFFLINE,
+                                unmetered = !network.metered,
+                                dataSaver = network.dataSaver,
+                            ),
+                            batteryPercent = autoEnvironment.conditions().batteryPercent,
+                        )
+                    ) == null
+                },
             )
         )
     }

@@ -58,7 +58,60 @@ interface CloudStudioHost {
 
     /** The song's full instrumental is in: its preview clips go (one still playing goes once the player lets go). */
     suspend fun discardClips(songId: String) {}
+
+    /**
+     * The audio a Spatial audio job uploads (cloud-audio-spec §6.2 step 3, §6.4), which must be YouTube video [videoId]'s
+     * (the render is stored under that video in the shared library, for every device): the song's audio already on this
+     * phone when it is that video's, else, when [allowDownload], a fresh copy of that video's stream. Library jobs never
+     * make a song a permanent download: the render is keyed by the video and lined up by media time, so nothing has to
+     * stay. Null when there is none; [CloudWrongAudioException] when the song no longer plays [videoId]. A source made
+     * only for the job is let go with [releaseLibraryAudioSource] once prepared. The default falls back on Sing's sources.
+     */
+    suspend fun libraryAudioSource(song: CloudSong, videoId: String, allowDownload: Boolean): String? =
+        cachedAudioSource(song) ?: if (allowDownload) audioSource(song) else null
+
+    /** The job prepared its upload from [source] (a [libraryAudioSource]): a copy made only for it can go. */
+    fun releaseLibraryAudioSource(source: String) {}
+
+    /** The itag of the stream the song plays (the stream proxy's cached URL), or null. Never touches the network. */
+    suspend fun streamItag(song: CloudSong): Int? = null
 }
+
+/**
+ * The Spatial audio local store as the engine sees it (cloud-audio-spec §6.2 "Local store"): where a library job's
+ * renders go once downloaded. The store checks every render itself before it takes it.
+ */
+interface CloudLibraryHost {
+    /** A verified render of [profileId] for [videoId] is on this phone already. */
+    fun hasRender(videoId: String, profileId: String): Boolean
+
+    /**
+     * Takes a downloaded render: [staged] (the FLAC) and [manifest] (its `sp-<profile>.json` as downloaded). The store
+     * accepts it only when the manifest is the one asked for (spec §3.1) and the file's size and SHA-256 match it, then
+     * moves both in. Returns null when stored, else why it was refused. [staged] is gone afterwards either way.
+     */
+    suspend fun installRender(videoId: String, profileId: String, staged: File, manifest: ByteArray): String?
+}
+
+/** No local store (tests of Sing's jobs, and builds without Spatial audio): every render is refused. */
+object NoCloudLibraryHost : CloudLibraryHost {
+    override fun hasRender(videoId: String, profileId: String): Boolean = false
+    override suspend fun installRender(videoId: String, profileId: String, staged: File, manifest: ByteArray): String? {
+        staged.delete()
+        return "There is no place for Spatial audio renders on this phone."
+    }
+}
+
+/** Spatial audio's own settings as the engine obeys them for library jobs (cloud-audio-spec §6.1), read every pass. */
+data class CloudLibrarySettings(
+    /**
+     * `spatial.cloud`, Spatial's switch under the master ([CloudSettingsSnapshot.enabled]). While it is off a library job
+     * is neither prepared, uploaded, sent nor downloaded; one already at RunPod finishes there and waits.
+     */
+    val enabled: Boolean = false,
+    /** `cloudAudio.monthlyCapUSD` in millionths of a dollar; null is "No limit". Never clamped by Sing's $3 rule. */
+    val monthlyCapMicroUsd: Long? = 0,
+)
 
 /** A prepared upload: the file and the facts the import checks later. */
 data class CloudPreparedAudio(
@@ -73,10 +126,18 @@ data class CloudPreparedAudio(
     val sampleRate: Int,
     /** The source was HE-AAC, below 32 kHz, or muxed video (a low-bitrate stream): shown on the queue row. */
     val lowQualitySource: Boolean = false,
+    /** The source's own codec (`opus`, `aac`, `vorbis`, `mp3`, `flac`, …), not the upload's: `library.source.codec`. */
+    val sourceCodec: String? = null,
 )
 
 /** Preparing failed; [isDecodeFailure] means trying again won't help. */
 class CloudPrepareException(message: String, val isDecodeFailure: Boolean = false) : Exception(message)
+
+/**
+ * A Spatial audio job's audio can't be its video's: the song now plays another YouTube video, so whatever this phone
+ * could send would be stored under the wrong video in the shared library. Trying again won't help; the job stops.
+ */
+class CloudWrongAudioException(message: String) : Exception(message)
 
 /** Prepares a song's audio for upload ([LiveCloudAudioPreparer]). */
 interface CloudAudioPreparing {
@@ -216,6 +277,16 @@ interface CloudStudioSettingsSource {
     /** Automatic jobs started in the day starting at [dayStartMs] (0 for any other day). */
     fun autoDayCount(dayStartMs: Long): Int = 0
     fun addAutoDayCount(count: Int, dayStartMs: Long) {}
+
+    // Spatial audio's library jobs have a ledger of their own (cloud-audio-spec §6.1 "Money"): nothing of Sing's is in it,
+    // and it is kept apart from the job list too, so clearing the list frees nothing.
+
+    /** What library jobs taken off the list spent in the month starting at [monthStartMs] (0 for any other month). */
+    fun removedLibrarySpendMicroUsd(monthStartMs: Long): Long = 0L
+    fun addRemovedLibrarySpend(microUsd: Long, monthStartMs: Long) {}
+    /** Songs the Spatial audio background queue sent in the day starting at [dayStartMs] (0 for any other day). */
+    fun libraryAheadDayCount(dayStartMs: Long): Int = 0
+    fun addLibraryAheadDayCount(count: Int, dayStartMs: Long) {}
 }
 
 /** WorkManager ([CloudStudioScheduler]): the background passes that make "process later" work. */
@@ -266,7 +337,31 @@ class CloudStudioDependencies(
      * phone on battery for them. Everything else (the person's jobs, a Sing) is unaffected.
      */
     val autoWorkAllowed: () -> Boolean = { true },
+    /** Where library jobs' renders go ([CloudLibraryHost]). */
+    val libraryHost: CloudLibraryHost = NoCloudLibraryHost,
+    /** Spatial audio's own settings, read at the start of every pass (until then library jobs wait). */
+    val librarySettings: suspend () -> CloudLibrarySettings = { CloudLibrarySettings() },
+    /**
+     * Conditions for the Spatial audio background queue's own jobs (cloud-audio-spec §6.4): an unmetered network, the
+     * battery not low, Data Saver off. No charger needed. The jobs of a song being played follow the person's network
+     * rule instead ("Use mobile data").
+     */
+    val libraryAheadAllowed: () -> Boolean = { true },
 )
+
+/** The codec name `library.source.codec` carries (cloud-audio-spec §4), from an Android MIME type. */
+object CloudSourceCodec {
+    fun fromMime(mime: String?): String? = when (val lower = mime?.trim()?.lowercase()) {
+        null, "" -> null
+        "audio/opus" -> "opus"
+        "audio/mp4a-latm", "audio/aac" -> "aac"
+        "audio/vorbis" -> "vorbis"
+        "audio/mpeg" -> "mp3"
+        "audio/flac" -> "flac"
+        "audio/raw" -> "pcm"
+        else -> lower.substringAfter('/').takeIf { it.isNotBlank() }?.take(16)
+    }
+}
 
 /** SHA-256 and size of files and buffers (the import checks, design §7.5 step 1). */
 object CloudDigest {

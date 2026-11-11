@@ -8,6 +8,7 @@ import com.theveloper.pixelplay.utils.MediaItemBuilder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import timber.log.Timber
@@ -33,9 +34,16 @@ class ReplayGainProcessor(
     private val replayGainManager: ReplayGainManager,
     private val scope: CoroutineScope,
     private val currentSessionMediaItem: () -> MediaItem?,
+    /**
+     * Spatial audio's level lift (cloud-audio-spec §6.3 "Level"): `10^(headroomDb / 20)` while a spatial rendition is
+     * heard, 1 otherwise. It multiplies the normalisation gain only, capped at unity, never the person's own volume.
+     */
+    private val spatialLift: () -> Float = { 1f },
 ) {
     private companion object {
         private const val TAG = "MusicService_PixelPlay"
+        private const val LIFT_RAMP_STEPS = 5
+        private const val LIFT_RAMP_STEP_MS = 16L
     }
 
     private var enabled = false
@@ -88,10 +96,50 @@ class ReplayGainProcessor(
         userSelectedVolume = volume.coerceIn(0f, 1f)
     }
 
-    private fun setPlayerVolume(player: Player, volume: Float) {
-        val clampedVolume = volume.coerceIn(0f, 1f)
+    /**
+     * The one place the processor writes the player's volume. A normalisation gain ([normalization]) gets Spatial
+     * audio's lift, `min(1, gain * lift)`; the person's own volume never does. [lastAppliedVolume] and
+     * [userSelectedVolume] stay un-lifted, so applying them again is idempotent.
+     */
+    private fun setPlayerVolume(player: Player, volume: Float, normalization: Boolean = false) {
+        lastWriteWasNormalization = normalization
+        if (normalization) lastNormalizationGain = volume
+        val clampedVolume = if (normalization) {
+            com.theveloper.pixelplay.data.spatial.playback.SpatialLevelRule.lifted(volume, spatialLift())
+        } else {
+            volume.coerceIn(0f, 1f)
+        }
+        liftRampJob?.cancel()
         expectedVolume = clampedVolume
         player.volume = clampedVolume
+    }
+
+    /** The volume an incoming crossfade player should end on: a normalisation gain, lifted like [setPlayerVolume]. */
+    private fun liftedIncoming(volume: Float): Float =
+        com.theveloper.pixelplay.data.spatial.playback.SpatialLevelRule.lifted(volume, spatialLift())
+
+    private var lastWriteWasNormalization = false
+    private var lastNormalizationGain = 1f
+    private var liftRampJob: Job? = null
+
+    /**
+     * Spatial audio started or stopped being heard (§6.3 "Level"): when a normalisation gain is applied, move to the
+     * new lifted level over about 80 ms (five 16 ms steps), like the stage's own ramp. Nothing to do otherwise (no
+     * normalisation gain, a crossfade running, or another owner of the volume, which the caller checks).
+     */
+    fun onSpatialLiftChanged() {
+        if (!lastWriteWasNormalization || engine.isTransitionRunning()) return
+        val player = engine.masterPlayer
+        val target = com.theveloper.pixelplay.data.spatial.playback.SpatialLevelRule.lifted(lastNormalizationGain, spatialLift())
+        val steps = com.theveloper.pixelplay.data.spatial.playback.SpatialLevelRule.ramp(player.volume, target, LIFT_RAMP_STEPS)
+        liftRampJob?.cancel()
+        liftRampJob = scope.launch {
+            for (volume in steps) {
+                expectedVolume = volume
+                player.volume = volume
+                delay(LIFT_RAMP_STEP_MS)
+            }
+        }
     }
 
     /**
@@ -101,7 +149,7 @@ class ReplayGainProcessor(
      */
     fun reapplyLastAppliedVolume(player: Player) {
         if (engine.isTransitionRunning()) return
-        lastAppliedVolume?.let { setPlayerVolume(player, it) }
+        lastAppliedVolume?.let { setPlayerVolume(player, it, normalization = true) }
     }
 
     /**
@@ -112,7 +160,7 @@ class ReplayGainProcessor(
      */
     fun prepareForTransition(player: Player) {
         val incomingItem = player.currentMediaItem
-        cachedVolumeFor(incomingItem)?.let { engine.incomingTrackReplayGainVolume = it }
+        cachedVolumeFor(incomingItem)?.let { engine.incomingTrackReplayGainVolume = liftedIncoming(it) }
         apply(incomingItem)
     }
 
@@ -154,7 +202,7 @@ class ReplayGainProcessor(
         // Apply the last known RG volume immediately so there is no full-volume spike
         // while the IO coroutine reads the tags for the new track.
         if (!engine.isTransitionRunning()) {
-            lastAppliedVolume?.let { setPlayerVolume(engine.masterPlayer, it) }
+            lastAppliedVolume?.let { setPlayerVolume(engine.masterPlayer, it, normalization = true) }
         }
 
         // Read ReplayGain tags on IO thread to avoid blocking main
@@ -183,7 +231,7 @@ class ReplayGainProcessor(
                 // Also pass to engine so the crossfade loop ends at the correct RG
                 // volume instead of hard-coding 1f, preventing the audible jump.
                 pendingVolume = volume
-                engine.incomingTrackReplayGainVolume = volume
+                engine.incomingTrackReplayGainVolume = liftedIncoming(volume)
                 Timber.tag(TAG).d("ReplayGain: Stored pending volume=%.2f for %s (transition running)",
                     volume, mediaItem.mediaMetadata.title
                 )
@@ -192,7 +240,7 @@ class ReplayGainProcessor(
                 engine.incomingTrackReplayGainVolume = null
                 lastAppliedVolume = volume
                 lastMediaId = mediaId
-                setPlayerVolume(engine.masterPlayer, volume)
+                setPlayerVolume(engine.masterPlayer, volume, normalization = true)
                 Timber.tag(TAG).d("ReplayGain: Applied volume=%.2f for %s",
                     volume, mediaItem.mediaMetadata.title
                 )
@@ -249,7 +297,7 @@ class ReplayGainProcessor(
             // (REASON_AUTO_TRANSITION fires right after crossfade ends) uses this value
             // immediately instead of launching a new IO coroutine and causing a spike.
             lastAppliedVolume = pending
-            setPlayerVolume(player, pending)
+            setPlayerVolume(player, pending, normalization = true)
             Timber.tag(TAG).d("ReplayGain: Transition finished, applied pending volume=%.2f", pending)
         } else {
             // No pending volume was computed during transition, trigger full computation

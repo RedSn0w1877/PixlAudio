@@ -254,8 +254,8 @@ internal fun CloudJobRow(
             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(record.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
                     color = MaterialTheme.colorScheme.onSurface)
-                Text(record.artist, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(CloudStudioCopy.subtitle(record), style = MaterialTheme.typography.bodySmall, maxLines = 1,
+                    overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text(status, style = MaterialTheme.typography.labelLarge, maxLines = 2,
                     color = if (failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)
                 detail?.let {
@@ -298,8 +298,9 @@ fun CloudSongButton(song: Song, modifier: Modifier = Modifier, viewModel: CloudS
     val ui by viewModel.ui.collectAsStateWithLifecycle()
     LaunchedEffect(Unit) { viewModel.loadJobs() }
     CloudMessageToasts(viewModel)
+    // A Spatial audio render is not the song's instrumental: its job doesn't hold this button back.
     val pending = remember(state.jobs, song.id) {
-        state.visibleJobs.lastOrNull { it.songId == song.id }?.state?.isPending == true
+        state.visibleJobs.lastOrNull { it.songId == song.id && !it.isLibrary }?.state?.isPending == true
     }
     FilledTonalButton(
         onClick = { viewModel.startNow(listOf(song), song.title) },
@@ -316,8 +317,11 @@ fun CloudSongStatus(song: Song?, viewModel: CloudStudioViewModel = hiltViewModel
     if (song == null) return
     val state by viewModel.engineState.collectAsStateWithLifecycle()
     val developerMode = LocalDeveloperMode.current
-    // A Sing's preview clip is part of the song's Sing, not a line of its own.
-    val job = remember(state.jobs, song.id) { state.visibleJobs.lastOrNull { it.songId == song.id } } ?: return
+    // A Sing's preview clip is part of the song's Sing, not a line of its own; a Spatial audio render has its own line
+    // in the player's Spatial audio sheet.
+    val job = remember(state.jobs, song.id) {
+        state.visibleJobs.lastOrNull { it.songId == song.id && !it.isLibrary }
+    } ?: return
     val progress = state.transferProgress[job.jobKey]
     val status = remember(job, progress, developerMode) { "Cloud: " + CloudStudioCopy.status(job, progress, developerMode) }
     val failed = job.state == CloudJobState.FAILED

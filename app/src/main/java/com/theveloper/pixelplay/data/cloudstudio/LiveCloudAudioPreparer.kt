@@ -66,7 +66,7 @@ class LiveCloudAudioPreparer(private val context: Context) : CloudAudioPreparing
             currentCoroutineContext().ensureActive()
             val (sha, bytes) = CloudDigest.file(target)
             CloudPreparedAudio(target, "flac", bytes, sha, frames * 1000 / sampleRate, frames, sampleRate,
-                lowQualitySource = facts.lowQuality)
+                lowQualitySource = facts.lowQuality, sourceCodec = facts.codec)
         }
 
     /**
@@ -100,7 +100,7 @@ class LiveCloudAudioPreparer(private val context: Context) : CloudAudioPreparing
     enum class Route { COPY, DECODE }
 
     /** What the source is, and how it goes up. */
-    private class SourceFacts(val route: Route, val lowQuality: Boolean)
+    private class SourceFacts(val route: Route, val lowQuality: Boolean, val codec: String? = null)
 
     private fun inspect(source: String): SourceFacts {
         val extractor = MediaExtractor()
@@ -120,7 +120,7 @@ class LiveCloudAudioPreparer(private val context: Context) : CloudAudioPreparing
             val objectType = if (mime == MediaFormat.MIMETYPE_AUDIO_AAC) aacObjectType(first) else null
             val heAac = objectType == AOT_SBR || objectType == AOT_PS
             val lowQuality = heAac || (rate != null && rate < MIN_PASSTHROUGH_SAMPLE_RATE) || videoCount > 0
-            return SourceFacts(route(audio.size, videoCount, mime, objectType, rate), lowQuality)
+            return SourceFacts(route(audio.size, videoCount, mime, objectType, rate), lowQuality, CloudSourceCodec.fromMime(mime))
         } finally {
             extractor.release()
         }
@@ -156,7 +156,7 @@ class LiveCloudAudioPreparer(private val context: Context) : CloudAudioPreparing
             }
             val (sha, bytes) = CloudDigest.file(target)
             return CloudPreparedAudio(target, "m4a", bytes, sha, frames * 1000 / sampleRate, frames, sampleRate,
-                lowQualitySource = facts.lowQuality)
+                lowQualitySource = facts.lowQuality, sourceCodec = facts.codec)
         } catch (error: CancellationException) {
             target.delete()
             throw error

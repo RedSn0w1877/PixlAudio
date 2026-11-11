@@ -232,6 +232,13 @@ class MusicService : MediaLibraryService() {
     lateinit var musicHaptics: com.theveloper.pixelplay.data.haptics.MusicHapticsEngine
     @Inject
     lateinit var singClipEvents: com.theveloper.pixelplay.data.service.player.SingClipEvents
+    @Inject
+    lateinit var spatialSettingsRepository: com.theveloper.pixelplay.data.spatial.SpatialSettingsRepository
+    @Inject
+    lateinit var spatialPlayback: com.theveloper.pixelplay.data.spatial.SpatialPlayback
+    // The same singleton as [spatialPlayback], with the service-side hooks (items, Sing, swaps).
+    @Inject
+    lateinit var realSpatialPlayback: com.theveloper.pixelplay.data.spatial.playback.RealSpatialPlayback
 
     /**
      * The MediaSession's player while a Spotify Connect session runs (wrapping the local player,
@@ -248,6 +255,8 @@ class MusicService : MediaLibraryService() {
             replayGainManager = replayGainManager,
             scope = serviceScope,
             currentSessionMediaItem = { mediaSession?.player?.currentMediaItem },
+            // Spatial audio's level rule (§6.3 "Level"): the normalisation gain gets the headroom back, capped at 1.
+            spatialLift = { realSpatialPlayback.levelLift },
         )
     }
 
@@ -265,8 +274,64 @@ class MusicService : MediaLibraryService() {
             incomingVolumeTarget = { engine.incomingTrackReplayGainVolume ?: 1f },
             // A Sing preview clip ran out (or a seek left it): the Sing button goes back to waiting for the full one.
             onClipLeft = { songId -> singClipEvents.clipLeft(songId) },
+            // Spatial audio pauses while Sing's instrumental is heard (§6.3).
+            onInstrumentalAudibleChanged = { realSpatialPlayback.onSingChanged() },
         )
     }
+
+    // Spatial audio's mid-song swap to and from a cloud render (§6.3): a second silent player like Sing's, with its
+    // own numbers (about 250 ms, the 20 s rule).
+    private val spatialSwap by lazy {
+        com.theveloper.pixelplay.data.service.player.SpatialRenditionSwap(
+            context = this,
+            scope = serviceScope,
+            audioSessionIdProvider = { engine.getAudioSessionId() },
+            isTransitionRunning = { engine.isTransitionRunning() },
+            incomingVolumeTarget = { engine.incomingTrackReplayGainVolume ?: 1f },
+            onAudibleChanged = { realSpatialPlayback.onSwapChanged() },
+            // A level written while a render is heard became the render's: ReplayGain still learns the person's own
+            // (it recognises its own writes), so the next song starts at it.
+            onLevelAbsorbed = { replayGainProcessor.onPlayerVolumeChanged(it) },
+        )
+    }
+
+    private val spatialHost by lazy {
+        object : com.theveloper.pixelplay.data.spatial.playback.RealSpatialPlayback.Host {
+            override val scope: CoroutineScope get() = serviceScope
+            override val swap: com.theveloper.pixelplay.data.service.player.SpatialRenditionSwap get() = spatialSwap
+            override fun mainPlayer(): Player = engine.masterPlayer
+            override fun isRemote(): Boolean =
+                connectSessionPlayer != null || castSyncCoordinator.currentRemoteMediaClient() != null
+            override fun isSingAudible(): Boolean = instrumentalCrossfadeController.isCrossfadedToInstrumental
+            override fun singOwnsVolume(): Boolean = instrumentalCrossfadeController.ownsMasterVolume
+            override fun isTransitionRunning(): Boolean = engine.isTransitionRunning()
+            override fun onLevelLiftChanged() {
+                if (!instrumentalCrossfadeController.ownsMasterVolume) replayGainProcessor.onSpatialLiftChanged()
+            }
+            override fun playOriginalFromHere() {
+                val player = engine.masterPlayer
+                val item = player.currentMediaItem ?: return
+                val index = player.currentMediaItemIndex
+                val position = player.currentPosition
+                // A new tag makes a new media source, so the item's data source decides its file again (the song is
+                // off now: its stream, never the render). Same song, same place: not a song change for anyone.
+                reopeningSongId = item.mediaId
+                try {
+                    player.replaceMediaItem(index, item.buildUpon().setTag(Any()).build())
+                    player.seekTo(index, position)
+                } finally {
+                    reopeningSongId = null
+                }
+            }
+        }
+    }
+
+    /** The song [RealSpatialPlayback.Host.playOriginalFromHere] is opening again (its transition is not a song change). */
+    private var reopeningSongId: String? = null
+
+    /** Sing or a Spatial audio render owns the main player's volume: ReplayGain must not write it. */
+    private val alternateRenditionOwnsVolume: Boolean
+        get() = instrumentalCrossfadeController.ownsMasterVolume || spatialSwap.ownsMasterVolume
 
     private var favoriteSongIds = emptySet<String>()
     private var mediaSession: MediaLibrarySession? = null
@@ -418,6 +483,7 @@ class MusicService : MediaLibraryService() {
         // A rebuilt player (Hi-Fi toggle, offload fallback) must stay silent under a playing instrumental,
         // before ReplayGain sets its level.
         instrumentalCrossfadeController.onMainPlayerSwapped(mediaSession?.player ?: newPlayer)
+        spatialSwap.onMainPlayerSwapped(newPlayer)
         replayGainProcessor.prepareForTransition(newPlayer)
     }
 
@@ -433,6 +499,15 @@ class MusicService : MediaLibraryService() {
         // The next song took over: the instrumental of the one before has played out (before ReplayGain
         // sets the new player's level, so that write is not taken for the instrumental's).
         instrumentalCrossfadeController.onTransitionFinished(mediaSession?.player ?: engine.masterPlayer)
+        spatialSwap.onTransitionFinished(engine.masterPlayer)
+        // Spatial audio follows the hand-over: the new master never reports a transition for the song it already
+        // plays, so without this the song's rendition, request and status stayed the last song's. (Not when the
+        // incoming player is published: the master, the player swaps act on, is still the outgoing one then. A
+        // cancelled overlap leaves the song as it was, and this changes nothing.) Before ReplayGain, so its write
+        // gets the new song's level lift.
+        engine.masterPlayer.currentMediaItem.let { item ->
+            realSpatialPlayback.onItemChanged(item?.mediaId, spotifyIdOf(item), item?.localConfiguration?.uri?.toString())
+        }
         replayGainProcessor.onTransitionFinished()
     }
 
@@ -480,12 +555,14 @@ class MusicService : MediaLibraryService() {
             connectSessionPlayer = wrapper
             musicHaptics.setRemoteOutput(true)
             publishMediaSessionPlayer(wrapper, "Spotify Connect session player published.")
+            realSpatialPlayback.onRemoteChanged()
         } else {
             val wrapper = connectSessionPlayer ?: return
             connectSessionPlayer = null
             musicHaptics.setRemoteOutput(false)
             publishMediaSessionPlayer(engine.masterPlayer, "Local player published after Spotify Connect.")
             wrapper.release()
+            realSpatialPlayback.onRemoteChanged()
         }
     }
 
@@ -588,6 +665,8 @@ class MusicService : MediaLibraryService() {
         engine.addPlayerSwapListener(playerSwapListener)
         engine.addTransitionDisplayPlayerListener(transitionDisplayPlayerListener)
         engine.addTransitionFinishedListener(transitionFinishedListener)
+        // Spatial audio (cloud-audio-spec §6.3): items, stage reports, Sing and library events reach the player side.
+        realSpatialPlayback.attach(spatialHost)
 
         controller.initialize()
         serviceScope.launch {
@@ -666,6 +745,17 @@ class MusicService : MediaLibraryService() {
         serviceScope.launch {
             userPreferencesRepository.taisVocalAttenuationFlow.collect { amount ->
                 engine.setVocalAttenuation(amount)
+            }
+        }
+
+        // Spatial audio (handoff/2026-11-10-plans/cloud-audio-spec.md §6.1, §6.3): the stored settings reach the
+        // player here, like Hi-Fi mode above, so they apply with or without the app's UI. The first value arrives
+        // as soon as the store is read; applying the same settings again changes nothing.
+        serviceScope.launch {
+            spatialSettingsRepository.settings.collect { settings ->
+                // Offload off and float output off while a profile is selected (§6.3), before the stage needs them.
+                engine.setSpatialProfileSelected(settings.profile != null)
+                spatialPlayback.apply(settings)
             }
         }
 
@@ -1652,6 +1742,8 @@ class MusicService : MediaLibraryService() {
             // Sing silences the main player on purpose while the instrumental plays: its fades, and any
             // write it absorbs, are neither the user's gestures nor "volume reached 0".
             if (instrumentalCrossfadeController.onMainVolumeChanged(mediaSession?.player ?: engine.masterPlayer, volume)) return
+            // A Spatial audio render on the second player owns the volume the same way.
+            if (spatialSwap.onMainVolumeChanged(mediaSession?.player ?: engine.masterPlayer, volume)) return
             replayGainProcessor.onPlayerVolumeChanged(volume)
             if (pauseOnVolumeZeroEnabled && volume == 0f) {
                 val player = mediaSession?.player ?: engine.masterPlayer
@@ -1681,9 +1773,11 @@ class MusicService : MediaLibraryService() {
             // After a pause, ExoPlayer may reset the audio track volume internally,
             // causing a brief full-volume spike before the IO coroutine finishes.
             // (Not while Sing's instrumental is audible: that would bring the vocals back over it.)
-            if (isPlaying && !instrumentalCrossfadeController.ownsMasterVolume) {
+            if (isPlaying && !alternateRenditionOwnsVolume) {
                 replayGainProcessor.reapplyLastAppliedVolume(player)
             }
+            // Cast takes over with the local player paused: the route of Spatial audio follows.
+            realSpatialPlayback.onRemoteChanged()
             // Push state immediately so the watch can foreground PixelPlay before
             // system media surfaces take over.
             widgetUpdateManager.requestFullUpdate(true)
@@ -1693,12 +1787,14 @@ class MusicService : MediaLibraryService() {
 
         override fun onPlaybackParametersChanged(playbackParameters: androidx.media3.common.PlaybackParameters) {
             instrumentalCrossfadeController.onPlaybackParametersChanged(playbackParameters)
+            spatialSwap.onPlaybackParametersChanged(playbackParameters)
         }
 
         override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
             // While a Spotify Connect device plays, the reported playWhenReady is the device's: the
             // local instrumental shadow must not start playing on the phone.
             instrumentalCrossfadeController.onPlayWhenReadyChanged(playWhenReady && connectSessionPlayer == null)
+            spatialSwap.onPlayWhenReadyChanged(playWhenReady && connectSessionPlayer == null)
             if (playWhenReady) enforceBlockedArtists(null)
             // Play pressed (notification, lock screen, Wear, headset) on a player that stopped after
             // a failed song or was restored paused: prepare it, or the press would do nothing.
@@ -1770,6 +1866,8 @@ class MusicService : MediaLibraryService() {
                 reviveIdlePlayerAfterNavigation()
                 musicHaptics.stopNow()
                 instrumentalCrossfadeController.onMainSeek(newPosition.positionMs)
+                spatialSwap.onMainSeek(newPosition.positionMs)
+                realSpatialPlayback.onSeek()
             }
             if (reason == Player.DISCONTINUITY_REASON_AUTO_TRANSITION ||
                 reason == Player.DISCONTINUITY_REASON_SEEK
@@ -1781,12 +1879,13 @@ class MusicService : MediaLibraryService() {
                     // Same track (e.g. repeat, seek) — no IO needed, apply last known RG volume
                     // immediately to avoid a spike while the coroutine reads tags again. (Not while Sing's
                     // instrumental is audible: that would bring the vocals back over it.)
-                    if (!instrumentalCrossfadeController.ownsMasterVolume) {
+                    if (!alternateRenditionOwnsVolume) {
                         replayGainProcessor.reapplyLastAppliedVolume(engine.masterPlayer)
                     }
                     // A repeat starts the song over without a seek: the instrumental goes back with it.
                     if (reason == Player.DISCONTINUITY_REASON_AUTO_TRANSITION) {
                         instrumentalCrossfadeController.onMainSeek(newPosition.positionMs)
+                        spatialSwap.onMainSeek(newPosition.positionMs)
                     }
                 } else {
                     // Different track — full recompute needed
@@ -1796,6 +1895,15 @@ class MusicService : MediaLibraryService() {
         }
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            if (reopeningSongId != null && mediaItem?.mediaId == reopeningSongId) {
+                // The same song opened again for its original (Spatial audio turned off for it): only the stream changed.
+                realSpatialPlayback.onItemChanged(
+                    mediaItem?.mediaId,
+                    spotifyIdOf(mediaItem),
+                    mediaItem?.localConfiguration?.uri?.toString()
+                )
+                return
+            }
             enforceBlockedArtists(reason)
             if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_SEEK) reviveIdlePlayerAfterNavigation()
             automaticStudioManager.onSongChanged(mediaItem?.mediaId)
@@ -1804,6 +1912,13 @@ class MusicService : MediaLibraryService() {
                 mediaItem?.mediaId,
                 mediaSession?.player ?: engine.masterPlayer
             )
+            // Spatial audio: the new song's rendition, request and status (§6.3); a render of the last one goes.
+            realSpatialPlayback.onItemChanged(
+                mediaItem?.mediaId,
+                spotifyIdOf(mediaItem),
+                mediaItem?.localConfiguration?.uri?.toString()
+            )
+            spatialSwap.onSongChanged(mediaItem?.mediaId, engine.masterPlayer)
             syncLocalListeningStatsFromPlayer(mediaSession?.player ?: engine.masterPlayer, forceNewSession = true)
 
             val eotTargetSongId = endOfTrackTimerSongId
@@ -1966,6 +2081,8 @@ class MusicService : MediaLibraryService() {
         wearStatePublisher.clearState()
         replayGainProcessor.cancel()
         instrumentalCrossfadeController.teardown()
+        realSpatialPlayback.detach()
+        spatialSwap.teardown()
 
         engine.removePlayerSwapListener(playerSwapListener)
         engine.removeTransitionDisplayPlayerListener(transitionDisplayPlayerListener)
@@ -3320,9 +3437,18 @@ class MusicService : MediaLibraryService() {
         return withContext(Dispatchers.Main) {
             val player = session.player
             if (overridePath == null) {
-                instrumentalCrossfadeController.crossfadeToOriginal(player)
+                // The vocals come back spatial when Spatial audio is on: the stage first, then Sing's fade.
+                realSpatialPlayback.prepareForSingReturn()
+                instrumentalCrossfadeController.crossfadeToOriginal(player).also { realSpatialPlayback.endSingReturn() }
             } else if (clip == null) {
-                instrumentalCrossfadeController.crossfadeToInstrumental(player, request)
+                // One owner of the main volume at a time: a Spatial audio render gives it back before Sing fades, and
+                // none starts until Sing's switch is over (done, refused or cancelled).
+                try {
+                    realSpatialPlayback.yieldToSing()
+                    instrumentalCrossfadeController.crossfadeToInstrumental(player, request)
+                } finally {
+                    realSpatialPlayback.endSingSwitch()
+                }
             } else {
                 // A Sing preview clip: found by the song playing now and the clip's start, never by a path a caller sent.
                 val songId = player.currentMediaItem?.mediaId
@@ -3336,16 +3462,21 @@ class MusicService : MediaLibraryService() {
                 if (file == null) {
                     false
                 } else {
-                    instrumentalCrossfadeController.crossfadeToInstrumental(
-                        player,
-                        request,
-                        com.theveloper.pixelplay.data.service.player.SingClipSource(
-                            file = file,
-                            window = com.theveloper.pixelplay.data.tais.SingClipWindow(clip.startMs, clip.endMs),
-                            returnAtMs = clip.returnAtMs,
-                            returnFadeMs = clip.returnFadeMs ?: CrossfadeRequest().fadeMs,
-                        ),
-                    )
+                    try {
+                        realSpatialPlayback.yieldToSing()
+                        instrumentalCrossfadeController.crossfadeToInstrumental(
+                            player,
+                            request,
+                            com.theveloper.pixelplay.data.service.player.SingClipSource(
+                                file = file,
+                                window = com.theveloper.pixelplay.data.tais.SingClipWindow(clip.startMs, clip.endMs),
+                                returnAtMs = clip.returnAtMs,
+                                returnFadeMs = clip.returnFadeMs ?: CrossfadeRequest().fadeMs,
+                            ),
+                        )
+                    } finally {
+                        realSpatialPlayback.endSingSwitch()
+                    }
                 }
             }
         }
