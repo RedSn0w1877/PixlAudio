@@ -1,8 +1,9 @@
 # Android Spatial audio: CLOUD (handoff, 2026-11-11)
 
-Branch `audio-cloud`, cut from `audio-hq` 50cf187. Contract: `handoff/2026-11-10-plans/cloud-audio-spec.md`
-("§" below); manual: `handoff/2026-11-10-plans/android-integration-map.md` ("map"). Nothing here ran on a phone:
-every check is a JVM test in GitHub Actions (`android-ci.yml`). The status of the last run is at the end.
+Branch `audio-cloud`, cut from `audio-hq` 50cf187, `audio-hq` 8f53b62 merged in; head 11d6d11 is green in CI
+(run 43074660606). Contract: `handoff/2026-11-10-plans/cloud-audio-spec.md` ("§" below); manual:
+`handoff/2026-11-10-plans/android-integration-map.md` ("map"). Nothing here ran on a phone: every check is a JVM
+test in GitHub Actions (`android-ci.yml`). Commits and runs are at the end.
 
 ## What is in
 
@@ -164,3 +165,15 @@ reads): `job.input.spatial.json`, `job.input.spatial.combined.json`, `job.result
   background queue's count.
 - Lead: compare with iOS on the decisions above (FAILED line, per-song eviction, permanent downloads, lanes,
   cadence, cost figure). Nothing in the frozen contract had to change.
+
+## Commits and CI
+
+- Code: 06fc0c3 (backup rules), eebdb2f (the cloud side), 22c0095 (tests and the worker's examples), 5baf4ea and
+  b1bed5d (test fixes, the ledger keeping successes, the network read off the creating thread), 11d6d11 (merge of
+  `origin/audio-hq` 8f53b62, the on-device tables v1.1: nothing of mine changed).
+- `android-ci.yml`: 43063673413 green; 43067990747 green (the code alone, every existing test passing);
+  43070406688 red (backtick test names with `:`/`;`); 43071376423 red (3 of 1 846 tests: my fake RunPod never
+  answered `/status`, and "not-a-video" is 11 legal characters); 43072583895 green; 43074660606 green on 11d6d11,
+  the branch head.
+- The worker's examples were checked again against `origin/audio-worker` 2395892 (a handoff-note commit after
+  b6f8eda): the same blobs.
