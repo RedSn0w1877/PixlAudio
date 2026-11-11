@@ -32,9 +32,15 @@ import javax.inject.Singleton
 /**
  * The stream [SpotifyStreamProxy] serves for a song: the YouTube video its URL was resolved for, the stream's itag, and
  * its length in bytes (the URL's `clen`; null when the URL doesn't say). A file of exactly that length fetched from the
- * proxy is that stream, byte for byte.
+ * proxy is that stream, byte for byte. [isSpotiFLAC]: the song's SpotiFLAC file instead of the video's audio (no itag;
+ * its length is known once the proxy served it).
  */
-data class StreamSource(val videoId: String, val itag: Int?, val contentLength: Long?)
+data class StreamSource(
+    val videoId: String,
+    val itag: Int?,
+    val contentLength: Long?,
+    val isSpotiFLAC: Boolean = false
+)
 
 /**
  * Proxy HTTP local que sirve el audio de una pista de Spotify.
@@ -228,12 +234,29 @@ class SpotifyStreamProxy @Inject constructor(
         if (!validateId(spotifyId) || !CloudStreamSecurity.validateYouTubeVideoId(videoId)) return null
         repeat(2) { attempt ->
             val url = getOrFetchStreamUrl(spotifyId) ?: return null
-            if (identityByUrl[url]?.videoId == videoId) {
+            val identity = identityByUrl[url]
+            if (identity?.videoId == videoId) {
                 return StreamSource(videoId, StreamItag.fromUrl(url), StreamItag.contentLengthFromUrl(url))
+            }
+            // SpotiFLAC's file (Pro / Studio Pro): the song's own recording, found by its ISRC, is the render's source
+            // (Hoa, 2026-11-11: "the flac to basically be the source"). It is stored under the video all the same; a
+            // phone playing other audio of the song (the video, on a capped tier) won't switch to it mid-song when the
+            // lengths differ (SpatialRenditionRule.linesUp) and starts on it from the next play instead.
+            if (identity?.strategy == SPOTIFLAC_STRATEGY || (identity == null && isSpotiFLACUrl(url))) {
+                return StreamSource(videoId, itag = null, contentLength = spotiFLACTotalByUrl[url], isSpotiFLAC = true)
             }
             if (attempt == 0) invalidateCachedUrl(spotifyId)
         }
         return null
+    }
+
+    /** Each SpotiFLAC file's whole length once the proxy served it (its URL carries no `clen`). */
+    private val spotiFLACTotalByUrl = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+    override fun onUpstreamTotal(id: String, url: String, totalBytes: Long) {
+        if (!isSpotiFLACUrl(url)) return
+        if (spotiFLACTotalByUrl.size > 512) spotiFLACTotalByUrl.clear()
+        spotiFLACTotalByUrl[url] = totalBytes
     }
 
     override fun resolveResponseContentType(

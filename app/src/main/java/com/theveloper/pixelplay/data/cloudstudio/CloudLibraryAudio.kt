@@ -19,6 +19,11 @@ import java.util.UUID
  * - a cached file that isn't provably that stream (another video's, or another format of the same one) is left as it is
  *   (the person may be playing it) and a copy of the stream is made for the job alone in [workDir], let go with
  *   [release] once the upload is prepared.
+ *
+ * On Pro / Studio Pro the proxy serves SpotiFLAC's file (the song's recording, found by its ISRC) instead of the video's
+ * audio, and that file is the render's source ([StreamSource.isSpotiFLAC]; Hoa, 2026-11-11). It is proven the same way
+ * by its length, known once the proxy served it. A phone playing the video's audio instead won't switch to such a render
+ * mid-song when the lengths differ (`SpatialRenditionRule.linesUp`); it starts on it from the next play.
  */
 class CloudLibraryAudioFinder(
     /** The video the song plays now (its match), or null. */

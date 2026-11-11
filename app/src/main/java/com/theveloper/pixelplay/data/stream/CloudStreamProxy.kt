@@ -284,6 +284,9 @@ abstract class CloudStreamProxy<K : Any>(
      */
     protected open fun upstreamParallelism(id: K, url: String): Int = 1
 
+    /** The whole length of [url]'s file, once an upstream answer has told it (a range's total, or a full body). */
+    protected open fun onUpstreamTotal(id: K, url: String, totalBytes: Long) = Unit
+
     /** Whether [acceptStreamHead] wants to see the first bytes of [url] before they are served. */
     protected open fun wantsStreamHead(id: K, url: String): Boolean = false
 
@@ -481,6 +484,7 @@ abstract class CloudStreamProxy<K : Any>(
                         originalItag = Uri.parse(url).getQueryParameter("itag")
                         val total = totalLength(first, url) ?: expectedTotal
                         expectedTotal = total
+                        if (total != null) onUpstreamTotal(id, url, total)
                         if (total != null && !CloudStreamSecurity.isAcceptableContentLength(total.toString())) {
                             call.respond(HttpStatusCode(413, "Payload Too Large"))
                             return@get

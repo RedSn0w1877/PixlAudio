@@ -124,6 +124,13 @@ internal object RenditionSwapTiming {
     const val SEEK_SETTLE_MS = 1_000L
 
     /**
+     * A render switches in mid-song only when its length is within this of the audio playing (iOS: the same 50 ms).
+     * A render made from other audio of the song (SpotiFLAC's file vs the video's stream, which can have another intro
+     * or length) would land in the wrong place; it is used from the next play instead.
+     */
+    const val LINE_UP_TOLERANCE_MS = 50L
+
+    /**
      * How close the render must be to the song before the fade. The two are the same song through two spatial
      * renderings, so a few tens of ms would smear the attack during the overlap; tighter than Sing's 40 ms.
      */

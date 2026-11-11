@@ -112,6 +112,15 @@ object SpatialRenditionRule {
     fun hasTimeLeft(positionMs: Long, durationMs: Long): Boolean =
         durationMs > 0 && durationMs - positionMs >= RenditionSwapTiming.MIN_REMAINING_MS
 
+    /**
+     * The render was made from the audio playing now, as far as lengths tell: within
+     * [RenditionSwapTiming.LINE_UP_TOLERANCE_MS] of each other. True when either length is unknown. A render that
+     * doesn't line up (SpotiFLAC's file vs the video's stream) is used from the next play, not switched in mid-song.
+     */
+    fun linesUp(playingDurationMs: Long, renderDurationMs: Long): Boolean =
+        playingDurationMs <= 0 || renderDurationMs <= 0 ||
+            kotlin.math.abs(playingDurationMs - renderDurationMs) <= RenditionSwapTiming.LINE_UP_TOLERANCE_MS
+
     /** No seek or track change in flight: the player is ready, the last seek settled, no next-song transition. */
     fun nothingInFlight(playerReady: Boolean, msSinceSeek: Long, transitionRunning: Boolean): Boolean =
         playerReady && !transitionRunning && msSinceSeek >= RenditionSwapTiming.SEEK_SETTLE_MS

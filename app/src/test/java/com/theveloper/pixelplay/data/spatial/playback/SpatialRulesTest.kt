@@ -162,6 +162,19 @@ class SpatialRulesTest {
     }
 
     @Test
+    fun `a render switches in mid-song only when its length is the playing audio's`() {
+        // Made from what plays (the same SpotiFLAC file, or the same stream at another rate): within 50 ms.
+        assertTrue(SpatialRenditionRule.linesUp(202_040, 202_040))
+        assertTrue(SpatialRenditionRule.linesUp(202_040, 202_000))
+        // Made from other audio of the song (the album file vs the video, another intro): next play instead.
+        assertFalse(SpatialRenditionRule.linesUp(202_040, 210_500))
+        assertFalse(SpatialRenditionRule.linesUp(202_040, 201_900))
+        // A length nobody knows yet doesn't stop it (the 20 s rule needs one anyway).
+        assertTrue(SpatialRenditionRule.linesUp(-9_223_372_036_854_775_807L, 202_040))
+        assertTrue(SpatialRenditionRule.linesUp(202_040, 0))
+    }
+
+    @Test
     fun `renders line up by media time across sample rates`() {
         // 60 s into a 48 kHz stream is the same instant of a 44.1 kHz render.
         val streamFrame = 2_880_000L

@@ -419,9 +419,13 @@ class RealSpatialPlayback @Inject constructor(
                 }
                 // (Read again: the engine may have rebuilt its player during the lookup.)
                 val player = h.mainPlayer()
-                if (local == null || !SpatialRenditionRule.hasTimeLeft(player.currentPosition, SpatialSwapMath.durationMs(player.duration, local))) {
-                    // Another profile's render is heard and this one's is not here (or too late in the song): back to
-                    // the stream with the stage. Otherwise the next play starts on it.
+                if (local == null ||
+                    !SpatialRenditionRule.hasTimeLeft(player.currentPosition, SpatialSwapMath.durationMs(player.duration, local)) ||
+                    !SpatialRenditionRule.linesUp(player.duration, SpatialSwapMath.renderDurationMs(local))
+                ) {
+                    // Another profile's render is heard and this one's is not here (or too late in the song, or made
+                    // from other audio of the song than what plays): back to the stream with the stage. Otherwise the
+                    // next play starts on it.
                     if (swap.audibleRender != null) swap.fadeToMain(player)
                     return
                 }
