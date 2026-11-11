@@ -482,6 +482,14 @@ class MusicService : MediaLibraryService() {
         // sets the new player's level, so that write is not taken for the instrumental's).
         instrumentalCrossfadeController.onTransitionFinished(mediaSession?.player ?: engine.masterPlayer)
         spatialSwap.onTransitionFinished(engine.masterPlayer)
+        // Spatial audio follows the hand-over: the new master never reports a transition for the song it already
+        // plays, so without this the song's rendition, request and status stayed the last song's. (Not when the
+        // incoming player is published: the master, the player swaps act on, is still the outgoing one then. A
+        // cancelled overlap leaves the song as it was, and this changes nothing.) Before ReplayGain, so its write
+        // gets the new song's level lift.
+        engine.masterPlayer.currentMediaItem.let { item ->
+            realSpatialPlayback.onItemChanged(item?.mediaId, spotifyIdOf(item), item?.localConfiguration?.uri?.toString())
+        }
         replayGainProcessor.onTransitionFinished()
     }
 
@@ -3406,9 +3414,14 @@ class MusicService : MediaLibraryService() {
                 realSpatialPlayback.prepareForSingReturn()
                 instrumentalCrossfadeController.crossfadeToOriginal(player).also { realSpatialPlayback.endSingReturn() }
             } else if (clip == null) {
-                // One owner of the main volume at a time: a Spatial audio render gives it back before Sing fades.
-                realSpatialPlayback.yieldToSing()
-                instrumentalCrossfadeController.crossfadeToInstrumental(player, request)
+                // One owner of the main volume at a time: a Spatial audio render gives it back before Sing fades, and
+                // none starts until Sing's switch is over (done, refused or cancelled).
+                try {
+                    realSpatialPlayback.yieldToSing()
+                    instrumentalCrossfadeController.crossfadeToInstrumental(player, request)
+                } finally {
+                    realSpatialPlayback.endSingSwitch()
+                }
             } else {
                 // A Sing preview clip: found by the song playing now and the clip's start, never by a path a caller sent.
                 val songId = player.currentMediaItem?.mediaId
@@ -3422,17 +3435,21 @@ class MusicService : MediaLibraryService() {
                 if (file == null) {
                     false
                 } else {
-                    realSpatialPlayback.yieldToSing()
-                    instrumentalCrossfadeController.crossfadeToInstrumental(
-                        player,
-                        request,
-                        com.theveloper.pixelplay.data.service.player.SingClipSource(
-                            file = file,
-                            window = com.theveloper.pixelplay.data.tais.SingClipWindow(clip.startMs, clip.endMs),
-                            returnAtMs = clip.returnAtMs,
-                            returnFadeMs = clip.returnFadeMs ?: CrossfadeRequest().fadeMs,
-                        ),
-                    )
+                    try {
+                        realSpatialPlayback.yieldToSing()
+                        instrumentalCrossfadeController.crossfadeToInstrumental(
+                            player,
+                            request,
+                            com.theveloper.pixelplay.data.service.player.SingClipSource(
+                                file = file,
+                                window = com.theveloper.pixelplay.data.tais.SingClipWindow(clip.startMs, clip.endMs),
+                                returnAtMs = clip.returnAtMs,
+                                returnFadeMs = clip.returnFadeMs ?: CrossfadeRequest().fadeMs,
+                            ),
+                        )
+                    } finally {
+                        realSpatialPlayback.endSingSwitch()
+                    }
                 }
             }
         }
