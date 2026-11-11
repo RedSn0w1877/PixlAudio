@@ -107,3 +107,28 @@ internal object CrossfadeRamp {
     fun nextSeekLead(previousLeadMs: Long, driftMs: Long): Long =
         (previousLeadMs - driftMs).coerceIn(0L, MAX_SEEK_LEAD_MS)
 }
+
+/**
+ * The numbers of a Spatial audio rendition swap (cloud-audio-spec §6.3, [SpatialRenditionSwap]), kept beside Sing's and
+ * apart from them: Sing's fades stay 300-700 ms with no "time left" rule, and nothing here goes through
+ * [CrossfadeRamp.clampFadeMs].
+ */
+internal object RenditionSwapTiming {
+    /** §6.3: a short linear crossfade of about 250 ms. */
+    const val FADE_MS = 250L
+
+    /** §6.3: a render takes over mid-song only with at least 20 s left. */
+    const val MIN_REMAINING_MS = 20_000L
+
+    /** A seek counts as in flight for this long after it was asked for. */
+    const val SEEK_SETTLE_MS = 1_000L
+
+    /**
+     * How close the render must be to the song before the fade. The two are the same song through two spatial
+     * renderings, so a few tens of ms would smear the attack during the overlap; tighter than Sing's 40 ms.
+     */
+    const val ALIGN_TOLERANCE_MS = 20L
+
+    /** The time the alignment may take before the fade starts anyway (the resync keeps correcting). */
+    const val ALIGN_BUDGET_MS = 400L
+}

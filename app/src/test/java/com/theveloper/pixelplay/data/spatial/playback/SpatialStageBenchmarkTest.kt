@@ -26,6 +26,8 @@ class SpatialStageBenchmarkTest {
 
     @Test
     fun `the stage costs well under a microsecond per frame`() {
+        // Both warmed up before either is measured, so neither number carries the other's JIT warm-up.
+        processorNsPerFrame()
         val kernelNs = kernelNsPerFrame()
         val processorNs = processorNsPerFrame()
         val report = "spatial stage, hall 48 kHz: kernel %.1f ns/frame, processor (16-bit) %.1f ns/frame"
@@ -89,7 +91,7 @@ class SpatialStageBenchmarkTest {
     }
 
     private companion object {
-        const val WARMUP_SECONDS = 4
+        const val WARMUP_SECONDS = 6
         const val ROUNDS = 8
         const val LIMIT_NS = 2_500.0
 

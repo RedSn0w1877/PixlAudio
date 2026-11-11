@@ -68,6 +68,8 @@ class InstrumentalCrossfadeController(
     private val incomingVolumeTarget: () -> Float = { 1f },
     /** The player left a preview clip on its own (it was running out, or a seek left it): the song id. */
     private val onClipLeft: (String) -> Unit = {},
+    /** [isCrossfadedToInstrumental] changed (Spatial audio pauses while the instrumental is heard). Observation only. */
+    private val onInstrumentalAudibleChanged: () -> Unit = {},
 ) {
     private var shadowPlayer: ExoPlayer? = null
     private var mainPlayerRef: Player? = null
@@ -108,7 +110,11 @@ class InstrumentalCrossfadeController(
     }
 
     var isCrossfadedToInstrumental: Boolean = false
-        private set
+        private set(value) {
+            if (field == value) return
+            field = value
+            onInstrumentalAudibleChanged()
+        }
 
     /** A fade between the vocals and the instrumental is running. */
     var isRamping: Boolean = false
