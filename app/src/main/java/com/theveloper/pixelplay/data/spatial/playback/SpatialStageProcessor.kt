@@ -10,6 +10,7 @@ import androidx.media3.common.util.UnstableApi
 import com.theveloper.pixelplay.data.spatial.SpatialRender
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import kotlin.math.abs
 
 /**
  * The on-device spatial stage as a Media3 audio processor (cloud-audio-spec §7): the last processor of each player's
@@ -19,11 +20,17 @@ import java.nio.ByteOrder
  *   left out of the pipeline for that stream (§6.3: such a song plays without the stage).
  * - **Per item** (§6.3, integration map 2.3): a flush that follows a `configure` is a new stream; its
  *   [AudioProcessor.StreamMetadata] names the item, and an item that is already a spatial render is bypassed from its
- *   first sample, so it is never spatialized twice. A flush without a `configure` is a seek: the history starts over.
+ *   first sample, so it is never spatialized twice (a boundary that needs a new AudioTrack, at another rate, first
+ *   flushes with the old item's metadata: any flush that names another item decides again). A flush without a
+ *   `configure` is a seek: the history starts over.
  *   An item boundary at the same rate keeps the history (gapless stays gapless) and ramps any change in 10 ms.
+ * - **New playback parameters** (a speed change, skip silence): `DefaultAudioSink` drains the chain (end of stream),
+ *   then flushes it with no `configure`, at the position where the audio simply carries on. That is not a seek: the
+ *   history and the mix carry on too, so a speed change is not a dropout.
  * - **Live parameters**: [SpatialStageLink.state] is read once per buffer; a new profile or a bypass ramps over 80 ms.
  *
- * No allocation while processing: scratch arrays are made once, the rings once when the table first arrives.
+ * No allocation while processing: scratch arrays are made once, the rings once for the whole table, before the first
+ * preset is used (the kernel is idle then), so a profile change never replaces a ring the old profile still reads.
  */
 @OptIn(UnstableApi::class)
 class SpatialStageProcessor internal constructor(
@@ -50,7 +57,19 @@ class SpatialStageProcessor internal constructor(
     /** This stream is already a spatial render: the stage stays dry for it. */
     private var renderItem = false
 
+    /** The period [renderItem] was decided for (null: none yet). */
+    private var decidedPeriodUid: Any? = null
+
     private var lastState: SpatialStageState? = null
+
+    /** Input frames queued since the last flush (where the stream carries on from, with [lastOffsetUs]). */
+    private var framesSinceFlush = 0L
+
+    /** End of stream was queued since the last flush: the sink drained everything queued before it. */
+    private var drained = false
+
+    /** The last flush's position ([AudioProcessor.StreamMetadata.positionOffsetUs]; [C.TIME_UNSET]: none yet). */
+    private var lastOffsetUs = C.TIME_UNSET
 
     override fun onConfigure(inputAudioFormat: AudioFormat): AudioFormat {
         configuredSinceFlush = true
@@ -63,28 +82,63 @@ class SpatialStageProcessor internal constructor(
     override fun onFlush(streamMetadata: AudioProcessor.StreamMetadata) {
         val newStream = configuredSinceFlush
         configuredSinceFlush = false
+        val offsetUs = streamMetadata.positionOffsetUs
+        // New playback parameters: drained, no configure, and the stream goes on where the queued frames ended. A seek
+        // never drains; Media3's own resync after a jump (over 200 ms) drains but lands elsewhere.
+        val carriesOn = !newStream && drained && continuesAt(offsetUs)
+        lastOffsetUs = offsetUs
+        framesSinceFlush = 0
+        drained = false
         var identity: String? = null
         var mediaId: String? = null
         var identified = false
-        if (newStream) {
+        // A new stream names its item. So does a flush with no configure that names another item than the one decided:
+        // a boundary that needs a new AudioTrack (another rate) flushes first with the old item's metadata (the sink's
+        // own flush, before it takes the new configuration), then with the new item's.
+        val uid = streamMetadata.periodUid
+        if (newStream || (uid != null && uid != decidedPeriodUid)) {
             val item = itemOf(streamMetadata)
             if (item != null) {
                 identified = true
+                decidedPeriodUid = uid
                 mediaId = item.mediaId
                 identity = item.localConfiguration?.uri?.toString()
             }
         }
-        onStreamStarting(newStream, identified, mediaId, identity)
+        onStreamStarting(newStream, identified, mediaId, identity, carriesOn)
+    }
+
+    override fun onQueueEndOfStream() {
+        drained = true
     }
 
     /**
-     * The flush's decision, apart from the timeline so tests can drive it: [newStream] false is a seek; [identified]
-     * says whether the stream's item was found (else the previous item's decision stays, integration map 2.3).
+     * Whether a stream restarting at [offsetUs] picks up where the frames queued since the last flush ended, within
+     * [CONTINUITY_TOLERANCE_US] (Media3 trims the encoder delay and padding before this processor, so the count can be
+     * a few tens of milliseconds short of the timestamps).
      */
-    internal fun onStreamStarting(newStream: Boolean, identified: Boolean, mediaId: String?, uri: String?) {
+    private fun continuesAt(offsetUs: Long): Boolean {
+        val rate = inputAudioFormat.sampleRate
+        if (rate <= 0 || offsetUs == C.TIME_UNSET || lastOffsetUs == C.TIME_UNSET) return false
+        val expectedUs = lastOffsetUs + framesSinceFlush * C.MICROS_PER_SECOND / rate
+        return abs(offsetUs - expectedUs) <= CONTINUITY_TOLERANCE_US
+    }
+
+    /**
+     * The flush's decision, apart from the timeline so tests can drive it: [newStream] false is a seek, unless the
+     * audio [carriesOn] (new playback parameters: history and mix stay); [identified] says whether the stream's item
+     * was found and is decided now (else the previous item's decision stays, integration map 2.3).
+     */
+    internal fun onStreamStarting(
+        newStream: Boolean,
+        identified: Boolean,
+        mediaId: String?,
+        uri: String?,
+        carriesOn: Boolean = false,
+    ) {
         configuredSinceFlush = false
         val supported = outputAudioFormat != AudioFormat.NOT_SET
-        if (newStream && identified) {
+        if (identified) {
             val render = link.renditionOf(uri)
             renderItem = render != null
             link.onStreamStarted(mediaId, render, supported)
@@ -96,11 +150,15 @@ class SpatialStageProcessor internal constructor(
         val rate = inputAudioFormat.sampleRate
         kernel.setRampFrames(rate * RAMP_MS / 1000)
         applyState(link.state, rate)
-        if (!newStream || rate != activeRate) {
+        if (rate != activeRate) {
+            // The first stream, or a new rate: the history belongs to another rate.
             kernel.reset()
             activeRate = rate
-        } else {
+        } else if (newStream) {
             kernel.boundary(rate * BOUNDARY_RAMP_MS / 1000)
+        } else if (!carriesOn) {
+            // A seek: the history starts over.
+            kernel.reset()
         }
     }
 
@@ -109,6 +167,9 @@ class SpatialStageProcessor internal constructor(
         val tables = state.tables
         val profile = state.profile
         val preset = if (tables != null && profile != null) tables.preset(profile, rate) else null
+        // The rings are sized for the whole table before the first preset is used: the kernel is idle then, so the one
+        // allocation is never heard, and a later profile change never swaps out a ring the old preset still reads.
+        if (tables != null && preset != null) kernel.ensureCapacity(tables)
         kernel.setTarget(preset, state.wet && !renderItem)
     }
 
@@ -118,6 +179,8 @@ class SpatialStageProcessor internal constructor(
         val format = inputAudioFormat
         val bytesPerFrame = format.bytesPerFrame
         val frames = remaining / bytesPerFrame
+        framesSinceFlush += frames
+        drained = false
         val output = replaceOutputBuffer(frames * bytesPerFrame)
         val state = link.state
         if (state !== lastState) applyState(state, format.sampleRate)
@@ -202,7 +265,11 @@ class SpatialStageProcessor internal constructor(
         configuredSinceFlush = false
         activeRate = 0
         renderItem = false
+        decidedPeriodUid = null
         lastState = null
+        framesSinceFlush = 0
+        drained = false
+        lastOffsetUs = C.TIME_UNSET
     }
 
     private fun itemOf(metadata: AudioProcessor.StreamMetadata): androidx.media3.common.MediaItem? {
@@ -224,6 +291,13 @@ class SpatialStageProcessor internal constructor(
 
         /** An item boundary that changes the decision (a render starts) ramps this fast instead. */
         const val BOUNDARY_RAMP_MS = 10
+
+        /**
+         * A drained flush this close to where the queued frames end continues the stream: more than the encoder delay
+         * and padding Media3 trims at a stream's start (tens of milliseconds), less than the 200 ms jump Media3 itself
+         * treats as a discontinuity.
+         */
+        const val CONTINUITY_TOLERANCE_US = 100_000L
 
         private const val SHORT_TO_FLOAT = 1f / 32768f
 

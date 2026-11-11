@@ -20,16 +20,20 @@ class SpatialStageRampTest {
 
     private class Run(val outL: FloatArray, val outR: FloatArray)
 
-    /** Plays a sine through [events] (frame -> preset and wet) in 256-frame blocks, starting from [start]. */
+    /**
+     * Plays a sine through [events] (frame -> preset and wet) in 256-frame blocks, starting from [start]. [sized]: the
+     * rings are sized for the whole table first (as the processor does); else each preset sizes what it needs.
+     */
     private fun play(
         seconds: Double,
         start: Pair<SpatialPreset?, Boolean>,
         events: Map<Int, Pair<SpatialPreset?, Boolean>>,
         inL: FloatArray = sine(seconds, 440.0, 0.0),
         inR: FloatArray = sine(seconds, 440.0, 0.7),
+        sized: Boolean = true,
     ): Run {
         val kernel = SpatialStageKernel()
-        kernel.ensureCapacity(tables)
+        if (sized) kernel.ensureCapacity(tables)
         kernel.setRampFrames(rate * SpatialStageProcessor.RAMP_MS / 1000)
         kernel.setTarget(start.first, start.second)
         kernel.reset()
@@ -107,6 +111,52 @@ class SpatialStageRampTest {
         }
         val ms = frames * 1000 / rate
         assertTrue(ms in 75..90, "ramp took $ms ms")
+    }
+
+    @Test
+    fun `an item boundary while nothing is selected leaves the 80 ms ramp to the profile picked next`() {
+        // Spatial off, a gapless boundary: the kernel is idle, so process() (which ends the boundary's fast ramp) never
+        // runs. The profile picked later must still fade in over about 80 ms, not the boundary's 10 ms.
+        val studio = tables.preset(SpatialProfile.STUDIO, rate)!!
+        val kernel = SpatialStageKernel()
+        kernel.ensureCapacity(tables)
+        kernel.setRampFrames(rate * SpatialStageProcessor.RAMP_MS / 1000)
+        kernel.setTarget(null, wet = false)
+        kernel.reset()
+        kernel.boundary(rate * SpatialStageProcessor.BOUNDARY_RAMP_MS / 1000)
+        kernel.setTarget(studio, wet = true)
+        val zeros = FloatArray(kernel.maxBlock)
+        val out = FloatArray(kernel.maxBlock)
+        var frames = 0
+        while (!kernel.isFullyWet) {
+            kernel.process(zeros, zeros, out, out, 64)
+            frames += 64
+            check(frames < rate) { "the ramp never ended" }
+        }
+        val ms = frames * 1000 / rate
+        assertTrue(ms in 75..90, "ramp took $ms ms")
+    }
+
+    @Test
+    fun `rings that grow while a preset plays keep its history`() {
+        // A kernel that sizes per preset (setTarget alone) grows Studio's 4,096-sample room ring for Concert Hall's
+        // 8,559-sample room while Studio is still fading out: Studio must keep reading the same history.
+        val second = rate
+        val studio = tables.preset(SpatialProfile.STUDIO, rate)!!
+        val hall = tables.preset(SpatialProfile.HALL, rate)!!
+        val switchAt = second / 2 / 256 * 256
+        val events = mapOf(switchAt to (hall to true))
+        val grown = play(seconds = 1.5, start = studio to true, events = events, sized = false)
+        val sized = play(seconds = 1.5, start = studio to true, events = events, sized = true)
+        // Until Hall's coefficients take over (after Studio's 80 ms fade out), the two read the same history.
+        val swap = switchAt + rate * SpatialStageProcessor.RAMP_MS / 1000
+        for (i in 0 until swap) {
+            assertEquals(sized.outL[i], grown.outL[i], "left $i")
+            assertEquals(sized.outR[i], grown.outR[i], "right $i")
+        }
+        val bound = maxOf(maxStep(sized.outL, second / 10, sized.outL.size), maxStep(sized.outR, second / 10, sized.outR.size))
+        val worst = maxOf(maxStep(grown.outL, second / 10, grown.outL.size), maxStep(grown.outR, second / 10, grown.outR.size))
+        assertTrue(worst <= bound * 1.02f + 1e-3f, "largest step $worst against the signal's own $bound")
     }
 
     @Test
