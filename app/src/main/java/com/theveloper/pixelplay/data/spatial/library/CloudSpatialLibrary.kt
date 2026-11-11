@@ -195,7 +195,13 @@ class CloudSpatialLibrary(
 
     override fun request(songId: String, videoId: String, profile: SpatialProfile) {
         if (!CloudKeys.isValidVideoId(videoId) || !_cloudRendersOn.value) return
-        scope.launch { pursue(SpatialRenderKey(videoId, profile), Want(songId, ahead = false)) }
+        scope.launch { requestNow(songId, videoId, profile) }
+    }
+
+    /** [request], done in the caller (the tests wait for it). */
+    internal suspend fun requestNow(songId: String, videoId: String, profile: SpatialProfile) {
+        if (!CloudKeys.isValidVideoId(videoId)) return
+        pursue(SpatialRenderKey(videoId, profile), Want(songId, ahead = false))
     }
 
     override fun status(videoId: String, profile: SpatialProfile): Flow<SpatialRenditionStatus> {
