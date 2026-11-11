@@ -40,7 +40,6 @@ import androidx.compose.material.icons.rounded.Wifi
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.SheetState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -84,9 +83,10 @@ import kotlinx.coroutines.flow.map
 @Composable
 fun SpatialAudioSheet(
     onDismissRequest: () -> Unit,
-    sheetState: SheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
     viewModel: SpatialAudioViewModel = hiltViewModel(),
 ) {
+    // Kept inside, so callers need no opt-in for Material's experimental sheet state.
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val holder = viewModel.spatial
     val selected by remember(holder) {
         holder.settings.map { it.profile }.distinctUntilChanged()
