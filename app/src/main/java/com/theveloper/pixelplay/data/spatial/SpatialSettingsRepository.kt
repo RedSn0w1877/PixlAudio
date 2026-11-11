@@ -22,7 +22,9 @@ import kotlinx.coroutines.flow.first
  * (the UI through [com.theveloper.pixelplay.presentation.viewmodel.SpatialAudioStateHolder]).
  *
  * A value that is missing reads as its default; a value of the wrong type or outside its range (a hand-edited
- * backup) reads as the default or the nearest allowed value, never as a crash.
+ * backup) reads as the default or the nearest allowed value, never as a crash. The stored forms are §6.1's, the same
+ * on both platforms: the cap's "No limit" is `-1`, the storage budget stays within 256..65536 MB, the daily count
+ * within 1..100.
  */
 @Singleton
 class SpatialSettingsRepository @Inject constructor(
@@ -59,7 +61,10 @@ class SpatialSettingsRepository @Inject constructor(
         dataStore.edit { it[Keys.PROFILE] = profile?.id ?: SpatialProfile.OFF_ID }
     }
 
-    /** `spatial.route` (§6.1). Developer mode's row; the value stays when Developer mode is switched off. */
+    /**
+     * `spatial.route` (§6.1). Developer mode's row; the stored value stays, and is honoured, when Developer mode is
+     * switched off (§6.1 "Stored forms").
+     */
     suspend fun setRouteMode(mode: SpatialRouteMode) {
         dataStore.edit { it[Keys.ROUTE] = mode.id }
     }
@@ -79,9 +84,12 @@ class SpatialSettingsRepository @Inject constructor(
         dataStore.edit { it[Keys.ENHANCED] = enabled }
     }
 
-    /** `cloudAudio.storageMB` (§6.1): never below 0. */
+    /**
+     * `cloudAudio.storageMB` (§6.1 "Stored forms"): kept within
+     * [SpatialSettings.MIN_STORAGE_MB]..[SpatialSettings.MAX_STORAGE_MB].
+     */
     suspend fun setStorageMb(megabytes: Int) {
-        dataStore.edit { it[Keys.STORAGE_MB] = megabytes.coerceAtLeast(0) }
+        dataStore.edit { it[Keys.STORAGE_MB] = SpatialSettings.clampStorageMb(megabytes) }
     }
 
     /**
@@ -94,9 +102,12 @@ class SpatialSettingsRepository @Inject constructor(
         }
     }
 
-    /** `cloudAudio.dailyAhead` (§6.1, §6.4): never below 0. */
+    /**
+     * `cloudAudio.dailyAhead` (§6.1 "Stored forms", §6.4): kept within
+     * [SpatialSettings.MIN_DAILY_AHEAD]..[SpatialSettings.MAX_DAILY_AHEAD].
+     */
     suspend fun setDailyAhead(songs: Int) {
-        dataStore.edit { it[Keys.DAILY_AHEAD] = songs.coerceAtLeast(0) }
+        dataStore.edit { it[Keys.DAILY_AHEAD] = SpatialSettings.clampDailyAhead(songs) }
     }
 
     private fun read(preferences: Preferences): SpatialSettings {
@@ -110,13 +121,18 @@ class SpatialSettingsRepository @Inject constructor(
             cloud = stored[Keys.CLOUD] as? Boolean ?: builtInCloud.isBundled,
             prepareAhead = stored[Keys.PREPARE_AHEAD] as? Boolean ?: SpatialSettings.DEFAULT_PREPARE_AHEAD,
             enhanced = stored[Keys.ENHANCED] as? Boolean ?: SpatialSettings.DEFAULT_ENHANCED,
-            storageMb = (stored[Keys.STORAGE_MB] as? Int ?: SpatialSettings.DEFAULT_STORAGE_MB).coerceAtLeast(0),
-            monthlyCapUsd = when (capUsd) {
-                null -> SpatialSettings.DEFAULT_MONTHLY_CAP_USD
-                NO_MONTHLY_CAP -> null
-                else -> capUsd.coerceIn(0, SpatialSettings.MAX_MONTHLY_CAP_USD)
+            storageMb = SpatialSettings.clampStorageMb(
+                stored[Keys.STORAGE_MB] as? Int ?: SpatialSettings.DEFAULT_STORAGE_MB
+            ),
+            monthlyCapUsd = when {
+                capUsd == null -> SpatialSettings.DEFAULT_MONTHLY_CAP_USD
+                // "No limit" is written as -1; any negative number reads as it, as on iOS.
+                capUsd < 0 -> null
+                else -> capUsd.coerceAtMost(SpatialSettings.MAX_MONTHLY_CAP_USD)
             },
-            dailyAhead = (stored[Keys.DAILY_AHEAD] as? Int ?: SpatialSettings.DEFAULT_DAILY_AHEAD).coerceAtLeast(0),
+            dailyAhead = SpatialSettings.clampDailyAhead(
+                stored[Keys.DAILY_AHEAD] as? Int ?: SpatialSettings.DEFAULT_DAILY_AHEAD
+            ),
         )
     }
 
@@ -136,18 +152,18 @@ class SpatialSettingsRepository @Inject constructor(
         /** §6.1 key (Boolean). */
         const val KEY_ENHANCED = "enhanced.enabled"
 
-        /** §6.1 key (Int, megabytes). */
+        /** §6.1 key (Int, megabytes, 256..65536). */
         const val KEY_STORAGE_MB = "cloudAudio.storageMB"
 
         /** §6.1 key (Int, whole dollars; [NO_MONTHLY_CAP] for "No limit"). */
         const val KEY_MONTHLY_CAP_USD = "cloudAudio.monthlyCapUSD"
 
-        /** §6.1 key (Int, songs a day). */
+        /** §6.1 key (Int, songs a day, 1..100). */
         const val KEY_DAILY_AHEAD = "cloudAudio.dailyAhead"
 
         /**
-         * How "No limit" is stored under [KEY_MONTHLY_CAP_USD]. Not 0: a cap of 0 means "spend nothing", as it does
-         * for Sing's cap.
+         * How "No limit" is stored under [KEY_MONTHLY_CAP_USD] (§6.1 "Stored forms": `-1`, identical on both
+         * platforms). Not 0: a cap of 0 means "spend nothing", as it does for Sing's cap.
          */
         const val NO_MONTHLY_CAP = -1
     }

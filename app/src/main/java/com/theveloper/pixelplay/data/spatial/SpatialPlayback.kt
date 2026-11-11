@@ -6,7 +6,11 @@ import kotlinx.coroutines.flow.asStateFlow
 
 /**
  * The player side of Spatial audio and Enhanced audio as the rest of the app sees it (§6.3, §7): the on-device stage,
- * which file an item plays from, the fade to a render that arrives mid-song, the route rule and the level rule.
+ * which file an item plays from, the fade to a render that arrives mid-song (about 250 ms, only with at least 20 s
+ * left; Sing's own swap keeps its 300-700 ms and must not change), the route rule and the level rule.
+ *
+ * It is also the one that asks for renders: when a song plays with Spatial audio active and has no local render it
+ * calls [SpatialLibrary.request], and it tells the library what it played ([SpatialLibrary.markPlayed]).
  *
  * The playback service drives it: it collects [SpatialSettingsRepository.settings] and hands every value to [apply],
  * so the settings reach the player with or without the app's UI. The UI only reads [audible], through

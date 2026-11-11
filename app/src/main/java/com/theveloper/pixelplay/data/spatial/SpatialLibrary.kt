@@ -18,13 +18,25 @@ import kotlinx.coroutines.flow.flowOf
  * [SpatialContract.LIB_V].
  *
  * The player calls [localRender], [localEnhanced], [request] and [markPlayed] and listens to [events]; the UI reads
- * [status] and [stats] and calls [removeAll], through
+ * [status], [stats] and [cloudRendersOn] and calls [removeAll], through
  * [com.theveloper.pixelplay.presentation.viewmodel.SpatialAudioStateHolder]. The background queue of §6.4 lives
  * behind this interface: nobody asks for it from outside.
+ *
+ * The library reads the settings itself ([SpatialSettingsRepository.settings]) and obeys both switches of §6.1:
+ * Cloud Studio's "Process songs in the cloud" is the master, `spatial.cloud` is Spatial's own under it. With either
+ * off it looks nothing up, downloads nothing and sends nothing; what is already on the phone still plays. Its jobs
+ * have their own monthly sum under `cloudAudio.monthlyCapUSD`, apart from Sing's (§6.1 "Money").
  *
  * Bound in [SpatialLibraryModule]. Until the cloud side lands it is [NoOpSpatialLibrary]: there is never a render.
  */
 interface SpatialLibrary {
+    /**
+     * §6.1 "Two switches": whether cloud renders can happen at all right now, i.e. Cloud Studio's master switch and
+     * `spatial.cloud` are both on. The sheet's status line needs it (§6.5: "a profile is on, cloud renders are
+     * off"). It says nothing about the network or the caps.
+     */
+    val cloudRendersOn: StateFlow<Boolean>
+
     /**
      * §6.2 step 1, the local store hit: the verified render of [profile] for [videoId], or null. Called on the
      * player's load path for every song that starts (and for preloads), so it must not touch the network and must
@@ -40,20 +52,23 @@ interface SpatialLibrary {
 
     /**
      * §6.2 steps 2-4: the song [songId] (the library's `Song.id`), which plays YouTube video [videoId], is playing
-     * and has no local render of [profile]. The library fetches the shared render when one exists, else sends a
-     * cloud job, and adds the Enhanced version when `enhanced.enabled` and none is known yet. A null [profile] asks
-     * for the Enhanced version only (Spatial audio is off or not audible).
+     * with Spatial audio active (§6.3) and has no local render of [profile]. The library fetches the shared render
+     * when one exists, else sends a cloud job with `tasks: ["spatial"]`, adding `"enhance"` when `enhanced.enabled`
+     * and no Enhanced manifest is known yet. Enhanced rides on Spatial jobs this round: there is no `enhance`-only
+     * request (§6.2 step 3).
      *
-     * Returns at once and never throws. The library decides whether anything happens: nothing while `spatial.cloud`
-     * is off, and inside the caps and network rules otherwise (§6.1, §6.2). Calling it again for the same video and
-     * profile while one is on its way, ready, or waiting out a failure's backoff changes nothing. Progress shows in
-     * [status]; the result arrives as [SpatialLibraryEvent.RenderReady] or [SpatialLibraryEvent.EnhancedReady].
+     * Returns at once and never throws. The library decides whether anything happens: nothing while
+     * [cloudRendersOn] is false, and inside the cap and the network rules otherwise (§6.1, §6.2). Calling it again
+     * for the same video and profile while one is on its way, ready, or waiting out a failure's backoff changes
+     * nothing. Progress shows in [status]; the result arrives as [SpatialLibraryEvent.RenderReady] (and
+     * [SpatialLibraryEvent.EnhancedReady] when an Enhanced file came with it).
      */
-    fun request(songId: String, videoId: String, profile: SpatialProfile?)
+    fun request(songId: String, videoId: String, profile: SpatialProfile)
 
     /**
-     * §6.1's state of one song for one profile, as it changes: the current value at once, then every change.
-     * [SpatialRenditionStatus.NONE] for anything never asked for.
+     * The cloud's side of §6.1's state for one song and profile, as it changes: the current value at once, then
+     * every change. [SpatialRenditionStatus.NONE] for anything not wanted or not under way; never
+     * [SpatialRenditionStatus.PREVIEW], which is the player's fact ([SpatialRenditionStatus.shown]).
      */
     fun status(videoId: String, profile: SpatialProfile): Flow<SpatialRenditionStatus>
 
@@ -63,7 +78,10 @@ interface SpatialLibrary {
      */
     val events: SharedFlow<SpatialLibraryEvent>
 
-    /** §6.5: "Songs ready: N · X GB on this phone", kept current as files arrive and leave. */
+    /**
+     * §6.5: "Songs ready: N · X GB on this phone", kept current as files arrive and leave, with what library jobs
+     * used of the month's cap and of the day's count for Developer mode's rows.
+     */
     val stats: StateFlow<SpatialLibraryStats>
 
     /**
@@ -84,12 +102,15 @@ interface SpatialLibrary {
 object NoOpSpatialLibrary : SpatialLibrary {
     private val noEvents = MutableSharedFlow<SpatialLibraryEvent>()
     private val noStats = MutableStateFlow(SpatialLibraryStats())
+    private val neverOn = MutableStateFlow(false)
+
+    override val cloudRendersOn: StateFlow<Boolean> = neverOn.asStateFlow()
 
     override suspend fun localRender(videoId: String, profile: SpatialProfile): SpatialRender? = null
 
     override suspend fun localEnhanced(videoId: String): EnhancedAudio? = null
 
-    override fun request(songId: String, videoId: String, profile: SpatialProfile?) = Unit
+    override fun request(songId: String, videoId: String, profile: SpatialProfile) = Unit
 
     override fun status(videoId: String, profile: SpatialProfile): Flow<SpatialRenditionStatus> =
         flowOf(SpatialRenditionStatus.NONE)

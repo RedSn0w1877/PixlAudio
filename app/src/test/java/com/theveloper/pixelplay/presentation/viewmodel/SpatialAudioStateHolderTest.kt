@@ -28,6 +28,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -45,9 +46,12 @@ class SpatialAudioStateHolderTest {
         val renders = HashMap<Pair<String, SpatialProfile>, SpatialRender>()
         var removeAllCalls = 0
 
+        /** Both switches of §6.1 on, as in a build with built-in keys. */
+        override val cloudRendersOn = MutableStateFlow(true)
+
         override suspend fun localRender(videoId: String, profile: SpatialProfile): SpatialRender? = renders[videoId to profile]
         override suspend fun localEnhanced(videoId: String): EnhancedAudio? = null
-        override fun request(songId: String, videoId: String, profile: SpatialProfile?) = Unit
+        override fun request(songId: String, videoId: String, profile: SpatialProfile) = Unit
         override fun status(videoId: String, profile: SpatialProfile): Flow<SpatialRenditionStatus> =
             statuses.map { it[videoId to profile] ?: SpatialRenditionStatus.NONE }.distinctUntilChanged()
         override val events = MutableSharedFlow<SpatialLibraryEvent>()
@@ -170,6 +174,44 @@ class SpatialAudioStateHolderTest {
             holder.selectProfile(null)
             assertEquals(SpatialStatusLine.NONE, holder.statusLine.first { it == SpatialStatusLine.NONE })
             assertEquals(SpatialRenditionStatus.NONE, holder.currentStatus.first { it == SpatialRenditionStatus.NONE })
+        }
+    }
+
+    @Test
+    fun `the playing song is a preview until the cloud has something, and the line follows both switches`() = runTest {
+        withHolder { fixture ->
+            val holder = fixture.holder
+            fixture.repository.setProfile(SpatialProfile.WIDE)
+            fixture.playback.audible.value = heard(SpatialRendition.ON_DEVICE)
+
+            // The library has nothing under way: the on-device stage stands in, and the render is wanted.
+            assertEquals(SpatialRenditionStatus.PREVIEW, holder.currentStatus.first { it != SpatialRenditionStatus.NONE })
+            assertEquals(SpatialStatusLine.ON_PHONE_FOR_NOW, holder.statusLine.first { it != SpatialStatusLine.NONE })
+
+            // One of the two switches goes off (the library knows both): no cloud version is coming.
+            fixture.library.cloudRendersOn.value = false
+            assertFalse(holder.cloudRendersOn.value)
+            assertEquals(SpatialStatusLine.ON_PHONE_ONLY, holder.statusLine.first { it == SpatialStatusLine.ON_PHONE_ONLY })
+
+            // Back on, and the shared library has the render: it comes down.
+            fixture.library.cloudRendersOn.value = true
+            fixture.library.statuses.value = mapOf((video to SpatialProfile.WIDE) to SpatialRenditionStatus.DOWNLOADING)
+            assertEquals(
+                SpatialRenditionStatus.DOWNLOADING,
+                holder.currentStatus.first { it == SpatialRenditionStatus.DOWNLOADING }
+            )
+            assertEquals(
+                SpatialStatusLine.GETTING_CLOUD_VERSION,
+                holder.statusLine.first { it == SpatialStatusLine.GETTING_CLOUD_VERSION }
+            )
+
+            // It fails: the phone's version plays on.
+            fixture.library.statuses.value = mapOf((video to SpatialProfile.WIDE) to SpatialRenditionStatus.FAILED)
+            assertEquals(SpatialStatusLine.CLOUD_FAILED, holder.statusLine.first { it == SpatialStatusLine.CLOUD_FAILED })
+
+            // Sing's instrumental mode comes on.
+            fixture.playback.audible.value = heard(SpatialRendition.STEREO, blockedBy = SpatialBlock.SING)
+            assertEquals(SpatialStatusLine.PAUSED_FOR_SING, holder.statusLine.first { it == SpatialStatusLine.PAUSED_FOR_SING })
         }
     }
 

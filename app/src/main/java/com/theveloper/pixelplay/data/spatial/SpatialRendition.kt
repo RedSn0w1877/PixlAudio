@@ -3,30 +3,58 @@ package com.theveloper.pixelplay.data.spatial
 import java.io.File
 
 /**
- * Where one song stands for one profile (§6.1: "Per song and profile the app tracks"). Kept by [SpatialLibrary],
- * keyed by the YouTube video and the profile; the order is the usual way forward.
+ * Where one song stands for one profile (§6.1: "Per song and profile the app tracks"), keyed by the YouTube video and
+ * the profile; the order is the usual way forward.
+ *
+ * [SpatialLibrary] keeps and reports the cloud's side of it: [NONE], [QUEUED], [PROCESSING], [DOWNLOADING], [READY]
+ * and [FAILED]. [PREVIEW] is the player's fact and is added by [shown], as on iOS.
  */
 enum class SpatialRenditionStatus {
-    /** Nothing is known or was asked for this song and profile. */
+    /** Nothing is known, wanted or under way for this song and profile. */
     NONE,
 
     /**
-     * Asked for (the song played with this profile), and only the on-device version exists so far: the cloud is
-     * switched off or can't take it now, or the shared-library check is still under way (§6.2 steps 1-2).
+     * The on-device stage stands in and no cloud work is under way, yet or at all (§6.1 "preview (on-device)").
+     * Never reported by the library: see [shown].
      */
     PREVIEW,
 
-    /** A cloud job for it exists and has not started on a GPU yet: preparing, uploading or waiting (§6.2 step 3). */
+    /**
+     * Wanted from the cloud and not on a GPU yet: the shared-library check, preparing and uploading the song, or
+     * waiting for a worker (§6.2 steps 2-3).
+     */
     QUEUED,
 
-    /** The GPU is working on it, or its result is being downloaded and verified (§6.2 steps 3-4). */
+    /** The GPU is working on it (§6.2 step 3). */
     PROCESSING,
+
+    /**
+     * The render exists, in the shared library or as the result of the job, and is coming down to be verified
+     * (§6.2 steps 2 and 4). §6.1 counts this under `processing`; §6.5 gives it its own line ("Getting the cloud
+     * version."), so it is a state of its own here.
+     */
+    DOWNLOADING,
 
     /** A verified render is in the local store (§6.2 "Local store"): every later play starts on it (§6.3). */
     READY,
 
     /** The last attempt failed. It is tried again later with backoff: 10 minutes, 1 hour, 1 day (§6.1). */
-    FAILED,
+    FAILED;
+
+    /** The cloud is on its way to a render: [QUEUED], [PROCESSING] or [DOWNLOADING]. */
+    val isInFlight: Boolean get() = this == QUEUED || this == PROCESSING || this == DOWNLOADING
+
+    companion object {
+        /**
+         * What the person is told for the playing song (§6.1): the [library]'s own status when the cloud is doing or
+         * has done something, else [PREVIEW] while the on-device stage is what plays, else [NONE].
+         */
+        fun shown(library: SpatialRenditionStatus, onDeviceAudible: Boolean): SpatialRenditionStatus =
+            when (library) {
+                NONE, PREVIEW -> if (onDeviceAudible) PREVIEW else NONE
+                else -> library
+            }
+    }
 }
 
 /** What the current item sounds like (§6.3). */
@@ -41,18 +69,30 @@ enum class SpatialRendition {
     CLOUD_RENDER,
 }
 
-/** Why Spatial audio is not audible although a profile is selected (§6.3 "Spatial active", §7). */
+/**
+ * Why Spatial audio is not audible although a profile is selected (§6.3 "Spatial active", §7). When more than one
+ * holds, the player reports the first in this order (the route before Sing, as on iOS).
+ */
 enum class SpatialBlock {
-    /** `spatial.route` is `headphones` and the sound goes somewhere else (§6.1, §6.3). */
+    /**
+     * The route rule fails (§6.1, §6.3): `spatial.route` is `headphones` and the sound goes somewhere else, the
+     * phone's speaker, a car, or another device (Cast, Spotify Connect). §6.5: "Headphones only. Plug in to hear it."
+     */
     ROUTE,
 
-    /** Sing's instrumental is playing (§6.3: Spatial is active only while Sing's instrumental mode is not on). */
+    /** Sing's instrumental mode is on (§6.3 "Spatial active"). §6.5: "Paused while Sing is on." */
     SING,
 
-    /** The song plays on another device, a Cast or Spotify Connect one: those get the normal sound (§1). */
+    /**
+     * The song plays on another device, a Cast or Spotify Connect one, and the route rule did not already say no
+     * (`spatial.route` is `always`): those devices get the normal sound whatever the mode (§1). §6.5 has no line.
+     */
     REMOTE,
 
-    /** The stream's format is not one the on-device stage handles (§7: any rate but 44.1 or 48 kHz is bypassed). */
+    /**
+     * The stream's format is not one the on-device stage handles (§7: any rate but 44.1 or 48 kHz is bypassed) and
+     * no render is playing. §6.5 has no line.
+     */
     FORMAT,
 }
 
@@ -137,12 +177,22 @@ data class EnhancedAudio(
     val durationMs: Long,
 )
 
-/** Settings' "Songs ready: N · X GB on this phone" (§6.5). */
+/**
+ * Settings' "Songs ready: N · X GB on this phone", and what library jobs have used of their own caps for Developer
+ * mode's rows (§6.5, §6.1 "Money").
+ */
 data class SpatialLibraryStats(
     /** Songs with at least one verified render in the local store (a spatial render of any profile, or Enhanced). */
     val songsReady: Int = 0,
     /** What the local store holds, in bytes: audio and manifests. */
     val bytesOnPhone: Long = 0L,
+    /**
+     * What library jobs spent this month, in millionths of a dollar: their own sum, under
+     * `cloudAudio.monthlyCapUSD`, with none of Sing's jobs in it (§6.1 "Money").
+     */
+    val spentThisMonthMicroUsd: Long = 0L,
+    /** Songs the background queue sent today, out of `cloudAudio.dailyAhead` (§6.4). */
+    val sentToday: Int = 0,
 )
 
 /** What changed in the local store, for the player (§6.3). Hot: only what happens while it listens. */
@@ -163,43 +213,71 @@ sealed interface SpatialLibraryEvent {
     data class Removed(val videoId: String?) : SpatialLibraryEvent
 }
 
-/** The player sheet's status line for the current song (§6.5). The words live in the UI's strings. */
+/**
+ * The player sheet's status line for the current song (§6.5: "Every state has one"). One case per row of the spec's
+ * table, each quoting its row; the words themselves live in the UI's strings.
+ */
 enum class SpatialStatusLine {
-    /** Nothing to say: Spatial audio is off, nothing plays, or none of the three lines is true. */
+    /**
+     * Nothing to say: Spatial audio is off, nothing is loaded, or a state §6.5 has no row for (the song plays on
+     * another device while `spatial.route` is `always`, or its format is one the on-device stage does not take).
+     */
     NONE,
 
-    /** "On your phone for now. The cloud version takes about a minute." */
+    /**
+     * "On your phone for now. The cloud version takes about a minute." The on-device stage plays and the cloud
+     * render is wanted (queued, uploading, processing).
+     */
     ON_PHONE_FOR_NOW,
+
+    /** "Getting the cloud version." The render is downloading, or is on the phone and the fade to it comes next. */
+    GETTING_CLOUD_VERSION,
 
     /** "Playing the cloud version." */
     CLOUD_VERSION,
 
-    /** "Headphones only. Plug in to hear it." */
-    HEADPHONES_ONLY;
+    /** "On your phone only. Turn on cloud renders for the full version." A profile is on, cloud renders are off. */
+    ON_PHONE_ONLY,
+
+    /** "The cloud version didn't work this time. Still playing on your phone." */
+    CLOUD_FAILED,
+
+    /** "Headphones only. Plug in to hear it." The route rule fails. */
+    HEADPHONES_ONLY,
+
+    /** "Paused while Sing is on." Sing's instrumental mode is on. */
+    PAUSED_FOR_SING;
 
     companion object {
         /**
-         * The line for the current song (§6.5), from the settings, what is audible and the song's [status] for the
-         * selected profile:
+         * The line for the current song (§6.5), from the settings, what is audible, the song's [status] for the
+         * selected profile ([SpatialRenditionStatus.shown]) and whether cloud renders can happen
+         * ([SpatialLibrary.cloudRendersOn], §6.1 "Two switches"):
          * - no profile selected, or nothing loaded: [NONE];
-         * - the route rule fails (§6.3): [HEADPHONES_ONLY];
+         * - the route rule fails: [HEADPHONES_ONLY]; else Sing's instrumental mode is on: [PAUSED_FOR_SING];
          * - a cloud render is audible: [CLOUD_VERSION];
-         * - the on-device stage is audible, `spatial.cloud` is on and the render is on its way
-         *   ([SpatialRenditionStatus.PREVIEW], `QUEUED` or `PROCESSING`): [ON_PHONE_FOR_NOW];
-         * - anything else (the cloud is off, the render failed, Sing or another device plays): [NONE], because the
-         *   spec has no line that would be true there.
+         * - the on-device stage is audible: [ON_PHONE_ONLY] while cloud renders are off; else [CLOUD_FAILED] after
+         *   a failure, [GETTING_CLOUD_VERSION] while the render comes down (or is already there and the fade to it
+         *   is next), and [ON_PHONE_FOR_NOW] in every other case;
+         * - anything else: [NONE].
          */
-        fun of(settings: SpatialSettings, audible: SpatialAudible, status: SpatialRenditionStatus): SpatialStatusLine =
-            when {
-                settings.profile == null || audible.songId == null -> NONE
-                audible.blockedBy == SpatialBlock.ROUTE -> HEADPHONES_ONLY
-                audible.rendition == SpatialRendition.CLOUD_RENDER -> CLOUD_VERSION
-                audible.rendition == SpatialRendition.ON_DEVICE && settings.cloud && (
-                    status == SpatialRenditionStatus.PREVIEW ||
-                        status == SpatialRenditionStatus.QUEUED ||
-                        status == SpatialRenditionStatus.PROCESSING
-                    ) -> ON_PHONE_FOR_NOW
-                else -> NONE
+        fun of(
+            settings: SpatialSettings,
+            audible: SpatialAudible,
+            status: SpatialRenditionStatus,
+            cloudRendersOn: Boolean,
+        ): SpatialStatusLine = when {
+            settings.profile == null || audible.songId == null -> NONE
+            audible.blockedBy == SpatialBlock.ROUTE -> HEADPHONES_ONLY
+            audible.blockedBy == SpatialBlock.SING -> PAUSED_FOR_SING
+            audible.rendition == SpatialRendition.CLOUD_RENDER -> CLOUD_VERSION
+            audible.rendition != SpatialRendition.ON_DEVICE -> NONE
+            !cloudRendersOn -> ON_PHONE_ONLY
+            else -> when (status) {
+                SpatialRenditionStatus.FAILED -> CLOUD_FAILED
+                SpatialRenditionStatus.DOWNLOADING, SpatialRenditionStatus.READY -> GETTING_CLOUD_VERSION
+                else -> ON_PHONE_FOR_NOW
             }
+        }
     }
 }

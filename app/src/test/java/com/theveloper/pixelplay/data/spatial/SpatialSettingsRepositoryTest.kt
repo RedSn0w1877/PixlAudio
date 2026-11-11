@@ -185,25 +185,76 @@ class SpatialSettingsRepositoryTest {
             val repository = SpatialSettingsRepository(store, NoBuiltInCloudConfig)
 
             repository.setMonthlyCapUsd(5_000)
-            assertEquals(SpatialSettings.MAX_MONTHLY_CAP_USD, repository.settings.first().monthlyCapUsd)
+            assertEquals(200, repository.settings.first().monthlyCapUsd)
+            assertEquals(200, store.stored()["cloudAudio.monthlyCapUSD"])
+            // Only null asks for "No limit": a negative dollar amount handed to the setter is a cap of nothing.
             repository.setMonthlyCapUsd(-7)
             assertEquals(0, repository.settings.first().monthlyCapUsd)
+
+            // §6.1 "Stored forms": the storage budget stays within 256..65536 MB, the daily count within 1..100.
             repository.setStorageMb(-1)
-            assertEquals(0, repository.settings.first().storageMb)
+            assertEquals(256, repository.settings.first().storageMb)
+            assertEquals(256, store.stored()["cloudAudio.storageMB"])
+            repository.setStorageMb(1_000_000)
+            assertEquals(65_536, repository.settings.first().storageMb)
+            assertEquals(65_536, store.stored()["cloudAudio.storageMB"])
             repository.setDailyAhead(-3)
-            assertEquals(0, repository.settings.first().dailyAhead)
+            assertEquals(1, repository.settings.first().dailyAhead)
+            assertEquals(1, store.stored()["cloudAudio.dailyAhead"])
+            repository.setDailyAhead(5_000)
+            assertEquals(100, repository.settings.first().dailyAhead)
+            assertEquals(100, store.stored()["cloudAudio.dailyAhead"])
 
             // Written by something else (a hand-edited backup): read back inside the range too.
             store.edit {
                 it[intPreferencesKey("cloudAudio.monthlyCapUSD")] = 900
                 it[intPreferencesKey("cloudAudio.storageMB")] = -50
-                it[intPreferencesKey("cloudAudio.dailyAhead")] = -1
+                it[intPreferencesKey("cloudAudio.dailyAhead")] = 0
             }
-            val settings = repository.settings.first()
-            assertEquals(SpatialSettings.MAX_MONTHLY_CAP_USD, settings.monthlyCapUsd)
-            assertEquals(0, settings.storageMb)
-            assertEquals(0, settings.dailyAhead)
+            val low = repository.settings.first()
+            assertEquals(200, low.monthlyCapUsd)
+            assertEquals(256, low.storageMb)
+            assertEquals(1, low.dailyAhead)
+
+            store.edit {
+                it[intPreferencesKey("cloudAudio.storageMB")] = 100_000
+                it[intPreferencesKey("cloudAudio.dailyAhead")] = 101
+            }
+            val high = repository.settings.first()
+            assertEquals(65_536, high.storageMb)
+            assertEquals(100, high.dailyAhead)
         }
+    }
+
+    @Test
+    fun `any negative stored cap reads as no limit`() = runTest {
+        withTempDir { dir ->
+            val store = newStore(dir)
+            val repository = SpatialSettingsRepository(store, NoBuiltInCloudConfig)
+
+            for (stored in listOf(-1, -5, Int.MIN_VALUE)) {
+                store.edit { it[intPreferencesKey("cloudAudio.monthlyCapUSD")] = stored }
+                assertNull(repository.settings.first().monthlyCapUsd, "stored $stored")
+            }
+            // The limits themselves are caps, not "no limit".
+            store.edit { it[intPreferencesKey("cloudAudio.monthlyCapUSD")] = 0 }
+            assertEquals(0, repository.settings.first().monthlyCapUsd)
+            store.edit { it[intPreferencesKey("cloudAudio.monthlyCapUSD")] = 200 }
+            assertEquals(200, repository.settings.first().monthlyCapUsd)
+        }
+    }
+
+    @Test
+    fun `the limits of the stored forms are the spec's`() {
+        assertEquals(256, SpatialSettings.MIN_STORAGE_MB)
+        assertEquals(65_536, SpatialSettings.MAX_STORAGE_MB)
+        assertEquals(1, SpatialSettings.MIN_DAILY_AHEAD)
+        assertEquals(100, SpatialSettings.MAX_DAILY_AHEAD)
+        assertEquals(200, SpatialSettings.MAX_MONTHLY_CAP_USD)
+        assertEquals(-1, SpatialSettingsRepository.NO_MONTHLY_CAP)
+        // The defaults sit inside their own ranges.
+        assertEquals(SpatialSettings.DEFAULT_STORAGE_MB, SpatialSettings.clampStorageMb(SpatialSettings.DEFAULT_STORAGE_MB))
+        assertEquals(SpatialSettings.DEFAULT_DAILY_AHEAD, SpatialSettings.clampDailyAhead(SpatialSettings.DEFAULT_DAILY_AHEAD))
     }
 
     @Test

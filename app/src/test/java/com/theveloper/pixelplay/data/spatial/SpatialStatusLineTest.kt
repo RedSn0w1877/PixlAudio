@@ -8,7 +8,10 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-/** The player sheet's status line (cloud-audio-spec §6.5) only ever says something that is true. */
+/**
+ * The player sheet's status line (cloud-audio-spec §6.5, "Every state has one"): one line per row of the spec's
+ * table, and the shown status of §6.1 it is built from.
+ */
 class SpatialStatusLineTest {
 
     private val video = "J7p4bzqLvCw"
@@ -25,41 +28,65 @@ class SpatialStatusLineTest {
         blockedBy = blockedBy,
     )
 
+    private fun line(
+        audible: SpatialAudible,
+        status: SpatialRenditionStatus,
+        cloudRendersOn: Boolean = true,
+        settings: SpatialSettings = on,
+    ): SpatialStatusLine = SpatialStatusLine.of(settings, audible, status, cloudRendersOn)
+
     @Test
     fun `off or nothing loaded says nothing`() {
         val off = SpatialSettings(profile = null, cloud = true)
         assertEquals(
             SpatialStatusLine.NONE,
-            SpatialStatusLine.of(off, heard(SpatialRendition.ON_DEVICE), SpatialRenditionStatus.QUEUED)
+            line(heard(SpatialRendition.ON_DEVICE), SpatialRenditionStatus.QUEUED, settings = off)
         )
-        assertEquals(
-            SpatialStatusLine.NONE,
-            SpatialStatusLine.of(on, SpatialAudible.NOTHING, SpatialRenditionStatus.NONE)
-        )
+        assertEquals(SpatialStatusLine.NONE, line(SpatialAudible.NOTHING, SpatialRenditionStatus.NONE))
     }
 
     @Test
-    fun `the on-device stage with the cloud render on its way is on the phone for now`() {
-        for (status in listOf(SpatialRenditionStatus.PREVIEW, SpatialRenditionStatus.QUEUED, SpatialRenditionStatus.PROCESSING)) {
+    fun `the on-device stage with the cloud render wanted is on the phone for now`() {
+        val wanted = listOf(
+            SpatialRenditionStatus.NONE,
+            SpatialRenditionStatus.PREVIEW,
+            SpatialRenditionStatus.QUEUED,
+            SpatialRenditionStatus.PROCESSING,
+        )
+        for (status in wanted) {
             assertEquals(
                 SpatialStatusLine.ON_PHONE_FOR_NOW,
-                SpatialStatusLine.of(on, heard(SpatialRendition.ON_DEVICE), status),
+                line(heard(SpatialRendition.ON_DEVICE), status),
                 status.name
             )
         }
     }
 
     @Test
-    fun `no cloud version is promised when none is coming`() {
-        val phoneOnly = on.copy(cloud = false)
-        assertEquals(
-            SpatialStatusLine.NONE,
-            SpatialStatusLine.of(phoneOnly, heard(SpatialRendition.ON_DEVICE), SpatialRenditionStatus.PREVIEW)
-        )
-        for (status in listOf(SpatialRenditionStatus.NONE, SpatialRenditionStatus.FAILED, SpatialRenditionStatus.READY)) {
+    fun `a render that is coming down, or is there and not faded to yet, is getting the cloud version`() {
+        for (status in listOf(SpatialRenditionStatus.DOWNLOADING, SpatialRenditionStatus.READY)) {
             assertEquals(
-                SpatialStatusLine.NONE,
-                SpatialStatusLine.of(on, heard(SpatialRendition.ON_DEVICE), status),
+                SpatialStatusLine.GETTING_CLOUD_VERSION,
+                line(heard(SpatialRendition.ON_DEVICE), status),
+                status.name
+            )
+        }
+    }
+
+    @Test
+    fun `a failed render says so while the phone's version plays on`() {
+        assertEquals(
+            SpatialStatusLine.CLOUD_FAILED,
+            line(heard(SpatialRendition.ON_DEVICE), SpatialRenditionStatus.FAILED)
+        )
+    }
+
+    @Test
+    fun `with cloud renders off the on-device stage is on the phone only, whatever the status`() {
+        for (status in SpatialRenditionStatus.entries) {
+            assertEquals(
+                SpatialStatusLine.ON_PHONE_ONLY,
+                line(heard(SpatialRendition.ON_DEVICE), status, cloudRendersOn = false),
                 status.name
             )
         }
@@ -69,35 +96,99 @@ class SpatialStatusLineTest {
     fun `a cloud render that is audible is the cloud version`() {
         assertEquals(
             SpatialStatusLine.CLOUD_VERSION,
-            SpatialStatusLine.of(on, heard(SpatialRendition.CLOUD_RENDER), SpatialRenditionStatus.READY)
+            line(heard(SpatialRendition.CLOUD_RENDER), SpatialRenditionStatus.READY)
         )
-        // With the cloud switched off a render already on the phone still plays.
+        // With cloud renders switched off a render already on the phone still plays.
         assertEquals(
             SpatialStatusLine.CLOUD_VERSION,
-            SpatialStatusLine.of(on.copy(cloud = false), heard(SpatialRendition.CLOUD_RENDER), SpatialRenditionStatus.READY)
+            line(heard(SpatialRendition.CLOUD_RENDER), SpatialRenditionStatus.READY, cloudRendersOn = false)
         )
     }
 
     @Test
-    fun `a route the rule rejects is headphones only, whatever the render's state`() {
+    fun `a route the rule rejects is headphones only, whatever else is true`() {
+        for (status in SpatialRenditionStatus.entries) {
+            for (cloudRendersOn in listOf(true, false)) {
+                assertEquals(
+                    SpatialStatusLine.HEADPHONES_ONLY,
+                    line(heard(blockedBy = SpatialBlock.ROUTE), status, cloudRendersOn),
+                    "${status.name} $cloudRendersOn"
+                )
+            }
+        }
+    }
+
+    @Test
+    fun `Sing's instrumental mode pauses it`() {
         for (status in SpatialRenditionStatus.entries) {
             assertEquals(
-                SpatialStatusLine.HEADPHONES_ONLY,
-                SpatialStatusLine.of(on, heard(blockedBy = SpatialBlock.ROUTE), status),
+                SpatialStatusLine.PAUSED_FOR_SING,
+                line(heard(blockedBy = SpatialBlock.SING), status),
                 status.name
             )
         }
     }
 
     @Test
-    fun `Sing, another device and an unsupported format say nothing`() {
-        for (block in listOf(SpatialBlock.SING, SpatialBlock.REMOTE, SpatialBlock.FORMAT)) {
+    fun `another device and an unsupported format say nothing`() {
+        for (block in listOf(SpatialBlock.REMOTE, SpatialBlock.FORMAT)) {
             assertEquals(
                 SpatialStatusLine.NONE,
-                SpatialStatusLine.of(on, heard(blockedBy = block), SpatialRenditionStatus.QUEUED),
+                line(heard(blockedBy = block), SpatialRenditionStatus.QUEUED),
                 block.name
             )
         }
+        // Plain stereo with a profile selected and nothing holding it back (the player has not caught up yet).
+        assertEquals(SpatialStatusLine.NONE, line(heard(), SpatialRenditionStatus.NONE))
+    }
+
+    @Test
+    fun `every line can be reached`() {
+        val reached = HashSet<SpatialStatusLine>()
+        val blocks: List<SpatialBlock?> = listOf<SpatialBlock?>(null) + SpatialBlock.entries
+        for (settings in listOf(on, on.copy(profile = null))) {
+            for (rendition in SpatialRendition.entries) {
+                for (block in blocks) {
+                    for (status in SpatialRenditionStatus.entries) {
+                        for (cloudRendersOn in listOf(true, false)) {
+                            reached += line(heard(rendition, block), status, cloudRendersOn, settings)
+                        }
+                    }
+                }
+            }
+        }
+        assertEquals(SpatialStatusLine.entries.toSet(), reached)
+    }
+
+    @Test
+    fun `the shown status is the library's own, or preview while the on-device stage stands in`() {
+        val cloudSide = listOf(
+            SpatialRenditionStatus.QUEUED,
+            SpatialRenditionStatus.PROCESSING,
+            SpatialRenditionStatus.DOWNLOADING,
+            SpatialRenditionStatus.READY,
+            SpatialRenditionStatus.FAILED,
+        )
+        for (status in cloudSide) {
+            assertEquals(status, SpatialRenditionStatus.shown(status, onDeviceAudible = true), status.name)
+            assertEquals(status, SpatialRenditionStatus.shown(status, onDeviceAudible = false), status.name)
+        }
+        for (status in listOf(SpatialRenditionStatus.NONE, SpatialRenditionStatus.PREVIEW)) {
+            assertEquals(
+                SpatialRenditionStatus.PREVIEW,
+                SpatialRenditionStatus.shown(status, onDeviceAudible = true),
+                status.name
+            )
+            assertEquals(
+                SpatialRenditionStatus.NONE,
+                SpatialRenditionStatus.shown(status, onDeviceAudible = false),
+                status.name
+            )
+        }
+        assertEquals(
+            listOf(SpatialRenditionStatus.QUEUED, SpatialRenditionStatus.PROCESSING, SpatialRenditionStatus.DOWNLOADING),
+            SpatialRenditionStatus.entries.filter { it.isInFlight }
+        )
     }
 
     @Test
@@ -114,9 +205,14 @@ class SpatialStatusLineTest {
         assertNull(NoOpSpatialLibrary.localEnhanced(video))
         NoOpSpatialLibrary.request("42", video, SpatialProfile.STUDIO)
         NoOpSpatialLibrary.markPlayed(video, SpatialProfile.STUDIO)
+        NoOpSpatialLibrary.markPlayed(video, null)
         NoOpSpatialLibrary.removeAll()
         assertEquals(SpatialRenditionStatus.NONE, NoOpSpatialLibrary.status(video, SpatialProfile.STUDIO).first())
-        assertEquals(SpatialLibraryStats(songsReady = 0, bytesOnPhone = 0L), NoOpSpatialLibrary.stats.value)
+        assertEquals(
+            SpatialLibraryStats(songsReady = 0, bytesOnPhone = 0L, spentThisMonthMicroUsd = 0L, sentToday = 0),
+            NoOpSpatialLibrary.stats.value
+        )
+        assertFalse(NoOpSpatialLibrary.cloudRendersOn.value)
 
         NoOpSpatialPlayback.apply(on)
         assertEquals(SpatialAudible.NOTHING, NoOpSpatialPlayback.audible.value)

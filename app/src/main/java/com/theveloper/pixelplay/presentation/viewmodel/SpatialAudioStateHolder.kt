@@ -6,6 +6,7 @@ import com.theveloper.pixelplay.data.spatial.SpatialLibraryStats
 import com.theveloper.pixelplay.data.spatial.SpatialPlayback
 import com.theveloper.pixelplay.data.spatial.SpatialProfile
 import com.theveloper.pixelplay.data.spatial.SpatialRender
+import com.theveloper.pixelplay.data.spatial.SpatialRendition
 import com.theveloper.pixelplay.data.spatial.SpatialRenditionStatus
 import com.theveloper.pixelplay.data.spatial.SpatialRouteMode
 import com.theveloper.pixelplay.data.spatial.SpatialSettings
@@ -26,6 +27,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -66,23 +68,47 @@ class SpatialAudioStateHolder @Inject constructor(
     /** What the current item sounds like, and what holds a selected profile back (§6.3). */
     val audible: StateFlow<SpatialAudible> get() = playback.audible
 
-    /** §6.5: "Songs ready: N · X GB on this phone". */
+    /**
+     * §6.5: "Songs ready: N · X GB on this phone", and what library jobs used of the month's cap and of the day's
+     * count for Developer mode's rows.
+     */
     val stats: StateFlow<SpatialLibraryStats> get() = library.stats
 
     /**
-     * The per-song status of §6.1 for the song that is playing, under the selected profile.
-     * [SpatialRenditionStatus.NONE] while Spatial audio is off or the song has no YouTube video.
+     * §6.1 "Two switches": cloud renders can happen, i.e. Cloud Studio's master switch and `spatial.cloud` are both
+     * on. Settings' cloud toggle of Spatial audio is only worth something while the master is on.
+     */
+    val cloudRendersOn: StateFlow<Boolean> get() = library.cloudRendersOn
+
+    /**
+     * The per-song status of §6.1 for the song that is playing, under the selected profile: the library's status,
+     * or [SpatialRenditionStatus.PREVIEW] while the on-device stage stands in and the cloud has nothing under way
+     * ([SpatialRenditionStatus.shown]). [SpatialRenditionStatus.NONE] while Spatial audio is off.
      */
     val currentStatus: StateFlow<SpatialRenditionStatus> =
-        combine(settings, playback.audible) { current, heard -> current.profile to heard.videoId }
+        combine(settings, playback.audible) { current, heard ->
+            Triple(current.profile, heard.videoId, heard.rendition == SpatialRendition.ON_DEVICE)
+        }
             .distinctUntilChanged()
-            .flatMapLatest { (profile, videoId) -> statusOf(videoId, profile) }
+            .flatMapLatest { (profile, videoId, onDeviceAudible) ->
+                if (profile == null) {
+                    flowOf(SpatialRenditionStatus.NONE)
+                } else {
+                    statusOf(videoId, profile).map { SpatialRenditionStatus.shown(it, onDeviceAudible) }
+                }
+            }
+            .distinctUntilChanged()
             .stateIn(scope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), SpatialRenditionStatus.NONE)
 
     /** The sheet's status line for the current song (§6.5), see [SpatialStatusLine.of]. */
     val statusLine: StateFlow<SpatialStatusLine> =
-        combine(settings, playback.audible, currentStatus) { current, heard, status ->
-            SpatialStatusLine.of(current, heard, status)
+        combine(
+            settings,
+            playback.audible,
+            currentStatus,
+            library.cloudRendersOn,
+        ) { current, heard, status, cloudOn ->
+            SpatialStatusLine.of(current, heard, status, cloudOn)
         }.stateIn(scope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), SpatialStatusLine.NONE)
 
     /**
@@ -104,8 +130,9 @@ class SpatialAudioStateHolder @Inject constructor(
             .stateIn(scope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), null)
 
     /**
-     * The status of §6.1 for any song and profile (a list row, a song's card). [SpatialRenditionStatus.NONE] when the
-     * song has no YouTube video ([videoId] null) or no profile is given.
+     * The library's status of §6.1 for any song and profile (a list row, a song's card): never
+     * [SpatialRenditionStatus.PREVIEW], which only the playing song has ([currentStatus]).
+     * [SpatialRenditionStatus.NONE] when the song has no YouTube video ([videoId] null) or no profile is given.
      */
     fun statusOf(videoId: String?, profile: SpatialProfile?): Flow<SpatialRenditionStatus> =
         if (videoId == null || profile == null) flowOf(SpatialRenditionStatus.NONE) else library.status(videoId, profile)
@@ -115,7 +142,10 @@ class SpatialAudioStateHolder @Inject constructor(
         scope.launch { repository.setProfile(profile) }
     }
 
-    /** Settings' cloud switch (§6.1 `spatial.cloud`): ask the cloud for the real render, or stay on the phone. */
+    /**
+     * Settings' cloud switch of Spatial audio (§6.1 `spatial.cloud`): ask the cloud for the real render, or stay on
+     * the phone. Cloud Studio's own master switch is not touched here ([cloudRendersOn] is the two together).
+     */
     fun setCloud(enabled: Boolean) {
         scope.launch { repository.setCloud(enabled) }
     }
