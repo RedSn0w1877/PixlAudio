@@ -18,8 +18,9 @@ import kotlin.math.tanh
  *
  * History lives in mirrored rings: every sample at ring position `p < maxBlock` is also written at `p + size`, so a
  * block-long window that starts anywhere in the ring is contiguous. The FIRs need only `taps` of history, the room up to
- * its longest delay, so they have a short ring and a long one. The rings are sized once, from the whole table
- * ([ensureCapacity]); nothing is allocated while processing.
+ * its longest delay, so they have a short ring and a long one. The processor sizes the rings once, from the whole table
+ * ([ensureCapacity]), before the first preset is used; nothing is allocated while processing. A ring that grows later
+ * (a caller that sizes per preset) keeps its history, so even that is never heard.
  *
  * Wet/dry: the output is `dry + mix * (limit(wet) - dry)`, `dry` being the untouched input delayed by `lowDelay` (§7).
  * A preset change ramps the mix down, swaps the coefficients at fully dry, and ramps up again; bypass ramps down. The
@@ -98,34 +99,53 @@ internal class SpatialStageKernel(
     /** No preset in use or wanted: [process] would copy its input unchanged (no delay, no state). */
     val isIdle: Boolean get() = preset == null && pending == null
 
-    /** Sizes the rings once for every preset of [tables] (the first time a table is there). */
+    /** Sizes the rings for every preset of [tables]: allocates the first time, a few comparisons after that. */
     fun ensureCapacity(tables: SpatialPreviewTables) =
         ensureCapacity(tables.maxSparseDelay, tables.maxTaps, tables.maxLowDelay)
 
+    /** Makes the rings at least this big. A ring that grows keeps its history (each frame at its absolute index). */
     fun ensureCapacity(maxDelay: Int, maxTaps: Int, maxLowDelay: Int) {
         val firNeed = nextPowerOfTwo(maxOf(maxTaps - 1, 0) + maxBlock + 1)
         if (firNeed > firSize) {
+            firS = grown(firS, firSize, firNeed, mirror = maxBlock)
+            firM = grown(firM, firSize, firNeed, mirror = maxBlock)
             firSize = firNeed
             firMask = firNeed - 1
-            firS = FloatArray(firNeed + maxBlock)
-            firM = FloatArray(firNeed + maxBlock)
         }
         val roomNeed = nextPowerOfTwo(maxOf(maxDelay, 0) + maxBlock + 1)
         if (roomNeed > roomSize) {
+            roomS = grown(roomS, roomSize, roomNeed, mirror = maxBlock)
+            roomM = grown(roomM, roomSize, roomNeed, mirror = maxBlock)
             roomSize = roomNeed
             roomMask = roomNeed - 1
-            roomS = FloatArray(roomNeed + maxBlock)
-            roomM = FloatArray(roomNeed + maxBlock)
         }
         val shortNeed = nextPowerOfTwo(maxLowDelay + maxBlock + 1)
         if (shortNeed > shortSize) {
+            lowL = grown(lowL, shortSize, shortNeed, mirror = 0)
+            lowR = grown(lowR, shortSize, shortNeed, mirror = 0)
+            dryL = grown(dryL, shortSize, shortNeed, mirror = 0)
+            dryR = grown(dryR, shortSize, shortNeed, mirror = 0)
             shortSize = shortNeed
             shortMask = shortNeed - 1
-            lowL = FloatArray(shortNeed)
-            lowR = FloatArray(shortNeed)
-            dryL = FloatArray(shortNeed)
-            dryR = FloatArray(shortNeed)
         }
+    }
+
+    /**
+     * A ring of [newSize] (plus [mirror]) holding the last [oldSize] frames of [old], each at its absolute index, so a
+     * preset that is still playing reads the same history from it (a zeroed ring would drop its room in one sample).
+     */
+    private fun grown(old: FloatArray, oldSize: Int, newSize: Int, mirror: Int): FloatArray {
+        val ring = FloatArray(newSize + mirror)
+        val oldMask = oldSize - 1
+        val newMask = newSize - 1
+        for (back in 1..oldSize) {
+            val a = t - back
+            val value = old[a and oldMask]
+            val q = a and newMask
+            ring[q] = value
+            if (q < mirror) ring[q + newSize] = value
+        }
+        return ring
     }
 
     private fun fits(p: SpatialPreset): Boolean =
@@ -139,7 +159,8 @@ internal class SpatialStageKernel(
 
     /**
      * What the stage should play from the next block on: [next]'s coefficients, heard ([wet]) or bypassed. Cheap when
-     * nothing changed. A preset whose rings were not sized yet is sized here (once).
+     * nothing changed. A preset the rings are too small for grows them here, keeping the history (the processor sizes
+     * them for the whole table first, so this never allocates in the app).
      */
     fun setTarget(next: SpatialPreset?, wet: Boolean) {
         if (next != null && !fits(next)) ensureCapacity(next.maxSparseDelay, next.taps, next.lowDelay)

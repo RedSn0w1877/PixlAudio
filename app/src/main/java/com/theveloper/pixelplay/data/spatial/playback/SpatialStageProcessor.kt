@@ -23,7 +23,8 @@ import java.nio.ByteOrder
  *   An item boundary at the same rate keeps the history (gapless stays gapless) and ramps any change in 10 ms.
  * - **Live parameters**: [SpatialStageLink.state] is read once per buffer; a new profile or a bypass ramps over 80 ms.
  *
- * No allocation while processing: scratch arrays are made once, the rings once when the table first arrives.
+ * No allocation while processing: scratch arrays are made once, the rings once for the whole table, before the first
+ * preset is used (the kernel is idle then), so a profile change never replaces a ring the old profile still reads.
  */
 @OptIn(UnstableApi::class)
 class SpatialStageProcessor internal constructor(
@@ -109,6 +110,9 @@ class SpatialStageProcessor internal constructor(
         val tables = state.tables
         val profile = state.profile
         val preset = if (tables != null && profile != null) tables.preset(profile, rate) else null
+        // The rings are sized for the whole table before the first preset is used: the kernel is idle then, so the one
+        // allocation is never heard, and a later profile change never swaps out a ring the old preset still reads.
+        if (tables != null && preset != null) kernel.ensureCapacity(tables)
         kernel.setTarget(preset, state.wet && !renderItem)
     }
 

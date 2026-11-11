@@ -6,6 +6,7 @@ import androidx.media3.common.audio.AudioProcessor.AudioFormat
 import com.theveloper.pixelplay.data.spatial.SpatialFixtures
 import com.theveloper.pixelplay.data.spatial.SpatialProfile
 import com.theveloper.pixelplay.data.spatial.SpatialRender
+import org.junit.jupiter.api.Assertions.assertArrayEquals
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -13,6 +14,9 @@ import org.junit.jupiter.api.Test
 import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import kotlin.math.PI
+import kotlin.math.abs
+import kotlin.math.sin
 import kotlin.random.Random
 
 /**
@@ -72,6 +76,58 @@ class SpatialStageProcessorTest {
         val format = processor.configure(AudioFormat(rate, 2, C.ENCODING_PCM_16BIT))
         processor.flush(AudioProcessor.StreamMetadata.DEFAULT)
         return format
+    }
+
+    /** A tone per ear (440 and 660 Hz) at half scale: its own sample-to-sample steps are small, so a click stands out. */
+    private fun tone(frames: Int, rate: Int = 48_000): ShortArray = ShortArray(frames * 2) {
+        val hz = if (it % 2 == 0) 440.0 else 660.0
+        (16_000 * sin(2 * PI * hz * (it / 2) / rate)).toInt().toShort()
+    }
+
+    /**
+     * What the stage should play: a kernel sized for the whole table from the start, fed [input] in the processor's
+     * blocks (feed the processor in [BLOCK]-frame buffers to compare), with [events] (a frame that starts a block ->
+     * preset and wet) applied before the block that starts there.
+     */
+    private fun reference(
+        input: ShortArray,
+        start: Pair<SpatialPreset?, Boolean>,
+        events: Map<Int, Pair<SpatialPreset?, Boolean>>,
+        rate: Int = 48_000,
+    ): ShortArray {
+        val kernel = SpatialStageKernel()
+        kernel.ensureCapacity(tables)
+        kernel.setRampFrames(rate * SpatialStageProcessor.RAMP_MS / 1000)
+        kernel.setTarget(start.first, start.second)
+        kernel.reset()
+        val inL = FloatArray(BLOCK); val inR = FloatArray(BLOCK); val outL = FloatArray(BLOCK); val outR = FloatArray(BLOCK)
+        val out = ShortArray(input.size)
+        val frames = input.size / 2
+        var done = 0
+        while (done < frames) {
+            events[done]?.let { (preset, wet) -> kernel.setTarget(preset, wet) }
+            val n = minOf(BLOCK, frames - done)
+            for (i in 0 until n) {
+                inL[i] = input[(done + i) * 2] * (1f / 32768f)
+                inR[i] = input[(done + i) * 2 + 1] * (1f / 32768f)
+            }
+            kernel.process(inL, inR, outL, outR, n)
+            for (i in 0 until n) {
+                out[(done + i) * 2] = SpatialStageProcessor.toShort(outL[i]).toShort()
+                out[(done + i) * 2 + 1] = SpatialStageProcessor.toShort(outR[i]).toShort()
+            }
+            done += n
+        }
+        return out
+    }
+
+    /** The largest step between two neighbouring samples of one ear, from frame [from] on. */
+    private fun maxStep(samples: ShortArray, from: Int = 1): Int {
+        var worst = 0
+        for (frame in maxOf(from, 1) until samples.size / 2) {
+            for (ch in 0..1) worst = maxOf(worst, abs(samples[frame * 2 + ch] - samples[(frame - 1) * 2 + ch]))
+        }
+        return worst
     }
 
     @Test
@@ -149,6 +205,30 @@ class SpatialStageProcessorTest {
     }
 
     @Test
+    fun `a profile change mid-song keeps the room the old profile is still fading out`() {
+        // Studio's room needs 3,337 samples of history at 48 kHz, Concert Hall's 8,559: the switch must not trade the
+        // ring Studio still reads (for its 80 ms fade) for an empty one.
+        val rate = 48_000
+        val studio = tables.preset(SpatialProfile.STUDIO, rate)!!
+        val hall = tables.preset(SpatialProfile.HALL, rate)!!
+        val link = FakeLink(SpatialStageState(tables, SpatialProfile.STUDIO, wet = true))
+        val processor = SpatialStageProcessor(link)
+        start(processor, rate)
+        val input = tone(rate)
+        val switchAt = 40 * BLOCK
+        val before = process(processor, input.copyOfRange(0, switchAt * 2), chunkFrames = BLOCK)
+        link.state = SpatialStageState(tables, SpatialProfile.HALL, wet = true)
+        val after = process(processor, input.copyOfRange(switchAt * 2, input.size), chunkFrames = BLOCK)
+        val output = before + after
+
+        val expected = reference(input, start = studio to true, events = mapOf(switchAt to (hall to true)))
+        val worst = maxStep(output, from = switchAt - BLOCK)
+        val bound = maxStep(expected, from = switchAt - BLOCK)
+        assertTrue(worst <= bound + 2, "a step of $worst where the signal's own largest is $bound: a click")
+        assertArrayEquals(expected, output, "played as from rings sized for the whole table")
+    }
+
+    @Test
     fun `16-bit output saturates instead of wrapping`() {
         assertEquals(32_767, SpatialStageProcessor.toShort(1.5f))
         assertEquals(-32_768, SpatialStageProcessor.toShort(-1.5f))
@@ -161,5 +241,10 @@ class SpatialStageProcessorTest {
             if (output[frame * 2] != input[(frame - delay) * 2]) different++
         }
         return different > (input.size / 2 - from) / 2
+    }
+
+    private companion object {
+        /** The processor's block: buffers of this many frames reach the kernel unsplit. */
+        const val BLOCK = SpatialStageKernel.DEFAULT_MAX_BLOCK
     }
 }
