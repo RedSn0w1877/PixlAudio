@@ -201,6 +201,13 @@ class SpatialAudioStateHolderTest {
                 holder.statusLine.first { it == SpatialStatusLine.GETTING_CLOUD_VERSION }
             )
 
+            // The library reports that the render cannot start: the month's limit is reached. The line says so.
+            fixture.library.statuses.value = mapOf((video to SpatialProfile.WIDE) to SpatialRenditionStatus.CAP_REACHED)
+            assertEquals(
+                SpatialStatusLine.CLOUD_LIMIT_REACHED,
+                holder.statusLine.first { it == SpatialStatusLine.CLOUD_LIMIT_REACHED }
+            )
+
             // It fails: the phone's version plays on.
             fixture.library.statuses.value = mapOf((video to SpatialProfile.WIDE) to SpatialRenditionStatus.FAILED)
             assertEquals(SpatialStatusLine.CLOUD_FAILED, holder.statusLine.first { it == SpatialStatusLine.CLOUD_FAILED })

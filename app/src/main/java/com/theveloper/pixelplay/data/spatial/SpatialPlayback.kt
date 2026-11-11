@@ -12,6 +12,10 @@ import kotlinx.coroutines.flow.asStateFlow
  * It is also the one that asks for renders: when a song plays with Spatial audio active and has no local render it
  * calls [SpatialLibrary.request], and it tells the library what it played ([SpatialLibrary.markPlayed]).
  *
+ * Two things give way while a profile is selected and Spatial audio is active (§6.3), because neither lets the
+ * on-device stage run: audio offload is off (turning a profile on mid-song costs one short gap, once, which is
+ * accepted), and Hi-Fi float output is off ("Spatial wins").
+ *
  * The playback service drives it: it collects [SpatialSettingsRepository.settings] and hands every value to [apply],
  * so the settings reach the player with or without the app's UI. The UI only reads [audible], through
  * [com.theveloper.pixelplay.presentation.viewmodel.SpatialAudioStateHolder].

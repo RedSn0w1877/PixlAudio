@@ -50,9 +50,11 @@ interface SpatialLibrary {
      * when one exists, else sends a cloud job with `tasks: ["spatial"]` and one render entry for the profile.
      *
      * Returns at once and never throws. The library decides whether anything happens: nothing while
-     * [cloudRendersOn] is false, and inside the cap and the network rules otherwise (§6.1, §6.2). Calling it again
-     * for the same video and profile while one is on its way, ready, or waiting out a failure's backoff changes
-     * nothing. Progress shows in [status]; the result arrives as [SpatialLibraryEvent.RenderReady].
+     * [cloudRendersOn] is false, and inside the cap and the network rules otherwise (§6.1, §6.2). A render that is
+     * wanted but cannot start yet stays queued with its reason ([SpatialRenditionStatus.WAITING_FOR_NETWORK],
+     * [SpatialRenditionStatus.CAP_REACHED]) and starts when it can. Calling it again for the same video and profile
+     * while one is on its way, ready, or waiting out a failure's backoff changes nothing. Progress shows in
+     * [status]; the result arrives as [SpatialLibraryEvent.RenderReady].
      */
     fun request(songId: String, videoId: String, profile: SpatialProfile)
 

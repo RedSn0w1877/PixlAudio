@@ -63,6 +63,27 @@ class SpatialStatusLineTest {
     }
 
     @Test
+    fun `a render that waits for a network or for next month says which`() {
+        assertEquals(
+            SpatialStatusLine.WAITING_FOR_WIFI,
+            line(heard(SpatialRendition.ON_DEVICE), SpatialRenditionStatus.WAITING_FOR_NETWORK)
+        )
+        assertEquals(
+            SpatialStatusLine.CLOUD_LIMIT_REACHED,
+            line(heard(SpatialRendition.ON_DEVICE), SpatialRenditionStatus.CAP_REACHED)
+        )
+        // Both are the spec's `queued`, each with its reason.
+        assertEquals(
+            listOf(
+                SpatialRenditionStatus.QUEUED,
+                SpatialRenditionStatus.WAITING_FOR_NETWORK,
+                SpatialRenditionStatus.CAP_REACHED,
+            ),
+            SpatialRenditionStatus.entries.filter { it.isQueued }
+        )
+    }
+
+    @Test
     fun `a render that is coming down, or is there and not faded to yet, is getting the cloud version`() {
         for (status in listOf(SpatialRenditionStatus.DOWNLOADING, SpatialRenditionStatus.READY)) {
             assertEquals(
@@ -164,6 +185,8 @@ class SpatialStatusLineTest {
     fun `the shown status is the library's own, or preview while the on-device stage stands in`() {
         val cloudSide = listOf(
             SpatialRenditionStatus.QUEUED,
+            SpatialRenditionStatus.WAITING_FOR_NETWORK,
+            SpatialRenditionStatus.CAP_REACHED,
             SpatialRenditionStatus.PROCESSING,
             SpatialRenditionStatus.DOWNLOADING,
             SpatialRenditionStatus.READY,
@@ -185,10 +208,8 @@ class SpatialStatusLineTest {
                 status.name
             )
         }
-        assertEquals(
-            listOf(SpatialRenditionStatus.QUEUED, SpatialRenditionStatus.PROCESSING, SpatialRenditionStatus.DOWNLOADING),
-            SpatialRenditionStatus.entries.filter { it.isInFlight }
-        )
+        // Between them the two lists are every status: nothing is left without a rule.
+        assertEquals(SpatialRenditionStatus.entries.size, cloudSide.size + 2)
     }
 
     @Test

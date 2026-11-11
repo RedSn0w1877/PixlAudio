@@ -3,11 +3,16 @@ package com.theveloper.pixelplay.data.spatial
 import java.io.File
 
 /**
- * Where one song stands for one profile (§6.1: "Per song and profile the app tracks"), keyed by the YouTube video and
- * the profile; the order is the usual way forward.
+ * Where one song stands for one profile (§6.1: "Per song and profile the app tracks: none → preview → queued →
+ * processing → downloading → ready, or failed"), keyed by the YouTube video and the profile; the order is the usual
+ * way forward.
  *
- * [SpatialLibrary] keeps and reports the cloud's side of it: [NONE], [QUEUED], [PROCESSING], [DOWNLOADING], [READY]
- * and [FAILED]. [PREVIEW] is the player's fact and is added by [shown], as on iOS.
+ * The spec's `queued` is three cases here, because "a render that is wanted but cannot start yet is `queued` with a
+ * reason" (§6.1) and each reason has its own status line (§6.5): [QUEUED] with no reason, [WAITING_FOR_NETWORK] and
+ * [CAP_REACHED]. [isQueued] is true for all three.
+ *
+ * [SpatialLibrary] keeps and reports the cloud's side of it: every case but [PREVIEW], which is the player's fact
+ * and is added by [shown], as on iOS.
  */
 enum class SpatialRenditionStatus {
     /** Nothing is known, wanted or under way for this song and profile. */
@@ -25,13 +30,25 @@ enum class SpatialRenditionStatus {
      */
     QUEUED,
 
+    /**
+     * `queued` with the reason `waitingForNetwork` (§6.1): wanted, but there is no network the person allows for
+     * cloud work. It starts by itself when one comes back. §6.5: "The cloud version waits for Wi-Fi."
+     */
+    WAITING_FOR_NETWORK,
+
+    /**
+     * `queued` with the reason `capReached` (§6.1): wanted, but the month's limit for library jobs
+     * (`cloudAudio.monthlyCapUSD`) is reached. §6.5: "This month's cloud limit is reached."
+     */
+    CAP_REACHED,
+
     /** The GPU is working on it (§6.2 step 3). */
     PROCESSING,
 
     /**
      * The render exists, in the shared library or as the result of the job, and is coming down to be verified
-     * (§6.2 steps 2 and 4). §6.1 counts this under `processing`; §6.5 gives it its own line ("Getting the cloud
-     * version."), so it is a state of its own here.
+     * (§6.2 steps 2 and 4). A state of its own on both platforms (§6.1), with its own line (§6.5: "Getting the cloud
+     * version.").
      */
     DOWNLOADING,
 
@@ -41,8 +58,8 @@ enum class SpatialRenditionStatus {
     /** The last attempt failed. It is tried again later with backoff: 10 minutes, 1 hour, 1 day (§6.1). */
     FAILED;
 
-    /** The cloud is on its way to a render: [QUEUED], [PROCESSING] or [DOWNLOADING]. */
-    val isInFlight: Boolean get() = this == QUEUED || this == PROCESSING || this == DOWNLOADING
+    /** The spec's `queued` (§6.1), with or without a reason: [QUEUED], [WAITING_FOR_NETWORK] or [CAP_REACHED]. */
+    val isQueued: Boolean get() = this == QUEUED || this == WAITING_FOR_NETWORK || this == CAP_REACHED
 
     companion object {
         /**
@@ -90,8 +107,9 @@ enum class SpatialBlock {
     REMOTE,
 
     /**
-     * The stream's format is not one the on-device stage handles (§7: any rate but 44.1 or 48 kHz is bypassed) and
-     * no render is playing. §6.5 has no line.
+     * The stream's sample rate is not one the on-device stage takes (§6.3, §7: anything but 44.1 or 48 kHz plays
+     * without the stage) and no render is playing. The cloud render still works, so the player still asks for it.
+     * No status line of its own (§6.3).
      */
     FORMAT,
 }
@@ -210,6 +228,12 @@ enum class SpatialStatusLine {
      */
     ON_PHONE_FOR_NOW,
 
+    /** "On your phone for now. The cloud version waits for Wi-Fi." Wanted, but no network the person allows. */
+    WAITING_FOR_WIFI,
+
+    /** "On your phone only. This month's cloud limit is reached." Wanted, but the month's limit is reached. */
+    CLOUD_LIMIT_REACHED,
+
     /** "Getting the cloud version." The render is downloading, or is on the phone and the fade to it comes next. */
     GETTING_CLOUD_VERSION,
 
@@ -237,8 +261,9 @@ enum class SpatialStatusLine {
          * - the route rule fails: [HEADPHONES_ONLY]; else Sing's instrumental mode is on: [PAUSED_FOR_SING];
          * - a cloud render is audible: [CLOUD_VERSION];
          * - the on-device stage is audible: [ON_PHONE_ONLY] while cloud renders are off; else [CLOUD_FAILED] after
-         *   a failure, [GETTING_CLOUD_VERSION] while the render comes down (or is already there and the fade to it
-         *   is next), and [ON_PHONE_FOR_NOW] in every other case;
+         *   a failure, [WAITING_FOR_WIFI] and [CLOUD_LIMIT_REACHED] while the render is queued for that reason,
+         *   [GETTING_CLOUD_VERSION] while it comes down (or is already there and the fade to it is next), and
+         *   [ON_PHONE_FOR_NOW] in every other case;
          * - anything else: [NONE].
          */
         fun of(
@@ -255,8 +280,13 @@ enum class SpatialStatusLine {
             !cloudRendersOn -> ON_PHONE_ONLY
             else -> when (status) {
                 SpatialRenditionStatus.FAILED -> CLOUD_FAILED
+                SpatialRenditionStatus.WAITING_FOR_NETWORK -> WAITING_FOR_WIFI
+                SpatialRenditionStatus.CAP_REACHED -> CLOUD_LIMIT_REACHED
                 SpatialRenditionStatus.DOWNLOADING, SpatialRenditionStatus.READY -> GETTING_CLOUD_VERSION
-                else -> ON_PHONE_FOR_NOW
+                SpatialRenditionStatus.NONE,
+                SpatialRenditionStatus.PREVIEW,
+                SpatialRenditionStatus.QUEUED,
+                SpatialRenditionStatus.PROCESSING -> ON_PHONE_FOR_NOW
             }
         }
     }
