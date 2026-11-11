@@ -65,6 +65,14 @@ class SpatialAudioStateHolder @Inject constructor(
     val settings: StateFlow<SpatialSettings> =
         repository.settings.stateIn(scope, SharingStarted.Eagerly, repository.defaults)
 
+    /**
+     * UI-only: [settings] once the store has been read, null until then. The holder is created when the first
+     * screen asks for it, so for a frame or two [settings] still holds the defaults; the full player's button waits
+     * on this instead, so a stored profile never "grows in" from Off when the player opens.
+     */
+    val storedSettings: StateFlow<SpatialSettings?> =
+        repository.settings.stateIn(scope, SharingStarted.Eagerly, null)
+
     /** What the current item sounds like, and what holds a selected profile back (§6.3). */
     val audible: StateFlow<SpatialAudible> get() = playback.audible
 

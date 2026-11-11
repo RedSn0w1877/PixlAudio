@@ -191,6 +191,8 @@ import com.theveloper.pixelplay.presentation.model.LocalDeveloperMode
 import com.theveloper.pixelplay.presentation.model.SettingsCategory
 import com.theveloper.pixelplay.presentation.model.visibleBackupSections
 import com.theveloper.pixelplay.presentation.navigation.Screen
+import com.theveloper.pixelplay.presentation.spatial.SpatialAudioDeveloperRows
+import com.theveloper.pixelplay.presentation.spatial.SpatialAudioSettingsRows
 import com.theveloper.pixelplay.presentation.viewmodel.LyricsRefreshProgress
 import com.theveloper.pixelplay.presentation.viewmodel.PlayerViewModel
 import com.theveloper.pixelplay.presentation.viewmodel.SettingsViewModel
@@ -838,6 +840,8 @@ fun SettingsCategoryScreen(
                                     },
                                     leadingIcon = { Icon(painterResource(R.drawable.outline_high_quality_24), null, tint = MaterialTheme.colorScheme.secondary) }
                                 )
+                                // Spatial audio (cloud-audio-spec §6.5): profile, cloud renders, prepare ahead, songs ready.
+                                SpatialAudioSettingsRows(navController = navController)
                             }
                         }
                     }
@@ -956,6 +960,8 @@ fun SettingsCategoryScreen(
                                         enabled = uiState.hiFiModeDeviceSupported,
                                         leadingIcon = { Icon(painterResource(R.drawable.outline_high_quality_24), null, tint = MaterialTheme.colorScheme.secondary) }
                                     )
+                                    // Spatial audio's Developer mode rows (§6.5): route, caps, storage, diagnostics.
+                                    SpatialAudioDeveloperRows()
                                 }
                             }
                         }

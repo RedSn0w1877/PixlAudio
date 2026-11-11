@@ -130,6 +130,20 @@ class SpatialAudioStateHolderTest {
     }
 
     @Test
+    fun `storedSettings is null until the store has been read, then follows it`() = runTest {
+        withHolder { fixture ->
+            val holder = fixture.holder
+            // The full player's button waits on this instead of showing the defaults for a frame.
+            assertNull(holder.storedSettings.value)
+            assertEquals(SpatialSettings.defaults(builtInCloudKeys = false), holder.storedSettings.first { it != null })
+
+            holder.selectProfile(SpatialProfile.NIGHT)
+            assertEquals(SpatialProfile.NIGHT, holder.storedSettings.first { it?.profile != null }?.profile)
+            assertEquals(holder.settings.first { it.profile == SpatialProfile.NIGHT }, holder.storedSettings.value)
+        }
+    }
+
+    @Test
     fun `the status and the status line follow the playing song, the profile and the library`() = runTest {
         withHolder { fixture ->
             val holder = fixture.holder

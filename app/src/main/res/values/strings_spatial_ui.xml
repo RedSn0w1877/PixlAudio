@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Spatial audio: the full player's button and sheet, and its rows in Settings › Playback › Sound
+    (handoff/2026-11-10-plans/cloud-audio-spec.md §6.5). English only, like the other new strings files.
+    The profile names, their one-liners, the status lines and the quiet line are the spec's words, the same
+    as on iOS: change them in the spec first. SpatialAudioUiTest checks them word for word.
+-->
+<resources>
+    <string name="spatial_ui_audio">Spatial audio</string>
+    <string name="spatial_ui_for_headphones">For headphones.</string>
+    <string name="spatial_ui_off">Off</string>
+    <string name="spatial_ui_off_line">The normal stereo sound.</string>
+
+    <!-- The six profiles (§1, §6.5), in the spec's order. -->
+    <string name="spatial_ui_profile_studio">Studio</string>
+    <string name="spatial_ui_profile_studio_line">Clean and close, like good speakers in a quiet room.</string>
+    <string name="spatial_ui_profile_wide">Wide</string>
+    <string name="spatial_ui_profile_wide_line">Instruments pushed out to the sides.</string>
+    <string name="spatial_ui_profile_intimate">Intimate</string>
+    <string name="spatial_ui_profile_intimate_line">The voice right in front of you.</string>
+    <string name="spatial_ui_profile_hall">Concert Hall</string>
+    <string name="spatial_ui_profile_hall_line">A big room, a few rows back.</string>
+    <string name="spatial_ui_profile_surround">Surround</string>
+    <string name="spatial_ui_profile_surround_line">Sound beside and behind you.</string>
+    <string name="spatial_ui_profile_night">Night</string>
+    <string name="spatial_ui_profile_night_line">Softer and gentler for late listening.</string>
+
+    <!-- The sheet's status line for the current song: one per row of §6.5's table. -->
+    <string name="spatial_ui_status_on_phone_for_now">On your phone for now. The cloud version takes about a minute.</string>
+    <string name="spatial_ui_status_waiting_for_wifi">On your phone for now. The cloud version waits for Wi-Fi.</string>
+    <string name="spatial_ui_status_cloud_limit_reached">On your phone only. This month\'s cloud limit is reached.</string>
+    <string name="spatial_ui_status_getting_cloud_version">Getting the cloud version.</string>
+    <string name="spatial_ui_status_cloud_version">Playing the cloud version.</string>
+    <string name="spatial_ui_status_on_phone_only">On your phone only. Turn on cloud renders for the full version.</string>
+    <string name="spatial_ui_status_cloud_failed">The cloud version didn\'t work this time. Still playing on your phone.</string>
+    <string name="spatial_ui_status_headphones_only">Headphones only. Plug in to hear it.</string>
+    <string name="spatial_ui_status_paused_for_sing">Paused while Sing is on.</string>
+    <!-- Under the profile list, always (§6.3 "Level", §6.5). -->
+    <string name="spatial_ui_quieter_note">Spatial plays a little quieter so the peaks stay clean.</string>
+
+    <!-- The full player's button (TalkBack). %1$s is "Off" or a profile's name. -->
+    <string name="spatial_ui_cd_button">Spatial audio, %1$s</string>
+    <string name="spatial_ui_cd_button_held">Spatial audio, %1$s. Not playing right now.</string>
+
+    <!-- Developer mode: the full player's file-info label while Spatial audio plays. %1$s is a profile's name. -->
+    <string name="spatial_ui_file_info_on_device">Spatial %1$s on phone</string>
+    <string name="spatial_ui_file_info_render">Spatial %1$s cloud render</string>
+
+    <!-- Settings › Playback › Sound -->
+    <string name="spatial_ui_settings_profile_subtitle">%1$s · %2$s</string>
+    <string name="spatial_ui_settings_cloud_title">Cloud renders</string>
+    <string name="spatial_ui_settings_cloud_subtitle">The cloud makes the full version of each song. When this is off, Spatial audio stays on your phone.</string>
+    <string name="spatial_ui_settings_master_off_title">Cloud processing is off</string>
+    <string name="spatial_ui_settings_master_off_subtitle">Cloud renders need it. Tap to turn it on.</string>
+    <string name="spatial_ui_settings_prepare_title">Prepare ahead</string>
+    <string name="spatial_ui_settings_prepare_subtitle">Gets favourites and most-played songs ready on Wi-Fi, when the battery isn\'t low.</string>
+    <string name="spatial_ui_settings_prepare_needs_cloud">Needs cloud renders.</string>
+    <string name="spatial_ui_settings_songs_ready">Songs ready: %1$d · %2$s GB on this phone</string>
+    <string name="spatial_ui_settings_songs_ready_subtitle">Cloud versions saved for Spatial audio. The least played go first when the space runs out.</string>
+    <string name="spatial_ui_settings_remove">Remove downloaded renders</string>
+    <string name="spatial_ui_settings_remove_confirm_title">Remove downloaded renders?</string>
+    <string name="spatial_ui_settings_remove_confirm_text">This clears the cloud versions saved on this phone. Songs get them again the next time they play.</string>
+
+    <!-- Settings › Playback › Advanced (Developer mode) -->
+    <string name="spatial_ui_dev_route_title">Spatial audio route</string>
+    <string name="spatial_ui_dev_route_subtitle">Where Spatial audio may play.</string>
+    <string name="spatial_ui_dev_route_headphones">Headphones only</string>
+    <string name="spatial_ui_dev_route_always">Always</string>
+    <string name="spatial_ui_dev_cap_title">Spatial cloud limit per month</string>
+    <string name="spatial_ui_dev_cap_subtitle">Spatial renders only, apart from Sing. Spent this month: %1$s.</string>
+    <string name="spatial_ui_dev_cap_usd">$%1$d</string>
+    <string name="spatial_ui_dev_cap_none">No limit</string>
+    <string name="spatial_ui_dev_storage_title">Storage for Spatial renders</string>
+    <string name="spatial_ui_dev_storage_caption">The least played are removed first when it is full.</string>
+    <string name="spatial_ui_dev_storage_mb">%1$d MB</string>
+    <string name="spatial_ui_dev_storage_gb">%1$s GB</string>
+    <string name="spatial_ui_dev_daily_title">Spatial songs a day ahead</string>
+    <string name="spatial_ui_dev_daily_caption">Sent today: %1$d.</string>
+    <string name="spatial_ui_dev_diag_title">Spatial audio: this song</string>
+    <string name="spatial_ui_dev_diag_nothing">Nothing is playing.</string>
+    <string name="spatial_ui_dev_diag_rendition">Rendition</string>
+    <string name="spatial_ui_dev_diag_held">Held back by</string>
+    <string name="spatial_ui_dev_diag_status">Status</string>
+    <string name="spatial_ui_dev_diag_render">Cloud render on this phone</string>
+    <string name="spatial_ui_dev_diag_codec">Source codec</string>
+    <string name="spatial_ui_dev_diag_stems">Stem mode</string>
+    <string name="spatial_ui_dev_diag_loudness">Loudness</string>
+    <string name="spatial_ui_dev_diag_rate">Sample rate</string>
+</resources>
