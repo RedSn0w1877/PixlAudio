@@ -5,9 +5,11 @@ switching, route and level rules), **CLOUD** (library client, jobs, local store,
 (player sheet, settings, strings). The contract is [`cloud-audio-spec.md`](cloud-audio-spec.md) ("spec §N" below).
 This file says where everything is in the Android code, what is already there for you, and who may edit what.
 
-- Written on branch `audio-foundation`. **Line numbers are those of that branch's head** (the commit that adds this
-  file). `MusicService.kt` already includes the foundation's own 13 lines, so its numbers are 4 to 13 higher than on
-  `audio-hq`/`main`.
+- Written on branch `audio-foundation`. **Line numbers are those of that branch's head.** `MusicService.kt` already
+  includes the foundation's own 13 lines, so its numbers are 4 to 13 higher than on `audio-hq`/`main`.
+- **The spec was settled on 2026-11-11** (`audio-hq` 667185c: stored forms, two switches, money, slots, timeout,
+  status lines, level note) and the on-device tables were regenerated (9a243a7). This branch carries both, the
+  contract code follows them, and this file says "settled" where one of them answers something that was open.
 - `Name.kt:120` is a line; `120-140` a range. Paths without a root are under
   `app/src/main/java/com/theveloper/pixelplay/`.
 - "Verified" means read in the code or in the library's class files. Nothing here was run on a phone.
@@ -23,9 +25,11 @@ This file says where everything is in the Android code, what is already there fo
 3. **The exact per-item hook exists and is public API:** `AudioProcessor.flush(StreamMetadata)` carries the timeline
    and the period of the stream the processor is about to get (2.3). No renderer subclass is needed.
 4. **Sing's shadow player is a plain ExoPlayer**: no processor chain, no `spotify://` resolver, aligned by position
-   to within about 40 ms, fades clamped to 300-700 ms (2.7). A 250 ms rendition swap needs its own numbers.
+   to within about 40 ms, fades clamped to 300-700 ms (2.7). The rendition swap needs its own numbers (spec §6.3,
+   settled: about 250 ms, a new 20 s rule, and Sing's own behaviour must not change).
 5. **Cloud Studio's money rules are Sing's**: one shared monthly cap hard-limited to $3 with the built-in keys, one
-   cost estimate, and "has an instrumental" as the meaning of done (3.4, 3.2). Library jobs need their own ledger.
+   cost estimate, and "has an instrumental" as the meaning of done (3.4, 3.2). Library jobs need their own monthly
+   sum and their own cap (spec §6.1 "Money", settled): neither counts against the other.
 
 ## 1. What the foundation branch already gives you
 
@@ -34,18 +38,18 @@ Everything compiles and is green in CI (section 7). All of it is behind no-ops: 
 | File | What |
 |---|---|
 | `data/spatial/SpatialProfile.kt` | `SpatialProfile` (ids `studio`, `wide`, `intimate`, `hall`, `surround`, `night`; `OFF_ID`, `DEFAULT`, `fromId`) and `SpatialContract` (`LIB_V = 1`, `ENGINE_ID`, `PREVIEW_ASSET`, `PREVIEW_SCHEMA`, `PREVIEW_VERSION`). |
-| `data/spatial/SpatialSettings.kt` | `SpatialRouteMode` and the immutable `SpatialSettings` snapshot (spec §6.1), with `storageBytes`, `monthlyCapMicroUsd`, `defaults(builtInCloudKeys)`. |
-| `data/spatial/SpatialSettingsRepository.kt` | The settings in the shared `settings` DataStore under the spec's key names. The only writer. `settings: Flow`, `current()`, `defaults`, one setter per key. |
-| `data/spatial/SpatialRendition.kt` | `SpatialRenditionStatus` (spec §6.1 states), `SpatialRendition`, `SpatialBlock`, `SpatialAudible`, `SpatialRender`, `EnhancedAudio`, `SpatialLibraryStats`, `SpatialLibraryEvent`, `SpatialStatusLine` (+ `of(...)`). |
-| `data/spatial/SpatialLibrary.kt` | The seam CLOUD implements, and `NoOpSpatialLibrary`. |
+| `data/spatial/SpatialSettings.kt` | `SpatialRouteMode` and the immutable `SpatialSettings` snapshot (spec §6.1), with `storageBytes`, `monthlyCapMicroUsd`, `defaults(builtInCloudKeys)`, and the limits of the stored forms (`MIN/MAX_STORAGE_MB` 256..65536, `MIN/MAX_DAILY_AHEAD` 1..100, `clampStorageMb`, `clampDailyAhead`). |
+| `data/spatial/SpatialSettingsRepository.kt` | The settings in the shared `settings` DataStore under the spec's key names and stored forms. The only writer. `settings: Flow`, `current()`, `defaults`, one setter per key. |
+| `data/spatial/SpatialRendition.kt` | `SpatialRenditionStatus` (spec §6.1 states plus `DOWNLOADING`; `shown(library, onDeviceAudible)`, `isInFlight`), `SpatialRendition`, `SpatialBlock`, `SpatialAudible`, `SpatialRender`, `EnhancedAudio`, `SpatialLibraryStats`, `SpatialLibraryEvent`, `SpatialStatusLine` (one case per row of spec §6.5's table, + `of(...)`). |
+| `data/spatial/SpatialLibrary.kt` | The seam CLOUD implements (`cloudRendersOn`, `localRender`, `localEnhanced`, `request`, `status`, `events`, `stats`, `markPlayed`, `removeAll`), and `NoOpSpatialLibrary`. |
 | `data/spatial/SpatialPlayback.kt` | The seam ENGINE implements, and `NoOpSpatialPlayback`. |
 | `data/spatial/SpatialLibraryModule.kt` | Hilt: `provideSpatialLibrary()`. **CLOUD's file.** |
 | `data/spatial/SpatialPlaybackModule.kt` | Hilt: `provideSpatialPlayback()`. **ENGINE's file.** |
 | `presentation/viewmodel/SpatialAudioStateHolder.kt` | `@Singleton`, what the UI reads and calls. |
 | `presentation/viewmodel/SpatialAudioViewModel.kt` | `@HiltViewModel` with one property, `spatial`: how a composable reaches the holder. |
 | `data/service/MusicService.kt:235-238, 676-683` | The service collects `SpatialSettingsRepository.settings` and calls `SpatialPlayback.apply(settings)` (main thread). |
-| `app/src/main/assets/spatial_preview_v1.json` | The on-device table, byte-identical to the worker's (git blob `ddc4f23d`, 73,284 bytes). |
-| `app/src/test/resources/spatial/spatial_preview_golden_v1.json` | The golden file (blob `18a855bd`, 268,346 bytes). Its `schema` is `pixl.spatial.preview.golden`, `v` 1. |
+| `app/src/main/assets/spatial_preview_v1.json` | The on-device table, byte-identical to the worker's regenerated one (git blob `801ec88c`, 73,183 bytes; the same blob as in `handoff/…/spatial/` and in the iOS repo). |
+| `app/src/test/resources/spatial/spatial_preview_golden_v1.json` | The golden file that belongs to it (blob `2b12de47`, 268,232 bytes). Its `schema` is `pixl.spatial.preview.golden`, `v` 1. |
 | `.gitattributes` | `spatial_preview*.json text eol=lf`: every copy stays LF on Windows too. |
 | `app/compose_stability.conf` | `com.theveloper.pixelplay.data.spatial.**` is stable. |
 | `app/src/test/java/.../data/spatial/SpatialFixtures.kt` | Test helper: `previewTable()`, `previewTableBytes()`, `golden()`, `goldenBytes()`. ENGINE's golden test reads both files through it. |
@@ -56,11 +60,12 @@ Everything compiles and is green in CI (section 7). All of it is behind no-ops: 
 UI ──reads/calls──> SpatialAudioStateHolder ──writes──> SpatialSettingsRepository (DataStore)
                          │  reads                              │ settings flow
                          ├── SpatialPlayback.audible           ├──> MusicService ──> SpatialPlayback.apply(settings)   [ENGINE]
-                         └── SpatialLibrary.status/stats       └──> CLOUD reads it itself (cloud switch, caps, prepare ahead)
+                         └── SpatialLibrary.status/stats/      └──> CLOUD reads it itself (cloud switch, caps, prepare ahead)
+                             cloudRendersOn
 
 ENGINE ──> SpatialLibrary.localRender / localEnhanced   (on the load path, no network)
-ENGINE ──> SpatialLibrary.request(songId, videoId, profile)   (song started without a local render)
-ENGINE ──> SpatialLibrary.markPlayed(videoId, profile)
+ENGINE ──> SpatialLibrary.request(songId, videoId, profile)   (a song plays with Spatial active and has no local render)
+ENGINE ──> SpatialLibrary.markPlayed(videoId, profile)        (profile null: the Enhanced file)
 ENGINE <── SpatialLibrary.events   (RenderReady, EnhancedReady, Removed)
 ```
 
@@ -72,26 +77,51 @@ ENGINE <── SpatialLibrary.events   (RenderReady, EnhancedReady, Removed)
 - `SpatialLibrary.localRender` is called from ExoPlayer's loader thread inside a `runBlocking` (2.6). It must
   answer from memory or one file check. No network, no database scan.
 
-### 1.2 Decisions the contract makes that the spec leaves open (tell the lead if one is wrong)
+### 1.2 What the contract takes from the settled spec, and what it still decides itself
 
-1. **"No limit" for `cloudAudio.monthlyCapUSD`** is stored as `-1` (`SpatialSettingsRepository.NO_MONTHLY_CAP`) and
-   is `null` in `SpatialSettings.monthlyCapUsd`. Not 0: a cap of 0 means "spend nothing", as it does for Sing's cap.
-   The iOS app must store the same thing if the two are ever compared.
-2. **The status line says nothing when none of the three spec lines is true** (`SpatialStatusLine.NONE`): with
-   `spatial.cloud` off, after a failure, while Sing or another device plays. The spec has no words for those; the UI
-   shows the three lines only. "On your phone for now. The cloud version takes about a minute." needs the on-device
-   stage audible, the cloud switch on and the status `PREVIEW`, `QUEUED` or `PROCESSING`.
-3. **`request(songId, videoId, profile)` takes a nullable profile**: null asks for the Enhanced version only. Spec
-   §6.1 says Enhanced is asked for "when `spatial.cloud` is on" but §6.2 only sends `enhance` next to `spatial`.
-   Whether a song played with Spatial off should cost an `enhance` job is the lead's call; the seam allows both.
-4. **`PREVIEW`** is set by the library when a render was asked for and only the on-device version exists so far.
-   The library owns the whole state machine of spec §6.1; ENGINE does not write statuses.
-5. **`markPlayed`** exists because the storage budget evicts least-recently-played first and only the player knows
-   what played.
-6. **`spatial.cloud` and Cloud Studio's consent switch are two switches.** The engine sends nothing while
-   `CloudSettingsSnapshot.enabled` is false (`CloudStudioEngine.kt:829-832`). With built-in keys both default to on.
-7. The unit test `SpatialTablesTest` pins the SHA-256 and size of the two generated files. When the worker
-   regenerates them, copy both again and update the four values in the same change.
+From the settled spec (and the same as the iOS contract, `PixlModel/CloudAudio/` on the iOS `audio-foundation`):
+
+1. **Stored forms** (§6.1): "No limit" for `cloudAudio.monthlyCapUSD` is `-1` (`NO_MONTHLY_CAP` in the
+   repository), `null` in `SpatialSettings.monthlyCapUsd`, and any negative stored number reads as it;
+   `cloudAudio.storageMB` is kept within 256..65536 and `cloudAudio.dailyAhead` within 1..100, on write and on read;
+   a stored `spatial.route = always` is honoured whether or not Developer mode is on. Android stores the cap as an
+   `Int` of whole dollars (iOS stores a number); the two stores never meet.
+2. **Two switches** (§6.1): Cloud Studio's "Process songs in the cloud" (`CloudSettingsSnapshot.enabled`, the engine
+   sends nothing while it is off, `CloudStudioEngine.kt:829-832`) is the master, `spatial.cloud` sits under it, and a
+   library job, lookup or download needs both. `SpatialLibrary.cloudRendersOn: StateFlow<Boolean>` is the two
+   together. **CLOUD implements it** (`CloudStudioSettings.settings` and `SpatialSettingsRepository.settings`); the
+   no-op says false. With built-in keys both switches default to on.
+3. **The status line has one case per row of §6.5's table** (`SpatialStatusLine`): `ON_PHONE_FOR_NOW`,
+   `GETTING_CLOUD_VERSION`, `CLOUD_VERSION`, `ON_PHONE_ONLY`, `CLOUD_FAILED`, `HEADPHONES_ONLY`, `PAUSED_FOR_SING`,
+   plus `NONE`. `SpatialStatusLine.of(settings, audible, status, cloudRendersOn)` checks them in the order iOS does:
+   off or nothing loaded, the route, Sing, a cloud render, then the on-device cases.
+4. **No `enhance`-only jobs this round** (§6.2 step 3): `request(songId, videoId, profile)` always takes a profile.
+   The library adds `"enhance"` to a Spatial job when `enhanced.enabled` and no Enhanced manifest is known.
+5. **Money** (§6.1): library jobs have their own monthly sum and cap. `SpatialLibraryStats` carries
+   `spentThisMonthMicroUsd` and `sentToday` for Developer mode's rows; CLOUD fills them.
+
+Decided here because the spec does not say (tell the lead if one is wrong):
+
+6. **`DOWNLOADING` is a status of its own.** §6.1 lists `none, preview, queued, processing, ready, failed`; §6.5 has a
+   row "render downloading" with its own line, so the library must be able to say it. `QUEUED` covers the
+   shared-library check, preparing, uploading and waiting for a worker; `PROCESSING` is the GPU.
+7. **`PREVIEW` is the player's fact, not the library's** (as on iOS): `SpatialLibrary.status` never returns it;
+   `SpatialRenditionStatus.shown(library, onDeviceAudible)` turns the library's `NONE` into `PREVIEW` while the
+   on-device stage plays, and the holder's `currentStatus` applies it. ENGINE does not write statuses.
+8. **The on-device cases of the line**: cloud renders off → `ON_PHONE_ONLY`; `FAILED` → `CLOUD_FAILED`;
+   `DOWNLOADING`, and `READY` while the stage still plays (the fade is next) → `GETTING_CLOUD_VERSION`; everything
+   else (`NONE`, `PREVIEW`, `QUEUED`, `PROCESSING`) → `ON_PHONE_FOR_NOW`, which is iOS's rule. It means the line
+   promises "about a minute" even when the library cannot start (the month's cap is reached, no allowed network):
+   section 9, question 1.
+9. **`SpatialBlock`**: `ROUTE` covers every output the headphones rule rejects, another device (Cast, Spotify
+   Connect) included, and shows "Headphones only. Plug in to hear it."; `REMOTE` is only for another device while
+   `spatial.route` is `always`; `FORMAT` is a rate the stage does not take. The last two have no row in §6.5 and
+   show nothing. When several hold, ENGINE reports the first of `ROUTE`, `SING`, `REMOTE`, `FORMAT`.
+10. **`markPlayed`** exists because the storage budget evicts least-recently-played first and only the player knows
+    what played (`profile` null: the Enhanced file).
+11. **`SpatialTablesTest` pins no generated number.** It checks that the app's two copies equal the handoff copies
+    byte for byte, that none has a carriage return, and their shape. When the worker regenerates the pair, copy
+    both to the three places (handoff, assets, test resources); no test needs editing.
 
 ## 2. Playback
 
@@ -386,10 +416,15 @@ cache is keyed by Spotify id, not by video: after a re-match a cached file can b
 - For an upload: `LiveCloudAudioPreparer.inspect()` (`data/cloudstudio/LiveCloudAudioPreparer.kt:105-128`) knows the
   MIME and the rate but keeps them private; `CloudPreparedAudio` (`CloudStudioSeams.kt:64-76`) carries
   `sampleRate`, `frames`, `durationMs`; the worker reports `input.codec` back (`CloudJobSchema.kt:378-386`).
-- The spec's `library.source {itag, codec}` is optional and only recorded. Codec is easy (add it to
-  `CloudPreparedAudio`); the itag needs a new accessor on the proxy. Sending only `codec` is within the spec.
+- **Settled (spec §6.2 step 3): `library.source` names the STREAM the audio came from (`itag`, `codec`), not the
+  uploaded FLAC.** The worker only records it (§4), but the apps are to send it. Codec is easy (add it to
+  `CloudPreparedAudio`); the itag needs a new accessor on the proxy, which is CLOUD's to add (section 8).
 - Usual streams: itag 251 is Opus in WebM at 48 kHz; itag 140 is AAC-LC in MP4 at 44.1 kHz; the fallback itag 18
   is a muxed MP4 whose audio is 22 kHz, which the stage must bypass (spec §7).
+- **A render's sample rate is the uploaded file's, not this phone's stream's** (spec §6.2 step 3, settled): 44.1 kHz
+  when an iPhone made it, the stream's own rate when an Android phone did. So a render fetched from the shared
+  library can be 44.1 kHz for a song this phone streams at 48 kHz. Line the two up by media time, never by frame
+  count, and expect the sink to be reconfigured when an item starts on a render of another rate.
 
 ### 2.7 The Sing swap: `InstrumentalCrossfadeController` and `MusicService.applyStudioAudioOverride`
 
@@ -432,13 +467,17 @@ How it works, and what that means for a spatial render:
   measures how far behind it landed and aims ahead by that much (`CrossfadeRamp.nextSeekLead`, at most 400 ms),
   until the two are within `ALIGN_TOLERANCE_MS = 40` or `ALIGN_BUDGET_MS = 250` is used up. A resync loop then
   re-seeks every 4 s when the drift exceeds 200 ms, never during a ramp (225-252). **This is position-based: tens
-  of milliseconds, not samples.** Spec §6.3 says "align"; during a 250 ms overlap of the same song 40 ms apart you
-  will hear a short comb effect. If that is audible on the phone, tighten the tolerance for rendition swaps or
-  shorten the overlap; say what you chose in your handoff note.
+  of milliseconds, not samples.** That is what the settled spec asks for ("line them up by media time, never by
+  frame count across files", §6.2), since the render may not even have the stream's sample rate. During a 250 ms
+  overlap of the same song 40 ms apart you can still hear a short comb effect. If that is audible on the phone,
+  tighten the tolerance for rendition swaps or shorten the overlap; say what you chose in your handoff note.
 - **Ramps** (`data/service/player/CrossfadeRamp.kt:54-79`): linear, both volumes written every 16 ms from the wall
   clock. `clampFadeMs` forces 300..700 ms (26-28, 42). **The spec's "about 250 ms" is below `MIN_FADE_MS`**: give a
   rendition swap its own duration and do not pass it through `clampFadeMs`. `SingClipTimeline.SWAP_FADE_MS = 300`
-  (`SingClipTimeline.kt:61`) is the existing instrumental-to-instrumental value.
+  (`SingClipTimeline.kt:61`) is the existing instrumental-to-instrumental value. Settled (spec §6.3): "The existing
+  Sing swap fades over 300-700 ms and has no 'time left' rule; for these switches the fade is about 250 ms and the
+  20 s rule above is new. Sing's own behaviour must not change." So add the new numbers beside Sing's; do not edit
+  `MIN_FADE_MS`, `clampFadeMs` or any path a Sing swap takes, and keep `CrossfadeRampTest` and the Sing tests green.
 - **"At a quiet moment when the app can tell"**: `CrossfadeRequest.startAtPositionMs` and `maxWaitMs`
   (`CrossfadeRamp.kt:15-19`, `awaitPosition` 86-100) already wait for a planned position. Sing plans it from the
   gaps between sung words (`CrossfadePlan` in `LyricsSingStateHolder.kt:134`); that planner lives in the UI layer,
@@ -500,8 +539,10 @@ What you will find in practice, and should say in your note:
   path" branch (144-150) and sets the in-app volume. YouTube's own loudness value is not used anywhere.
 - So the app applies no loudness normalisation to streamed songs today: the gain is the in-app volume, 1.0 unless
   the person moved it. By the spec's own formula that gives `min(1.0, 1.0 × 1.585) = 1.0`: **on Android, Spatial
-  plays 4 dB under stereo, always, and never clips.** That is within the spec ("without it, Spatial is up to 4 dB
-  quieter"), but the lead should know the lift never engages here.
+  plays 4 dB under stereo, always, and never clips.** Settled (spec §6.3 "Level"): "Streamed songs have no
+  normalisation gain today, so in practice Spatial plays 4 dB under stereo: that is expected", and the sheet says
+  so in one quiet line (§6.5, UI's). Still build the rule in the one place above, so it is right the day a
+  normalisation gain exists (spec §9 lists it as a possible follow-up).
 - Apply the lift only to a normalisation gain, not to the person's own in-app volume (`userSelectedVolume`): lifting
   a volume the person turned down would undo their choice.
 - `player.volume` changes in a step. Ramp the lift over the same 80 ms as the stage (a few 16 ms steps, like
@@ -595,20 +636,20 @@ Also relevant:
 | Big transfers | `CloudTransfers.upload/download` (`CloudHttp.kt:53-58`, `OkHttpCloudHttp.kt`) | As is. `download` reports the HTTP status, 404 included. |
 | HTTP client | `@CloudStudioHttpClient` (`CloudStudioModule.kt:34-56`): no logging, no redirects | As is. Never log a presigned URL (`CloudRedaction`, `CloudHttp.kt:61-84`). |
 | RunPod client | `RunPodJobsApi` (`RunPodJobsClient.kt:203-214`): `run`, `status`, `cancel`, `health`, `selftest` | As is. |
-| Keys and consent | `CloudStudioSettings` (plain `SharedPreferences` `cloud_studio_settings`, secrets in `EncryptedSharedPreferences`), built-in keys `CloudBuiltInConfig` (`CloudDefaults.kt:190-245`) | As is. `isBundled` is the default of `spatial.cloud`. |
+| Keys and consent | `CloudStudioSettings` (plain `SharedPreferences` `cloud_studio_settings`, secrets in `EncryptedSharedPreferences`), built-in keys `CloudBuiltInConfig` (`CloudDefaults.kt:190-245`) | As is. `isBundled` is the default of `spatial.cloud`. Its `settings: StateFlow<CloudSettingsSnapshot>` (`CloudStudioSettings.kt:51`) has the master switch, `enabled`: **`SpatialLibrary.cloudRendersOn` is `enabled && spatial.cloud`, and with either off the library does no lookup, no download and no job** (spec §6.1 "Two switches", settled). |
 | Client build, clients, notices | `resolveConfig`/`clients` (1909-1936), `CloudNotice` (31-46) | As is. |
-| Prepare (download + decode) | `CloudStudioHost.audioSource` (`LiveCloudStudioHost.kt:50-68`), `LiveCloudAudioPreparer.prepare` (`LiveCloudAudioPreparer.kt:49-71`) | As is. **A streamed song is always decoded to 16-bit FLAC at its own rate** (`forceDecode = record.isStreamed`, `CloudStudioEngine.kt:1097`), so the spec's "AAC-LC is passed through" never applies to Spotify songs here. |
+| Prepare (download + decode) | `CloudStudioHost.audioSource` (`LiveCloudStudioHost.kt:50-68`), `LiveCloudAudioPreparer.prepare` (`LiveCloudAudioPreparer.kt:49-71`) | As is. **A streamed song is always decoded to 16-bit FLAC at its own rate** (`forceDecode = record.isStreamed`, `CloudStudioEngine.kt:1097`). Settled (spec §6.2 step 3): "exactly as Cloud Studio does today on that platform (the same preparer and the same decode-to-FLAC rule; do not add a resample that isn't there today)". So a render made from this phone has the stream's own rate. |
 | Upload, submit, watch, retry ladder, lost jobs, bursts (`last_in_batch`) | 1146-1173, 1315-1491, 1495-1547, `CloudTiming` (`CloudQueuePolicy.kt:114-158`) | As is, once a record can describe a library job. |
 | Import checks | `CloudImportCheck.matches` (bytes + SHA-256) and `samplesMatch` (`CloudQueuePolicy.kt:840-872`), `CloudDigest.file` (`CloudStudioSeams.kt:272-290`) | As is for "verify bytes and sha256". |
 | Job schema | `CloudTask` (`CloudJobSchema.kt:43-61`), `CloudJobInput` (119-146), `CloudJobResult` (326-348) | **Extend**: tasks `spatial` and `enhance`; a nullable `library` on the input; `library` on the result; `restoreMs`, `stems6Ms`, `renderMs` in `CloudTimings`; `stems6`, `restorer` in `CloudModelsInfo`. `CloudJson` leaves nulls out and ignores unknown keys (567-572), so old jobs stay byte-identical (the golden `run.request.json` test proves it). |
-| Builder | `CloudJobBuilder.request` (`CloudJobBuilder.kt:78-126`), `outputSlots` (16-21) | **Extend**: the `library` block with presigned `audioPut`/`manifestPut`/`manifestGet` for the canonical keys. `output.put.manifest` stays required. `CloudTask.outputSlots` must be empty for the new tasks: library files have no `out/` slot. |
+| Builder | `CloudJobBuilder.request` (`CloudJobBuilder.kt:78-126`), `outputSlots` (16-21) | **Extend**: the `library` block with presigned `audioPut`/`manifestPut`/`manifestGet` for the canonical keys, and `library.source` naming the stream (`itag`, `codec`; 2.6). `output.put.manifest` stays required. `CloudTask.outputSlots` must be empty for the new tasks: library files have no `out/` slot. One render entry, for the profile asked for; `"enhance"` next to `"spatial"` when `enhanced.enabled` and no `enhanced.json` is known, never alone (spec §6.2 step 3: no `enhance`-only jobs this round). |
 | Object clean-up | `CloudJobBuilder.objectKeys` (132-146) only lists keys inside `out/<jobKey>/` | Already safe: a `lib/` key named by a manifest is never deleted (spec §6.2 step 4). Keep it that way. |
 | Selection | `CloudSelector.plan` (`CloudQueuePolicy.kt:323-329`): skips a song that **has an instrumental** | **New rule** for library jobs (skip when the local store or the shared library has it). |
-| Collect and import | `collect` (1691-1751), `importInstrumental` (1762-1807), `finishIfDone` (1849-1861), `isFullyImported` (`CloudJobRecord.kt:259-260`), `outcome` (1007-1008) | **New branch**: all of these mean "the instrumental slot". A library job reads the manifest's `library`, downloads each `ok`/`exists` output from its `lib/` key and installs it in the local store. `collect` rejects a key outside `out/<jobKey>/` (1715-1718): library keys need their own check against the canonical key. |
+| Collect and import | `collect` (1691-1751), `importInstrumental` (1762-1807), `finishIfDone` (1849-1861), `isFullyImported` (`CloudJobRecord.kt:259-260`), `outcome` (1007-1008) | **New branch**: all of these mean "the instrumental slot". A library job reads the manifest's `library`, downloads each `ok`/`exists` output from its `lib/` key and installs it in the local store. `collect` rejects a key outside `out/<jobKey>/` (1715-1718): library keys need their own check against the canonical key. Settled (spec §6.2 step 3): "where the transfer layer only accepts today's slot names, teach it `sp-<profile>` and `enhanced`". |
 | Stale fields | `settleInterruptedWork` (1047-1067) and `submitReadyBatches` (1381) call `withoutLyrics()`; a job with no task left is removed | Check a library-only job is not treated as "nothing left". |
 | Cost estimate | `CloudCost.estimatedSeconds` (`CloudQueuePolicy.kt:497-503`): 33 s per 4-minute song | **New figures** for stems6 + render (+ restore). Unknown until the worker's first bench (spec §9). |
 | Monthly cap | `CloudBudget` (538-600); `CloudKeyChoice.BUILT_IN_MONTHLY_CAP_MICRO_USD = 3_000_000` (`CloudDefaults.kt:138, 175-176`) | **New ledger** (3.4). |
-| Timeouts | `CloudTiming.EXECUTION_TIMEOUT_MS = 900_000` (118) feeds `policy.executionTimeout` and the presign lifetime (122) | Library jobs need 1,800 s (spec §5). Make it per job kind; the worker URLs' lifetime follows. |
+| Timeouts | `CloudTiming.EXECUTION_TIMEOUT_MS = 900_000` (118) feeds `policy.executionTimeout` and the presign lifetime (122) | Settled (spec §6.2 step 3): "The request's `executionTimeout` policy is 1 800 000 ms for a job with library tasks (it overrides the endpoint's)." Make it per job kind and leave Sing's 900 000; the worker URLs' lifetime follows. |
 | Progress labels | `CloudProgress.label` (`RunPodJobsClient.kt:48-62`) | Add `restore`, `stems6`, `render` (unknown stages already show as their capitalised name). |
 | Worker examples | `app/src/test/resources/cloudstudio/worker/*.json` | Copy the worker's new examples from the iOS repo (`cloud/runpod-worker/schema/v1/examples/`) and test the builder against them (spec §8). They were not there yet on `audio-hq` when this was written. |
 
@@ -638,10 +679,14 @@ Also relevant:
 - Automatic Sing jobs have their own share inside it (`autoPrepareMonthlyBudgetMicroUsd`, $1 by default, and
   `autoPrepareDailyCap`, 12; `CloudStudioSeams.kt:131-135, 157-169`), with their own ledger kept apart from the job
   list so clearing the list frees nothing (`CloudStudioSettings.kt:166-186`).
-- **Spec §6.1: `cloudAudio.monthlyCapUSD` (30) is separate from Sing's cap, and Sing's $3 stays.** So library jobs
-  must not count toward `committedThisMonthMicroUsd`'s cap check and Sing jobs must not count toward the library
-  cap: two ledgers split by job kind, including the "removed jobs" part. `SpatialSettings.monthlyCapMicroUsd` is
-  the library cap in the engine's unit (`null` = no limit); `dailyAhead` is the background queue's daily count.
+- **Settled (spec §6.1 "Money"): "Library jobs have their own monthly sum and their own cap
+  (`cloudAudio.monthlyCapUSD`). They are not counted against Sing's cap and Sing's jobs are not counted against
+  theirs; Sing's $3 rule with built-in keys does not clamp them."** So library jobs must not count toward
+  `committedThisMonthMicroUsd`'s cap check and Sing jobs must not count toward the library cap: two ledgers split
+  by job kind, including the "removed jobs" part, and `effectiveMonthlyCap` must not be applied to the library
+  cap. `SpatialSettings.monthlyCapMicroUsd` is the library cap in the engine's unit (`null` = no limit);
+  `dailyAhead` is the background queue's daily count. Publish the library's month and day in
+  `SpatialLibraryStats.spentThisMonthMicroUsd` and `sentToday` (Developer mode's rows read them).
 - The actual cost of a finished job: `CloudCost.actualMicroUsd(timings, gpu, fallbackPrice)` (521-526) from the
   manifest's `timings.totalMs` and `coldStartMs`. A job whose outputs were all `exists` costs a few seconds.
 - A fetch from the shared library (spec §6.2 step 2) costs nothing and is not a job at all.
@@ -718,10 +763,11 @@ Also relevant:
 - Backups: `.pxpl` exports every key of the store except a short deny list
   (`UserPreferencesRepository.kt:140-150, 1759-1778`), so the eight spatial keys travel with no extra code (tested
   in `SpatialSettingsRepositoryTest`). Android's own backup excludes the store.
-- Keys and defaults (spec §6.1): `spatial.profile` (`off`), `spatial.route` (`headphones`), `spatial.cloud` (on
-  when `CloudBuiltInConfig.isBundled`), `spatial.prepareAhead` (true), `enhanced.enabled` (true),
-  `cloudAudio.storageMB` (3072), `cloudAudio.monthlyCapUSD` (30; -1 = no limit; at most 200),
-  `cloudAudio.dailyAhead` (25).
+- Keys, defaults and stored forms (spec §6.1): `spatial.profile` (`off`), `spatial.route` (`headphones`),
+  `spatial.cloud` (on when `CloudBuiltInConfig.isBundled`), `spatial.prepareAhead` (true), `enhanced.enabled`
+  (true), `cloudAudio.storageMB` (3072; kept within 256..65536), `cloudAudio.monthlyCapUSD` (30; -1 = no limit; at
+  most 200), `cloudAudio.dailyAhead` (25; kept within 1..100). The repository clamps on write and on read; a slider
+  can take its ends from `SpatialSettings.MIN_/MAX_STORAGE_MB` and `MIN_/MAX_DAILY_AHEAD`.
 - Cloud Studio's own settings are **not** in the DataStore: `CloudStudioSettings` (`CloudStudioSettings.kt`), a
   plain preference file kept out of every backup. A library ledger (month spend, day count) belongs in a file like
   that, not in the DataStore.
@@ -743,6 +789,16 @@ Also relevant:
 - The pattern for a section in its own file: `SettingsSingCloudSection(navController, viewModel = hiltViewModel())`
   (`presentation/screens/SettingsSingSection.kt:54-133`), called from `SettingsCategoryScreen.kt:1053-1055`. Do the
   same with `SpatialAudioViewModel`; `SettingsViewModel` (1,711 lines) needs no change.
+- What the group holds (spec §6.5, settled): Spatial audio (profile, cloud toggle, prepare ahead); **Enhanced
+  audio's switch sits with Spatial audio's rows this round** ("Restore highs that the stream cut off", with "Part
+  of cloud renders" under it), because it only acts inside Spatial jobs for now; "Songs ready: N · X GB on this
+  phone" with "Remove downloaded renders" (`stats.songsReady`, `stats.bytesOnPhone`, `removeDownloadedRenders()`).
+  Developer mode: route mode, the caps (`stats.spentThisMonthMicroUsd` and `stats.sentToday` say what is used),
+  the storage budget, per-song diagnostics (`currentRender`).
+- **The cloud toggle is `spatial.cloud` only.** Cloud Studio's own "Process songs in the cloud" switch is the
+  master (spec §6.1 "Two switches") and stays where it is (the Cloud processing screen that Settings › Sing opens,
+  `SettingsSingSection.kt:74-80`; the screens are CLOUD's); do not write it from here. `SpatialAudioStateHolder.cloudRendersOn` is the two together: when it is false although the toggle is on,
+  the master is off, and the row should say so rather than look switched on and do nothing.
 - Building blocks (`presentation/screens/SettingsComponents.kt`): `SettingsSubsection(title, addBottomSpace)` 1049,
   `SettingsItem` 125, `SwitchSettingItem` 172, `ThemeSelectorItem` 240 (a labelled choice), `SliderSettingsItem`
   572, `ActionSettingsItem` 780, `rememberSettingsLiveSliderValue` 1129.
@@ -778,6 +834,22 @@ Also relevant:
   Other sheets: `PlayerArtistPickerBottomSheet`, `CastBottomSheet` (the output pill opens it), `QueueBottomSheet`.
 - The route for the status line is already in the UI: `playerViewModel.localAudioOutput`
   (`PlayerViewModel.kt:773`). Do not derive the status from it; use `SpatialAudioStateHolder.statusLine`.
+- **The sheet's lines (spec §6.5, settled: "Every state has one").** One string per `SpatialStatusLine` case, the
+  spec's words exactly:
+
+  | Case | Line |
+  |---|---|
+  | `ON_PHONE_FOR_NOW` | On your phone for now. The cloud version takes about a minute. |
+  | `GETTING_CLOUD_VERSION` | Getting the cloud version. |
+  | `CLOUD_VERSION` | Playing the cloud version. |
+  | `ON_PHONE_ONLY` | On your phone only. Turn on cloud renders for the full version. |
+  | `CLOUD_FAILED` | The cloud version didn't work this time. Still playing on your phone. |
+  | `HEADPHONES_ONLY` | Headphones only. Plug in to hear it. |
+  | `PAUSED_FOR_SING` | Paused while Sing is on. |
+  | `NONE` | no line |
+
+  Under the profile list, always, one quiet line: "Spatial plays a little quieter so the peaks stay clean." The
+  profile names and one-liners are in spec §6.5 too (`hall` is shown as "Concert Hall").
 - **Performance rules that are enforced by review here** (see `handoff/2026-10-04-START-HERE.md` §6):
   never collect the whole `playerUiState`/`stablePlayerState` in a screen (slice with
   `.map { }.distinctUntilChanged()` inside `remember`, as at `FullPlayerContent.kt:1506-1508`); read animated
@@ -830,10 +902,11 @@ Also relevant:
 
 - The table: `assets/spatial_preview_v1.json`, read with `context.assets.open(SpatialContract.PREVIEW_ASSET)`.
   Top level `schema`, `v`, `engine`, `headroomDb` (4.0), `profiles`; six profiles × `"44100"` and `"48000"`; each
-  preset has `xoverHz` (120.0), `lowDelay` (38-47), `taps` (192), `direct` and `cross` (192 floats each), `sparseL`
-  and `sparseR` (40 triples `[delaySamples, gainFromLeft, gainFromRight]` each), `gain` (0.43-0.66). The largest
+  preset has `xoverHz` (120.0), `lowDelay` (39-52), `taps` (192), `direct` and `cross` (192 floats each), `sparseL`
+  and `sparseR` (40 triples `[delaySamples, gainFromLeft, gainFromRight]` each), `gain` (0.575-0.661). The largest
   sparse delay is 8,559 samples (`hall` at 48 kHz), so the ring is 16,384. Some numbers are written with an
-  exponent.
+  exponent. These are the values of the table regenerated on 2026-11-11; **read every one from the file and
+  hard-code none**, the worker retunes them.
 - Parse it once, off the main thread, into primitive arrays; keep the parsed table in a singleton. `org.json` is
   stubbed in JVM unit tests (`unitTests.isReturnDefaultValues = true`), so **parse with kotlinx.serialization**
   (`Json.parseToJsonElement`) if the parser is to be unit-tested, which the golden test needs.
@@ -842,8 +915,10 @@ Also relevant:
   output is the reference implementation from a zero state. Spec §7: every profile and rate within the tolerance.
 - In a unit test: `SpatialFixtures.previewTable()` and `SpatialFixtures.golden()` (assets are not on the unit-test
   classpath; the helper reads the table from the source tree).
-- `SpatialTablesTest` already checks the bytes (pinned SHA-256), the shape of both files and that the profile keys
-  equal `SpatialProfile.entries`.
+- `SpatialTablesTest` already checks that the app's two copies are the handoff copies byte for byte, that none has
+  a carriage return, the shape of both files and that the profile keys equal `SpatialProfile.entries`. It pins no
+  generated number. Your golden test is what proves the table and the golden file belong together, so it must fail
+  loudly, never skip, when they do not.
 
 ## 6. Tests
 
@@ -868,7 +943,7 @@ Also relevant:
 - Steps: `./gradlew :app:compileDebugKotlin` → `:app:testDebugUnitTest` → `:wear:compileDebugKotlin` →
   `:app:assembleDebug -Ppixelplay.enableAbiSplits=true` → upload of the arm64 debug APK (kept 14 days). The unit
   test reports are uploaded as the artifact `unit-test-reports` only when the tests fail.
-- Time: 6.5 to 7 minutes (compile about 3.5, tests about 1.6, APK about 1).
+- Time: 6.5 to 8.5 minutes in this branch's runs (compile 3.4 to 4.2, tests 1.7 to 2, APK 1.1 to 1.4).
 - `concurrency: android-ci-${{ github.ref }}` with `cancel-in-progress: true`: **a new push to the same branch
   cancels the run in progress.** Push, then let the last run finish before you call it green.
 - Commands:
@@ -920,7 +995,7 @@ Three rules:
 | `presentation/screens/cloudstudio/**`, `presentation/viewmodel/CloudStudioStateHolder.kt`, `CloudStudioViewModel.kt` | CLOUD | queue rows and texts for library jobs |
 | `PixelPlayApplication.kt` | CLOUD | scheduler sync at app start (next to line 117) |
 | `res/xml/backup_rules.xml`, `res/xml/data_extraction_rules.xml` | CLOUD | exclude `cloud_audio/` |
-| `data/spotify/SpotifyStreamProxy.kt`, `data/stream/CloudStreamProxy.kt` | CLOUD | only for an itag accessor, if wanted |
+| `data/spotify/SpotifyStreamProxy.kt`, `data/stream/CloudStreamProxy.kt` | CLOUD | only for the itag accessor that `library.source` needs (2.6) |
 | `app/src/test/resources/cloudstudio/**`, `app/src/test/java/…/data/cloudstudio/**`, `…/data/spatial/library/**` | CLOUD | |
 | `presentation/viewmodel/SpatialAudioStateHolder.kt`, `SpatialAudioViewModel.kt` | UI | may add UI-only state and derived flows; must not add rules |
 | `presentation/spatial/**` or `presentation/components/spatial/**` (new) | UI | the sheet, the button, the settings section |
@@ -942,20 +1017,29 @@ Where two agents meet, and who moves:
   null and `request` does nothing, which is a valid state of the app.
 - **UI ↔ ENGINE** meet at `SpatialPlayback.audible`. Until ENGINE lands it is `SpatialAudible.NOTHING`, so the
   status line is empty and the sheet still stores the pick.
-- **UI ↔ CLOUD** meet at `SpatialLibrary.status`, `stats`, `removeAll`, through the holder. The Cloud queue
-  screens stay CLOUD's.
+- **UI ↔ CLOUD** meet at `SpatialLibrary.status`, `stats`, `cloudRendersOn`, `removeAll`, through the holder. The
+  Cloud queue screens stay CLOUD's. Until CLOUD lands `cloudRendersOn` is false, so with ENGINE in and CLOUD not
+  the line reads "On your phone only. …", which is true of that build.
 - The file-info label of the full player (2.10) is UI's file; what it should say for a render needs ENGINE's
   `SpatialAudible`. UI reads it from the holder.
 
 ## 9. Open questions for the lead
 
-1. Enhanced with Spatial off: does a played song trigger an `enhance`-only job (1.2, item 3)?
-2. The status line when no spec line is true (cloud off, failed): nothing, or new words (1.2, item 2)?
-3. Hi-Fi mode and Spatial audio do not combine on Android (2.4). Is "Spatial wins while a profile is selected"
-   the wanted rule?
-4. The level lift never engages on Android because streamed songs have no normalisation gain (2.8). Accept "4 dB
-   quieter", or add a real loudness source (a separate piece of work)?
-5. Position-based alignment of the swap (2.7) against "align" in spec §6.3: how exact must it be?
-6. Prepare ahead without a charger and with downloads (3.5) is a new battery and data cost next to Sing's rules.
-   Confirm it is meant that way.
-7. `library.source.itag` is not available without a new accessor (2.6). Send `codec` only?
+The spec settled on 2026-11-11 answers what this list first asked: no `enhance`-only jobs this round; every state
+has a line; "4 dB under stereo" is expected and the sheet says so; the swap lines up by media time; `library.source`
+names the stream, so the itag accessor is needed. What is still open:
+
+1. **The line when a render is wanted but cannot start** (the month's cap is reached, or no network the person
+   allows): the contract shows "On your phone for now. The cloud version takes about a minute.", which is the same
+   rule as iOS and is not true there. A row for it in §6.5, or leave it?
+2. **"Render downloading" needs a status of its own** to show "Getting the cloud version."; Android has
+   `DOWNLOADING`, the iOS contract (as of its `audio-foundation` 315c556) folds it into `processing`. The two apps
+   should agree.
+3. **Hi-Fi mode and Spatial audio do not combine on Android** (2.4). Is "Spatial wins while a profile is selected"
+   the wanted rule? (Hi-Fi is a Developer mode switch, off by default.)
+4. **Picking a profile mid-song on a phone with audio offload on gives one short gap** (2.4), because offload has to
+   go off for the processors to run. Accept it, or keep offload off for everyone from now on?
+5. **Another device with `spatial.route = always`, and a rate the stage does not take**, have no row in §6.5; the
+   contract shows nothing (`SpatialBlock.REMOTE`, `FORMAT`).
+6. **Prepare ahead** without a charger and with downloads (3.5) is a new battery and data cost next to Sing's
+   rules. It is what §6.4 says; this only flags that the existing conditions cannot be reused as they are.
