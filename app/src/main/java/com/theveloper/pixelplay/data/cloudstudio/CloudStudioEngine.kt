@@ -1350,6 +1350,8 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
             fail(jobKey, "This song is no longer in your library.", null, retryable = false)
             return
         }
+        // A source made for a library job alone (a fresh copy of its video's stream) goes once the upload is prepared.
+        var librarySource: String? = null
         try {
             val libraryJob = record.library
             if (libraryJob != null) {
@@ -1363,9 +1365,11 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
             }
             // An automatic job only uses audio already on the phone, never a fresh download through the YouTube layer;
             // if that audio is gone it quietly drops (the ranker may pick the song again later). A Spatial audio job may
-            // fetch the song (spec §6.4), but never as a permanent download.
+            // fetch the song (spec §6.4), but never as a permanent download, and only audio proven to be its video's (a
+            // cached file is keyed by the Spotify id, and may be the video the song played before it was matched again).
             val source = when {
-                libraryJob != null -> deps.host.libraryAudioSource(song, allowDownload = true) ?: run {
+                libraryJob != null -> deps.host.libraryAudioSource(song, libraryJob.videoId, allowDownload = true)
+                    ?.also { librarySource = it } ?: run {
                     fail(jobKey, "This song has no audio this phone can send.", null, retryable = false)
                     return
                 }
@@ -1422,10 +1426,13 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
             throw error
         } catch (error: Exception) {
             val message = error.message?.takeIf { it.isNotBlank() } ?: "Couldn't prepare this song."
-            val decodeFailure = (error as? CloudPrepareException)?.isDecodeFailure == true
+            // A decode that can't work, or a song that plays another video than the render's: trying again won't help.
+            val noRetry = (error as? CloudPrepareException)?.isDecodeFailure == true || error is CloudWrongAudioException
             deps.preparer.removeUpload(jobKey)
             update(jobKey) { it.on(CloudJobEvent.REQUEUE, now) }
-            fail(jobKey, CloudRedaction.redact(message), null, retryable = !decodeFailure)
+            fail(jobKey, CloudRedaction.redact(message), null, retryable = !noRetry)
+        } finally {
+            librarySource?.let { source -> runCatching { deps.host.releaseLibraryAudioSource(source) } }
         }
     }
 

@@ -97,6 +97,26 @@ class CloudLibraryJobsTest {
         assertEquals(engine.libraryCommittedThisMonthMicroUsd(), done.costMicroUsd)
     }
 
+    @Test fun `a library job's audio must be its video's, or the job stops without uploading anything`() = runBlocking {
+        val engine = engine()
+        val record = engine.sendRender()
+        engine.workerPass(now + passMs)
+        // The job asked for its own video's audio, and let go of it once the upload was prepared.
+        assertEquals(listOf(video), host.libraryAudioVideos)
+        assertEquals(listOf("cache://${song.id}"), host.released)
+        assertEquals(CloudJobState.IMPORTED, engine.job(record.jobKey)!!.state)
+        // The song was matched to another video since its audio was cached: nothing goes up, and nothing is retried.
+        host.libraryAudioError = CloudWrongAudioException(CloudLibraryAudioFinder.MATCH_CHANGED)
+        val other = engine.sendRender(profile = "hall")
+        engine.workerPass(now + passMs)
+        val stopped = engine.job(other.jobKey)!!
+        assertEquals(CloudJobState.FAILED, stopped.state)
+        assertNull(stopped.nextAttemptAtMs)
+        assertTrue(stopped.lastError!!.contains("different YouTube video"), stopped.lastError)
+        assertEquals(1, runpod.runs.size)
+        assertTrue(bucket.objects.keys.none { it.startsWith("in/") }, "nothing uploaded: ${bucket.objects.keys}")
+    }
+
     @Test fun `one job per video and profile, and a play takes over the background queue's`() = runBlocking {
         val engine = engine()
         val ahead = engine.sendRender(ahead = true)
@@ -425,6 +445,11 @@ class CloudLibraryJobsTest {
 
     private inner class Host : CloudStudioHost {
         val libraryAudioCalls = mutableListOf<Boolean>()
+        /** The video each library job asked its audio to be. */
+        val libraryAudioVideos = mutableListOf<String>()
+        val released = mutableListOf<String>()
+        /** What the song's audio turns out to be when a library job asks for it. */
+        var libraryAudioError: Exception? = null
         var audioSourceCalls = 0
         override suspend fun song(id: String) = listOf(song, longSong).firstOrNull { it.id == id }
         override suspend fun librarySongs() = listOf(song)
@@ -434,10 +459,13 @@ class CloudLibraryJobsTest {
         override suspend fun hasInstrumental(songId: String) = false
         override suspend fun installInstrumental(staged: File, songId: String, flac: Boolean) { staged.delete() }
         override fun instrumentalImported(songId: String) = Unit
-        override suspend fun libraryAudioSource(song: CloudSong, allowDownload: Boolean): String? {
+        override suspend fun libraryAudioSource(song: CloudSong, videoId: String, allowDownload: Boolean): String? {
             libraryAudioCalls += allowDownload
+            libraryAudioVideos += videoId
+            libraryAudioError?.let { throw it }
             return "cache://${song.id}"
         }
+        override fun releaseLibraryAudioSource(source: String) { released += source }
         override suspend fun streamItag(song: CloudSong): Int? = 251
     }
 
