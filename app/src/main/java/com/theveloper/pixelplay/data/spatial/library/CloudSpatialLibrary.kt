@@ -147,6 +147,13 @@ class CloudSpatialLibrary(
     private val parked = LinkedHashMap<SpatialRenderKey, Want>()
     /** Renders the shared library has a manifest for but no audio: their job renders them again (see [fetchShared]). */
     private val brokenEntries: MutableSet<SpatialRenderKey> = ConcurrentHashMap.newKeySet()
+    /**
+     * Finished library jobs already fed to the ledger in this process (job key → the record as read). The list is read
+     * again on every change (a status poll every 15 s while jobs run) and keeps delivered jobs 30 days: each is handled
+     * once, not on every read. The ledger itself is idempotent, so a new process simply reads them all once. (Declared
+     * before `init`: its collector may run during construction.)
+     */
+    private val outcomesApplied = HashMap<String, CloudJobRecord>()
     private val lock = Mutex()
 
     override val cloudRendersOn: StateFlow<Boolean> = _cloudRendersOn.asStateFlow()
@@ -465,13 +472,6 @@ class CloudSpatialLibrary(
         }
         if (on && before != null && before.monthlyCapUsd != spatial.monthlyCapUsd) resume(SpatialActivity.CAP_REACHED)
     }
-
-    /**
-     * Finished library jobs already fed to the ledger in this process (job key → the record as read). The list is read
-     * again on every change (a status poll every 15 s while jobs run) and keeps delivered jobs 30 days: each is handled
-     * once, not on every read. The ledger itself is idempotent, so a new process simply reads them all once.
-     */
-    private val outcomesApplied = HashMap<String, CloudJobRecord>()
 
     /** Library jobs that ended feed the failure backoff: a failed job or render counts once, a delivered one clears it. */
     private fun recordOutcomes(jobs: List<CloudJobRecord>) {
