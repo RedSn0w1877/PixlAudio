@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.7.6-beta3] - 2026-10-26
+## [Beta 3] - 2026-10-26
 
 ok so this ones pretty big ngl. heres whats in it
 
