@@ -4,8 +4,10 @@ import android.os.SystemClock
 import com.theveloper.pixelplay.data.database.SpotifyDao
 import com.theveloper.pixelplay.data.diagnostics.StreamStartTimings
 import com.theveloper.pixelplay.data.database.SpotifyMatchState
+import com.theveloper.pixelplay.data.preferences.UserPreferencesRepository
 import com.theveloper.pixelplay.data.youtube.TrackMatcher
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
@@ -43,7 +45,8 @@ class SpotifyStreamProxy @Inject constructor(
     private val streamResolver: ChainedYouTubeStreamResolver,
     private val newPipeStreamResolver: NewPipeStreamResolver,
     private val pipedStreamResolver: PipedStreamResolver,
-    private val spotiFLACClient: SpotiFLACClient
+    private val spotiFLACClient: SpotiFLACClient,
+    private val userPreferencesRepository: UserPreferencesRepository
 ) : CloudStreamProxy<String>(okHttpClient) {
 
     // trustedHosts crece en caliente con las instancias que el registro oficial de Piped
@@ -129,6 +132,18 @@ class SpotifyStreamProxy @Inject constructor(
         const val SPOTIFLAC_PARALLEL_PIECES = 3
     }
 
+    /**
+     * FLAC runs about 1,000 kbps, so it only plays when the audio quality setting has no cap
+     * (Ultrasound, the default). A capped tier (Low/Standard/High) stays on YouTube at its cap.
+     */
+    private suspend fun losslessAllowed(): Boolean = try {
+        userPreferencesRepository.audioQualityFlow.first().maxBitrateKbps == null
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        true
+    }
+
     /** A SpotiFLAC audio URL, even after its identity left [identityByUrl]. */
     private fun isSpotiFLACUrl(url: String): Boolean {
         if (identityByUrl[url]?.strategy == SPOTIFLAC_STRATEGY) return true
@@ -205,9 +220,10 @@ class SpotifyStreamProxy @Inject constructor(
         val excluded = excludedStrategies(id)
 
         // 1. SpotiFLAC lossless chain first (Monochrome, then any Tidal HiFi instance), unless the user
-        //    pinned a YouTube video by hand or SpotiFLAC just failed on this track. Bounded by
-        //    SPOTIFLAC_BUDGET_MS, and any failure in it falls through to the YouTube chain below.
-        if (SPOTIFLAC_STRATEGY !in excluded) {
+        //    pinned a YouTube video by hand, SpotiFLAC just failed on this track, or the quality
+        //    setting caps the bitrate. Bounded by SPOTIFLAC_BUDGET_MS, and any failure in it falls
+        //    through to the YouTube chain below.
+        if (SPOTIFLAC_STRATEGY !in excluded && losslessAllowed()) {
             val song = spotifyDao.getSongBySpotifyId(id)
             if (song != null && song.matchState != SpotifyMatchState.MANUAL) {
                 val flacResolveStartMs = SystemClock.elapsedRealtime()
