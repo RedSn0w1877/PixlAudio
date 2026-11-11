@@ -289,6 +289,9 @@ class MusicService : MediaLibraryService() {
             isTransitionRunning = { engine.isTransitionRunning() },
             incomingVolumeTarget = { engine.incomingTrackReplayGainVolume ?: 1f },
             onAudibleChanged = { realSpatialPlayback.onSwapChanged() },
+            // A level written while a render is heard became the render's: ReplayGain still learns the person's own
+            // (it recognises its own writes), so the next song starts at it.
+            onLevelAbsorbed = { replayGainProcessor.onPlayerVolumeChanged(it) },
         )
     }
 
