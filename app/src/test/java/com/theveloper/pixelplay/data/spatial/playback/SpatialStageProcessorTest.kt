@@ -285,6 +285,31 @@ class SpatialStageProcessorTest {
     }
 
     @Test
+    fun `a profile picked mid-song after a gapless boundary still fades in over 80 ms`() {
+        // Spatial off, gapless into the next song at the same rate: the stage is idle at the boundary. The first
+        // profile picked during that song must take the usual 80 ms ramp, not the boundary's 10 ms one.
+        val rate = 48_000
+        val studio = tables.preset(SpatialProfile.STUDIO, rate)!!
+        val link = FakeLink(SpatialStageState.OFF)
+        val processor = SpatialStageProcessor(link)
+        begin(processor, 0L, rate)
+        val firstSong = tone(rate / 4)
+        assertArrayEquals(firstSong, process(processor, firstSong, chunkFrames = BLOCK))
+        // The boundary as DefaultAudioSink runs it: configure (the next format), drain, flush with the next item.
+        processor.configure(AudioFormat(rate, 2, C.ENCODING_PCM_16BIT))
+        processor.queueEndOfStream()
+        processor.flush(AudioProcessor.StreamMetadata(0L))
+        val secondSong = tone(rate)
+        val pickAt = 20 * BLOCK
+        val before = process(processor, secondSong.copyOfRange(0, pickAt * 2), chunkFrames = BLOCK)
+        link.state = SpatialStageState(tables, SpatialProfile.STUDIO, wet = true)
+        val after = process(processor, secondSong.copyOfRange(pickAt * 2, secondSong.size), chunkFrames = BLOCK)
+
+        val expected = reference(secondSong, start = null to false, events = mapOf(pickAt to (studio to true)))
+        assertArrayEquals(expected, before + after)
+    }
+
+    @Test
     fun `16-bit output saturates instead of wrapping`() {
         assertEquals(32_767, SpatialStageProcessor.toShort(1.5f))
         assertEquals(-32_768, SpatialStageProcessor.toShort(-1.5f))

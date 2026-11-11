@@ -202,8 +202,11 @@ internal class SpatialStageKernel(
     /**
      * An item boundary without a seek (gapless, same rate): the history carries on, so the music does too; a change of
      * target that the new item brings (a render starts: bypass) ramps over [rampFrames] instead of the usual ramp.
+     * Idle there is nothing to ramp, and [process] (which ends the fast ramp once settled) does not run: the profile
+     * picked later in the song must fade in over the usual ramp, not this one.
      */
     fun boundary(rampFrames: Int) {
+        if (isIdle) return
         mixStep = 1f / rampFrames.coerceAtLeast(1)
         fastUntilSettled = true
     }

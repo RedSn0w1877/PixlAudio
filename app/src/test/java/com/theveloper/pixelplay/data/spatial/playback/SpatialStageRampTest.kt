@@ -114,6 +114,30 @@ class SpatialStageRampTest {
     }
 
     @Test
+    fun `an item boundary while nothing is selected leaves the 80 ms ramp to the profile picked next`() {
+        // Spatial off, a gapless boundary: the kernel is idle, so process() (which ends the boundary's fast ramp) never
+        // runs. The profile picked later must still fade in over about 80 ms, not the boundary's 10 ms.
+        val studio = tables.preset(SpatialProfile.STUDIO, rate)!!
+        val kernel = SpatialStageKernel()
+        kernel.ensureCapacity(tables)
+        kernel.setRampFrames(rate * SpatialStageProcessor.RAMP_MS / 1000)
+        kernel.setTarget(null, wet = false)
+        kernel.reset()
+        kernel.boundary(rate * SpatialStageProcessor.BOUNDARY_RAMP_MS / 1000)
+        kernel.setTarget(studio, wet = true)
+        val zeros = FloatArray(kernel.maxBlock)
+        val out = FloatArray(kernel.maxBlock)
+        var frames = 0
+        while (!kernel.isFullyWet) {
+            kernel.process(zeros, zeros, out, out, 64)
+            frames += 64
+            check(frames < rate) { "the ramp never ended" }
+        }
+        val ms = frames * 1000 / rate
+        assertTrue(ms in 75..90, "ramp took $ms ms")
+    }
+
+    @Test
     fun `rings that grow while a preset plays keep its history`() {
         // A kernel that sizes per preset (setTarget alone) grows Studio's 4,096-sample room ring for Concert Hall's
         // 8,559-sample room while Studio is still fading out: Studio must keep reading the same history.
