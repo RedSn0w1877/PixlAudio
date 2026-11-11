@@ -110,6 +110,9 @@ abstract class CloudStreamProxy<K : Any>(
         const val MAX_CHUNK_SIZE = 4_000_000L
         const val MAX_PARALLEL_PIECES = 4
 
+        /** What [acceptStreamHead] sees: enough for any audio container's signature and FLAC's STREAMINFO. */
+        const val STREAM_HEAD_BYTES = 64L
+
         // A warmed-up URL for an upcoming song lives 10 minutes (was 2): with 2 a 4-minute
         // song resolved its successor about twice. The signed `expire` (minus a minute) still
         // caps it, and a 403 after a Wi-Fi/cellular switch refreshes it in one round trip.
@@ -274,7 +277,26 @@ abstract class CloudStreamProxy<K : Any>(
      */
     protected open fun upstreamParallelism(id: K, url: String): Int = 1
 
+    /** Whether [acceptStreamHead] wants to see the first bytes of [url] before they are served. */
+    protected open fun wantsStreamHead(id: K, url: String): Boolean = false
+
+    /**
+     * Called with the first [STREAM_HEAD_BYTES] of [url] (or fewer, for a shorter file) when a request
+     * starts at byte 0 and [wantsStreamHead] said so. False turns the file down: nothing of it is
+     * served, the cached URL is dropped and [id] is resolved again once (the subclass is expected to
+     * remember why, so the new answer differs).
+     */
+    protected open suspend fun acceptStreamHead(id: K, url: String, head: ByteArray): Boolean = true
+
     // ─── Internal ──────────────────────────────────────────────────────
+
+    /** Up to [STREAM_HEAD_BYTES] of [response]'s body without consuming them; null if unreadable. */
+    private fun peekHead(response: okhttp3.Response): ByteArray? = try {
+        val peek = response.body.source().peek()
+        if (peek.request(STREAM_HEAD_BYTES)) peek.readByteArray(STREAM_HEAD_BYTES) else peek.readByteArray()
+    } catch (e: IOException) {
+        null
+    }
 
     /** A failed parallel piece; [retryable] is false when another try can't help (gone, forbidden). */
     private class UpstreamPieceException(message: String, val retryable: Boolean) : IOException(message)
@@ -408,9 +430,9 @@ abstract class CloudStreamProxy<K : Any>(
                             }
                         }
                         val requestedEnd = if (range.isSuffixRange) null else range.endInclusive
-                        val firstEnd = minOf(start + chunkSize - 1, requestedEnd ?: Long.MAX_VALUE)
+                        var firstEnd = minOf(start + chunkSize - 1, requestedEnd ?: Long.MAX_VALUE)
                         val upstreamStartedAtMs = SystemClock.elapsedRealtime()
-                        val first = fetch(start, firstEnd)
+                        var first = fetch(start, firstEnd)
                         if (tracked) {
                             StreamStartTimings.proxyUpstreamAnswered(idText, SystemClock.elapsedRealtime() - upstreamStartedAtMs)
                         }
@@ -421,6 +443,34 @@ abstract class CloudStreamProxy<K : Any>(
                             return@get
                         }
                         verifyChunk(first, start)
+                        // A subclass may read the file's first bytes before any of it goes out (SpotiFLAC:
+                        // is this file within what the quality setting takes?). Turned down, the URL is
+                        // resolved again, once, and that answer is served whatever it is.
+                        if (start == 0L && first.code == 206 && wantsStreamHead(id, url)) {
+                            val probed = first
+                            val head = withContext(Dispatchers.IO) { peekHead(probed) }
+                            if (head != null && !acceptStreamHead(id, url, head)) {
+                                probed.close()
+                                invalidateCachedUrl(id)
+                                val refreshed = getOrFetchStreamUrl(id)
+                                if (refreshed.isNullOrBlank() || !safeUrl(refreshed)) {
+                                    if (tracked) StreamStartTimings.proxyFailed(idText, "no stream URL after the file was turned down")
+                                    call.respond(HttpStatusCode.ServiceUnavailable, "Audio is not available yet; try again")
+                                    return@get
+                                }
+                                url = refreshed
+                                chunkSize = upstreamChunkSize(id, url).coerceIn(MIN_CHUNK_SIZE, MAX_CHUNK_SIZE)
+                                firstEnd = minOf(start + chunkSize - 1, requestedEnd ?: Long.MAX_VALUE)
+                                first = fetch(start, firstEnd)
+                                initialResponse = first
+                                if (first.code == 416) {
+                                    first.header("Content-Range")?.let { call.response.header("Content-Range", it) }
+                                    call.respond(HttpStatusCode(416, "Range Not Satisfiable"))
+                                    return@get
+                                }
+                                verifyChunk(first, start)
+                            }
+                        }
                         originalItag = Uri.parse(url).getQueryParameter("itag")
                         val total = totalLength(first, url) ?: expectedTotal
                         expectedTotal = total

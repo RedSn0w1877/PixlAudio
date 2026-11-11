@@ -4,7 +4,9 @@ import android.os.SystemClock
 import com.theveloper.pixelplay.data.database.SpotifyDao
 import com.theveloper.pixelplay.data.diagnostics.StreamStartTimings
 import com.theveloper.pixelplay.data.database.SpotifyMatchState
+import com.theveloper.pixelplay.data.preferences.AudioQuality
 import com.theveloper.pixelplay.data.preferences.UserPreferencesRepository
+import com.theveloper.pixelplay.data.spotiflac.AudioFileFacts
 import com.theveloper.pixelplay.data.youtube.TrackMatcher
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
@@ -132,16 +134,36 @@ class SpotifyStreamProxy @Inject constructor(
         const val SPOTIFLAC_PARALLEL_PIECES = 3
     }
 
-    /**
-     * FLAC runs about 1,000 kbps, so it only plays when the audio quality setting has no cap
-     * (Ultrasound, the default). A capped tier (Low/Standard/High) stays on YouTube at its cap.
-     */
-    private suspend fun losslessAllowed(): Boolean = try {
-        userPreferencesRepository.audioQualityFlow.first().maxBitrateKbps == null
+    /** The audio quality setting (Pro if it can't be read). */
+    private suspend fun audioQuality(): AudioQuality = try {
+        userPreferencesRepository.audioQualityFlow.first()
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {
-        true
+        AudioQuality.DEFAULT
+    }
+
+    /**
+     * What each track's SpotiFLAC file turned out to be, read from its first bytes (see
+     * [acceptStreamHead]). Pro uses it to skip a FLAC over 48 kHz without fetching it again.
+     */
+    private val spotiFLACFactsById = java.util.concurrent.ConcurrentHashMap<String, AudioFileFacts>()
+
+    /** Tracks whose SpotiFLAC file was chosen only because YouTube had nothing: any file beats none. */
+    private val spotiFLACLastResort = java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap<String, Boolean>())
+
+    override fun wantsStreamHead(id: String, url: String): Boolean = isSpotiFLACUrl(url)
+
+    override suspend fun acceptStreamHead(id: String, url: String, head: ByteArray): Boolean {
+        val facts = AudioFileFacts.parse(head)
+        if (spotiFLACFactsById.size > 512) spotiFLACFactsById.clear()
+        spotiFLACFactsById[id] = facts
+        if (id in spotiFLACLastResort) return true
+        val accepted = audioQuality().allowsFlacFirst(facts.flacSampleRateHz)
+        if (!accepted) {
+            Timber.d("SpotiFLAC file for %s is %s Hz; above the quality setting, using YouTube", id, facts.sampleRateHz)
+        }
+        return accepted
     }
 
     /** A SpotiFLAC audio URL, even after its identity left [identityByUrl]. */
@@ -188,17 +210,19 @@ class SpotifyStreamProxy @Inject constructor(
         url: String,
         upstreamContentType: String?
     ): ContentType {
-        // Monochrome sends FLAC as application/octet-stream; an evicted identity still means FLAC there.
-        val knownMime = identityByUrl[url]?.mimeType
-            ?: "audio/flac".takeIf { url.toHttpUrlOrNull()?.host?.lowercase()?.endsWith("monochrome.st") == true }
-        if (knownMime?.contains("flac", ignoreCase = true) == true) {
+        // Monochrome sends everything as application/octet-stream. Its own first bytes say what the file
+        // is (read by acceptStreamHead); before that, Monochrome's files are nearly always FLAC.
+        if (isSpotiFLACUrl(url)) {
             val normalizedUpstream = upstreamContentType?.substringBefore(';')?.trim()?.lowercase()
-            if (normalizedUpstream == null ||
+            val upstreamSaysNothing = normalizedUpstream == null ||
                 normalizedUpstream == "application/octet-stream" ||
-                normalizedUpstream == "binary/octet-stream" ||
-                normalizedUpstream.contains("flac")
-            ) {
-                return ContentType.parse("audio/flac")
+                normalizedUpstream == "binary/octet-stream"
+            val sniffed = spotiFLACFactsById[id]?.format?.mimeType
+            val known = sniffed ?: identityByUrl[url]?.mimeType
+                ?: "audio/flac".takeIf { url.toHttpUrlOrNull()?.host?.lowercase()?.endsWith("monochrome.st") == true }
+            if (known != null && (upstreamSaysNothing || sniffed != null)) {
+                return runCatching { ContentType.parse(known) }.getOrNull()
+                    ?: super.resolveResponseContentType(id, url, upstreamContentType)
             }
         }
         return super.resolveResponseContentType(id, url, upstreamContentType)
@@ -218,13 +242,23 @@ class SpotifyStreamProxy @Inject constructor(
         val excluded = excludedStrategies(id)
         // SpotiFLAC is skipped for two minutes after its URL failed on this track.
         val spotiFLACUsable = SPOTIFLAC_STRATEGY !in excluded
-        // Uncapped quality (the default): FLAC first, YouTube as the fallback. A capped tier stays
-        // on YouTube at its cap and only falls back to FLAC when YouTube has nothing for the song.
-        val flacFirst = spotiFLACUsable && losslessAllowed()
-        if (flacFirst) resolveViaSpotiFLAC(id)?.let { return it }
+        // Pro and Studio Pro: SpotiFLAC first, YouTube as the fallback; Pro skips a file it already
+        // knows is over 48 kHz. Low/Medium/High stay on YouTube at their cap and only fall back to
+        // SpotiFLAC when YouTube has nothing for the song.
+        val flacFirst = spotiFLACUsable &&
+            audioQuality().allowsFlacFirst(spotiFLACFactsById[id]?.flacSampleRateHz)
+        if (flacFirst) {
+            resolveViaSpotiFLAC(id)?.let {
+                spotiFLACLastResort.remove(id)
+                return it
+            }
+        }
         val viaYouTube = resolveViaYouTube(id, excluded)
         if (viaYouTube != null || flacFirst || !spotiFLACUsable) return viaYouTube
-        return resolveViaSpotiFLAC(id)
+        return resolveViaSpotiFLAC(id)?.also {
+            if (spotiFLACLastResort.size > 512) spotiFLACLastResort.clear()
+            spotiFLACLastResort.add(id)
+        }
     }
 
     /**
