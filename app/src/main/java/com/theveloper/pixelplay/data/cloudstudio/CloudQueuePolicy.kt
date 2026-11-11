@@ -471,19 +471,25 @@ object CloudBurstMarks {
 
     /**
      * More of this phone's jobs are coming soon: one of [onTheWay] (due, and being prepared or uploaded, or waiting for a
-     * step the phone may take now; the engine picks them) still fits in [roomMicroUsd], what the month has left once the
-     * burst is out. A job the cap would stop isn't coming. [outOfTime] is a background pass with no time left to upload
-     * more: what is left waits for a later pass, so the tail is marked anyway.
+     * step the phone may take now; the engine picks them) still fits in what its month has left once the burst is out:
+     * [roomMicroUsd] for Sing's and the person's jobs (the shared cap), [libraryRoomMicroUsd] for Spatial audio's library
+     * jobs (their own cap, `cloudAudio.monthlyCapUSD`; null is "No limit"; the shared room when not given). A job its cap
+     * would stop isn't coming. [outOfTime] is a background pass with no time left to upload more: what is left waits for
+     * a later pass, so the tail is marked anyway.
      */
     fun moreComing(
         onTheWay: List<CloudJobRecord>,
         roomMicroUsd: Long,
         pricePerSecondMicroUsd: Long,
         outOfTime: Boolean,
+        libraryRoomMicroUsd: Long? = roomMicroUsd,
     ): Boolean {
         if (outOfTime) return false
         val price = max(pricePerSecondMicroUsd, 0)
-        return onTheWay.any { CloudCost.estimatedSeconds(it.plan, it.quality) * price <= roomMicroUsd }
+        return onTheWay.any { job ->
+            val room = if (job.isLibrary) libraryRoomMicroUsd ?: Long.MAX_VALUE else roomMicroUsd
+            CloudCost.estimatedSeconds(job.plan, job.quality) * price <= room
+        }
     }
 }
 

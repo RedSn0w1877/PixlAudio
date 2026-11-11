@@ -315,6 +315,28 @@ class CloudLibraryJobsTest {
         assertEquals(listOf(render.jobKey, sing.jobKey, render.jobKey), runpod.runs.map { it.input.jobKey })
     }
 
+    @Test fun `with Sing's month spent, a library burst isn't marked last while the library's next render is coming`() = runBlocking {
+        settings.snapshot = settings.snapshot.copy(monthlyCapMicroUsd = 0)
+        val uploaded = keys.removeFirst()
+        store.saved = listOf(
+            CloudJobRecord(jobKey = uploaded, songId = song.id, videoId = video, batchId = "b1", isStreamed = true,
+                tasks = listOf(CloudTask.SPATIAL), outputCodec = CloudOutputCodec.FLAC, origin = CloudJobOrigin.LIBRARY,
+                library = CloudLibraryJob(video, listOf("studio")), state = CloudJobState.UPLOADED, inputExt = "flac",
+                sha256 = "ab".repeat(32), bytes = 1_000, durationMs = 200_000, uploadedAtMs = now, createdAtMs = now),
+            // The next render of the same run, still to be prepared and uploaded.
+            CloudJobRecord(jobKey = keys.removeFirst(), songId = song.id, videoId = video, batchId = "b2", isStreamed = true,
+                tasks = listOf(CloudTask.SPATIAL), outputCodec = CloudOutputCodec.FLAC, origin = CloudJobOrigin.LIBRARY,
+                library = CloudLibraryJob(video, listOf("hall")), createdAtMs = now),
+        )
+        val engine = engine()
+        engine.foregroundPass()
+        val run = runpod.runs.single()
+        assertEquals(uploaded, run.input.jobKey)
+        // The library's own month has room for the next one: the worker stays up for it (no cold start of its own).
+        assertNull(run.input.policy)
+        assertEquals(CloudJobState.QUEUED, engine.state.value.jobs.first { it.library?.profiles == listOf("hall") }.state)
+    }
+
     @Test fun `the shared library is read through signed lib keys only`() = runBlocking {
         val engine = engine()
         bucket.objects["lib/v1/$video/sp-studio.json"] = "{}".toByteArray()

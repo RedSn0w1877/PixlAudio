@@ -1720,7 +1720,16 @@ class CloudStudioEngine(private val deps: CloudStudioDependencies) {
             CloudBudget.committedMicroUsd(CloudBudget.studioRecords(jobs), monthStart, price) +
                 deps.settings.removedSpendMicroUsd(monthStart) + tail.filterNot { it.isLibrary }.sumOf { it.estimateMicroUsd },
         )
-        val moreComing = CloudBurstMarks.moreComing(jobsOnTheWay(settings), room, price, outOfTime)
+        // A library job on its way is checked against the library's own month (null: "No limit"), with the library jobs
+        // of this burst counted as sent: Sing's cap running out doesn't mean the library's next render isn't coming.
+        val libraryRoom = library.monthlyCapMicroUsd?.let { cap ->
+            CloudBudget.remainingMicroUsd(
+                cap,
+                CloudBudget.libraryCommittedMicroUsd(jobs, monthStart, price, deps.settings.removedLibrarySpendMicroUsd(monthStart)) +
+                    tail.filter { it.isLibrary }.sumOf { it.estimateMicroUsd },
+            )
+        }
+        val moreComing = CloudBurstMarks.moreComing(jobsOnTheWay(settings), room, price, outOfTime, libraryRoomMicroUsd = libraryRoom)
         val marks = CloudBurstMarks.marks(tail.map { job(it.jobKey) }, jobs, moreComing)
         for ((index, pending) in tail.withIndex()) {
             if (!submit(pending, lastInBatch = marks[index], clients)) return
