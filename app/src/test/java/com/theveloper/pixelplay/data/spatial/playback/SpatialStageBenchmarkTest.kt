@@ -96,6 +96,6 @@ class SpatialStageBenchmarkTest {
         const val LIMIT_NS = 2_500.0
 
         /** Set while the numbers are read off CI (a passing test prints nothing there). */
-        const val REPORT_BY_FAILING = true
+        const val REPORT_BY_FAILING = false
     }
 }

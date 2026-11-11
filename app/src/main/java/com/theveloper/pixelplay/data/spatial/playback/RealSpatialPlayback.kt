@@ -190,6 +190,8 @@ class RealSpatialPlayback @Inject constructor(
     /** Sing is about to fade to the instrumental: a render on the second player gives the main player back first. */
     suspend fun yieldToSing() {
         val h = host ?: return
+        // When Sing ends, the render may take over again (within the 20 s rule).
+        swapTriedKey = null
         if (h.swap.audibleRender != null || h.swap.isRamping) h.swap.fadeToMain(h.mainPlayer())
     }
 
@@ -353,7 +355,10 @@ class RealSpatialPlayback @Inject constructor(
         // (The swap lets go of its render at every song change, so what it holds is always this song's.)
         when (SpatialRenditionRule.plan(wanted, stream?.render?.profile, swap.audibleRender?.profile)) {
             SpatialSwapPlan.KEEP -> Unit
-            SpatialSwapPlan.BACK_TO_MAIN -> swap.fadeToMain(main)
+            SpatialSwapPlan.BACK_TO_MAIN -> {
+                // A later return of the conditions (headphones back, the profile again) may swap in once more.
+                if (swap.fadeToMain(main)) swapTriedKey = null
+            }
             SpatialSwapPlan.FIND_RENDER -> {
                 val want = wanted ?: return
                 val vid = videoId ?: return

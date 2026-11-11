@@ -991,6 +991,9 @@ class DualPlayerEngine @Inject constructor(
         if (!audioOffloadEnabled) return
         // Offload is already off during an exact-timing session; a rebuild would drop its state.
         if (exactTimingSessions > 0) return
+        // Offload is not in use while a Spatial audio profile is selected: a stall then is not the HAL's, and a
+        // rebuild would only cut the song.
+        if (spatialProfileSelected) return
         if (transitionRunning) {
             Timber.tag("DualPlayerEngine").w("Skipping offload fallback during active transition. %s", reason)
             return
