@@ -58,6 +58,11 @@ class SpatialRenderStore(
     @Volatile private var indexStarted = false
     /** The render the player started last: never evicted (§3.6 of the map: "never evict the most recently played"). */
     @Volatile private var lastPlayedKey: SpatialRenderKey? = null
+    /**
+     * The song whose audio [removeAll] left on disk for the player: no render any more (no manifest, not in the index),
+     * only the file(s) it may still be reading. Deleted once another song's render plays, or by the next start's index.
+     */
+    @Volatile private var leftoverVideoId: String? = null
 
     private val _renders = MutableStateFlow<Map<SpatialRenderKey, SpatialRender>>(emptyMap())
     /** Every verified render on the phone, as it changes (complete once [ensureIndexed] has run). */
@@ -152,6 +157,12 @@ class SpatialRenderStore(
     fun markPlayed(videoId: String, profile: SpatialProfile) {
         val key = SpatialRenderKey(videoId, profile)
         lastPlayedKey = key
+        val leftover = leftoverVideoId
+        if (leftover != null && leftover != videoId) {
+            // Another song's render plays: the player is done with what "Remove downloaded renders" left for it.
+            leftoverVideoId = null
+            scope.launch(Dispatchers.IO) { lock.withLock { deleteLeftoverLocked(leftover) } }
+        }
         val entry = entries[key] ?: return
         val time = nowMs()
         entry.lastPlayedMs = time
@@ -159,18 +170,47 @@ class SpatialRenderStore(
         scope.launch(Dispatchers.IO) { entry.manifestFile.setLastModified(time) }
     }
 
-    /** §6.5 "Remove downloaded renders": every file of the store, never anything in the shared library. */
+    /**
+     * §6.5 "Remove downloaded renders": every render of the store, never anything in the shared library. The song played
+     * last may still be playing from its render: the main player re-opens the file it started on at every seek outside
+     * its buffer (a missing file there is a playback error, or a skip). So that song's audio stays on disk, as no render
+     * any more (its manifests go now, so neither this index nor the next start's counts it), until another song's render
+     * plays or the app starts again. Like the budget's eviction, it goes by song, so it also covers the main player's
+     * render after a mid-song swap marked another profile played.
+     */
     suspend fun removeAll() {
         withContext(Dispatchers.IO) {
             lock.withLock {
                 entries.clear()
-                root.deleteRecursively()
-                lastPlayedKey = null
+                val playing = lastPlayedKey?.videoId?.takeIf { File(root, it).isDirectory }
+                for (child in root.listFiles().orEmpty()) {
+                    if (child.name != playing) child.deleteRecursively()
+                }
+                if (playing != null) {
+                    val directory = File(root, playing)
+                    for (file in directory.listFiles().orEmpty()) {
+                        if (!file.name.endsWith(AUDIO_SUFFIX)) file.deleteRecursively() // manifests first: no render left
+                    }
+                    if (directory.list().isNullOrEmpty()) directory.delete()
+                }
+                if (root.list().isNullOrEmpty()) root.delete()
+                leftoverVideoId = playing?.takeIf { File(root, it).isDirectory }
                 indexed = true
                 publish()
             }
         }
         _events.emit(SpatialLibraryEvent.Removed(null))
+    }
+
+    /** Deletes what [removeAll] kept of [videoId] for the player, but never a render stored for it again since. */
+    private fun deleteLeftoverLocked(videoId: String) {
+        val directory = File(root, videoId)
+        for (profile in SpatialProfile.entries) {
+            if (entries.containsKey(SpatialRenderKey(videoId, profile))) continue
+            audioFile(directory, profile).delete()
+            manifestFile(directory, profile).delete()
+        }
+        if (directory.list().isNullOrEmpty()) directory.delete()
     }
 
     /** Brings the store under its budget now (the budget was lowered). */
@@ -304,8 +344,9 @@ class SpatialRenderStore(
         /** The store's folder name under `filesDir` (§6.2). */
         const val DIRECTORY = "cloud_audio"
         private const val TMP_SUFFIX = ".tmp"
+        private const val AUDIO_SUFFIX = ".flac"
 
-        fun audioFile(directory: File, profile: SpatialProfile): File = File(directory, "sp-${profile.id}.flac")
+        fun audioFile(directory: File, profile: SpatialProfile): File = File(directory, "sp-${profile.id}$AUDIO_SUFFIX")
         fun manifestFile(directory: File, profile: SpatialProfile): File = File(directory, "sp-${profile.id}.json")
     }
 }
