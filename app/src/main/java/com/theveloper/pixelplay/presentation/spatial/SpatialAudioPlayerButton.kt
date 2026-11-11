@@ -1,13 +1,10 @@
 package com.theveloper.pixelplay.presentation.spatial
 
-import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.AnimationSpec
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -31,7 +28,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ColorProducer
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -89,7 +85,9 @@ fun SpatialAudioPlayerButton(
  * Off: a 48 dp circle in the row's chip colours, the size of Lyrics and Ask Taizo, with "Off" under the icon. On: the
  * colours swap (the selected look of Material's toggles), the corners tighten and the profile's name takes the place
  * of "Off", the button widening for it. Held back ([SpatialButtonUi.heldBack]): the name stays, the emphasis goes.
- * Colours and corners animate in the draw and layer phases only; the width follows the label in the layout phase.
+ * Colours and corners are read in the draw and layer phases only; the width follows the label in the layout phase.
+ * New chip colours apply at once, as they do for Lyrics and Ask Taizo while the album colours fade after a skip:
+ * only the swap between off and on animates ([rememberSpatialButtonColors]).
  */
 @Composable
 internal fun SpatialAudioButtonContent(
@@ -105,16 +103,11 @@ internal fun SpatialAudioButtonContent(
     LaunchedEffect(ui != null) {
         if (ui != null) animate = true
     }
-    val colorSpec: AnimationSpec<Color> = if (animate) tween(durationMillis = ColorMillis) else snap()
-    val container = animateColorAsState(
-        targetValue = if (emphasized) contentColor else containerColor,
-        animationSpec = colorSpec,
-        label = "spatialButtonContainer",
-    )
-    val content = animateColorAsState(
-        targetValue = if (emphasized) containerColor.copy(alpha = 1f) else contentColor,
-        animationSpec = colorSpec,
-        label = "spatialButtonContent",
+    val colors = rememberSpatialButtonColors(
+        emphasized = emphasized,
+        animate = animate,
+        containerColor = containerColor,
+        contentColor = contentColor,
     )
     val corner = animateDpAsState(
         targetValue = if (emphasized) CornerOn else CornerOff,
@@ -125,7 +118,6 @@ internal fun SpatialAudioButtonContent(
         },
         label = "spatialButtonCorner",
     )
-    val contentTint = remember(content) { ColorProducer { content.value } }
 
     // "Off" or the profile's name: shown under the icon, and what TalkBack reads.
     val label = stringResource(ui?.labelRes ?: R.string.spatial_ui_off)
@@ -155,7 +147,7 @@ internal fun SpatialAudioButtonContent(
                 shape = RoundedCornerShape(corner.value)
                 clip = true
             }
-            .drawBehind { drawRect(container.value) }
+            .drawBehind { drawRect(colors.container()) }
             .semantics {
                 contentDescription = spoken
                 role = Role.Button
@@ -170,7 +162,7 @@ internal fun SpatialAudioButtonContent(
         ) {
             Icon(
                 painter = painterResource(R.drawable.rounded_spatial_audio_24),
-                tint = contentTint,
+                tint = colors.content,
                 contentDescription = null,
                 modifier = Modifier.size(IconSize),
             )
@@ -181,7 +173,7 @@ internal fun SpatialAudioButtonContent(
                 style = MaterialTheme.typography.labelSmall,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                color = contentTint,
+                color = colors.content,
             )
         }
     }
@@ -209,7 +201,6 @@ private val IconSize = 20.dp
 private val LabelPadding = 6.dp
 private val CornerOff = 24.dp
 private val CornerOn = 16.dp
-private const val ColorMillis = 220
 
 @Preview(showBackground = true)
 @Composable

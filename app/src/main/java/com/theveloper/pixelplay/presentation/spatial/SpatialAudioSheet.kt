@@ -2,7 +2,6 @@ package com.theveloper.pixelplay.presentation.spatial
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.SizeTransform
-import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -248,7 +247,9 @@ private fun statusIcon(line: SpatialStatusLine): ImageVector = when (line) {
 /**
  * One row of the list: the name and its one-liner. The selected row takes the tonal container and its full corners
  * (the others keep the tight inner corners of a grouped list), and its check scales in. Container colour, corners and
- * check are read in the draw and layer phases only, so a pick recomposes nothing per frame.
+ * check are read in the draw and layer phases only, so a pick recomposes nothing per frame. Opened from the player,
+ * the sheet wears the album colours, which fade over about 40 frames after a skip: the fill takes each frame's colours
+ * at once, with the text, and only a change of selection animates ([rememberSpatialChoiceFill]).
  */
 @Composable
 private fun SpatialChoiceRow(
@@ -258,10 +259,10 @@ private fun SpatialChoiceRow(
     onClick: () -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
-    val container = animateColorAsState(
-        targetValue = if (choice.selected) colors.secondaryContainer else colors.surfaceContainerHigh,
-        animationSpec = tween(durationMillis = 200),
-        label = "spatialChoiceContainer",
+    val fill = rememberSpatialChoiceFill(
+        selected = choice.selected,
+        unselectedColor = colors.surfaceContainerHigh,
+        selectedColor = colors.secondaryContainer,
     )
     val cornerSpring = spring<Dp>(
         dampingRatio = Spring.DampingRatioMediumBouncy,
@@ -296,7 +297,7 @@ private fun SpatialChoiceRow(
                 )
                 clip = true
             }
-            .drawBehind { drawRect(container.value) }
+            .drawBehind { drawRect(fill()) }
             .selectable(selected = choice.selected, role = Role.RadioButton, onClick = onClick)
             .padding(start = 20.dp, end = 16.dp, top = 14.dp, bottom = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
