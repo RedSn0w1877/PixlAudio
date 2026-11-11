@@ -9,8 +9,8 @@ This file says where everything is in the Android code, what is already there fo
   includes the foundation's own 13 lines, so its numbers are 4 to 13 higher than on `audio-hq`/`main`.
 - **The spec changed twice on 2026-11-11 and this file follows it as of `audio-hq` 5eb5222.** First it was settled
   (stored forms, two switches, money, slots, timeout, status lines, level note); then **the owner cut Enhanced
-  audio**: no restoration, no `enhance` task, no `enhanced.*` object, no `enhanced.enabled` setting, and "code or
-  contract types that still carry any of those names are to be removed, not left dormant". The contract code on
+  audio**: no restoration, no `enhance` task, no `enhanced.*` object, no `enhanced.enabled` setting, and code or
+  contract types that still carry any of those names "are to be removed, not left dormant". The contract code on
   this branch has none of it. The on-device tables were regenerated twice the same day; this branch has the
   newest. `handoff/2026-11-11-spatial-roadmap.md` (also here) explains the whole pipeline; the spec rules.
   This file says "settled" where the spec answers something that was open when it was first written.
