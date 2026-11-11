@@ -68,6 +68,11 @@ class CloudSpatialLibraryTest {
             ledger = ledger, aheadSchedule = { schedules += it }, stagingDir = dir.resolve("staging").toFile(),
             scope = scope, nowMs = { now },
         )
+        // The stored settings were read (the library decides nothing before that).
+        runBlocking {
+            library.awaitSettings()
+            eventually("both switches seen on") { library.cloudRendersOn.value }
+        }
     }
 
     @AfterEach fun tearDown() = scope.cancel()
@@ -152,7 +157,7 @@ class CloudSpatialLibraryTest {
         assertEquals(SpatialRenditionStatus.NONE, status(SpatialProfile.HALL))
     }
 
-    @Test fun `no network the person allows: it waits, and starts when one comes back`() = runBlocking {
+    @Test fun `with no network the person allows it waits, and starts when one comes back`() = runBlocking {
         network.value = SpatialNetwork(connected = true, unmetered = false)
         eventually("the library saw the network") { status() == SpatialRenditionStatus.NONE }
         library.requestNow("s1", video, SpatialProfile.STUDIO)
@@ -163,7 +168,7 @@ class CloudSpatialLibraryTest {
         expect(SpatialRenditionStatus.QUEUED)
     }
 
-    @Test fun `the month's limit: it waits, and starts when the cap is raised`() = runBlocking {
+    @Test fun `over the month's limit it waits, and starts when the cap is raised`() = runBlocking {
         engine.capReached = true
         library.requestNow("s1", video, SpatialProfile.STUDIO)
         expect(SpatialRenditionStatus.CAP_REACHED)

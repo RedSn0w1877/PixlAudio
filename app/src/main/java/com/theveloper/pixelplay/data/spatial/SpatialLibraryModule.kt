@@ -53,18 +53,21 @@ object SpatialLibraryModule {
         cloudSettings: CloudStudioSettings,
         networkConditions: StreamNetworkConditions,
         aheadScheduler: SpatialAheadScheduler,
-    ): CloudSpatialLibrary = CloudSpatialLibrary(
-        engine = EngineSpatialCloud(engine),
-        store = store,
-        settings = settings.settings,
-        cloudSettings = cloudSettings.settings,
-        networkSource = LiveSpatialNetworkSource(context, networkConditions),
-        ledger = SpatialFailureLedger.inPreferences(context),
-        aheadSchedule = aheadScheduler::apply,
-        // Downloads from the shared library land here (no backup) before the store checks and moves them.
-        stagingDir = File(context.noBackupFilesDir, "cloud_audio_staging"),
-        scope = libraryScope(),
-    )
+    ): CloudSpatialLibrary {
+        val scope = libraryScope()
+        return CloudSpatialLibrary(
+            engine = EngineSpatialCloud(engine),
+            store = store,
+            settings = settings.settings,
+            cloudSettings = cloudSettings.settings,
+            networkSource = LiveSpatialNetworkSource(context, networkConditions, scope),
+            ledger = SpatialFailureLedger.inPreferences(context),
+            aheadSchedule = aheadScheduler::apply,
+            // Downloads from the shared library land here (no backup) before the store checks and moves them.
+            stagingDir = File(context.noBackupFilesDir, "cloud_audio_staging"),
+            scope = scope,
+        )
+    }
 
     @Provides
     @Singleton

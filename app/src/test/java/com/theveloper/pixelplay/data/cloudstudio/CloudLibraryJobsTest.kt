@@ -180,7 +180,7 @@ class CloudLibraryJobsTest {
         assertTrue(CloudKeys.libraryAudio(video, "studio") in bucket.objects, "the render waits in the shared library")
     }
 
-    @Test fun `a partial job stores what was made; a render already on the phone isn't fetched again`() = runBlocking {
+    @Test fun `a failed render is retried while one already on the phone isn't fetched again`() = runBlocking {
         val engine = engine()
         val hall = engine.sendRender(profile = "hall")
         val night = engine.sendRender(profile = "night")
@@ -254,7 +254,7 @@ class CloudLibraryJobsTest {
         assertEquals(CloudJobState.IMPORTED, engine.job(record.jobKey)!!.state)
     }
 
-    @Test fun `the person's render follows "Use mobile data"`() = runBlocking {
+    @Test fun `the person's render follows the mobile data setting`() = runBlocking {
         unmetered = false
         val engine = engine()
         val record = engine.sendRender()
@@ -442,7 +442,16 @@ class CloudLibraryJobsTest {
                         CloudDigest.sha256Hex(audio), "flac", null, 48_000, 9_600_000)
                 }
             }
-            val anyOk = renders.values.any { it != CloudLibraryRenderState.FAILED }
+            // A Sing's job: its instrumental, at the uploaded song's length (the import's length check).
+            if (CloudTask.INSTRUMENTAL in input.typedTasks) {
+                val codec = CloudOutputCodec.entries.first { it.wire == input.output?.codec }
+                val instrumentalKey = CloudJobBuilder.outputKey(key, "instrumental", codec)
+                val audio = ByteArray(2_000) { (it % 61).toByte() }
+                bucket.objects[instrumentalKey] = audio
+                outputs["instrumental"] = CloudOutputFile(instrumentalKey, audio.size.toLong(), CloudDigest.sha256Hex(audio),
+                    codec.wire, null, 48_000, 9_600_000)
+            }
+            val anyOk = input.library == null || renders.values.any { it != CloudLibraryRenderState.FAILED }
             val status = when {
                 !anyOk -> "error"
                 renders.values.any { it == CloudLibraryRenderState.FAILED } -> "partial"
@@ -452,7 +461,7 @@ class CloudLibraryJobsTest {
                 jobKey = key, status = status, error = if (!anyOk) CloudResultError("INTERNAL") else null,
                 warnings = emptyList(), worker = CloudWorkerInfo(gpu = "NVIDIA L4"),
                 input = CloudInputInfo(sha256 = input.audio!!.sha256), outputs = outputs,
-                library = if (anyOk) CloudLibraryResult(input.library?.videoId, 1, renders, "stems6") else null,
+                library = input.library?.takeIf { anyOk }?.let { CloudLibraryResult(it.videoId, 1, renders, "stems6") },
                 timings = CloudTimings(coldStartMs = 1_000, totalMs = 70_000),
             )
             bucket.objects[CloudKeys.manifest(key)] = CloudJson.encodeToString(CloudJobResult.serializer(), result).toByteArray()

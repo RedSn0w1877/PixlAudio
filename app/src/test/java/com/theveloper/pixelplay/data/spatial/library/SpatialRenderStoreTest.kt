@@ -166,7 +166,7 @@ class SpatialRenderStoreTest {
         assertTrue(root.listFiles().isNullOrEmpty() || File(root, "J7p4bzqLvCw").listFiles().isNullOrEmpty())
     }
 
-    @Test fun `the files are the index: read back after a restart, leftovers cleared`() = runBlocking {
+    @Test fun `the files are the index, read back after a restart with leftovers cleared`() = runBlocking {
         val first = store()
         assertNull(first.put("J7p4bzqLvCw"))
         assertNull(first.put("ZD6rXLXZOEI", SpatialProfile.NIGHT, seed = 2))

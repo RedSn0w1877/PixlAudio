@@ -72,7 +72,7 @@ class SpatialLibraryRulesTest {
         assertEquals(PROCESSING, status(job = job(CloudJobState.RUNNING), failed = true))
     }
 
-    @Test fun `the reasons a job waits: the network its rules allow, and the month's cap`() {
+    @Test fun `a job waits for the network its rules allow, and for the month's cap`() {
         assertEquals(WAITING_FOR_NETWORK, status(job = job(CloudJobState.QUEUED), personNetworkOk = false))
         assertEquals(WAITING_FOR_NETWORK, status(job = job(CloudJobState.UPLOADING), personNetworkOk = false))
         assertEquals(WAITING_FOR_NETWORK, status(job = job(CloudJobState.RESULTS_READY), personNetworkOk = false))
@@ -101,10 +101,10 @@ class SpatialLibraryRulesTest {
         val saved = HashMap<String, String>()
         val ledger = SpatialFailureLedger(load = { saved }, save = { saved.clear(); saved.putAll(it) })
         assertNull(ledger.failure(key))
-        assertEquals(1, ledger.recordFailure(key, 1_000).count)
-        assertEquals(1, ledger.recordFailure(key, 1_000).count, "the same failure read again")
-        assertEquals(1, ledger.recordFailure(key, 500).count, "an older one is already counted")
-        assertEquals(2, ledger.recordFailure(key, 2_000).count)
+        assertEquals(1, ledger.recordFailure(key, 1_000)?.count)
+        assertEquals(1, ledger.recordFailure(key, 1_000)?.count, "the same failure read again")
+        assertEquals(1, ledger.recordFailure(key, 500)?.count, "an older one is already counted")
+        assertEquals(2, ledger.recordFailure(key, 2_000)?.count)
         val version = ledger.version.value
         // A success from before the last failure doesn't clear it; a later one does.
         ledger.clear(key, 1_500)
@@ -114,6 +114,17 @@ class SpatialLibraryRulesTest {
         ledger.clear(key, 2_500)
         assertNull(ledger.failure(key))
         assertTrue(ledger.version.value > version)
+        // A failure from before the success, reported late (a failed job read again), stays forgotten, after a restart too.
+        assertNull(ledger.recordFailure(key, 2_400))
+        assertNull(SpatialFailureLedger(load = { saved }).recordFailure(key, 2_200))
+        assertNull(ledger.failure(key))
+        // A new failure starts the ladder again.
+        assertEquals(1, ledger.recordFailure(key, 3_000)?.count)
+        // A success with nothing failed before is remembered too.
+        val other = SpatialRenderKey("ZD6rXLXZOEI", SpatialProfile.NIGHT)
+        ledger.clear(other, 5_000)
+        assertNull(ledger.recordFailure(other, 4_000))
+        assertEquals(1, ledger.recordFailure(other, 6_000)?.count)
         assertEquals(key, SpatialFailureLedger.key(SpatialFailureLedger.name(key)))
         assertNull(SpatialFailureLedger.key("J7p4bzqLvCw/atmos"))
     }
@@ -131,7 +142,7 @@ class SpatialLibraryRulesTest {
         assertNull(ledger.failure(SpatialRenderKey("v%010d".format(SpatialFailureLedger.MAX_ENTRIES + 9), SpatialProfile.STUDIO)))
     }
 
-    @Test fun `networks: the person's rule for cloud work, the queue's Wi-Fi only`() {
+    @Test fun `the person's network rule for cloud work, and the queue's Wi-Fi only`() {
         val wifi = SpatialNetwork(connected = true, unmetered = true)
         val mobile = SpatialNetwork(connected = true, unmetered = false)
         assertTrue(wifi.allowsCloudWork(useCellular = false))
