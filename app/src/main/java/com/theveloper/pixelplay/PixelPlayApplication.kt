@@ -81,6 +81,9 @@ class PixelPlayApplication : Application(), ImageLoaderFactory, Configuration.Pr
     lateinit var aiPreferencesRepository: dagger.Lazy<com.theveloper.pixelplay.data.preferences.AiPreferencesRepository>
 
     @Inject
+    lateinit var smartFeatureDefaults: dagger.Lazy<com.theveloper.pixelplay.data.preferences.SmartFeatureDefaults>
+
+    @Inject
     lateinit var gemmaEngine: dagger.Lazy<com.theveloper.pixelplay.data.ai.local.GemmaLiteRtEngine>
 
     @Inject
@@ -197,6 +200,23 @@ class PixelPlayApplication : Application(), ImageLoaderFactory, Configuration.Pr
         startupScope.launch {
             runCatching { aiPreferencesRepository.get().migrateProviderIfNeeded() }
                 .onFailure { Timber.w(it, "AI provider migration failed") }
+        }
+
+        // Smart features (learning, Home mixes, history import, automatic lyrics) are on from the start:
+        // once per install, switch on any that an old build or backup left off.
+        startupScope.launch {
+            runCatching { smartFeatureDefaults.get().applyOnce() }
+                .onFailure { Timber.w(it, "Smart feature defaults failed") }
+        }
+        // And again when setup finishes, so the end of setup leaves them on (setup itself writes none of them).
+        startupScope.launch {
+            runCatching {
+                val setupDone = userPreferencesRepository.get().initialSetupDoneFlow
+                if (!setupDone.first()) {
+                    setupDone.first { it }
+                    smartFeatureDefaults.get().applyNow()
+                }
+            }.onFailure { Timber.w(it, "Smart feature defaults after setup failed") }
         }
 
         startupScope.launch {

@@ -11,10 +11,10 @@ enum class LibraryTabId(
     @StringRes val titleRes: Int,
     val defaultSort: SortOption
 ) {
-    SONGS("SONGS", "SONGS", R.string.library_tab_songs, SortOption.SongTitleAZ),
-    ALBUMS("ALBUMS", "ALBUMS", R.string.library_tab_albums, SortOption.AlbumTitleAZ),
-    ARTISTS("ARTIST", "ARTIST", R.string.library_tab_artists, SortOption.ArtistNameAZ),
-    PLAYLISTS("PLAYLISTS", "PLAYLISTS", R.string.library_tab_playlists, SortOption.PlaylistNameAZ),
+    SONGS("SONGS", "SONGS", R.string.library_tab_songs, SortOption.SongDateAdded),
+    ALBUMS("ALBUMS", "ALBUMS", R.string.library_tab_albums, SortOption.AlbumDateAdded),
+    ARTISTS("ARTIST", "ARTIST", R.string.library_tab_artists, SortOption.ArtistDateAdded),
+    PLAYLISTS("PLAYLISTS", "PLAYLISTS", R.string.library_tab_playlists, SortOption.PlaylistDateCreated),
     FOLDERS("FOLDERS", "FOLDERS", R.string.library_tab_folders, SortOption.FolderNameAZ),
     LIKED("LIKED", "LIKED", R.string.library_tab_liked, SortOption.LikedSongDateLiked);
 

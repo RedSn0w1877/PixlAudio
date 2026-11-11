@@ -64,6 +64,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -262,7 +263,11 @@ fun SettingsScreen(
                             category = category,
                             customColors = getCategoryColors(category, isDark),
                             onClick = { openSettingsCategory(navController, category) },
-                            shape = settingsGroupShape(itemIndex, totalItems)
+                            shape = settingsGroupShape(itemIndex, totalItems),
+                            // The equalizer is locked until it is fixed.
+                            lockedNote = if (category == SettingsCategory.EQUALIZER) {
+                                stringResource(R.string.common_broken_fix_soon)
+                            } else null
                         )
                         Spacer(modifier = Modifier.height(2.dp))
                         itemIndex++
@@ -506,13 +511,16 @@ fun ExpressiveCategoryItem(
     category: SettingsCategory,
     onClick: () -> Unit,
     shape: androidx.compose.ui.graphics.Shape = RoundedCornerShape(24.dp),
-    customColors: Pair<Color, Color>? = null
+    customColors: Pair<Color, Color>? = null,
+    /** Greys the row out and stops it opening, showing this note under the subtitle ("Broken, fix soon"). */
+    lockedNote: String? = null
 ) {
-    AdaptiveClickableSurface(
+    AdaptivePressSurface(
         onClick = onClick,
+        enabled = lockedNote == null,
         shape = shape,
         color = MaterialTheme.colorScheme.surfaceContainer,
-        modifier = Modifier.fillMaxWidth().height(88.dp)
+        modifier = Modifier.fillMaxWidth().height(88.dp).alpha(if (lockedNote == null) 1f else 0.55f)
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -559,8 +567,18 @@ fun ExpressiveCategoryItem(
                     overflow = TextOverflow.Ellipsis,
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
-                    maxLines = 2
+                    maxLines = if (lockedNote == null) 2 else 1
                 )
+                if (lockedNote != null) {
+                    Text(
+                        text = lockedNote,
+                        overflow = TextOverflow.Ellipsis,
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.error,
+                        maxLines = 1
+                    )
+                }
             }
             
             Spacer(modifier = Modifier.width(8.dp))

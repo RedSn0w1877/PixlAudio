@@ -64,6 +64,13 @@ fun WavySliderExpressive(
     valueRange: ClosedFloatingPointRange<Float> = 0f..1f,
     onValueChangeFinished: (() -> Unit)? = null,
     onValueCommit: ((Float) -> Unit)? = null,
+    /**
+     * Always called when a touch gesture ends: after [onValueCommit] on a normal release, and on
+     * its own when the gesture is cancelled (a parent took the touch, or the slider left
+     * composition mid-drag) and no commit ever comes. Callers that keep "dragging" state use it
+     * to reset that state.
+     */
+    onInteractionEnd: (() -> Unit)? = null,
     activeTrackColor: Color = androidx.compose.material3.MaterialTheme.colorScheme.primary,
     inactiveTrackColor: Color = androidx.compose.material3.MaterialTheme.colorScheme.surfaceVariant,
     thumbColor: Color = androidx.compose.material3.MaterialTheme.colorScheme.primary,
@@ -120,6 +127,7 @@ fun WavySliderExpressive(
     val latestOnValueChange by rememberUpdatedState(onValueChange)
     val latestOnValueChangeFinished by rememberUpdatedState(onValueChangeFinished)
     val latestOnValueCommit by rememberUpdatedState(onValueCommit)
+    val latestOnInteractionEnd by rememberUpdatedState(onInteractionEnd)
     var isPointerSeeking by remember { mutableStateOf(false) }
     val isInteracting = isPointerSeeking
 
@@ -355,6 +363,7 @@ fun WavySliderExpressive(
                                 ?: latestOnValueChangeFinished?.invoke()
                         } finally {
                             isPointerSeeking = false
+                            latestOnInteractionEnd?.invoke()
                         }
                     }
                 }

@@ -62,7 +62,7 @@ data class PlaylistUiState(
     val playlistNotFound: Boolean = false,
 
     //Sort option
-    val currentPlaylistSortOption: SortOption = SortOption.PlaylistNameAZ,
+    val currentPlaylistSortOption: SortOption = SortOption.PlaylistDateCreated,
     val currentPlaylistSongsSortOption: SortOption = SortOption.SongTitleAZ,
     val playlistSongsOrderMode: PlaylistSongsOrderMode = PlaylistSongsOrderMode.Sorted(SortOption.SongTitleAZ),
     val playlistOrderModes: Map<String, PlaylistSongsOrderMode> = emptyMap(),
@@ -117,7 +117,7 @@ class PlaylistViewModel @Inject constructor(
         return SortOption.fromStorageKey(
             optionKey,
             SortOption.PLAYLISTS,
-            SortOption.PlaylistNameAZ
+            SortOption.PlaylistDateCreated
         )
     }
 

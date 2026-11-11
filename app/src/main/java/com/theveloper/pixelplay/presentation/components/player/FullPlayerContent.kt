@@ -874,7 +874,6 @@ fun FullPlayerContent(
             onToggleStudioInstrumental = playerViewModel::toggleSing,
             translationStateFlow = playerViewModel.lyricsTranslationState,
             singUiFlow = playerViewModel.singUi,
-            onTranslateOnDevice = playerViewModel::translateLyricsOnDevice,
             onSing = playerViewModel::toggleSing,
             // The full player stays composed after it collapses: lyrics left open must not keep
             // the screen on over the library.
@@ -1984,6 +1983,8 @@ private fun EfficientSlider(
         value = { valueState.value },
         onValueChange = onValueChangeWithHaptics,
         onValueCommit = onValueCommit,
+        // A gesture a parent cancelled never commits: still drop the drag value.
+        onInteractionEnd = onScrubEnd,
         // The value is already frame-accurate (frame clock), so no per-sample tween.
         frameAccurateValue = true,
         interactionSource = interactionSource,

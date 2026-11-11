@@ -121,7 +121,8 @@ class ThemePreferencesRepositoryTest {
             handler(store).restore(oldPayload)
 
             assertEquals(AccentColor.DEFAULT, themes.accentColorFlow.first())
-            assertEquals(ThemePreference.DYNAMIC, themes.playerThemePreferenceFlow.first())
+            // Player Theme is locked ("Broken, fix soon"): every reader gets Album Art whatever was stored.
+            assertEquals(ThemePreference.ALBUM_ART, themes.playerThemePreferenceFlow.first())
             assertEquals(AppThemeMode.DARK, themes.appThemeModeFlow.first())
         } finally {
             dir.toFile().deleteRecursively()

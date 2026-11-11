@@ -387,7 +387,7 @@ class AiHandler @Inject constructor(
         }
         val startedAt = System.currentTimeMillis()
         val completion = claude.complete(system = systemPrompt, prompt = prompt, effort = claudeEffortFor(type))
-        if (completion.text.isBlank()) throw Exception("Claude returned an empty answer. Try again.")
+        if (completion.text.isBlank()) throw Exception("The cloud AI returned an empty answer. Try again.")
         appScope.launch {
             runCatching {
                 usageDao.insertUsage(
@@ -468,8 +468,8 @@ class AiHandler @Inject constructor(
     }
 
     companion object {
-        const val CLAUDE_USAGE_LABEL = "Claude (cloud)"
-        const val CLAUDE_REFUSAL_MESSAGE = "Claude can't help with that request. Try asking another way."
+        const val CLAUDE_USAGE_LABEL = "Cloud AI"
+        const val CLAUDE_REFUSAL_MESSAGE = "The cloud AI can't help with that request. Try asking another way."
 
         /** Medium for chat and short tasks, high for playlist building and listening insights (owner, 2026-10-23). */
         fun claudeEffortFor(type: AiSystemPromptType): ClaudeEffort = when (type) {

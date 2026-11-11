@@ -220,6 +220,16 @@ sealed class SortOption(
         methodKey = "artist_name",
         direction = SortDirection.Descending
     )
+    /** Newest first by the most recent song added for the artist (no stored "added" date of its own). */
+    object ArtistDateAdded : SortOption(
+        storageKey = "artist_date_added",
+        displayName = "Date Added",
+        displayNameRes = R.string.sort_display_date_added,
+        methodLabel = "Date Added",
+        methodLabelRes = R.string.sort_method_date_added,
+        methodKey = "artist_date_added",
+        direction = SortDirection.Descending
+    )
     object ArtistNumSongsDesc : SortOption(
         storageKey = "artist_num_songs_desc",
         displayName = "Number of Songs (Most)",
@@ -474,6 +484,7 @@ sealed class SortOption(
             listOf(
                 ArtistNameAZ,
                 ArtistNameZA,
+                ArtistDateAdded,
                 ArtistNumSongsDesc,
                 ArtistNumSongsAsc
             )

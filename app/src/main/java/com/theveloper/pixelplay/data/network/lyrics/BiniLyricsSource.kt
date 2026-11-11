@@ -227,7 +227,7 @@ internal class BiniLyricsSource(
     }
 
     companion object {
-        const val SOURCE_NAME = "BiniLyrics"
+        const val SOURCE_NAME = "Pixel Master Lyrics"
         const val WEBSITE = "https://lyrics.binimum.org"
         private const val ENTRY_URL = "https://lyrics-api.binimum.org/"
 

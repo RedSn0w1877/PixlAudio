@@ -198,20 +198,23 @@ class AiSystemPromptEngine @Inject constructor() {
             AiSystemPromptType.GREETING -> """
                 <role>PixelPlayer's home screen greeting writer.</role>
                 <strategy>
-                - Write exactly ONE short sentence greeting the listener, using the given time_of_day and (if present) top_artist or top_genre.
+                - Write exactly ONE short sentence greeting the listener, under 50 characters, using the given time_of_day and whichever of top_artist, top_genre, just_played, new_artist or listening_streak_days is present.
+                - Be contextual, like a friend glancing at their day: the hour, what they just played, something new they found, a streak, a mood.
                 - Casual, warm, a little playful — never corporate, never a full paragraph.
                 - No quotation marks, no emoji, no markdown, no "As an AI" framing.
-                - If a top_artist or top_genre is given, reference it naturally instead of being generic.
-                - Under 90 characters.
+                - Never state play counts, how many songs are in the library, or any other total.
+                - If the request asks for a short note instead of a greeting, write one or two very short sentences, under 140 characters in all, with the same rules.
                 </strategy>
                 <output_schema>
                 Return ONLY the greeting sentence — nothing else.
                 </output_schema>
                 <examples>
-                Input: time_of_day=morning, top_artist=Radiohead, total_plays=340
+                Input: time_of_day=morning, top_artist=Radiohead
                 Output: Morning — feels like a Radiohead kind of day.
-                Input: time_of_day=night, top_genre=lo-fi, total_plays=12
-                Output: Still up? Some lo-fi would go nicely right about now.
+                Input: time_of_day=night, top_genre=lo-fi
+                Output: Still up? Some lo-fi fits right about now.
+                Input: time_of_day=evening, just_played=Redbone by Childish Gambino
+                Output: Evening. Staying in that Redbone mood?
                 </examples>
             """.trimIndent()
 

@@ -335,13 +335,13 @@ class LyricsRepositoryImplTest {
             .copy(album = "Harbor Songs")
 
         val online = repository.findOnlineSyncedLyrics(song)
-        assertThat(online?.source).isEqualTo("BiniLyrics")
+        assertThat(online?.source).isEqualTo("Pixel Master Lyrics")
 
         val result = repository.fetchFromRemote(song)
 
         assertThat(result.isSuccess).isTrue()
         val (lyrics, raw) = result.getOrThrow()
-        assertThat(lyrics.document?.metadata?.source).isEqualTo("BiniLyrics")
+        assertThat(lyrics.document?.metadata?.source).isEqualTo("Pixel Master Lyrics")
         assertThat(lyrics.synced!!.first().words).isNotEmpty()
         assertThat(raw).contains("pixelplay-lyrics")
         assertThat(inserted.single().content).isEqualTo(raw)
@@ -369,7 +369,7 @@ class LyricsRepositoryImplTest {
 
         val (_, results) = repository.searchRemote(song).getOrThrow()
 
-        assertThat(results.map { it.source }).containsExactly("BiniLyrics", "LRCLIB").inOrder()
+        assertThat(results.map { it.source }).containsExactly("Pixel Master Lyrics", "LRCLIB").inOrder()
         assertThat(results.first().record.id).isLessThan(0)
         assertThat(results.first().lyrics.synced).isNotEmpty()
         http.dispatcher.executorService.shutdown()

@@ -81,6 +81,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalView
@@ -242,7 +243,9 @@ fun ThemeSelectorItem(
         options: Map<String, String>,
         selectedKey: String,
         onSelectionChanged: (String) -> Unit,
-        leadingIcon: @Composable () -> Unit
+        leadingIcon: @Composable () -> Unit,
+        /** Greys the row out and stops it opening, with this note under the value ("Broken, fix soon"). */
+        lockedNote: String? = null
 ) {
     var showSheet by remember { mutableStateOf(false) }
     val selectedOption = options[selectedKey] ?: selectedKey
@@ -250,9 +253,11 @@ fun ThemeSelectorItem(
     Surface(
             color = MaterialTheme.colorScheme.surfaceContainer,
             modifier =
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable {
-                        showSheet = true
-                    }
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+                        .then(
+                            if (lockedNote == null) Modifier.clickable { showSheet = true }
+                            else Modifier.alpha(0.55f)
+                        )
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(
@@ -293,12 +298,21 @@ fun ThemeSelectorItem(
                              modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
                         )
                     }
+                    if (lockedNote != null) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = lockedNote,
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
                 }
             }
         }
     }
 
-    if (showSheet) {
+    if (showSheet && lockedNote == null) {
         AdaptiveModalBottomSheet(
             onDismissRequest = { showSheet = false },
             containerColor = MaterialTheme.colorScheme.surface,

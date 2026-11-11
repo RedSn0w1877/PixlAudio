@@ -343,12 +343,12 @@ Source: https://bitbucket.org/snakeyaml/snakeyaml
 License: https://www.apache.org/licenses/LICENSE-2.0
 Used to safely parse LRCLIB Lyricsfile YAML. This notice does not grant rights to lyric content.
 
-## BiniLyrics (lyrics data source)
+## Pixel Master Lyrics (lyrics data source)
 
-Time-synced lyrics are looked up from BiniLyrics (https://lyrics.binimum.org), a free, keyless
+Time-synced lyrics are looked up from Pixel Master Lyrics (https://lyrics.binimum.org), a free, keyless
 lyrics catalog whose files are offered free to read and download as TTML, LRC or plain text.
 With thanks to its maintainers. This is an acknowledgement of a data source, not a software
-license; no BiniLyrics code is included in the app, and this notice grants no rights to lyric
+license; no Pixel Master Lyrics code is included in the app, and this notice grants no rights to lyric
 content, which remains with its respective rights holders.
 
 ## Google ML Kit: on-device Translation and Language Identification

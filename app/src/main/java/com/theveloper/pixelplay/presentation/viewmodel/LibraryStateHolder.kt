@@ -74,7 +74,7 @@ class LibraryStateHolder @Inject constructor(
     val isLoadingCategories = _isLoadingCategories.asStateFlow()
 
     // Sort Options
-    private val _currentSongSortOption = MutableStateFlow<SortOption>(SortOption.SongDefaultOrder)
+    private val _currentSongSortOption = MutableStateFlow<SortOption>(SortOption.SongDateAdded)
     val currentSongSortOption = _currentSongSortOption.asStateFlow()
 
     // Filter Options
@@ -145,10 +145,10 @@ class LibraryStateHolder @Inject constructor(
         }
         .flowOn(Dispatchers.IO)
 
-    private val _currentAlbumSortOption = MutableStateFlow<SortOption>(SortOption.AlbumTitleAZ)
+    private val _currentAlbumSortOption = MutableStateFlow<SortOption>(SortOption.AlbumDateAdded)
     val currentAlbumSortOption = _currentAlbumSortOption.asStateFlow()
 
-    private val _currentArtistSortOption = MutableStateFlow<SortOption>(SortOption.ArtistNameAZ)
+    private val _currentArtistSortOption = MutableStateFlow<SortOption>(SortOption.ArtistDateAdded)
     val currentArtistSortOption = _currentArtistSortOption.asStateFlow()
 
     private val _currentFolderSortOption = MutableStateFlow<SortOption>(SortOption.FolderNameAZ)
@@ -244,13 +244,13 @@ class LibraryStateHolder @Inject constructor(
         // Initial load of sort preferences
         scope.launch {
             val songSortKey = userPreferencesRepository.songsSortOptionFlow.first()
-            _currentSongSortOption.value = SortOption.SONGS.find { it.storageKey == songSortKey } ?: SortOption.SongDefaultOrder
+            _currentSongSortOption.value = SortOption.SONGS.find { it.storageKey == songSortKey } ?: SortOption.SongDateAdded
 
             val albumSortKey = userPreferencesRepository.albumsSortOptionFlow.first()
-            _currentAlbumSortOption.value = SortOption.ALBUMS.find { it.storageKey == albumSortKey } ?: SortOption.AlbumTitleAZ
+            _currentAlbumSortOption.value = SortOption.ALBUMS.find { it.storageKey == albumSortKey } ?: SortOption.AlbumDateAdded
 
             val artistSortKey = userPreferencesRepository.artistsSortOptionFlow.first()
-            _currentArtistSortOption.value = SortOption.ARTISTS.find { it.storageKey == artistSortKey } ?: SortOption.ArtistNameAZ
+            _currentArtistSortOption.value = SortOption.ARTISTS.find { it.storageKey == artistSortKey } ?: SortOption.ArtistDateAdded
 
             val folderSortKey = userPreferencesRepository.foldersSortOptionFlow.first()
             _currentFolderSortOption.value = SortOption.FOLDERS.find { it.storageKey == folderSortKey } ?: SortOption.FolderNameAZ

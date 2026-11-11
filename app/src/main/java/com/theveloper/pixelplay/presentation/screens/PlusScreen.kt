@@ -305,7 +305,7 @@ private fun PlusHero(onSupportClick: () -> Unit, onChooseAmount: () -> Unit) {
                 }
                 Text("Support the next great listen", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.ExtraBold, color = Color.White)
                 Text(
-                    "PixlAudio Plus is a one-time thank-you that helps fund faster tools, richer music intelligence, and more time spent making the player better.",
+                    "PixlAudio Plus is a one-time thank-you that helps fund faster tools, smarter mixes, and more time spent making the player better.",
                     style = MaterialTheme.typography.bodyLarge,
                     color = Color.White.copy(alpha = .9f)
                 )

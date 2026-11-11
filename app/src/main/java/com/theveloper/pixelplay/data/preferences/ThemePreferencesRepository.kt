@@ -38,8 +38,12 @@ class ThemePreferencesRepository @Inject constructor(
         preferences[Keys.APP_THEME_MODE] ?: AppThemeMode.FOLLOW_SYSTEM
     }
 
-    val playerThemePreferenceFlow: Flow<String> = dataStore.prefFlow { preferences ->
-        preferences[Keys.PLAYER_THEME_PREFERENCE] ?: ThemePreference.ALBUM_ART
+    /**
+     * The player theme is locked while it is broken ("Broken, fix soon" in Settings › Appearance): whatever an
+     * old build or a restored backup stored, every reader gets the default, so nothing half-works.
+     */
+    val playerThemePreferenceFlow: Flow<String> = dataStore.prefFlow { _ ->
+        ThemePreference.ALBUM_ART
     }
 
     /**

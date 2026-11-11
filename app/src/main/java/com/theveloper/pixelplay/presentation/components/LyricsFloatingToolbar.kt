@@ -81,7 +81,7 @@ data class LyricsTranslateSegment(
     val active: Boolean = false,
     /** The lyrics have synced lines to translate. Without them the segment is dimmed; a tap explains. */
     val available: Boolean = true,
-    /** An on-device translation (or its model download) is running. */
+    /** A translation is running. */
     val busy: Boolean = false,
     /** The long-press menu offers "Show romanization" (the lyrics have romanizable text). */
     val hasRomanization: Boolean = false,
@@ -90,9 +90,9 @@ data class LyricsTranslateSegment(
 
 /**
  * The lyrics screen's toolbar: Back · Translate · Sing · More. (Translate · Sing replaced the
- * Synced · Static switch: synced vs plain is automatic, with "Show as plain text" in More.)
+ * Synced · Static switch: synced vs plain is automatic.)
  *
- * - Translate: a tap shows or hides the lyrics' translations, or translates them on this phone
+ * - Translate: a tap shows or hides the lyrics' translations, or translates them with AI
  *   when they have none. A long press opens Translate via AI and Show romanization.
  * - Sing: vocals off / on through the song's studio instrumental, with the render's progress
  *   filling the segment the first time. When the cloud prepares it the button says "Preparing…"
