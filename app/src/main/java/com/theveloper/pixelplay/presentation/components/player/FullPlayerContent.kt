@@ -579,7 +579,7 @@ fun FullPlayerContent(
             playbackMetadataMimeType = playbackAudioMetadata.mimeType,
             playbackMetadataBitrate = playbackAudioMetadata.bitrate,
             playbackMetadataSampleRate = playbackAudioMetadata.sampleRate,
-            audioQualityTierLabel = audioQuality.label,
+            audioQualityTierLabel = audioQuality.youTubeLabel,
             positionSource = progressPositionSource,
             totalDurationProvider = totalDurationProvider,
             showPlayerFileInfo = showPlayerFileInfo,
@@ -1641,14 +1641,17 @@ private fun SongMetadataDisplaySection(
 
 /**
  * Same tiers/thresholds as [com.theveloper.pixelplay.data.preferences.AudioQuality] \u2014 a raw
- * "192 kbps" means nothing to most listeners, so the player shows the tier name it actually
- * falls into instead of the number.
+ * "192 kbps" means nothing to most listeners, so the player shows the tier name the playing stream
+ * actually falls into instead of the number: FLAC is Pro up to 48 kHz and Studio Pro above, anything
+ * else goes by its bitrate. Null when neither tells (the caller falls back to the setting).
  */
-private fun bitrateToQualityTierLabel(bitrateKbps: Int): String = when {
+private fun streamQualityTierLabel(mimeType: String?, bitrateKbps: Int?, sampleRate: Int?): String? = when {
+    mimeType?.contains("flac", ignoreCase = true) == true ->
+        if (sampleRate != null && sampleRate > 48_000) "Studio Pro" else "Pro"
+    bitrateKbps == null -> null
     bitrateKbps <= 96 -> "Low"
-    bitrateKbps <= 160 -> "Standard"
-    bitrateKbps <= 256 -> "High"
-    else -> "Ultrasound"
+    bitrateKbps <= 160 -> "Medium"
+    else -> "High"
 }
 
 private fun formatAudioMetaLabel(
@@ -1663,8 +1666,7 @@ private fun formatAudioMetaLabel(
 
     // ExoPlayer doesn't always report a bitrate for every track/format \u2014 falling back to the
     // user's configured quality tier keeps the label present instead of silently dropping it.
-    val tierLabel = bitrate?.takeIf { it > 0 }
-        ?.let { bitrateToQualityTierLabel(it / 1000) }
+    val tierLabel = streamQualityTierLabel(mimeType, bitrate?.takeIf { it > 0 }?.let { it / 1000 }, sampleRate)
         ?: fallbackTierLabel
 
     val parts = buildList {

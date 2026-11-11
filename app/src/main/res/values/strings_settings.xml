@@ -323,11 +323,12 @@
     <string name="settings_show_queue_history_title">Show queue history</string>
     <string name="settings_show_queue_history_subtitle">Show previously played songs in the queue.</string>
     <string name="settings_audio_quality_title">Audio quality</string>
-    <string name="settings_audio_quality_subtitle">Higher quality sounds better and uses more mobile data.</string>
+    <string name="settings_audio_quality_subtitle">Higher quality sounds better and uses more mobile data. Pro plays FLAC when a song has it; Studio Pro also plays the biggest studio files.</string>
     <string name="settings_audio_quality_low">Low</string>
-    <string name="settings_audio_quality_standard">Standard</string>
+    <string name="settings_audio_quality_medium">Medium</string>
     <string name="settings_audio_quality_high">High</string>
-    <string name="settings_audio_quality_ultrasound">Ultrasound</string>
+    <string name="settings_audio_quality_pro">Pro</string>
+    <string name="settings_audio_quality_studio_pro">Studio Pro</string>
     <string name="settings_player_ambient_effects_title">Player background</string>
     <string name="settings_player_ambient_effects_subtitle">Pick one background style for the full player, or turn it off.</string>
     <string name="settings_player_ambient_style_off">Off</string>

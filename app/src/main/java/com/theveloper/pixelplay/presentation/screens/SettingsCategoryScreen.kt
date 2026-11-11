@@ -828,13 +828,14 @@ fun SettingsCategoryScreen(
                                     description = stringResource(R.string.settings_audio_quality_subtitle),
                                     options = linkedMapOf(
                                         AudioQuality.LOW.name to stringResource(R.string.settings_audio_quality_low),
-                                        AudioQuality.STANDARD.name to stringResource(R.string.settings_audio_quality_standard),
+                                        AudioQuality.MEDIUM.name to stringResource(R.string.settings_audio_quality_medium),
                                         AudioQuality.HIGH.name to stringResource(R.string.settings_audio_quality_high),
-                                        AudioQuality.ULTRASOUND.name to stringResource(R.string.settings_audio_quality_ultrasound)
+                                        AudioQuality.PRO.name to stringResource(R.string.settings_audio_quality_pro),
+                                        AudioQuality.STUDIO_PRO.name to stringResource(R.string.settings_audio_quality_studio_pro)
                                     ),
                                     selectedKey = uiState.audioQuality.name,
                                     onSelectionChanged = { key ->
-                                        runCatching { AudioQuality.valueOf(key) }.getOrNull()?.let { settingsViewModel.setAudioQuality(it) }
+                                        settingsViewModel.setAudioQuality(AudioQuality.fromStoredName(key))
                                     },
                                     leadingIcon = { Icon(painterResource(R.drawable.outline_high_quality_24), null, tint = MaterialTheme.colorScheme.secondary) }
                                 )

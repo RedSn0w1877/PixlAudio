@@ -78,20 +78,52 @@ enum class AlbumArtQuality(val maxSize: Int, val label: String) {
 }
 
 /**
- * User-selectable streaming audio quality tier. Caps the bitrate
- * [com.theveloper.pixelplay.data.youtube.YouTubeStreamResolver.pickBestAudio] will pick among the
- * candidate formats a video offers — it can only choose among what YouTube actually serves for
- * that video, it cannot demand a higher bitrate than exists. [ULTRASOUND] means "no cap, take the
- * best available": only then does the Spotify proxy try SpotiFLAC's FLAC (about 1,000 kbps) before
- * YouTube; every capped tier stays on YouTube at its cap. Not a hi-res guarantee either way.
+ * User-selectable streaming audio quality tier (same five on iOS).
  *
- * @property maxBitrateKbps upper bound on selectable bitrate, or null for no cap.
+ * - [LOW], [MEDIUM], [HIGH] cap the bitrate
+ *   [com.theveloper.pixelplay.data.youtube.YouTubeStreamResolver.pickBestAudio] picks among what
+ *   YouTube serves (96 / 160 / 256 kbps). SpotiFLAC's FLAC is then only the last resort, when
+ *   YouTube has nothing for the song.
+ * - [PRO], the default, plays SpotiFLAC's file first when it is at most 48 kHz: CD quality and most
+ *   24-bit masters, about 1-1.8 Mbps. A bigger file plays from YouTube (uncapped) instead.
+ * - [STUDIO_PRO] plays every SpotiFLAC file first, including 88.2-192 kHz masters (up to ~6 Mbps).
+ *
+ * Stored by name; the names before 2026-11-11 map over in [fromStoredName].
+ *
+ * @property maxBitrateKbps upper bound on YouTube's bitrate, or null for no cap.
+ * @property flacFirst whether SpotiFLAC is tried before YouTube.
+ * @property maxFlacSampleRateHz the highest FLAC sample rate played first, or null for any.
  */
-enum class AudioQuality(val maxBitrateKbps: Int?, val label: String) {
-    LOW(96, "Low"),
-    STANDARD(160, "Standard"),
-    HIGH(256, "High"),
-    ULTRASOUND(null, "Ultrasound")
+enum class AudioQuality(
+    val maxBitrateKbps: Int?,
+    val label: String,
+    val flacFirst: Boolean,
+    val maxFlacSampleRateHz: Int?
+) {
+    LOW(96, "Low", false, null),
+    MEDIUM(160, "Medium", false, null),
+    HIGH(256, "High", false, null),
+    PRO(null, "Pro", true, 48_000),
+    STUDIO_PRO(null, "Studio Pro", true, null);
+
+    /** Whether a SpotiFLAC file of [sampleRateHz] may play first (an unknown rate counts as allowed). */
+    fun allowsFlacFirst(sampleRateHz: Int?): Boolean =
+        flacFirst && (maxFlacSampleRateHz == null || sampleRateHz == null || sampleRateHz <= maxFlacSampleRateHz)
+
+    /** The label for a YouTube stream on this tier: an uncapped tier plays YouTube's best, "High". */
+    val youTubeLabel: String get() = if (maxBitrateKbps == null) HIGH.label else label
+
+    companion object {
+        val DEFAULT = PRO
+
+        /** The tier for a stored name, including the old ones (Standard is Medium, Ultrasound is Pro). */
+        fun fromStoredName(name: String?): AudioQuality = when (name) {
+            null -> DEFAULT
+            "STANDARD" -> MEDIUM
+            "ULTRASOUND" -> PRO
+            else -> entries.firstOrNull { it.name == name } ?: DEFAULT
+        }
+    }
 }
 
 /**
@@ -412,11 +444,7 @@ class UserPreferencesRepository @Inject constructor(
     // ─── Playback ─────────────────────────────────────────────────────────────
 
     val audioQualityFlow: Flow<AudioQuality> =
-        pref { preferences ->
-            preferences[PreferencesKeys.AUDIO_QUALITY]
-                ?.let { runCatching { AudioQuality.valueOf(it) }.getOrNull() }
-                ?: AudioQuality.ULTRASOUND
-        }
+        pref { preferences -> AudioQuality.fromStoredName(preferences[PreferencesKeys.AUDIO_QUALITY]) }
 
     suspend fun setAudioQuality(quality: AudioQuality) {
         dataStore.edit { it[PreferencesKeys.AUDIO_QUALITY] = quality.name }

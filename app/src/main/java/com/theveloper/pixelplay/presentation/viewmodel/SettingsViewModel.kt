@@ -77,7 +77,7 @@ data class SettingsUiState(
     val resumeOnHeadsetReconnect: Boolean = false,
     val showQueueHistory: Boolean = true,
     val isCrossfadeEnabled: Boolean = false,
-    val audioQuality: AudioQuality = AudioQuality.ULTRASOUND,
+    val audioQuality: AudioQuality = AudioQuality.DEFAULT,
     val playerAmbientStyle: PlayerAmbientStyle = PlayerAmbientStyle.BLENDED_COVER,
     val hiFiModeEnabled: Boolean = false,
     val hiFiModeDeviceSupported: Boolean = true,
