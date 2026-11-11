@@ -1,5 +1,6 @@
 package com.theveloper.pixelplay.data.spotiflac
 
+import com.google.gson.JsonArray
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
@@ -7,6 +8,9 @@ import java.util.Base64
 
 /**
  * Pure JSON & manifest parsers for SpotiFLAC provider responses.
+ *
+ * Every accessor is defensive: a provider that changes its shape yields no candidates
+ * (and the caller falls back to YouTube) instead of an exception in the stream proxy.
  */
 object SpotiFLACParsing {
 
@@ -26,78 +30,40 @@ object SpotiFLACParsing {
     // -------------------------------------------------------------------------
 
     /**
-     * Parses `GET /search/tracks?q=...` from `tracks.monochrome.st`.
+     * Parses `GET /search/tracks?q=...` from `tracks.monochrome.st` (the same rows come back for an
+     * `isrc:<ISRC>` query):
+     *
+     * ```
+     * {"tracks":[{"id":"155102871061270528","trackId":"155102871061270528","title":"One More Time",
+     *   "artistNames":["Daft Punk"],"releaseId":"155102851176075264","playable":true,
+     *   "duration":320357,"isrc":"GBDUW0000053"}],"releases":[],"artists":[],...}
+     * ```
+     *
+     * `duration` is in milliseconds.
      */
     fun parseMonochromeSearchTracks(jsonText: String): List<SpotiFLACCandidate> {
         val root = parseObject(jsonText) ?: return emptyList()
-        val results = root.getAsJsonArray("results") ?: return emptyList()
-
-        return results.mapNotNull { elem ->
-            val item = elem.asObjectOrNull() ?: return@mapNotNull null
-            val trackId = item.stringOrId("track_id")
-                ?: item.stringOrId("id")
-                ?: return@mapNotNull null
-            val title = item.stringOrNull("title")?.takeIf { it.isNotEmpty() } ?: return@mapNotNull null
-            val artist = item.stringOrNull("artist_name")
-                ?: item.stringOrNull("artist")
-                ?: ""
-            val releaseId = item.stringOrId("release_id")
-            val album = item.stringOrNull("release_title") ?: item.stringOrNull("album")
-            val durationMs = item.longOrZero("duration")
-            val isrc = SpotiFLACMatcher.normalizeIsrc(item.stringOrNull("isrc"))
-
-            SpotiFLACCandidate(
-                provider = SpotiFLACProvider.MONOCHROME_TRACKS,
-                trackId = trackId,
-                releaseId = releaseId,
-                title = title,
-                artist = artist,
-                album = album,
-                durationMs = durationMs,
-                isrc = isrc,
-                playable = true,
-                quality = "LOSSLESS"
-            )
-        }
-    }
-
-    /**
-     * Parses `GET /releases/:id` from `tracks.monochrome.st`, extracting all tracks with ISRC and duration.
-     */
-    fun parseMonochromeReleaseTracks(jsonText: String): List<SpotiFLACCandidate> {
-        val root = parseObject(jsonText) ?: return emptyList()
-        val releaseObj = root.getAsJsonObject("release") ?: root
-        val releaseId = releaseObj.stringOrId("id")
-        val albumTitle = releaseObj.stringOrNull("title")
-        val releaseArtist = releaseObj.stringOrNull("artist_name") ?: ""
-
-        val tracks = root.getAsJsonArray("tracks")
-            ?: releaseObj.getAsJsonArray("tracks")
+        val tracks = root.arrayOrNull("tracks")
+            ?: root.objectOrNull("data")?.arrayOrNull("tracks")
             ?: return emptyList()
 
         return tracks.mapNotNull { elem ->
             val item = elem.asObjectOrNull() ?: return@mapNotNull null
-            val trackId = item.stringOrId("id")
-                ?: item.stringOrId("track_id")
+            val trackId = item.stringOrId("trackId")
+                ?: item.stringOrId("id")
                 ?: return@mapNotNull null
-            val title = item.stringOrNull("title")?.takeIf { it.isNotEmpty() } ?: return@mapNotNull null
-            val artist = item.stringOrNull("artist_name")
-                ?.takeIf { it.isNotEmpty() }
-                ?: releaseArtist
-            val durationMs = item.longOrZero("duration")
-            val isrc = SpotiFLACMatcher.normalizeIsrc(item.stringOrNull("isrc"))
-            val playable = item.booleanOrDefault("playable", true)
+            val title = item.stringOrNull("title")?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
 
             SpotiFLACCandidate(
                 provider = SpotiFLACProvider.MONOCHROME_TRACKS,
                 trackId = trackId,
-                releaseId = releaseId,
+                releaseId = item.stringOrId("releaseId"),
                 title = title,
-                artist = artist,
-                album = albumTitle,
-                durationMs = durationMs,
-                isrc = isrc,
-                playable = playable,
+                artist = monochromeArtists(item),
+                album = item.stringOrNull("releaseTitle"),
+                durationMs = millisFrom(item.longOrZero("duration")),
+                isrc = SpotiFLACMatcher.normalizeIsrc(item.stringOrNull("isrc")),
+                playable = item.booleanOrDefault("playable", true),
                 quality = "LOSSLESS"
             )
         }
@@ -109,49 +75,62 @@ object SpotiFLACParsing {
     fun monochromeTrackStreamUrl(baseUrl: String, trackId: String): String {
         val trimmedBase = baseUrl.trimEnd('/')
         val safeId = trackId.trim()
-        if (trimmedBase.isEmpty() || safeId.isEmpty()) return ""
+        if (trimmedBase.isEmpty() || safeId.isEmpty() || !safeId.all { it.isLetterOrDigit() || it == '-' || it == '_' }) {
+            return ""
+        }
         return "$trimmedBase/track/$safeId"
     }
 
+    /** `artistNames` (strings), or `artists[].name`, joined the way Spotify rows join them. */
+    private fun monochromeArtists(item: JsonObject): String {
+        item.arrayOrNull("artistNames")
+            ?.mapNotNull { it.stringOrNull()?.takeIf { name -> name.isNotBlank() } }
+            ?.takeIf { it.isNotEmpty() }
+            ?.let { return it.joinToString(", ") }
+        item.arrayOrNull("artists")
+            ?.mapNotNull { it.asObjectOrNull()?.stringOrNull("name")?.takeIf { name -> name.isNotBlank() } }
+            ?.takeIf { it.isNotEmpty() }
+            ?.let { return it.joinToString(", ") }
+        return item.stringOrNull("artistName") ?: item.stringOrNull("artist") ?: ""
+    }
+
     // -------------------------------------------------------------------------
-    // 2. Tidal HiFi / OpenAPI Instances (`api.monochrome.tf`, `tidal.kinoplus.online`, etc.)
+    // 2. Tidal HiFi / OpenAPI Instances
     // -------------------------------------------------------------------------
 
     /**
      * Parses `GET /search/?i=<ISRC>` or `GET /search/?s=<query>` from Tidal HiFi API instances.
      */
     fun parseHiFiSearchResponse(jsonText: String): List<SpotiFLACCandidate> {
-        val rootElement = runCatching { JsonParser.parseString(jsonText) }.getOrNull() ?: return emptyList()
+        val rootElement = parseElement(jsonText) ?: return emptyList()
 
         val itemsArray = when {
             rootElement.isJsonArray -> rootElement.asJsonArray
             rootElement.isJsonObject -> {
                 val obj = rootElement.asJsonObject
-                obj.getAsJsonObject("data")?.getAsJsonArray("items")
-                    ?: obj.getAsJsonObject("tracks")?.getAsJsonArray("items")
-                    ?: obj.getAsJsonArray("items")
-                    ?: obj.getAsJsonArray("data")
+                obj.objectOrNull("data")?.arrayOrNull("items")
+                    ?: obj.objectOrNull("tracks")?.arrayOrNull("items")
+                    ?: obj.arrayOrNull("items")
+                    ?: obj.arrayOrNull("data")
             }
             else -> null
         } ?: return emptyList()
 
         return itemsArray.mapNotNull { elem ->
             val rawItem = elem.asObjectOrNull() ?: return@mapNotNull null
-            val item = rawItem.getAsJsonObject("item") ?: rawItem
+            val item = rawItem.objectOrNull("item") ?: rawItem
             val trackId = item.stringOrId("id") ?: return@mapNotNull null
             val title = item.stringOrNull("title")?.takeIf { it.isNotEmpty() } ?: return@mapNotNull null
 
-            val artist = item.getAsJsonObject("artist")?.stringOrNull("name")
-                ?: item.getAsJsonArray("artists")
+            val artist = item.objectOrNull("artist")?.stringOrNull("name")
+                ?: item.arrayOrNull("artists")
                     ?.firstOrNull()?.asObjectOrNull()?.stringOrNull("name")
                 ?: item.stringOrNull("artist")
                 ?: ""
 
-            val album = item.getAsJsonObject("album")?.stringOrNull("title")
+            val album = item.objectOrNull("album")?.stringOrNull("title")
                 ?: item.stringOrNull("album")
 
-            val rawDuration = item.longOrZero("duration")
-            val durationMs = if (rawDuration in 1..3_600) rawDuration * 1_000L else rawDuration
             val isrc = SpotiFLACMatcher.normalizeIsrc(item.stringOrNull("isrc"))
             val playable = item.booleanOrDefault("allowStreaming", true) &&
                 item.booleanOrDefault("streamReady", true)
@@ -160,11 +139,11 @@ object SpotiFLACParsing {
             SpotiFLACCandidate(
                 provider = SpotiFLACProvider.TIDAL_HIFI,
                 trackId = trackId,
-                releaseId = item.getAsJsonObject("album")?.stringOrId("id"),
+                releaseId = item.objectOrNull("album")?.stringOrId("id"),
                 title = title,
                 artist = artist,
                 album = album,
-                durationMs = durationMs,
+                durationMs = millisFrom(item.longOrZero("duration")),
                 isrc = isrc,
                 playable = playable,
                 quality = quality
@@ -181,7 +160,7 @@ object SpotiFLACParsing {
         fallbackTrackId: String,
         isrc: String? = null
     ): SpotiFLACResolvedStream? {
-        val rootElement = runCatching { JsonParser.parseString(jsonText) }.getOrNull() ?: return null
+        val rootElement = parseElement(jsonText) ?: return null
 
         val objects: List<JsonObject> = when {
             rootElement.isJsonArray -> rootElement.asJsonArray.mapNotNull { it.asObjectOrNull() }
@@ -234,15 +213,14 @@ object SpotiFLACParsing {
                     if (!manifestMime.contains("dash+xml")) {
                         val decodedBytes = runCatching { Base64.getDecoder().decode(manifestB64) }.getOrNull()
                         if (decodedBytes != null) {
-                            val decodedText = String(decodedBytes, Charsets.UTF_8)
-                            val manifestObj = parseObject(decodedText)
+                            val manifestObj = parseObject(String(decodedBytes, Charsets.UTF_8))
                             if (manifestObj != null) {
                                 manifestObj.stringOrNull("mimeType")?.takeIf { it.isNotEmpty() }?.let {
                                     manifestMimeType = it
                                 }
-                                val firstUrl = manifestObj.getAsJsonArray("urls")
+                                val firstUrl = manifestObj.arrayOrNull("urls")
                                     ?.firstOrNull()
-                                    ?.let { if (it.isJsonPrimitive) it.asString else null }
+                                    ?.stringOrNull()
                                     ?.takeIf { it.isNotEmpty() }
                                 if (firstUrl != null) {
                                     directUrl = firstUrl
@@ -269,11 +247,12 @@ object SpotiFLACParsing {
     }
 
     // -------------------------------------------------------------------------
-    // 3. Deezer Public API (`api.deezer.com`) — ISRC & Metadata Enrichment
+    // 3. Deezer Public API (`api.deezer.com`) — metadata enrichment by ISRC
     // -------------------------------------------------------------------------
 
     /**
-     * Parses `GET /2.0/track/isrc:<ISRC>` or `GET /2.0/track/<id>` from `api.deezer.com`.
+     * Parses `GET /2.0/track/isrc:<ISRC>` or `GET /2.0/track/<id>` from `api.deezer.com`
+     * (`duration` is in seconds there).
      */
     fun parseDeezerTrack(jsonText: String): SpotiFLACCandidate? {
         val obj = parseObject(jsonText) ?: return null
@@ -281,8 +260,8 @@ object SpotiFLACParsing {
 
         val trackId = obj.stringOrId("id") ?: return null
         val title = obj.stringOrNull("title")?.takeIf { it.isNotEmpty() } ?: return null
-        val artist = obj.getAsJsonObject("artist")?.stringOrNull("name") ?: ""
-        val album = obj.getAsJsonObject("album")?.stringOrNull("title")
+        val artist = obj.objectOrNull("artist")?.stringOrNull("name") ?: ""
+        val album = obj.objectOrNull("album")?.stringOrNull("title")
         val durationSec = obj.longOrZero("duration")
         val isrc = SpotiFLACMatcher.normalizeIsrc(obj.stringOrNull("isrc"))
         val readable = obj.booleanOrDefault("readable", true)
@@ -290,7 +269,7 @@ object SpotiFLACParsing {
         return SpotiFLACCandidate(
             provider = SpotiFLACProvider.DEEZER,
             trackId = trackId,
-            releaseId = obj.getAsJsonObject("album")?.stringOrId("id"),
+            releaseId = obj.objectOrNull("album")?.stringOrId("id"),
             title = title,
             artist = artist,
             album = album,
@@ -301,49 +280,32 @@ object SpotiFLACParsing {
         )
     }
 
-    /**
-     * Parses `GET /2.0/search?q=...` from `api.deezer.com`.
-     */
-    fun parseDeezerSearchTracks(jsonText: String): List<SpotiFLACCandidate> {
-        val root = parseObject(jsonText) ?: return emptyList()
-        val data = root.getAsJsonArray("data") ?: return emptyList()
+    /** Provider durations: milliseconds, except values that can only be seconds (up to an hour). */
+    private fun millisFrom(raw: Long): Long = if (raw in 1..3_600) raw * 1_000L else raw.coerceAtLeast(0L)
 
-        return data.mapNotNull { elem ->
-            val obj = elem.asObjectOrNull() ?: return@mapNotNull null
-            val trackId = obj.stringOrId("id") ?: return@mapNotNull null
-            val title = obj.stringOrNull("title")?.takeIf { it.isNotEmpty() } ?: return@mapNotNull null
-            val artist = obj.getAsJsonObject("artist")?.stringOrNull("name") ?: ""
-            val album = obj.getAsJsonObject("album")?.stringOrNull("title")
-            val durationSec = obj.longOrZero("duration")
-            val isrc = SpotiFLACMatcher.normalizeIsrc(obj.stringOrNull("isrc"))
-            val readable = obj.booleanOrDefault("readable", true)
-
-            SpotiFLACCandidate(
-                provider = SpotiFLACProvider.DEEZER,
-                trackId = trackId,
-                releaseId = obj.getAsJsonObject("album")?.stringOrId("id"),
-                title = title,
-                artist = artist,
-                album = album,
-                durationMs = durationSec * 1_000L,
-                isrc = isrc,
-                playable = readable,
-                quality = "LOSSLESS"
-            )
+    private fun parseElement(jsonText: String): JsonElement? =
+        try {
+            JsonParser.parseString(jsonText)
+        } catch (e: RuntimeException) {
+            null
         }
-    }
 
-    private fun parseObject(jsonText: String): JsonObject? =
-        runCatching { JsonParser.parseString(jsonText).asObjectOrNull() }.getOrNull()
+    private fun parseObject(jsonText: String): JsonObject? = parseElement(jsonText).asObjectOrNull()
 
     private fun JsonElement?.asObjectOrNull(): JsonObject? =
         if (this != null && this.isJsonObject) this.asJsonObject else null
 
-    private fun JsonObject.stringOrNull(key: String): String? {
+    private fun JsonElement?.stringOrNull(): String? =
+        if (this != null && this.isJsonPrimitive) runCatching { this.asString }.getOrNull() else null
+
+    private fun JsonObject.objectOrNull(key: String): JsonObject? = get(key).asObjectOrNull()
+
+    private fun JsonObject.arrayOrNull(key: String): JsonArray? {
         val elem = get(key) ?: return null
-        if (!elem.isJsonPrimitive) return null
-        return runCatching { elem.asString }.getOrNull()
+        return if (elem.isJsonArray) elem.asJsonArray else null
     }
+
+    private fun JsonObject.stringOrNull(key: String): String? = get(key).stringOrNull()
 
     private fun JsonObject.stringOrId(key: String): String? {
         val elem = get(key) ?: return null
@@ -351,7 +313,7 @@ object SpotiFLACParsing {
         val prim = elem.asJsonPrimitive
         return when {
             prim.isString -> prim.asString.takeIf { it.isNotEmpty() }
-            prim.isNumber -> prim.asLong.toString()
+            prim.isNumber -> runCatching { prim.asBigInteger.toString() }.getOrNull()
             else -> null
         }
     }
@@ -359,7 +321,7 @@ object SpotiFLACParsing {
     private fun JsonObject.longOrZero(key: String): Long {
         val elem = get(key) ?: return 0L
         if (!elem.isJsonPrimitive) return 0L
-        return runCatching { elem.asLong }.getOrDefault(0L)
+        return runCatching { elem.asDouble.toLong() }.getOrDefault(0L)
     }
 
     private fun JsonObject.intOrNull(key: String): Int? {
@@ -376,7 +338,7 @@ object SpotiFLACParsing {
 
     private fun JsonObject.booleanOrDefault(key: String, default: Boolean): Boolean {
         val elem = get(key) ?: return default
-        if (!elem.isJsonPrimitive) return default
-        return runCatching { elem.asBoolean }.getOrDefault(default)
+        if (!elem.isJsonPrimitive || !elem.asJsonPrimitive.isBoolean) return default
+        return elem.asBoolean
     }
 }

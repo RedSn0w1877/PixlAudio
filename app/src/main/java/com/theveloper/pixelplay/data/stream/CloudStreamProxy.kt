@@ -21,14 +21,17 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancelChildren
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import com.theveloper.pixelplay.data.youtube.awaitYouTubeResponse
+import java.io.ByteArrayInputStream
 import java.io.IOException
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -100,6 +103,12 @@ abstract class CloudStreamProxy<K : Any>(
         // URLs every 600 KB. Refresh only on expiry or a real upstream rejection.
         const val UPSTREAM_CHUNK_SIZE = 512_000L
         const val MAX_UPSTREAM_ATTEMPTS = 4
+
+        // Bounds for what a subclass may ask for (upstreamChunkSize / upstreamParallelism): a parallel
+        // stream holds at most MAX_PARALLEL_PIECES × its piece size in memory.
+        const val MIN_CHUNK_SIZE = 64_000L
+        const val MAX_CHUNK_SIZE = 4_000_000L
+        const val MAX_PARALLEL_PIECES = 4
 
         // A warmed-up URL for an upcoming song lives 10 minutes (was 2): with 2 a 4-minute
         // song resolved its successor about twice. The signed `expire` (minus a minute) still
@@ -251,7 +260,24 @@ abstract class CloudStreamProxy<K : Any>(
             ?: ContentType.Audio.Any
     }
 
+    /**
+     * Bytes per upstream range request for [url]. 512,000 suits googlevideo; a host that is slow to
+     * answer each request (high time to first byte) wants bigger pieces.
+     */
+    protected open fun upstreamChunkSize(id: K, url: String): Long = UPSTREAM_CHUNK_SIZE
+
+    /**
+     * How many upstream range requests may be in flight at once for [url]. 1 keeps the one-at-a-time
+     * loop (googlevideo). Above 1, once the first piece is on its way the next ones are downloaded
+     * in parallel into memory (at most this many pieces) and written out strictly in order: for hosts
+     * that cap each connection below what lossless audio needs.
+     */
+    protected open fun upstreamParallelism(id: K, url: String): Int = 1
+
     // ─── Internal ──────────────────────────────────────────────────────
+
+    /** A failed parallel piece; [retryable] is false when another try can't help (gone, forbidden). */
+    private class UpstreamPieceException(message: String, val retryable: Boolean) : IOException(message)
 
     /** Olvida la URL cacheada de [id] para forzar que se vuelva a resolver. */
     protected fun invalidateCachedUrl(id: K) {
@@ -316,6 +342,7 @@ abstract class CloudStreamProxy<K : Any>(
                         var expectedTotal: Long? = null
                         var deliveredAnyBytes = false
                         var originalItag = Uri.parse(url).getQueryParameter("itag")
+                        var chunkSize = upstreamChunkSize(id, url).coerceIn(MIN_CHUNK_SIZE, MAX_CHUNK_SIZE)
 
                         suspend fun fetch(start: Long, end: Long): okhttp3.Response {
                             repeat(MAX_UPSTREAM_ATTEMPTS) { attempt ->
@@ -381,7 +408,7 @@ abstract class CloudStreamProxy<K : Any>(
                             }
                         }
                         val requestedEnd = if (range.isSuffixRange) null else range.endInclusive
-                        val firstEnd = minOf(start + UPSTREAM_CHUNK_SIZE - 1, requestedEnd ?: Long.MAX_VALUE)
+                        val firstEnd = minOf(start + chunkSize - 1, requestedEnd ?: Long.MAX_VALUE)
                         val upstreamStartedAtMs = SystemClock.elapsedRealtime()
                         val first = fetch(start, firstEnd)
                         if (tracked) {
@@ -415,37 +442,138 @@ abstract class CloudStreamProxy<K : Any>(
                         }
                         call.response.header("Accept-Ranges", "bytes")
                         val contentType = resolveResponseContentType(id, url, first.header("Content-Type"))
+
+                        // The first fetch may have moved to another source (a refresh before any byte went
+                        // out), so the piece policy is read again for the URL actually being served.
+                        chunkSize = upstreamChunkSize(id, url).coerceIn(MIN_CHUNK_SIZE, MAX_CHUNK_SIZE)
+                        val parallelism = upstreamParallelism(id, url).coerceIn(1, MAX_PARALLEL_PIECES)
+                        val firstRangeEnd = first.header("Content-Range")
+                            ?.substringAfter('-', "")?.substringBefore('/')?.trim()?.toLongOrNull()
+                        val parallelEnd = end?.takeIf {
+                            parallelism > 1 && total != null && first.code == 206 &&
+                                firstRangeEnd == firstEnd && firstEnd < it
+                        }
+                        val onBodyBytes: (Int) -> Unit = { count ->
+                            if (tracked && !deliveredAnyBytes) StreamStartTimings.proxyFirstBodyByte(idText)
+                            // Preloads: what preparing an upcoming song costs.
+                            if (!tracked && !isDownload) StreamStartTimings.proxyBytesServed(idText, count)
+                            deliveredAnyBytes = true
+                        }
+
+                        // One later piece of a parallel stream, read whole into memory. Retried on 429/5xx
+                        // and dropped connections; never moved to another source mid-song (its bytes
+                        // can't be spliced in): the player's next request resolves afresh instead.
+                        suspend fun fetchPiece(pieceUrl: String, pieceStart: Long, pieceEnd: Long): ByteArray {
+                            val expectedLength = pieceEnd - pieceStart + 1
+                            var lastFailure: IOException? = null
+                            for (attempt in 0 until MAX_UPSTREAM_ATTEMPTS) {
+                                if (attempt > 0) {
+                                    if (tracked) StreamStartTimings.proxyRetry(idText)
+                                    delay(250L * attempt)
+                                }
+                                try {
+                                    val request = Request.Builder().url(pieceUrl)
+                                        .header("Range", "bytes=$pieceStart-$pieceEnd")
+                                        .header("Accept-Encoding", "identity")
+                                        .apply { upstreamHeaders(id, pieceUrl).forEach { (name, value) -> header(name, value) } }
+                                        .build()
+                                    return okHttpClient.newCall(request).awaitYouTubeResponse().use { piece ->
+                                        when (piece.code) {
+                                            206 -> {
+                                                val contentRange = piece.header("Content-Range")
+                                                val returnedStart = contentRange?.substringAfter("bytes ")?.substringBefore('-')?.toLongOrNull()
+                                                val returnedTotal = contentRange?.substringAfter('/', "")?.toLongOrNull()
+                                                if (returnedStart != pieceStart) {
+                                                    throw UpstreamPieceException("Audio upstream returned an incorrect byte range", retryable = false)
+                                                }
+                                                if (returnedTotal != null && returnedTotal != total) {
+                                                    throw UpstreamPieceException("Audio resource changed during a stream", retryable = false)
+                                                }
+                                                if (!CloudStreamSecurity.isSupportedAudioContentType(piece.header("Content-Type"))) {
+                                                    throw UpstreamPieceException("Unsupported audio content type", retryable = false)
+                                                }
+                                                val bytes = runInterruptible { piece.body.bytes() }
+                                                if (bytes.size.toLong() != expectedLength) {
+                                                    throw IOException("Audio upstream sent ${bytes.size} of $expectedLength bytes")
+                                                }
+                                                bytes
+                                            }
+                                            429, 500, 502, 503, 504 ->
+                                                throw UpstreamPieceException("Audio upstream returned HTTP ${piece.code}", retryable = true)
+                                            else -> {
+                                                if (piece.code in setOf(401, 403, 404, 410)) invalidateCachedUrl(id)
+                                                throw UpstreamPieceException("Audio upstream returned HTTP ${piece.code}", retryable = false)
+                                            }
+                                        }
+                                    }
+                                } catch (e: CancellationException) {
+                                    throw e
+                                } catch (e: IOException) {
+                                    currentCoroutineContext().ensureActive()
+                                    if (e is UpstreamPieceException && !e.retryable) throw e
+                                    lastFailure = e
+                                }
+                            }
+                            throw lastFailure ?: IOException("Audio piece $pieceStart-$pieceEnd failed")
+                        }
+
                         headersSent = true
                         call.respondBytesWriter(contentType = contentType, contentLength = responseLength) {
                             val channel = this
                             withContext(Dispatchers.IO) {
+                                if (parallelEnd != null) {
+                                    val pieceUrl = url
+                                    val firstLength = firstEnd - start + 1
+                                    ParallelPieces.stream(
+                                        from = firstEnd + 1,
+                                        to = parallelEnd,
+                                        pieceSize = chunkSize,
+                                        parallelism = parallelism,
+                                        fetch = { pieceStart, pieceEnd -> fetchPiece(pieceUrl, pieceStart, pieceEnd) },
+                                        // The first piece streams as it arrives: the player's first bytes
+                                        // don't wait for the others.
+                                        beforeFirstPiece = {
+                                            val firstWritten = first.use { upstream ->
+                                                upstream.body.byteStream().use { input ->
+                                                    ProxyBodyWriter.copyUpstream(input, channel, firstLength, onBodyBytes)
+                                                }
+                                            }
+                                            if (firstWritten != firstLength) {
+                                                throw IOException("Audio stream ended before its advertised length")
+                                            }
+                                        },
+                                        write = { bytes ->
+                                            ProxyBodyWriter.copyUpstream(
+                                                ByteArrayInputStream(bytes), channel, bytes.size.toLong(), onBodyBytes
+                                            )
+                                        }
+                                    )
+                                    return@withContext
+                                }
                                 var position = start
                                 var response = first
+                                var requestedLength = firstEnd - start + 1
                                 while (true) {
                                     val responseWasFull = response.code == 200
                                     val chunkLimit = if (responseWasFull) end?.let { it - position + 1 }
-                                        else minOf(UPSTREAM_CHUNK_SIZE, end?.let { it - position + 1 } ?: Long.MAX_VALUE)
+                                        else minOf(requestedLength, end?.let { it - position + 1 } ?: Long.MAX_VALUE)
                                     var written = 0L
                                     response.use { upstream ->
                                         verifyChunk(upstream, position)
                                         upstream.body.byteStream().use { input ->
                                             // Flushes every piece (see ProxyBodyWriter): the
                                             // player gets its first bytes now, not after 1 MiB.
-                                            written = ProxyBodyWriter.copyUpstream(input, channel, chunkLimit) { count ->
-                                                if (tracked && !deliveredAnyBytes) StreamStartTimings.proxyFirstBodyByte(idText)
-                                                // Preloads: what preparing an upcoming song costs.
-                                                if (!tracked && !isDownload) StreamStartTimings.proxyBytesServed(idText, count)
-                                                deliveredAnyBytes = true
-                                            }
+                                            written = ProxyBodyWriter.copyUpstream(input, channel, chunkLimit, onBodyBytes)
                                         }
                                     }
                                     position += written
                                     if (end != null && position > end) break
-                                    if (written == 0L || responseWasFull || (total == null && written < UPSTREAM_CHUNK_SIZE)) {
+                                    if (written == 0L || responseWasFull || (total == null && written < requestedLength)) {
                                         if (end != null && position <= end) throw IOException("Audio stream ended before its advertised length")
                                         break
                                     }
-                                    val nextEnd = minOf(position + UPSTREAM_CHUNK_SIZE - 1, end ?: Long.MAX_VALUE)
+                                    val nextEnd = minOf(position + chunkSize - 1, end ?: Long.MAX_VALUE)
+                                    requestedLength = nextEnd - position + 1
                                     response = fetch(position, nextEnd)
                                 }
                             }
