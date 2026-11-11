@@ -1,6 +1,6 @@
 # Android Spatial audio: ENGINE handoff (2026-11-11)
 
-Branch `audio-engine`, cut from `origin/audio-hq` 50cf187. Last pushed commit: see the report (`git log -1 origin/audio-engine`).
+Branch `audio-engine`, cut from `origin/audio-hq` 50cf187. Last code commit: 3f28e36 (CI green, run 43070771228); this note follows it.
 Contract files untouched. Everything below follows `handoff/2026-11-10-plans/cloud-audio-spec.md` (spec §N) and
 `android-integration-map.md` (map N); where it does not, it says so under "Divergences".
 
@@ -144,4 +144,14 @@ crossover and the delay lines; with no profile ever selected it is a buffer copy
 
 ## CI
 
-PLACEHOLDER_CI
+All on `android-ci.yml`:
+
+| Run | Commit | Result |
+|---|---|---|
+| 43067407001 | 64425aa (stage + tests) | compile green; golden, ramp and processor tests green; the benchmark failed on purpose to report its numbers |
+| 43069152149 | f3960a3 (wiring) | compile green; every unit test green but the deliberate benchmark failure |
+| 43070411528 | e235140 | cancelled by the next push |
+| 43070771228 | 3f28e36 | **green**: compile, all unit tests (Sing and crossfade tests unchanged and passing), Wear compile, debug APKs |
+
+Not run anywhere: a phone. Everything about how it sounds (the 250 ms swap, the 80 ms ramps, gapless boundaries,
+offload gap length) and the stage's CPU on ART still needs a listen on Hoa's phone.
