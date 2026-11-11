@@ -110,7 +110,7 @@ class CloudLibraryJobsTest {
         // Another profile is another job.
         assertNotEquals(ahead.jobKey, engine.sendRender(profile = "hall").jobKey)
         // What can't be a job isn't one.
-        assertTrue(engine.sendLibraryJob(song.id, "not-a-video", "studio", false) is CloudLibrarySend.Refused)
+        assertTrue(engine.sendLibraryJob(song.id, "spotify:x", "studio", false) is CloudLibrarySend.Refused)
         assertTrue(engine.sendLibraryJob(song.id, video, "atmos", false) is CloudLibrarySend.Refused)
     }
 
@@ -400,24 +400,28 @@ class CloudLibraryJobsTest {
         var janitor = false
         var damage = false
         var lastAudio: ByteArray? = null
-        private val pending = mutableListOf<CloudJobRequest>()
+        private val pending = mutableListOf<Pair<String, CloudJobRequest>>()
+        /** Finished runs: `/status` answers COMPLETED with the manifest (the clock stands still, so listings don't repeat). */
+        private val finished = HashMap<String, CloudJobResult>()
 
         override suspend fun run(request: CloudJobRequest): RunPodJob {
             runs += request
-            if (finishImmediately) complete(request) else pending += request
-            return RunPodJob("rp-${runs.size}", "IN_QUEUE")
+            val id = "rp-${runs.size}"
+            if (finishImmediately) finished[id] = complete(request) else pending += id to request
+            return RunPodJob(id, "IN_QUEUE")
         }
 
-        override suspend fun status(jobId: String): RunPodJob = RunPodJob(jobId, "IN_QUEUE")
+        override suspend fun status(jobId: String): RunPodJob =
+            finished[jobId]?.let { RunPodJob(jobId, "COMPLETED", result = it) } ?: RunPodJob(jobId, "IN_QUEUE")
         override suspend fun cancel(jobId: String): RunPodJob? = RunPodJob(jobId, "CANCELLED")
         override suspend fun health() = RunPodHealth(idleWorkers = 1)
 
         fun completeAll() {
-            pending.forEach(::complete)
+            for ((id, request) in pending) finished[id] = complete(request)
             pending.clear()
         }
 
-        private fun complete(request: CloudJobRequest) {
+        private fun complete(request: CloudJobRequest): CloudJobResult {
             val input = request.input
             val key = input.jobKey!!
             val outputs = LinkedHashMap<String, CloudOutputFile>()
@@ -466,6 +470,7 @@ class CloudLibraryJobsTest {
             )
             bucket.objects[CloudKeys.manifest(key)] = CloudJson.encodeToString(CloudJobResult.serializer(), result).toByteArray()
             if (anyOk) bucket.objects.remove(CloudKeys.input(key, input.audio!!.ext))
+            return result
         }
 
         private fun renderManifest(videoId: String, profile: String, audio: ByteArray): ByteArray {

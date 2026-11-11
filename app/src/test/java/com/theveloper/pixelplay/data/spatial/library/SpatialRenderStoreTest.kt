@@ -123,9 +123,18 @@ class SpatialRenderStoreTest {
     }
 
     private fun events(store: SpatialRenderStore): MutableList<SpatialLibraryEvent> {
-        val seen = mutableListOf<SpatialLibraryEvent>()
+        val seen = java.util.Collections.synchronizedList(mutableListOf<SpatialLibraryEvent>())
         scope.launch(start = CoroutineStart.UNDISPATCHED) { store.events.collect { seen += it } }
         return seen
+    }
+
+    /** Events are delivered on the thread that emitted them: wait a moment for [check]. */
+    private suspend fun eventually(check: () -> Boolean) {
+        repeat(200) {
+            if (check()) return
+            kotlinx.coroutines.delay(10)
+        }
+        throw AssertionError("never happened")
     }
 
     @Test fun `a verified render comes in, with its manifest written last`() = runBlocking {
@@ -145,7 +154,8 @@ class SpatialRenderStoreTest {
         assertNull(store.localRender("J7p4bzqLvCw", SpatialProfile.WIDE))
         assertEquals(1, store.usage.value.songs)
         assertEquals(bytes.size + File(root, "J7p4bzqLvCw/sp-studio.json").length(), store.usage.value.bytes)
-        assertEquals(listOf<SpatialLibraryEvent>(SpatialLibraryEvent.RenderReady(render)), seen)
+        eventually { seen.isNotEmpty() }
+        assertEquals(listOf<SpatialLibraryEvent>(SpatialLibraryEvent.RenderReady(render)), seen.toList())
         assertEquals(setOf(SpatialRenderKey("J7p4bzqLvCw", SpatialProfile.STUDIO)), store.renders.value.keys)
     }
 
@@ -207,7 +217,7 @@ class SpatialRenderStoreTest {
         assertNull(store.put("CCCCCCCCCCC"))
         assertNull(store.localRender("AAAAAAAAAAA", SpatialProfile.STUDIO), "the least recently played went")
         assertFalse(File(root, "AAAAAAAAAAA").exists())
-        assertTrue(SpatialLibraryEvent.Removed("AAAAAAAAAAA") in seen)
+        eventually { SpatialLibraryEvent.Removed("AAAAAAAAAAA") in seen }
         // B is played: D's arrival removes C, never B.
         now += 1_000
         store.markPlayed("BBBBBBBBBBB", SpatialProfile.STUDIO)
@@ -243,7 +253,7 @@ class SpatialRenderStoreTest {
         assertFalse(root.exists())
         assertNull(store.localRender("J7p4bzqLvCw", SpatialProfile.STUDIO))
         assertEquals(SpatialStoreUsage(), store.usage.value)
-        assertEquals(SpatialLibraryEvent.Removed(null), seen.last())
+        eventually { seen.lastOrNull() == SpatialLibraryEvent.Removed(null) }
         // And it takes renders again afterwards.
         assertNull(store.put("J7p4bzqLvCw"))
         assertNotNull(store.localRender("J7p4bzqLvCw", SpatialProfile.STUDIO))
