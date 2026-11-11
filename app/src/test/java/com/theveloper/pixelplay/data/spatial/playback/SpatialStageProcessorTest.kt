@@ -78,6 +78,12 @@ class SpatialStageProcessorTest {
         return format
     }
 
+    /** A new stream at [offsetUs] into its item, as `DefaultAudioSink` starts one: configure, then flush. */
+    private fun begin(processor: SpatialStageProcessor, offsetUs: Long, rate: Int = 48_000) {
+        processor.configure(AudioFormat(rate, 2, C.ENCODING_PCM_16BIT))
+        processor.flush(AudioProcessor.StreamMetadata(offsetUs))
+    }
+
     /** A tone per ear (440 and 660 Hz) at half scale: its own sample-to-sample steps are small, so a click stands out. */
     private fun tone(frames: Int, rate: Int = 48_000): ShortArray = ShortArray(frames * 2) {
         val hz = if (it % 2 == 0) 440.0 else 660.0
@@ -226,6 +232,56 @@ class SpatialStageProcessorTest {
         val bound = maxStep(expected, from = switchAt - BLOCK)
         assertTrue(worst <= bound + 2, "a step of $worst where the signal's own largest is $bound: a click")
         assertArrayEquals(expected, output, "played as from rings sized for the whole table")
+    }
+
+    @Test
+    fun `new playback parameters (a drain, then a flush where the audio carries on) keep the history`() {
+        // DefaultAudioSink applies a speed change by draining the chain and flushing it at the position the next buffer
+        // starts from, with no configure. Media3 trims the encoder delay and padding before this processor, so the
+        // frames counted here can fall a few tens of milliseconds short of that position.
+        val rate = 48_000
+        val startUs = 30_000_000L
+        val input = tone(rate)
+        val half = 25 * 960
+        val atUs = startUs + half * 1_000_000L / rate
+        for (wet in listOf(true, false)) {
+            val plain = SpatialStageProcessor(link(wet))
+            begin(plain, startUs, rate)
+            val expected = process(plain, input)
+            for (offsetUs in listOf(atUs, atUs - 45_000L, atUs + 45_000L)) {
+                val processor = SpatialStageProcessor(link(wet))
+                begin(processor, startUs, rate)
+                val first = process(processor, input.copyOfRange(0, half * 2))
+                processor.queueEndOfStream()
+                processor.flush(AudioProcessor.StreamMetadata(offsetUs))
+                val second = process(processor, input.copyOfRange(half * 2, input.size))
+                assertArrayEquals(expected, first + second, "wet $wet, flushed at $offsetUs us")
+            }
+        }
+    }
+
+    @Test
+    fun `a seek, or a drain followed by a jump, still starts the history over`() {
+        val rate = 48_000
+        val startUs = 30_000_000L
+        val input = tone(rate)
+        val half = 25 * 960
+        val atUs = startUs + half * 1_000_000L / rate
+        val secondHalf = input.copyOfRange(half * 2, input.size)
+        val fresh = SpatialStageProcessor(link())
+        begin(fresh, atUs, rate)
+        val expected = process(fresh, secondHalf)
+        // A seek never drains, even to where the audio was; a drain that lands elsewhere is Media3's resync after a
+        // jump (or the end of the song and a seek back).
+        val cases = listOf(false to atUs, false to 0L, true to atUs + 300_000L, true to atUs - 300_000L, true to 0L)
+        for ((drain, offsetUs) in cases) {
+            val processor = SpatialStageProcessor(link())
+            begin(processor, startUs, rate)
+            process(processor, input.copyOfRange(0, half * 2))
+            if (drain) processor.queueEndOfStream()
+            processor.flush(AudioProcessor.StreamMetadata(offsetUs))
+            assertArrayEquals(expected, process(processor, secondHalf), "drained $drain, flushed at $offsetUs us")
+        }
     }
 
     @Test
