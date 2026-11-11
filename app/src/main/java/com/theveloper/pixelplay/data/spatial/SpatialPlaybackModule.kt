@@ -1,5 +1,6 @@
 package com.theveloper.pixelplay.data.spatial
 
+import com.theveloper.pixelplay.data.spatial.playback.RealSpatialPlayback
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -13,8 +14,8 @@ import javax.inject.Singleton
 @Module
 @InstallIn(SingletonComponent::class)
 object SpatialPlaybackModule {
-    /** The player side replaces [NoOpSpatialPlayback] here with its real implementation (§6.3, §7). */
+    /** The player side (§6.3, §7): the on-device stage, the renditions, the route and level rules. */
     @Provides
     @Singleton
-    fun provideSpatialPlayback(): SpatialPlayback = NoOpSpatialPlayback
+    fun provideSpatialPlayback(real: RealSpatialPlayback): SpatialPlayback = real
 }
