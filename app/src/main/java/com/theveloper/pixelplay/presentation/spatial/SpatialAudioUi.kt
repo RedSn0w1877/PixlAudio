@@ -104,16 +104,15 @@ data class SpatialChoice(val profile: SpatialProfile?, val selected: Boolean) {
 data class SpatialFileInfo(@StringRes val res: Int, val profile: SpatialProfile)
 
 /**
- * The full player's Spatial audio button (§6.5 "an entry in the full player"): icon only while Spatial audio is off,
- * like the output pill on the phone's own speaker; the profile's name while one is selected. [heldBack] is a selected
- * profile the listener can't hear right now for a reason the sheet's status line explains (the route rule, or Sing):
- * the button keeps the name but drops its emphasis.
+ * The full player's Spatial audio button (§6.5 "an entry in the full player"): it shows "Off", or the selected
+ * profile's name with the selected look. [heldBack] is a selected profile the listener can't hear right now for a
+ * reason the sheet's status line explains (the route rule, or Sing): the button keeps the name but drops its emphasis.
  */
 @Immutable
 data class SpatialButtonUi(val profile: SpatialProfile?, val heldBack: Boolean) {
     val isOn: Boolean get() = profile != null
 
-    /** "Off" or the profile's name: the button's text when on, and TalkBack's in both cases. */
+    /** "Off" or the profile's name: the button's text and what TalkBack reads. */
     @get:StringRes
     val labelRes: Int get() = SpatialAudioUi.nameRes(profile)
 

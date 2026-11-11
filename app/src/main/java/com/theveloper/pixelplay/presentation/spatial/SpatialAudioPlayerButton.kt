@@ -2,8 +2,10 @@ package com.theveloper.pixelplay.presentation.spatial
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.AnimationSpec
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
@@ -20,8 +22,11 @@ import androidx.compose.foundation.text.BasicText
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
@@ -78,13 +83,13 @@ fun SpatialAudioPlayerButton(
 }
 
 /**
- * The button itself, stateless. [ui] is null until the settings have been read: it then looks like Off and does not
- * animate, so the stored profile appears in place instead of growing in.
+ * The button itself, stateless. [ui] is null until the settings have been read: it then shows Off and does not
+ * animate, so a stored profile appears in place instead of growing in from Off.
  *
- * Off: a 48 dp circle in the row's chip colours, icon only (like Lyrics and Ask Taizo). On: the colours swap (the
- * selected look of Material's toggles), the corners tighten and the profile's name sits under the icon. Held back
- * ([SpatialButtonUi.heldBack]): the name stays, the emphasis goes. Colours and corners animate in the draw and layer
- * phases only; the width follows the label in the layout phase.
+ * Off: a 48 dp circle in the row's chip colours, the size of Lyrics and Ask Taizo, with "Off" under the icon. On: the
+ * colours swap (the selected look of Material's toggles), the corners tighten and the profile's name takes the place
+ * of "Off", the button widening for it. Held back ([SpatialButtonUi.heldBack]): the name stays, the emphasis goes.
+ * Colours and corners animate in the draw and layer phases only; the width follows the label in the layout phase.
  */
 @Composable
 internal fun SpatialAudioButtonContent(
@@ -95,37 +100,46 @@ internal fun SpatialAudioButtonContent(
     modifier: Modifier = Modifier,
 ) {
     val emphasized = ui != null && ui.isOn && !ui.heldBack
+    // Changes animate only once the first real state has been shown: the stored profile appears in place.
+    var animate by remember { mutableStateOf(false) }
+    LaunchedEffect(ui != null) {
+        if (ui != null) animate = true
+    }
+    val colorSpec: AnimationSpec<Color> = if (animate) tween(durationMillis = ColorMillis) else snap()
     val container = animateColorAsState(
         targetValue = if (emphasized) contentColor else containerColor,
-        animationSpec = tween(durationMillis = ColorMillis),
+        animationSpec = colorSpec,
         label = "spatialButtonContainer",
     )
     val content = animateColorAsState(
         targetValue = if (emphasized) containerColor.copy(alpha = 1f) else contentColor,
-        animationSpec = tween(durationMillis = ColorMillis),
+        animationSpec = colorSpec,
         label = "spatialButtonContent",
     )
     val corner = animateDpAsState(
         targetValue = if (emphasized) CornerOn else CornerOff,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow),
+        animationSpec = if (animate) {
+            spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow)
+        } else {
+            snap()
+        },
         label = "spatialButtonCorner",
     )
     val contentTint = remember(content) { ColorProducer { content.value } }
 
-    val label = if (ui != null && ui.isOn) stringResource(ui.labelRes) else null
-    val spokenName = stringResource(ui?.labelRes ?: R.string.spatial_ui_off)
+    // "Off" or the profile's name: shown under the icon, and what TalkBack reads.
+    val label = stringResource(ui?.labelRes ?: R.string.spatial_ui_off)
     val spoken = if (ui?.heldBack == true) {
-        stringResource(R.string.spatial_ui_cd_button_held, spokenName)
+        stringResource(R.string.spatial_ui_cd_button_held, label)
     } else {
-        stringResource(R.string.spatial_ui_cd_button, spokenName)
+        stringResource(R.string.spatial_ui_cd_button, label)
     }
 
     Box(
         modifier = modifier
             .height(ButtonSize)
-            // Only once real state is shown: the first stored value lands without a size animation.
             .then(
-                if (ui != null) {
+                if (animate) {
                     Modifier.animateContentSize(
                         animationSpec = spring(
                             dampingRatio = Spring.DampingRatioLowBouncy,
@@ -147,7 +161,7 @@ internal fun SpatialAudioButtonContent(
                 role = Role.Button
             }
             .clickable(onClick = onClick)
-            .padding(horizontal = if (label != null) 10.dp else 0.dp),
+            .padding(horizontal = LabelPadding),
         contentAlignment = Alignment.Center,
     ) {
         Column(
@@ -158,19 +172,17 @@ internal fun SpatialAudioButtonContent(
                 painter = painterResource(R.drawable.rounded_spatial_audio_24),
                 tint = contentTint,
                 contentDescription = null,
-                modifier = Modifier.size(if (label != null) IconSizeWithLabel else IconSize),
+                modifier = Modifier.size(IconSize),
             )
-            if (label != null) {
-                BasicText(
-                    text = label,
-                    // The button's description already says it.
-                    modifier = Modifier.clearAndSetSemantics { },
-                    style = MaterialTheme.typography.labelSmall,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    color = contentTint,
-                )
-            }
+            BasicText(
+                text = label,
+                // The button's description already says it.
+                modifier = Modifier.clearAndSetSemantics { },
+                style = MaterialTheme.typography.labelSmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                color = contentTint,
+            )
         }
     }
 }
@@ -193,8 +205,8 @@ fun rememberSpatialFileInfoLabel(viewModel: SpatialAudioViewModel = hiltViewMode
 private val ButtonSize = 48.dp
 /** "Concert Hall" fits; a longer translated name ellipsizes instead of squeezing the song title. */
 private val MaxWidth = 104.dp
-private val IconSize = 22.dp
-private val IconSizeWithLabel = 20.dp
+private val IconSize = 20.dp
+private val LabelPadding = 6.dp
 private val CornerOff = 24.dp
 private val CornerOn = 16.dp
 private const val ColorMillis = 220

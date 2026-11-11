@@ -1658,8 +1658,8 @@ private fun SongMetadataDisplaySection(
             )
         }
 
-        // Spatial audio (cloud-audio-spec §6.5): the third sibling. Icon only while it is off; the profile's name
-        // while one is on. It collects its own slice, so a profile change recomposes only the button.
+        // Spatial audio (cloud-audio-spec §6.5): the third sibling, showing "Off" or the profile's name. It
+        // collects its own slice, so a profile change recomposes only the button.
         SpatialAudioPlayerButton(
             containerColor = chipColor,
             contentColor = chipContentColor,

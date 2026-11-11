@@ -18,7 +18,6 @@ import androidx.compose.material.icons.rounded.Insights
 import androidx.compose.material.icons.rounded.Paid
 import androidx.compose.material.icons.rounded.SdStorage
 import androidx.compose.material.icons.rounded.Today
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
@@ -51,6 +50,7 @@ import com.theveloper.pixelplay.data.spatial.SpatialRender
 import com.theveloper.pixelplay.data.spatial.SpatialRenditionStatus
 import com.theveloper.pixelplay.data.spatial.SpatialRouteMode
 import com.theveloper.pixelplay.data.spatial.SpatialSettings
+import com.theveloper.pixelplay.presentation.components.AdaptiveAlertDialog
 import com.theveloper.pixelplay.presentation.navigation.Screen
 import com.theveloper.pixelplay.presentation.navigation.navigateSafely
 import com.theveloper.pixelplay.presentation.screens.ActionSettingsItem
@@ -93,7 +93,7 @@ fun SpatialAudioSettingsRows(
         SpatialAudioSheet(onDismissRequest = { showSheet = false }, viewModel = viewModel)
     }
     if (confirmRemove) {
-        AlertDialog(
+        AdaptiveAlertDialog(
             onDismissRequest = { confirmRemove = false },
             title = { Text(stringResource(R.string.spatial_ui_settings_remove_confirm_title)) },
             text = { Text(stringResource(R.string.spatial_ui_settings_remove_confirm_text)) },
