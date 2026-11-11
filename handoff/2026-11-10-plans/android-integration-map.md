@@ -99,8 +99,9 @@ ENGINE <── SpatialLibrary.events   (RenderReady, EnhancedReady, Removed)
 
 - Media3 **1.11.1** (`gradle/libs.versions.toml:51-52`), plus `org.jellyfin.media3:media3-ffmpeg-decoder:1.9.0+1`
   (`libs.versions.toml:167`, `app/build.gradle.kts:387`). Kotlin 2.4.20, Hilt 2.60.1, coroutines 1.11.0.
-- Every Media3 statement below was read from the 1.11.1 class files in the Gradle cache (`javap -p -c` on
-  `media3-exoplayer-1.11.1.aar` and `media3-common-1.11.1.aar`), not from memory of older versions.
+- Every Media3 statement below was read from the class files in the Gradle cache (`javap -p -c` on
+  `media3-exoplayer-1.11.1.aar`, `media3-common-1.11.1.aar` and `media3-ffmpeg-decoder-1.9.0+1.aar`), not from
+  memory of older versions.
 
 ### 2.2 How the players are built (`data/service/player/DualPlayerEngine.kt`, 1,814 lines)
 
@@ -153,9 +154,11 @@ Verified in Media3 1.11.1:
   `periodUid: Object`. `StreamMetadata.DEFAULT` has an empty timeline and a null uid.
 - Both `MediaCodecAudioRenderer.onOutputFormatChanged` and `DecoderAudioRenderer` configure the sink with
   `new AudioSinkConfig.Builder(format).setOutputChannelMapping(…).setTimeline(getTimeline()).setMediaPeriodId(getMediaPeriodId()).build()`.
-  For `MediaCodecAudioRenderer` this happens for the first output buffer of **every** stream, same format or not
-  (`MediaCodecRenderer` keeps a `needToNotifyOutputFormatChangeAfterStreamChange` flag for exactly that). For the
-  ffmpeg `DecoderAudioRenderer` the config call is verified; that it fires for every stream was not traced.
+  This happens for the first output buffer of **every** stream, same format or not. `MediaCodecRenderer` keeps a
+  `needToNotifyOutputFormatChangeAfterStreamChange` flag for exactly that. `DecoderAudioRenderer` gets the format
+  again at the start of every stream (a new period's `SampleQueue` hands out its format first), its
+  `canReuseDecoder` answers "no" by default and the Jellyfin `FfmpegAudioRenderer` (1.9.0+1) does not override it,
+  so the decoder is re-created and `audioTrackNeedsConfigure` is set each time.
 - `DefaultAudioSink.configure(AudioSinkConfig)` keeps `timeline` and `mediaPeriodId.periodUid` in its
   `Configuration` and, when an output already exists, parks it as `pendingConfiguration`.
 - `DefaultAudioSink.handleBuffer`, with a pending configuration: `drainToEndOfStream()` first (it queues end of
@@ -248,8 +251,13 @@ Alternatives that were looked at:
   reset in `onDestroy`, `MusicService.kt:1970`), and exact-timing sessions for the lyrics sync editor (1332-1350).
 - **ENGINE: add a third flag** to `offloadAllowed` (for example `spatialStageWanted`) with its own setter. Do not
   reuse `pcmAnalysisActive`: haptics writes `false` into it whenever haptics stop.
-- Not verified: whether flipping the offload preference mid-song is silent. It triggers a track reselection and can
-  re-create the audio output (a short gap). Turn offload off when a profile is selected, not at each song.
+- Flipping the offload preference mid-song is **not silent when the song is really offloaded** (read in the
+  1.11.1 class files, not measured on a phone): `DefaultTrackSelector.maybeConfigureRendererForOffload` gives the
+  audio renderer its own `RendererConfiguration` while offload is preferred and the format supports it, so the new
+  selection is not `isEquivalent` to the old one, the renderer gets a new stream and is disabled and enabled again,
+  and `MediaCodecAudioRenderer.onDisabled` flushes the sink. Expect a short gap at the current position; its length
+  was not measured. A song that was not offloaded is left alone. So turn offload off once, when a profile is
+  selected (or at start-up with Spatial on), not at each song.
 - `disableAudioOffloadForSession` (987-1001) rebuilds the players when the HAL stalls; it skips the rebuild while
   `exactTimingSessions > 0`. Consider the same guard for the new flag.
 
@@ -273,6 +281,7 @@ if (shouldUseFloatOutput(inputFormat.pcmEncoding)) {             // enableFloatO
 
 and `MediaCodecAudioRenderer.getMediaFormat` asks the decoder for float PCM whenever the sink reports float as
 directly supported, which `DefaultAudioSink.getFormatSupport` does exactly when `enableFloatOutput` is true.
+`FfmpegAudioRenderer.shouldOutputFloat` follows the same answer (float for everything but AC-3).
 
 So **with Hi-Fi mode on, a decoder that honours the request outputs float and none of the custom processors
 run**: not `MidSideVocalProcessor`, not the haptics tee, and not a stage added to that chain. With it off, the
