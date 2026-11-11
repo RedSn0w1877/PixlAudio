@@ -1,6 +1,6 @@
 # Android Spatial audio: ENGINE handoff (2026-11-11)
 
-Branch `audio-engine`, cut from `origin/audio-hq` 50cf187. Last code commit: 3f28e36 (CI green, run 43070771228); this note follows it.
+Branch `audio-engine`, cut from `origin/audio-hq` 50cf187, with `audio-hq` 8f53b62 (tables v1.1, spec §7 v1.1) merged. Last code commit: 3f28e36 (CI green, run 43070771228); this note follows it.
 Contract files untouched. Everything below follows `handoff/2026-11-10-plans/cloud-audio-spec.md` (spec §N) and
 `android-integration-map.md` (map N); where it does not, it says so under "Divergences".
 
@@ -9,7 +9,7 @@ Contract files untouched. Everything below follows `handoff/2026-11-10-plans/clo
 | Piece | Where |
 |---|---|
 | Table parser (kotlinx.serialization, once, off the main thread, primitive arrays) | `data/spatial/playback/SpatialPreviewTables.kt` |
-| DSP of spec §7 (crossover, FIRs, sparse room, low band, gain, 80 ms wet/dry ramps) | `data/spatial/playback/SpatialStageKernel.kt` |
+| DSP of spec §7 v1.1 (crossover, FIRs, room high-pass, sparse room, low band, gain, soft limiter, 80 ms ramps) | `data/spatial/playback/SpatialStageKernel.kt` |
 | Media3 `BaseAudioProcessor`, per-item bypass in `onFlush(StreamMetadata)` | `data/spatial/playback/SpatialStageProcessor.kt` |
 | Shared stage parameters, table loading, the "which item is a render" registry, stream reports | `data/spatial/playback/SpatialStage.kt` |
 | Render a song starts on (DAO video id + `SpatialLibrary.localRender`) | `data/spatial/playback/SpatialStartResolver.kt` |
@@ -25,7 +25,9 @@ How it plays:
 
 - **The stage** is the last processor of every player's chain (after the haptics tee). 44.1 and 48 kHz stereo, 16-bit
   (what the chain gets with float output off) or float; anything else is left out of the pipeline for that stream.
-  Until a profile is first selected it is a plain copy (no delay, no maths). The two FIRs run on the sum and the
+  Until a profile is first selected it is a plain copy (no delay, no maths). Tables v1.1: the room's input is the
+  high band through one RBJ high-pass (`roomHpHz`; a table without it reads as 0, no high-pass), and every wet sample
+  goes through the soft limiter of §7 (untouched up to -1 dBFS, `t + (1 - t) tanh(...)` above). The two FIRs run on the sum and the
   difference of the ears (the head is symmetric: `(direct ± cross) / 2`), tap-major over blocks of 512 with mirrored
   rings, so a frame is about 550 multiply-adds and every inner loop is a plain indexed loop with no dependency
   between frames. No allocation while processing (rings sized once from the whole table).
@@ -111,7 +113,11 @@ crossover and the delay lines; with no profile ever selected it is a buffer copy
     is 80 ms down to dry, the coefficients swap at fully dry, 80 ms back up (about 160 ms in all, as spec §7 reads:
     "ramps a wet/dry mix ... then swaps coefficients"). The dry path's delay changes only where it cannot be heard
     (fully wet, or a reset), so a first profile picked on a playing song crossfades from the undelayed signal.
-12. **Re-swaps**: after a render on the second player went back because of Sing or the route, the same render may take
+12. **Soft limiter placement**: it is applied to the stage's wet signal before the wet/dry mix, so a fully wet stage
+    limits every output sample (spec §7) while the dry signal (bypass, a render item, no profile) stays bit-exact
+    and a ramp never switches the limiter on or off in one step. During an 80 ms ramp the mixed output is therefore
+    not limited as a whole (iOS may limit after the mix; the difference only exists above -1 dBFS during a ramp).
+13. **Re-swaps**: after a render on the second player went back because of Sing or the route, the same render may take
     over again when the conditions return (20 s rule applies); a render that could not start because a seek was in
     flight is tried again once the seek settled (1 s).
 

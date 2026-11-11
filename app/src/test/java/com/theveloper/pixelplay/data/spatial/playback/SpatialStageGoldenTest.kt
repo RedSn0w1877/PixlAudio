@@ -86,6 +86,11 @@ class SpatialStageGoldenTest {
             }
         }
         assertTrue(tables.maxSparseDelay > 0)
+        // Tables v1.1 carry the room's high-pass; a v1 table written before it reads as "no high-pass" (spec section 7).
+        assertTrue(tables.preset(SpatialProfile.HALL, 48_000)!!.roomHpHz > 0.0)
+        val older = SpatialPreviewTables.parse(SpatialFixtures.previewTable().replace(Regex("\"roomHpHz\":[0-9.eE+-]+,"), ""))
+        assertEquals(0.0, older.preset(SpatialProfile.HALL, 48_000)!!.roomHpHz)
+        assertTrue(!older.preset(SpatialProfile.HALL, 48_000)!!.hasRoomHp)
         assertEquals(null, tables.preset(SpatialProfile.STUDIO, 22_050), "other rates play without the stage")
     }
 
@@ -95,7 +100,8 @@ class SpatialStageGoldenTest {
         inR: FloatArray,
         chunks: IntArray = intArrayOf(1, 37, 512, 200, 64, 511),
     ): Pair<DoubleArray, DoubleArray> {
-        val kernel = SpatialStageKernel()
+        // The golden file is the stage before the soft limiter (spec section 7, Headroom).
+        val kernel = SpatialStageKernel(limitOutput = false)
         kernel.ensureCapacity(tables)
         kernel.setTarget(preset, wet = true)
         kernel.reset()

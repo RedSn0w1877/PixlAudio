@@ -26,6 +26,11 @@ class SpatialPreset internal constructor(
     val profile: SpatialProfile,
     val sampleRate: Int,
     val xoverHz: Double,
+    /**
+     * `roomHpHz` (tables v1.1): one 2nd-order high-pass on the high band before the sparse room, so the room carries no
+     * bass. 0 (a v1 table written before it existed) means no high-pass.
+     */
+    val roomHpHz: Double,
     /** The low band's delay in samples (`lowDelay`); also the delay of the dry signal the stage fades to. */
     val lowDelay: Int,
     /** The number of FIR taps (`taps`). */
@@ -52,6 +57,14 @@ class SpatialPreset internal constructor(
     internal val a1: Double
     internal val a2: Double
 
+    /** The room's high-pass (RBJ, Q = 1/sqrt(2), a0 = 1, as the worker's `highpass_coefficients`); unused when off. */
+    internal val hasRoomHp: Boolean = roomHpHz > 0.0
+    internal val hb0: Double
+    internal val hb1: Double
+    internal val hb2: Double
+    internal val ha1: Double
+    internal val ha2: Double
+
     init {
         val w0 = 2.0 * PI * xoverHz / sampleRate
         val alpha = sin(w0) / (2.0 * (1.0 / sqrt(2.0)))
@@ -62,11 +75,25 @@ class SpatialPreset internal constructor(
         b2 = (1.0 - cos0) / 2.0 / a0
         a1 = -2.0 * cos0 / a0
         a2 = (1.0 - alpha) / a0
+        if (hasRoomHp) {
+            val hw0 = 2.0 * PI * roomHpHz / sampleRate
+            val hAlpha = sin(hw0) / (2.0 * (1.0 / sqrt(2.0)))
+            val hCos = cos(hw0)
+            val h0 = 1.0 + hAlpha
+            hb0 = (1.0 + hCos) / 2.0 / h0
+            hb1 = -(1.0 + hCos) / h0
+            hb2 = (1.0 + hCos) / 2.0 / h0
+            ha1 = -2.0 * hCos / h0
+            ha2 = (1.0 - hAlpha) / h0
+        } else {
+            hb0 = 1.0
+            hb1 = 0.0
+            hb2 = 0.0
+            ha1 = 0.0
+            ha2 = 0.0
+        }
     }
 
-    /** Whether the crossover of [other] is this one's (same rate and frequency), so filter states carry over. */
-    internal fun sameCrossover(other: SpatialPreset): Boolean =
-        other.sampleRate == sampleRate && other.xoverHz == xoverHz
 }
 
 /**
@@ -136,6 +163,7 @@ class SpatialPreviewTables private constructor(
                 profile = profile,
                 sampleRate = rate,
                 xoverHz = preset.number("xoverHz"),
+                roomHpHz = preset["roomHpHz"]?.number() ?: 0.0,
                 lowDelay = lowDelay,
                 taps = taps,
                 firSum = firSum,

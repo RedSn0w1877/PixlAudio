@@ -136,6 +136,29 @@ class SpatialStageRampTest {
     }
 
     @Test
+    fun `the soft limiter leaves everything under -1 dBFS alone and bends the rest under full scale`() {
+        val t = SpatialStageKernel.LIMIT_THRESHOLD
+        assertEquals(0.5f, SpatialStageKernel.softLimit(0.5f))
+        assertEquals(-0.89f, SpatialStageKernel.softLimit(-0.89f))
+        assertEquals(t, SpatialStageKernel.softLimit(t))
+        // Slope 1 where it starts: no corner.
+        assertEquals(t + 1e-4f, SpatialStageKernel.softLimit(t + 1e-4f), 1e-6f)
+        var last = 0f
+        var x = 0.85f
+        while (x <= 1.45f) {
+            val y = SpatialStageKernel.softLimit(x)
+            assertTrue(y >= last, "monotonic at $x")
+            assertTrue(y < 1f, "under full scale at $x")
+            assertEquals(-y, SpatialStageKernel.softLimit(-x), "symmetric at $x")
+            last = y
+            x += 0.005f
+        }
+        // The formula of spec section 7 at one point: t + (1 - t) * tanh((1.2 - t) / (1 - t)).
+        val expected = t + (1f - t) * kotlin.math.tanh((1.2f - t) / (1f - t))
+        assertEquals(expected, SpatialStageKernel.softLimit(1.2f))
+    }
+
+    @Test
     fun `the dry delay changes only while it is not heard`() {
         val studio = tables.preset(SpatialProfile.STUDIO, rate)!!
         val kernel = SpatialStageKernel()
