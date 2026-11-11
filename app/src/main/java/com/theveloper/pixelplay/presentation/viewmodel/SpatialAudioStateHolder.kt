@@ -88,36 +88,57 @@ class SpatialAudioStateHolder @Inject constructor(
      */
     val cloudRendersOn: StateFlow<Boolean> get() = library.cloudRendersOn
 
+    /** The selected profile, null for Off. */
+    private val selectedProfile: Flow<SpatialProfile?> = settings.map { it.profile }.distinctUntilChanged()
+
+    // currentStatus and statusLine follow the playing song whether or not anything shows them, for as long as a
+    // profile is selected. The sheet starts from the value at hand on its first frame (and Developer mode's rows
+    // too), so that value has to be the playing song's: a flow that stopped while the sheet was closed would keep
+    // the line of whatever played then. While Spatial audio is off they read nothing but the settings.
+
     /**
      * The per-song status of §6.1 for the song that is playing, under the selected profile: the library's status,
      * or [SpatialRenditionStatus.PREVIEW] while the on-device stage stands in and the cloud has nothing under way
      * ([SpatialRenditionStatus.shown]). [SpatialRenditionStatus.NONE] while Spatial audio is off.
      */
     val currentStatus: StateFlow<SpatialRenditionStatus> =
-        combine(settings, playback.audible) { current, heard ->
-            Triple(current.profile, heard.videoId, heard.rendition == SpatialRendition.ON_DEVICE)
-        }
-            .distinctUntilChanged()
-            .flatMapLatest { (profile, videoId, onDeviceAudible) ->
+        selectedProfile
+            .flatMapLatest { profile ->
                 if (profile == null) {
                     flowOf(SpatialRenditionStatus.NONE)
                 } else {
-                    statusOf(videoId, profile).map { SpatialRenditionStatus.shown(it, onDeviceAudible) }
+                    playback.audible
+                        .map { heard -> heard.videoId to (heard.rendition == SpatialRendition.ON_DEVICE) }
+                        .distinctUntilChanged()
+                        .flatMapLatest { (videoId, onDeviceAudible) ->
+                            statusOf(videoId, profile).map { SpatialRenditionStatus.shown(it, onDeviceAudible) }
+                        }
                 }
             }
             .distinctUntilChanged()
-            .stateIn(scope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), SpatialRenditionStatus.NONE)
+            .stateIn(scope, SharingStarted.Eagerly, SpatialRenditionStatus.NONE)
 
     /** The sheet's status line for the current song (§6.5), see [SpatialStatusLine.of]. */
     val statusLine: StateFlow<SpatialStatusLine> =
-        combine(
-            settings,
-            playback.audible,
-            currentStatus,
-            library.cloudRendersOn,
-        ) { current, heard, status, cloudOn ->
-            SpatialStatusLine.of(current, heard, status, cloudOn)
-        }.stateIn(scope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), SpatialStatusLine.NONE)
+        selectedProfile
+            .map { it != null }
+            .distinctUntilChanged()
+            .flatMapLatest { on ->
+                if (!on) {
+                    // What SpatialStatusLine.of says for no profile, without following the player for it.
+                    flowOf(SpatialStatusLine.NONE)
+                } else {
+                    combine(
+                        settings,
+                        playback.audible,
+                        currentStatus,
+                        library.cloudRendersOn,
+                    ) { current, heard, status, cloudOn ->
+                        SpatialStatusLine.of(current, heard, status, cloudOn)
+                    }
+                }
+            }
+            .stateIn(scope, SharingStarted.Eagerly, SpatialStatusLine.NONE)
 
     /**
      * The current song's local render for the selected profile, once it is ready: Developer mode's per-song
@@ -189,7 +210,7 @@ class SpatialAudioStateHolder @Inject constructor(
     }
 
     private companion object {
-        /** A flow nobody reads stops after this long, so a rotation or a sheet reopening doesn't restart it. */
+        /** [currentRender] stops this long after nobody reads it, so a rotation doesn't restart it. */
         const val STOP_TIMEOUT_MS = 5_000L
     }
 }

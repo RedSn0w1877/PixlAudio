@@ -18,13 +18,17 @@ import com.theveloper.pixelplay.data.spatial.SpatialSettingsRepository
 import com.theveloper.pixelplay.data.spatial.SpatialStatusLine
 import java.io.File
 import java.nio.file.Files
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -36,22 +40,27 @@ import org.junit.jupiter.api.Test
  * [SpatialAudioStateHolder] is what the UI of Spatial audio reads and calls (cloud-audio-spec §6.5): it stores what
  * the person picks and joins the settings, what is audible and the library's status, with no rule of its own.
  */
+@OptIn(ExperimentalCoroutinesApi::class)
 class SpatialAudioStateHolderTest {
 
     private val video = "J7p4bzqLvCw"
+    private val otherVideo = "dQw4w9WgXcQ"
 
     private class FakeLibrary : SpatialLibrary {
         val statuses = MutableStateFlow<Map<Pair<String, SpatialProfile>, SpatialRenditionStatus>>(emptyMap())
         val renders = HashMap<Pair<String, SpatialProfile>, SpatialRender>()
         var removeAllCalls = 0
+        var statusCalls = 0
 
         /** Both switches of §6.1 on, as in a build with built-in keys. */
         override val cloudRendersOn = MutableStateFlow(true)
 
         override suspend fun localRender(videoId: String, profile: SpatialProfile): SpatialRender? = renders[videoId to profile]
         override fun request(songId: String, videoId: String, profile: SpatialProfile) = Unit
-        override fun status(videoId: String, profile: SpatialProfile): Flow<SpatialRenditionStatus> =
-            statuses.map { it[videoId to profile] ?: SpatialRenditionStatus.NONE }.distinctUntilChanged()
+        override fun status(videoId: String, profile: SpatialProfile): Flow<SpatialRenditionStatus> {
+            statusCalls++
+            return statuses.map { it[videoId to profile] ?: SpatialRenditionStatus.NONE }.distinctUntilChanged()
+        }
         override val events = MutableSharedFlow<SpatialLibraryEvent>()
         override val stats = MutableStateFlow(SpatialLibraryStats())
         override fun markPlayed(videoId: String, profile: SpatialProfile) = Unit
@@ -233,6 +242,82 @@ class SpatialAudioStateHolderTest {
     }
 
     @Test
+    fun `a reopened sheet starts on the line of the song playing now, not the one it showed last`() = runTest {
+        withHolder { fixture ->
+            val holder = fixture.holder
+            fixture.repository.setProfile(SpatialProfile.WIDE)
+            fixture.repository.setCloud(true)
+            holder.settings.first { it.profile == SpatialProfile.WIDE }
+
+            // Song A plays its cloud render, and the sheet is open on it.
+            fixture.library.statuses.value = mapOf((video to SpatialProfile.WIDE) to SpatialRenditionStatus.READY)
+            fixture.playback.audible.value = heard(SpatialRendition.CLOUD_RENDER)
+            val sheet = backgroundScope.launch { holder.statusLine.collect {} }
+            assertEquals(SpatialStatusLine.CLOUD_VERSION, holder.statusLine.first { it == SpatialStatusLine.CLOUD_VERSION })
+
+            // The sheet closes, and long enough passes for anything that only runs while it is shown to stop.
+            sheet.cancel()
+            advanceTimeBy(QUIET_MS)
+            runCurrent()
+
+            // Song B starts on the phone, its render queued; time passes with nothing on screen.
+            fixture.library.statuses.value = mapOf(
+                (video to SpatialProfile.WIDE) to SpatialRenditionStatus.READY,
+                (otherVideo to SpatialProfile.WIDE) to SpatialRenditionStatus.QUEUED,
+            )
+            fixture.playback.audible.value = SpatialAudible(
+                songId = "43",
+                videoId = otherVideo,
+                rendition = SpatialRendition.ON_DEVICE,
+                profile = SpatialProfile.WIDE,
+            )
+            advanceTimeBy(QUIET_MS)
+            runCurrent()
+
+            // The sheet opens again. Its first frame shows the value at hand (collectAsStateWithLifecycle starts
+            // from it), and so do Developer mode's rows: song B's, not song A's "Playing the cloud version."
+            assertEquals(SpatialStatusLine.ON_PHONE_FOR_NOW, holder.statusLine.value)
+            assertEquals(SpatialRenditionStatus.QUEUED, holder.currentStatus.value)
+        }
+    }
+
+    @Test
+    fun `while Spatial audio is off the status follows nothing but the settings`() = runTest {
+        withHolder { fixture ->
+            val holder = fixture.holder
+            assertEquals(SpatialSettings.defaults(builtInCloudKeys = false), holder.storedSettings.first { it != null })
+            fixture.playback.audible.value = heard(SpatialRendition.STEREO)
+            runCurrent()
+
+            // Off, as for someone who never turns it on: nothing to say, and nothing of the player or the library
+            // is followed for it.
+            assertEquals(SpatialStatusLine.NONE, holder.statusLine.value)
+            assertEquals(SpatialRenditionStatus.NONE, holder.currentStatus.value)
+            assertEquals(0, fixture.playback.audible.subscriptionCount.value)
+            assertEquals(0, fixture.library.cloudRendersOn.subscriptionCount.value)
+            assertEquals(0, fixture.library.statusCalls)
+
+            // On: the playing song is followed with nothing on screen.
+            fixture.library.statuses.value = mapOf((video to SpatialProfile.WIDE) to SpatialRenditionStatus.FAILED)
+            fixture.playback.audible.value = heard(SpatialRendition.ON_DEVICE)
+            fixture.repository.setProfile(SpatialProfile.WIDE)
+            holder.settings.first { it.profile == SpatialProfile.WIDE }
+            runCurrent()
+            assertEquals(SpatialRenditionStatus.FAILED, holder.currentStatus.value)
+            assertEquals(SpatialStatusLine.CLOUD_FAILED, holder.statusLine.value)
+
+            // Off again: back to following nothing.
+            fixture.repository.setProfile(null)
+            holder.settings.first { it.profile == null }
+            runCurrent()
+            assertEquals(SpatialStatusLine.NONE, holder.statusLine.value)
+            assertEquals(SpatialRenditionStatus.NONE, holder.currentStatus.value)
+            assertEquals(0, fixture.playback.audible.subscriptionCount.value)
+            assertEquals(0, fixture.library.cloudRendersOn.subscriptionCount.value)
+        }
+    }
+
+    @Test
     fun `the current render shows once it is ready, for Developer mode's diagnostics`() = runTest {
         withHolder { fixture ->
             val holder = fixture.holder
@@ -280,5 +365,10 @@ class SpatialAudioStateHolderTest {
             holder.settings.first { it.dailyAhead == 7 }
             assertEquals(1, fixture.library.removeAllCalls)
         }
+    }
+
+    private companion object {
+        /** Longer than any flow of the holder waits after its last reader leaves before it stops. */
+        const val QUIET_MS = 30_000L
     }
 }
