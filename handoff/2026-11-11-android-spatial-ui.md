@@ -4,7 +4,7 @@ Role: **UI** (player button, sheet, Settings rows, strings). Branch `audio-ui`, 
 50cf187. Contract and map: `handoff/2026-11-10-plans/cloud-audio-spec.md` ("§" below),
 `handoff/2026-11-10-plans/android-integration-map.md` ("map"). No contract file was changed.
 
-CI: see the bottom of this note.
+CI: green on 24490cb (run 43067548513); details at the bottom of this note.
 
 ## What is there
 
@@ -31,7 +31,8 @@ CI: see the bottom of this note.
 ### 2. The sheet (§6.5)
 
 `presentation/spatial/SpatialAudioSheet.kt`: `SpatialAudioSheet(onDismissRequest)` (an `AdaptiveModalBottomSheet`,
-`skipPartiallyExpanded`), opened from the button with the album-art colours (wrapped in
+`skipPartiallyExpanded`; its sheet state stays inside so callers need no Material opt-in), opened from the button
+with the album-art colours (wrapped in
 `MaterialTheme(colorScheme = LocalMaterialTheme.current)`, like `FetchLyricsDialog`) and from Settings with the app's.
 
 - Header "Spatial audio" / "For headphones.", then the status line card, then **Off and the six profiles** (name +
@@ -130,3 +131,13 @@ existing strings are reused: `common_remove`, `common_cancel`. No changelog entr
   padding, 48 dp siblings). The landscape row now holds Lyrics|Queue, Ask Taizo and Spatial audio after the title.
 - The loading placeholder of the song row (`MetadataPlaceholder`) has no shape for the third button; it shows for a
   moment while the player expands, as before.
+
+## CI (`android-ci.yml`, branch `audio-ui`)
+
+| Run | Commit | Result |
+|---|---|---|
+| 43065880730 | cf0fefd | failed at `compileDebugKotlin`: the Settings row called `SpatialAudioSheet`, whose signature carried Material's experimental `SheetState`, without an opt-in |
+| 43066849265 | b92b462 | failed, the same error (that commit also moved the confirm dialog to `AdaptiveAlertDialog`) |
+| 43067548513 | 24490cb | **green**: compile, unit tests (all, these included), Wear compile, arm64 debug APK (`pixlaudio-arm64-debug-apk`) |
+
+Later commits on the branch touch only this note (no CI run).
