@@ -3,12 +3,49 @@ package com.theveloper.pixelplay.data.cloudstudio
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
-/** What started a job: the person's own batch, the Sing button, or Smart auto-prepare. A record without one is a batch. */
+/**
+ * What started a job: the person's own batch, the Sing button, Smart auto-prepare, or the Spatial audio library (a song
+ * played with a profile on, or its background queue). A record without one is a batch.
+ */
 @Serializable
 enum class CloudJobOrigin {
     @SerialName("manual") MANUAL,
     @SerialName("sing") SING,
     @SerialName("auto") AUTO,
+    /** A Spatial audio render for the shared library (cloud-audio-spec §6.2 step 3). Never in the priority lane. */
+    @SerialName("library") LIBRARY,
+}
+
+/**
+ * A Spatial audio library job's own facts (cloud-audio-spec §4, §6.2 steps 3-4): the video its renders are keyed by
+ * (known before the song is prepared), the profiles asked for, the stream the audio came from, and what became of each
+ * render. Kept on the [CloudJobRecord] (`tasks: ["spatial"]`), so the job list stays the one file it always was.
+ */
+@Serializable
+data class CloudLibraryJob(
+    /** The matched YouTube video, the library key (`lib/v1/<videoId>/…`). Never a Spotify id. */
+    val videoId: String,
+    /** The profile ids to render (`studio`, …); the apps send one. */
+    val profiles: List<String>,
+    /** Sent by the background queue (spec §6.4): Wi-Fi only, battery not low, never under Data Saver; quiet. */
+    val ahead: Boolean = false,
+    /** `library.source`: the stream the uploaded audio came from (its itag and codec), filled when the song is prepared. */
+    val sourceItag: Int? = null,
+    val sourceCodec: String? = null,
+    /** The result's per-render states (profile → `ok`, `exists`, `failed`); null until a result arrived. */
+    val renders: Map<String, String>? = null,
+    /** The result's `library.stemMode`. */
+    val stemMode: String? = null,
+    /** Profiles whose render was downloaded, verified and stored in this phone's local store. */
+    val imported: List<String> = emptyList(),
+) {
+    /** The profiles the result says are in the library now (made by this job or already there): the ones to download. */
+    val delivered: List<String>
+        get() = renders.orEmpty()
+            .filterValues { it == CloudLibraryRenderState.OK || it == CloudLibraryRenderState.EXISTS }.keys.toList()
+
+    /** Delivered renders not on this phone yet. */
+    val awaitingDownload: List<String> get() = delivered.filter { it !in imported }
 }
 
 /**
@@ -62,6 +99,9 @@ data class CloudJobRecord(
     val clipEndMs: Long? = null,
     /** The song's full job the clip stands in for until that one is imported. */
     val clipOfJobKey: String? = null,
+
+    // Spatial audio (optional, so an older file still decodes): set on every job with the `spatial` task, null otherwise.
+    val library: CloudLibraryJob? = null,
 
     // State
     val state: CloudJobState = CloudJobState.QUEUED,
@@ -147,13 +187,26 @@ data class CloudJobRecord(
     /** A job that goes ahead of the rest: a Sing, or a one-song "Process in cloud". */
     val isPriority: Boolean get() = origin == CloudJobOrigin.SING || priorityAtMs != null
 
-    /** The order work is picked in on the phone: priority jobs, then the person's batches, then automatic ones. */
+    /**
+     * The order work is picked in on the phone: priority jobs, then the person's batches and the Spatial audio render
+     * of a song being played, then automatic ones and the Spatial audio background queue.
+     */
     val lane: Int
         get() = when {
             isPriority -> 0
             origin == CloudJobOrigin.MANUAL -> 1
+            origin == CloudJobOrigin.LIBRARY && library?.ahead != true -> 1
             else -> 2
         }
+
+    /**
+     * A Spatial audio library job (cloud-audio-spec §4): its results are renders in the shared library, never the song's
+     * instrumental, and it has its own month under `cloudAudio.monthlyCapUSD` (spec §6.1 "Money").
+     */
+    val isLibrary: Boolean get() = library != null
+
+    /** A library job sent by the background queue (spec §6.4). */
+    val isLibraryAhead: Boolean get() = library?.ahead == true
 
     /** Stepped aside for a priority job and waiting, uploaded, to be sent again behind it. */
     val isPaused: Boolean get() = pausedByJobKey != null
@@ -218,6 +271,7 @@ data class CloudJobRecord(
         return copy(
             resultStatus = result.status,
             outputs = result.outputs,
+            library = library?.copy(renders = result.library?.renders, stemMode = result.library?.stemMode),
             lyricsKey = result.lyrics?.key,
             lyricsFile = result.lyrics,
             lyricsTranscribed = result.lyrics?.mode == "transcribed",
@@ -253,9 +307,14 @@ data class CloudJobRecord(
         }
 
     /**
-     * Every result this job is waiting for has been imported: its instrumental. A lyrics file from a job sent before the
-     * cloud stopped timing lyrics is never fetched, so it holds nothing up.
+     * Every result this job is waiting for has been imported: its instrumental, and a library job's delivered renders
+     * (once its result named them). A lyrics file from a job sent before the cloud stopped timing lyrics is never
+     * fetched, so it holds nothing up.
      */
     val isFullyImported: Boolean
-        get() = CloudTask.INSTRUMENTAL !in tasks || importedInstrumental || outputs?.get("instrumental") == null
+        get() {
+            val instrumentalDone = CloudTask.INSTRUMENTAL !in tasks || importedInstrumental || outputs?.get("instrumental") == null
+            val job = library ?: return instrumentalDone
+            return instrumentalDone && job.renders != null && job.awaitingDownload.isEmpty()
+        }
 }

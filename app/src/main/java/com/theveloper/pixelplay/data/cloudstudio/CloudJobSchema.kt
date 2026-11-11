@@ -44,15 +44,21 @@ enum class CloudTask(val wire: String) {
     @SerialName("instrumental") INSTRUMENTAL("instrumental"),
     @SerialName("vocals") VOCALS("vocals"),
     @SerialName("stems4") STEMS4("stems4"),
-    @SerialName("lyrics") LYRICS("lyrics");
+    @SerialName("lyrics") LYRICS("lyrics"),
+    /**
+     * Spatial audio renders written into the shared library (worker 1.1.0, cloud-audio-spec §4). Its URLs travel in
+     * `input.library`, never in `output.put`.
+     */
+    @SerialName("spatial") SPATIAL("spatial");
 
-    /** The `output.put` keys a task needs (`stems4` needs drums, bass and other). */
+    /** The `output.put` keys a task needs (`stems4` needs drums, bass and other; `spatial` none, see [CloudLibraryRequest]). */
     val outputSlots: List<String>
         get() = when (this) {
             INSTRUMENTAL -> listOf("instrumental")
             VOCALS -> listOf("vocals")
             STEMS4 -> listOf("drums", "bass", "other")
             LYRICS -> listOf("lyrics")
+            SPATIAL -> emptyList()
         }
 
     companion object {
@@ -127,6 +133,8 @@ data class CloudJobInput(
     val tasks: List<String>? = null,
     val separation: CloudSeparation? = null,
     val lyrics: CloudLyricsRequest? = null,
+    /** The shared-library block: required with the `spatial` task, absent on every other job. */
+    val library: CloudLibraryRequest? = null,
     val output: CloudOutputRequest? = null,
     /** Optional (an old app may omit it); without it the worker just processes the job. */
     val guard: CloudJobGuard? = null,
@@ -209,15 +217,54 @@ data class CloudLyricsInputLine(
 
 /**
  * `input.output`: codec and one presigned PUT per output slot (`instrumental`, `vocals`, `drums`, `bass`, `other`,
- * `lyrics`, `manifest`). The volume fallback has no URLs, so `put` is absent there.
+ * `lyrics`, `manifest`). The volume fallback has no URLs, so `put` is absent there. A job whose only task is `spatial`
+ * has no audio slot and sends no codec (it doesn't apply to library files, cloud-audio-spec §4).
  */
 @Serializable
 data class CloudOutputRequest(
-    val codec: String,
+    val codec: String? = null,
     val kbps: Int? = null,
     val put: Map<String, String>? = null,
 ) {
     override fun toString(): String = "CloudOutputRequest(codec=$codec, kbps=$kbps, slots=${put?.keys})"
+}
+
+/**
+ * `input.library` (worker 1.1.0, cloud-audio-spec §4): the Spatial audio renders a job writes into the shared library,
+ * `lib/v<v>/<videoId>/sp-<profile>.flac` and its `.json`. Required when `tasks` has `spatial`, absent otherwise.
+ */
+@Serializable
+data class CloudLibraryRequest(
+    /** The library version, `LIB_V`; the worker refuses any other (`UNSUPPORTED_VERSION`). */
+    val v: Int,
+    /** The matched YouTube video, the library key. Never the Spotify id. */
+    val videoId: String,
+    /** The stream the uploaded audio came from (only recorded in the render manifests). */
+    val source: CloudLibrarySource? = null,
+    /** One entry per profile, 1 to 6, each profile once. */
+    val renders: List<CloudLibraryRenderTarget> = emptyList(),
+) {
+    override fun toString(): String = "CloudLibraryRequest(v=$v, videoId=$videoId, profiles=${renders.map { it.profile }}, urls=…)"
+}
+
+/** `input.library.source`: the stream this phone played, not the uploaded FLAC (cloud-audio-spec §6.2 step 3). */
+@Serializable
+data class CloudLibrarySource(
+    val itag: Int? = null,
+    /** `opus`, `aac`, … (at most 16 characters). */
+    val codec: String? = null,
+)
+
+/** One render of `input.library.renders`: presigned URLs of its two canonical objects. */
+@Serializable
+data class CloudLibraryRenderTarget(
+    val profile: String,
+    val audioPut: String,
+    val manifestPut: String,
+    /** The "already there" check: with it the worker skips a render the library has (state `exists`). */
+    val manifestGet: String? = null,
+) {
+    override fun toString(): String = "CloudLibraryRenderTarget(profile=$profile, urls=…)"
 }
 
 /** `input.guard`: the duplicate / poison checks the worker runs before downloading anything. */
@@ -335,6 +382,8 @@ data class CloudJobResult(
     val input: CloudInputInfo? = null,
     val outputs: Map<String, CloudOutputFile>? = null,
     val lyrics: CloudLyricsSummary? = null,
+    /** What became of a job's shared-library renders (worker 1.1.0); null for any other job and on error. */
+    val library: CloudLibraryResult? = null,
     val timings: CloudTimings? = null,
 ) {
     /** The typed status (an unknown status reads as `error`). */
@@ -371,7 +420,35 @@ data class CloudModelsInfo(
     val stems4: String? = null,
     val aligner: String? = null,
     val asr: String? = null,
+    /** The six-stem separator a Spatial audio render was made from (`open-cascade-6`). */
+    val stems6: String? = null,
 )
+
+/** `library` of a result manifest (cloud-audio-spec §4). */
+@Serializable
+data class CloudLibraryResult(
+    val videoId: String? = null,
+    val libV: Int? = null,
+    /** Profile → [CloudLibraryRenderState]: `ok` (made now), `exists` (already in the library) or `failed`. */
+    val renders: Map<String, String>? = null,
+    /** `stems6`, `stems4` or `mix`; null when the job rendered nothing. */
+    val stemMode: String? = null,
+) {
+    /** The profiles whose render is in the library now (made by this job, or already there): the ones to download. */
+    val delivered: List<String>
+        get() = renders.orEmpty().filterValues { it == CloudLibraryRenderState.OK || it == CloudLibraryRenderState.EXISTS }.keys.toList()
+
+    /** The profiles the job failed to render. */
+    val failed: List<String>
+        get() = renders.orEmpty().filterValues { it == CloudLibraryRenderState.FAILED }.keys.toList()
+}
+
+/** The per-render states of [CloudLibraryResult.renders]. */
+object CloudLibraryRenderState {
+    const val OK = "ok"
+    const val EXISTS = "exists"
+    const val FAILED = "failed"
+}
 
 /** `input` of the manifest: what the worker decoded. */
 @Serializable
@@ -426,6 +503,9 @@ data class CloudTimings(
     val separateMs: Long? = null,
     val stemsMs: Long? = null,
     val lyricsMs: Long? = null,
+    /** The six-stem separation and the Spatial audio renders (0 when unused). */
+    val stems6Ms: Long? = null,
+    val renderMs: Long? = null,
     val encodeMs: Long? = null,
     val uploadMs: Long? = null,
     val totalMs: Long? = null,

@@ -9,6 +9,7 @@ import com.theveloper.pixelplay.data.cloudstudio.CloudJobState
 import com.theveloper.pixelplay.data.cloudstudio.CloudNotice
 import com.theveloper.pixelplay.data.cloudstudio.CloudProgress
 import com.theveloper.pixelplay.data.cloudstudio.CloudSkipReason
+import com.theveloper.pixelplay.data.spatial.SpatialProfile
 import kotlin.math.max
 
 /**
@@ -142,7 +143,30 @@ object CloudStudioCopy {
 
     // ─── Queue rows ─────────────────────────────────────────────────────────────────────────
 
-    private val STEM_STAGES = setOf("stems4", "stems")
+    private val STEM_STAGES = setOf("stems4", "stems", "stems6")
+
+    /**
+     * A row's second line: the artist, and for a Spatial audio library job what it renders first ("Spatial audio ·
+     * Concert Hall · Artist"), so it never reads as an instrumental.
+     */
+    fun subtitle(record: CloudJobRecord): String {
+        val job = record.library ?: return record.artist
+        val profiles = job.profiles.mapNotNull(SpatialProfile::fromId).joinToString(", ", transform = ::profileName)
+        return listOf(SPATIAL_AUDIO, profiles, record.artist).filter { it.isNotBlank() }.joinToString(" · ")
+    }
+
+    /** A profile's name as the player sheet shows it (cloud-audio-spec §6.5). */
+    fun profileName(profile: SpatialProfile): String = when (profile) {
+        SpatialProfile.STUDIO -> "Studio"
+        SpatialProfile.WIDE -> "Wide"
+        SpatialProfile.INTIMATE -> "Intimate"
+        SpatialProfile.HALL -> "Concert Hall"
+        SpatialProfile.SURROUND -> "Surround"
+        SpatialProfile.NIGHT -> "Night"
+    }
+
+    /** The feature's name (cloud-audio-spec §1). */
+    const val SPATIAL_AUDIO = "Spatial audio"
 
     /** A job that stepped aside, uploaded, so a song being sung is processed first ([CloudJobRecord.isPaused]). */
     const val PAUSED_FOR_SING = "Paused for a song you're singing"
@@ -158,6 +182,7 @@ object CloudStudioCopy {
                     // "Splitting stems" and "Encoding" are the worker's words, not a listener's.
                     !developerMode && stage in STEM_STAGES -> "Separating the music"
                     !developerMode && stage == "encode" -> "Finishing up"
+                    !developerMode && stage == "render" -> "Placing the sound around you"
                     else -> CloudProgress(stage, record.progressPercent).label
                 }
                 record.progressPercent?.let { "$label $it%" } ?: label
@@ -165,7 +190,11 @@ object CloudStudioCopy {
         }
         CloudJobState.FAILED ->
             record.lastErrorCode?.takeIf { developerMode }?.let { "Failed · $it" } ?: record.state.label
-        CloudJobState.IMPORTED -> if (record.importedInstrumental) "Done · instrumental" else "Done"
+        CloudJobState.IMPORTED -> when {
+            record.isLibrary -> if (record.library?.imported.isNullOrEmpty()) "Done" else "Done · $SPATIAL_AUDIO"
+            record.importedInstrumental -> "Done · instrumental"
+            else -> "Done"
+        }
         else -> when {
             record.nextAttemptAtMs != null && !record.lastError.isNullOrEmpty() -> "Trying again soon"
             // Stepped aside in RunPod's queue for a song being sung: back on the phone, going out again right behind it.

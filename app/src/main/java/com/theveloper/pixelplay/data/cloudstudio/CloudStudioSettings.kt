@@ -185,6 +185,28 @@ class CloudStudioSettings(
         prefs.edit().putLong(Keys.AUTO_DAY_START, dayStartMs).putInt(Keys.AUTO_DAY_COUNT, total).apply()
     }
 
+    // ─── Spatial audio library jobs' ledger (their own month and day, apart from Sing's) ────
+
+    override fun removedLibrarySpendMicroUsd(monthStartMs: Long): Long =
+        if (prefs.getLong(Keys.LIBRARY_REMOVED_MONTH, 0L) == monthStartMs) max(prefs.getLong(Keys.LIBRARY_REMOVED_TOTAL, 0L), 0L) else 0L
+
+    @Synchronized
+    override fun addRemovedLibrarySpend(microUsd: Long, monthStartMs: Long) {
+        if (microUsd <= 0) return
+        val total = min(removedLibrarySpendMicroUsd(monthStartMs) + microUsd, 1_000_000_000_000L)
+        prefs.edit().putLong(Keys.LIBRARY_REMOVED_MONTH, monthStartMs).putLong(Keys.LIBRARY_REMOVED_TOTAL, total).apply()
+    }
+
+    override fun libraryAheadDayCount(dayStartMs: Long): Int =
+        if (prefs.getLong(Keys.LIBRARY_DAY_START, 0L) == dayStartMs) max(prefs.getInt(Keys.LIBRARY_DAY_COUNT, 0), 0) else 0
+
+    @Synchronized
+    override fun addLibraryAheadDayCount(count: Int, dayStartMs: Long) {
+        if (count <= 0) return
+        val total = min(libraryAheadDayCount(dayStartMs) + count, 10_000)
+        prefs.edit().putLong(Keys.LIBRARY_DAY_START, dayStartMs).putInt(Keys.LIBRARY_DAY_COUNT, total).apply()
+    }
+
     // ─── Keys ───────────────────────────────────────────────────────────────────────────────
 
     override suspend fun secrets(): CloudSecretsState = withContext(Dispatchers.IO) {
@@ -273,6 +295,11 @@ class CloudStudioSettings(
         const val AUTO_DAY_COUNT = "auto_day_count"
         const val AUTO_REMOVED_MONTH = "auto_removed_month_ms"
         const val AUTO_REMOVED_TOTAL = "auto_removed_total"
+        /** Spatial audio's library jobs: what removed ones spent this month, and the background queue's day count. */
+        const val LIBRARY_REMOVED_MONTH = "library_removed_month_ms"
+        const val LIBRARY_REMOVED_TOTAL = "library_removed_total"
+        const val LIBRARY_DAY_START = "library_day_start_ms"
+        const val LIBRARY_DAY_COUNT = "library_day_count"
 
         const val RUNPOD_KEY = "runpod_restricted"
         const val ACCESS_KEY_ID = "r2_access_key_id"

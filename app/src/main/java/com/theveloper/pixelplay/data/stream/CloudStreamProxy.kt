@@ -111,6 +111,13 @@ abstract class CloudStreamProxy<K : Any>(
 
     fun isReady(): Boolean = actualPort > 0
 
+    /**
+     * The `itag` of the stream URL cached for [id] right now (the upstream URL's own query parameter), or null when no
+     * URL is cached or it names none. Never resolves and never touches the network. A Spatial audio job names the stream
+     * its audio came from (`library.source.itag`, cloud-audio-spec §6.2 step 3): the stream this phone plays.
+     */
+    fun cachedStreamItag(id: K): Int? = urlCache.peek(id)?.let(StreamItag::fromUrl)
+
     @Synchronized
     fun startIfNeeded() {
         if (isReady() || startJob?.isActive == true) return
@@ -449,4 +456,19 @@ abstract class CloudStreamProxy<K : Any>(
                 }
             }
         }
+}
+
+/** Reads the `itag` query parameter of a stream URL without `android.net.Uri` (pure, so it is unit-tested). */
+object StreamItag {
+    /** The URL's `itag` as a non-negative integer, or null when there is none or it is not a number. */
+    fun fromUrl(url: String): Int? {
+        val query = url.substringAfter('?', "").substringBefore('#')
+        if (query.isEmpty()) return null
+        for (pair in query.split('&')) {
+            val name = pair.substringBefore('=')
+            if (name != "itag") continue
+            return pair.substringAfter('=', "").toIntOrNull()?.takeIf { it >= 0 }
+        }
+        return null
+    }
 }
