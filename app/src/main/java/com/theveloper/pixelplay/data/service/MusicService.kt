@@ -308,8 +308,26 @@ class MusicService : MediaLibraryService() {
             override fun onLevelLiftChanged() {
                 if (!instrumentalCrossfadeController.ownsMasterVolume) replayGainProcessor.onSpatialLiftChanged()
             }
+            override fun playOriginalFromHere() {
+                val player = engine.masterPlayer
+                val item = player.currentMediaItem ?: return
+                val index = player.currentMediaItemIndex
+                val position = player.currentPosition
+                // A new tag makes a new media source, so the item's data source decides its file again (the song is
+                // off now: its stream, never the render). Same song, same place: not a song change for anyone.
+                reopeningSongId = item.mediaId
+                try {
+                    player.replaceMediaItem(index, item.buildUpon().setTag(Any()).build())
+                    player.seekTo(index, position)
+                } finally {
+                    reopeningSongId = null
+                }
+            }
         }
     }
+
+    /** The song [RealSpatialPlayback.Host.playOriginalFromHere] is opening again (its transition is not a song change). */
+    private var reopeningSongId: String? = null
 
     /** Sing or a Spatial audio render owns the main player's volume: ReplayGain must not write it. */
     private val alternateRenditionOwnsVolume: Boolean
@@ -1877,6 +1895,15 @@ class MusicService : MediaLibraryService() {
         }
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            if (reopeningSongId != null && mediaItem?.mediaId == reopeningSongId) {
+                // The same song opened again for its original (Spatial audio turned off for it): only the stream changed.
+                realSpatialPlayback.onItemChanged(
+                    mediaItem?.mediaId,
+                    spotifyIdOf(mediaItem),
+                    mediaItem?.localConfiguration?.uri?.toString()
+                )
+                return
+            }
             enforceBlockedArtists(reason)
             if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_SEEK) reviveIdlePlayerAfterNavigation()
             automaticStudioManager.onSongChanged(mediaItem?.mediaId)

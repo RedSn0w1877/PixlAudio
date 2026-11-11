@@ -30,6 +30,8 @@ class SpatialStartResolver @Inject constructor(
         val state = stage.state
         val profile = state.profile ?: return null
         if (!state.wet) return null
+        // Turned off for this song: its original, at full quality.
+        if (spotifyId in stage.songsOff) return null
         return try {
             val videoId = spotifyDao.getMatchedVideoId(spotifyId)
                 ?.takeIf { CloudStreamSecurity.validateYouTubeVideoId(it) } ?: return null

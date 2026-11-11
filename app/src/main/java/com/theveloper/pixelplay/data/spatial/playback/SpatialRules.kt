@@ -192,6 +192,7 @@ object SpatialAudibleRule {
      * @param stageReady the on-device table is loaded.
      * @param stream what the current item's stream is (null: not known yet).
      * @param shadow the render audible on the second player, if any.
+     * @param spotifyId the item's Spotify track, carried into the result for the sheet's "This song" switch.
      */
     fun of(
         songId: String?,
@@ -203,8 +204,23 @@ object SpatialAudibleRule {
         stageReady: Boolean,
         stream: SpatialStreamReport?,
         shadow: SpatialRender?,
+        spotifyId: String? = null,
     ): SpatialAudible {
         if (songId == null) return SpatialAudible.NOTHING
+        return ofSong(songId, videoId, profile, routeOk, remote, sing, stageReady, stream, shadow).copy(spotifyId = spotifyId)
+    }
+
+    private fun ofSong(
+        songId: String,
+        videoId: String?,
+        profile: SpatialProfile?,
+        routeOk: Boolean,
+        remote: Boolean,
+        sing: Boolean,
+        stageReady: Boolean,
+        stream: SpatialStreamReport?,
+        shadow: SpatialRender?,
+    ): SpatialAudible {
         val mainRender = stream?.render
         val block = when {
             profile == null -> null

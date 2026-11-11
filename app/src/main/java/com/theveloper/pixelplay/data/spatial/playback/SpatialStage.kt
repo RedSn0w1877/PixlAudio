@@ -36,6 +36,13 @@ class SpatialStage @Inject constructor(
     override var state: SpatialStageState = SpatialStageState.OFF
         private set
 
+    /**
+     * The Spotify ids Spatial audio is turned off for (`spatial.songsOff`), for the start resolver on the loading
+     * thread. Written by [RealSpatialPlayback.apply].
+     */
+    @Volatile
+    var songsOff: Set<String> = emptySet()
+
     /** The parsed table, once read. */
     @Volatile
     var tables: SpatialPreviewTables? = null

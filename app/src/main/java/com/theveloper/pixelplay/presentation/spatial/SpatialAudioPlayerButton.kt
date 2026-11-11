@@ -64,10 +64,13 @@ fun SpatialAudioPlayerButton(
     val holder = viewModel.spatial
     val ui by remember(holder) {
         combine(holder.storedSettings, holder.audible) { stored, heard ->
-            stored?.let { SpatialButtonUi.of(it.profile, heard.blockedBy) }
+            stored?.let { SpatialButtonUi.of(it.profileFor(heard.spotifyId), heard.blockedBy) }
         }.distinctUntilChanged()
     }.collectAsStateWithLifecycle(
-        initialValue = holder.storedSettings.value?.let { SpatialButtonUi.of(it.profile, holder.audible.value.blockedBy) }
+        initialValue = holder.storedSettings.value?.let {
+            val heard = holder.audible.value
+            SpatialButtonUi.of(it.profileFor(heard.spotifyId), heard.blockedBy)
+        }
     )
     SpatialAudioButtonContent(
         ui = ui,

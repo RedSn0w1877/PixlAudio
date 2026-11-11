@@ -290,4 +290,24 @@ class SpatialSettingsRepositoryTest {
             assertTrue(exported.contains(PreferenceBackupEntry(key = "cloudAudio.monthlyCapUSD", type = "int", intValue = -1)))
         }
     }
+
+    @Test
+    fun `a song turned off plays without a profile and is remembered by its Spotify id`() = runTest {
+        withTempDir { dir ->
+            val store = newStore(dir)
+            val repository = SpatialSettingsRepository(store, NoBuiltInCloudConfig)
+            repository.setProfile(SpatialProfile.HALL)
+            repository.setSongOff("track1", off = true)
+            repository.setSongOff("track2", off = true)
+            repository.setSongOff("track2", off = false)
+
+            val settings = repository.current()
+            assertEquals(setOf("track1"), settings.songsOff)
+            assertNull(settings.profileFor("track1"))
+            assertTrue(settings.isOffFor("track1"))
+            assertEquals(SpatialProfile.HALL, settings.profileFor("track2"))
+            assertEquals(SpatialProfile.HALL, settings.profileFor(null))
+            assertEquals(setOf("track1"), store.stored()[SpatialSettingsRepository.KEY_SONGS_OFF])
+        }
+    }
 }

@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.core.stringSetPreferencesKey
 import com.theveloper.pixelplay.data.cloudstudio.CloudBuiltInConfig
 import com.theveloper.pixelplay.data.preferences.prefFlow
 import javax.inject.Inject
@@ -40,6 +41,7 @@ class SpatialSettingsRepository @Inject constructor(
         val STORAGE_MB = intPreferencesKey(KEY_STORAGE_MB)
         val MONTHLY_CAP_USD = intPreferencesKey(KEY_MONTHLY_CAP_USD)
         val DAILY_AHEAD = intPreferencesKey(KEY_DAILY_AHEAD)
+        val SONGS_OFF = stringSetPreferencesKey(KEY_SONGS_OFF)
     }
 
     /** The defaults of §6.1 for this build (`spatial.cloud` is on when built-in cloud keys exist). */
@@ -48,7 +50,7 @@ class SpatialSettingsRepository @Inject constructor(
 
     /**
      * The settings of §6.1, as they change. Distinct: the shared store emits on every write of any setting, and
-     * only a change to one of these seven values passes.
+     * only a change to one of these values passes.
      */
     val settings: Flow<SpatialSettings> = dataStore.prefFlow(::read)
 
@@ -104,6 +106,15 @@ class SpatialSettingsRepository @Inject constructor(
         dataStore.edit { it[Keys.DAILY_AHEAD] = SpatialSettings.clampDailyAhead(songs) }
     }
 
+    /** `spatial.songsOff`: Spatial audio turned off ([off]) or back on for [spotifyId]'s song. */
+    suspend fun setSongOff(spotifyId: String, off: Boolean) {
+        if (spotifyId.isBlank()) return
+        dataStore.edit {
+            val now = (it.asMap()[Keys.SONGS_OFF] as? Set<*>)?.filterIsInstance<String>()?.toSet().orEmpty()
+            it[Keys.SONGS_OFF] = if (off) now + spotifyId else now - spotifyId
+        }
+    }
+
     private fun read(preferences: Preferences): SpatialSettings {
         // Looked up by name and cast safely: `preferences[key]` casts unchecked, so a value of another type (a
         // restored or hand-edited backup) would throw at the first read instead of falling back to the default.
@@ -126,6 +137,7 @@ class SpatialSettingsRepository @Inject constructor(
             dailyAhead = SpatialSettings.clampDailyAhead(
                 stored[Keys.DAILY_AHEAD] as? Int ?: SpatialSettings.DEFAULT_DAILY_AHEAD
             ),
+            songsOff = (stored[Keys.SONGS_OFF] as? Set<*>)?.filterIsInstance<String>()?.toSet().orEmpty(),
         )
     }
 
@@ -150,6 +162,9 @@ class SpatialSettingsRepository @Inject constructor(
 
         /** §6.1 key (Int, songs a day, 1..100). */
         const val KEY_DAILY_AHEAD = "cloudAudio.dailyAhead"
+
+        /** Key (String set of Spotify ids): the songs Spatial audio is turned off for. */
+        const val KEY_SONGS_OFF = "spatial.songsOff"
 
         /**
          * How "No limit" is stored under [KEY_MONTHLY_CAP_USD] (§6.1 "Stored forms": `-1`, identical on both

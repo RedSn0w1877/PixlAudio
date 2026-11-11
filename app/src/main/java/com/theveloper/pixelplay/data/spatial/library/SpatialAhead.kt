@@ -114,6 +114,8 @@ class SpatialAheadRunner(
         for (candidate in ranked) {
             if (looked >= SpatialAheadRules.CANDIDATES_PER_RUN || fetched >= SpatialAheadRules.FETCHES_PER_RUN) break
             if (nowMs() >= deadlineMs || SpatialAheadRules.block(conditions()) != null) break
+            // Turned off for this song: it plays its original, so nothing is prepared (or paid for) for it.
+            if (spatial.isOffFor(candidate.facts.spotifyId)) continue
             val videoId = videoIdOf(candidate.facts)?.takeIf(CloudKeys::isValidVideoId) ?: continue
             if (target.hasLocal(videoId, profile) || target.isBusy(videoId, profile)) continue
             if (!stillWanted(profile)) {

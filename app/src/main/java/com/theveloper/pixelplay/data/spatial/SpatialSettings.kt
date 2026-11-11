@@ -60,9 +60,22 @@ data class SpatialSettings(
      * [MIN_DAILY_AHEAD]..[MAX_DAILY_AHEAD].
      */
     val dailyAhead: Int = DEFAULT_DAILY_AHEAD,
+    /**
+     * `spatial.songsOff`: the Spotify ids of the songs Spatial audio is turned off for, from the sheet's "This song"
+     * switch (Hoa, 2026-11-11). Such a song plays its original at full quality, as with Spatial audio off: no stage, no
+     * render, nothing asked of the cloud.
+     */
+    val songsOff: Set<String> = emptySet(),
 ) {
     /** A profile is selected (§6.1). Not the same as audible: the route rule and Sing can still hold it back (§6.3). */
     val isOn: Boolean get() = profile != null
+
+    /** The profile [spotifyId]'s song plays with: [profile], or null when it is off or Spatial audio is turned off for that song. */
+    fun profileFor(spotifyId: String?): SpatialProfile? =
+        profile?.takeUnless { spotifyId != null && spotifyId in songsOff }
+
+    /** Spatial audio is turned off for [spotifyId]'s song in particular. */
+    fun isOffFor(spotifyId: String?): Boolean = spotifyId != null && spotifyId in songsOff
 
     /** [storageMb] in bytes, for the local store's eviction (§6.1, §6.2 "Local store"). */
     val storageBytes: Long get() = storageMb.toLong() * BYTES_PER_MB

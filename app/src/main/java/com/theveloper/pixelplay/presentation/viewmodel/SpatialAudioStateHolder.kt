@@ -88,8 +88,30 @@ class SpatialAudioStateHolder @Inject constructor(
      */
     val cloudRendersOn: StateFlow<Boolean> get() = library.cloudRendersOn
 
-    /** The selected profile, null for Off. */
-    private val selectedProfile: Flow<SpatialProfile?> = settings.map { it.profile }.distinctUntilChanged()
+    /**
+     * The sheet's "This song" switch: the song playing and whether Spatial audio is turned off for it. Null while
+     * nothing plays, or the item is not a Spotify track (a switch would have nothing to remember it by).
+     */
+    val currentSong: StateFlow<SpatialSongChoice?> by lazy {
+        combine(settings, songWhileOn) { current, spotifyId ->
+            spotifyId?.let { SpatialSongChoice(it, off = current.isOffFor(it)) }
+        }
+            .distinctUntilChanged()
+            .stateIn(scope, SharingStarted.Eagerly, null)
+    }
+
+    /**
+     * The playing song's Spotify id, followed only while a profile is selected: with Spatial audio off nothing of the
+     * player is followed (see below), and there is no "This song" switch to show.
+     */
+    private val songWhileOn: Flow<String?>
+        get() = settings.map { it.profile != null }.distinctUntilChanged().flatMapLatest { on ->
+            if (on) playback.audible.map { it.spotifyId }.distinctUntilChanged() else flowOf(null)
+        }
+
+    /** The profile the playing song plays with: null for Off, and while Spatial audio is turned off for this song. */
+    private val selectedProfile: Flow<SpatialProfile?>
+        get() = combine(settings, songWhileOn) { current, spotifyId -> current.profileFor(spotifyId) }.distinctUntilChanged()
 
     // currentStatus and statusLine follow the playing song whether or not anything shows them, for as long as a
     // profile is selected. The sheet starts from the value at hand on its first frame (and Developer mode's rows
@@ -134,7 +156,7 @@ class SpatialAudioStateHolder @Inject constructor(
                         currentStatus,
                         library.cloudRendersOn,
                     ) { current, heard, status, cloudOn ->
-                        SpatialStatusLine.of(current, heard, status, cloudOn)
+                        SpatialStatusLine.of(current.copy(profile = current.profileFor(heard.spotifyId)), heard, status, cloudOn)
                     }
                 }
             }
@@ -146,7 +168,7 @@ class SpatialAudioStateHolder @Inject constructor(
      */
     val currentRender: StateFlow<SpatialRender?> =
         combine(settings, playback.audible, currentStatus) { current, heard, status ->
-            Triple(current.profile, heard.videoId, status)
+            Triple(current.profileFor(heard.spotifyId), heard.videoId, status)
         }
             .distinctUntilChanged()
             .mapLatest { (profile, videoId, status) ->
@@ -169,6 +191,15 @@ class SpatialAudioStateHolder @Inject constructor(
     /** The sheet's profile list and Off (§6.5): [profile], or null for Off. Picking a profile turns Spatial audio on (§6.1). */
     fun selectProfile(profile: SpatialProfile?) {
         scope.launch { repository.setProfile(profile) }
+    }
+
+    /**
+     * The sheet's "This song" switch: Spatial audio on ([on]) or off for the song playing. Off plays its original at
+     * full quality, from where it is, and is remembered for every later play of the song (`spatial.songsOff`).
+     */
+    fun setCurrentSongSpatial(on: Boolean) {
+        val spotifyId = currentSong.value?.spotifyId ?: return
+        scope.launch { repository.setSongOff(spotifyId, off = !on) }
     }
 
     /**
@@ -214,3 +245,6 @@ class SpatialAudioStateHolder @Inject constructor(
         const val STOP_TIMEOUT_MS = 5_000L
     }
 }
+
+/** The song playing, for the sheet's "This song" switch: its Spotify id and whether Spatial audio is turned off for it. */
+data class SpatialSongChoice(val spotifyId: String, val off: Boolean)

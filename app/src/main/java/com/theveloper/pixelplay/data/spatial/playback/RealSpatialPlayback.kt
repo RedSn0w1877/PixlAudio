@@ -63,6 +63,13 @@ class RealSpatialPlayback @Inject constructor(
         fun isTransitionRunning(): Boolean
         /** [levelLift] changed: re-apply the normalisation gain with it. */
         fun onLevelLiftChanged()
+
+        /**
+         * Spatial audio was turned off for the song playing, and the main player plays a render of it: open the song
+         * again where it is, so its original plays (at full quality) from here. A short re-buffer, once, on the
+         * person's own tap; the item's file never changes any other way mid-song (integration map 2.6 trap 1).
+         */
+        fun playOriginalFromHere() = Unit
     }
 
     private val _audible = MutableStateFlow(SpatialAudible.NOTHING)
@@ -83,6 +90,7 @@ class RealSpatialPlayback @Inject constructor(
     private var markedKey: String? = null
     private var lastSeekAtMs = Long.MIN_VALUE / 4
     private var singReturning = false
+    private var originalReloadedFor: String? = null
 
     private var reconcileJob: Job? = null
     private var reconcileAgain = false
@@ -113,8 +121,10 @@ class RealSpatialPlayback @Inject constructor(
 
     override fun apply(settings: SpatialSettings) {
         if (this.settings == settings) return
-        val profileChanged = this.settings?.profile != settings.profile
+        val profileChanged = this.settings?.profile != settings.profile ||
+            this.settings?.isOffFor(spotifyId) != settings.isOffFor(spotifyId)
         this.settings = settings
+        stage.songsOff = settings.songsOff
         if (profileChanged) lookedUpKey = null
         updateRouteMonitor()
         refresh()
@@ -165,6 +175,7 @@ class RealSpatialPlayback @Inject constructor(
             requestedKey = null
             markedKey = null
             lookedUpKey = null
+            originalReloadedFor = null
             itemGeneration++
             // Keep a report of the new item that arrived first (the stage runs ahead of what is heard).
             reports.keys.retainAll(setOfNotNull(songId))
@@ -295,9 +306,12 @@ class RealSpatialPlayback @Inject constructor(
         return shadow?.videoId ?: currentStream()?.render?.videoId ?: videoId
     }
 
+    /** The profile the current song plays with: none while Spatial audio is turned off for it (`spatial.songsOff`). */
+    private fun songProfile(): SpatialProfile? = settings?.profileFor(spotifyId)
+
     private fun refresh() {
         val s = settings
-        val profile = s?.profile
+        val profile = songProfile()
         val h = host
         val remote = h?.isRemote() == true
         val routeOk = s != null && SpatialRouteRule.passes(s.routeMode, route.deviceType, remote)
@@ -317,6 +331,7 @@ class RealSpatialPlayback @Inject constructor(
             stageReady = stage.tables != null,
             stream = stream,
             shadow = shadow,
+            spotifyId = spotifyId,
         )
         if (_audible.value != audible) _audible.value = audible
 
@@ -329,6 +344,22 @@ class RealSpatialPlayback @Inject constructor(
         maybeMarkPlayed(stream)
         maybeRequest(profile, routeOk && !sing && !remote, stream, shadow)
         scheduleReconcile(h)
+        maybePlayOriginal(h, s, stream, shadow)
+    }
+
+    /**
+     * Turned off for this song while it plays a render on the main player (it started on one): its original comes back
+     * from here, once per song. Waits for a render on the second player to fade out, and for Sing and any track change.
+     */
+    private fun maybePlayOriginal(h: Host, s: SpatialSettings?, stream: SpatialStreamReport?, shadow: SpatialRender?) {
+        val id = songId ?: return
+        if (s == null || !s.isOffFor(spotifyId) || stream?.render == null) return
+        if (originalReloadedFor == id || shadow != null || h.swap.isRamping) return
+        if (h.isSingAudible() || h.singOwnsVolume() || singSwitches > 0 || h.isTransitionRunning()) return
+        if (h.mainPlayer().currentMediaItem?.mediaId != id) return
+        originalReloadedFor = id
+        reports.remove(id)
+        h.playOriginalFromHere()
     }
 
     /** §6.3: a song playing with Spatial active and no render of the profile asks the library for one (FORMAT too). */
@@ -381,7 +412,7 @@ class RealSpatialPlayback @Inject constructor(
         if (host !== h) return
         val swap = h.swap
         val main = h.mainPlayer()
-        val profile = settings?.profile
+        val profile = songProfile()
         val wanted = if (active && !h.singOwnsVolume() && singSwitches == 0) profile else null
         val stream = currentStream()
         // (The swap lets go of its render at every song change, so what it holds is always this song's.)
@@ -401,7 +432,7 @@ class RealSpatialPlayback @Inject constructor(
                 // would be faded in at the new song's position, over the new song.
                 if (main.currentMediaItem?.mediaId != song) return
                 val stillWanted = {
-                    host === h && songId == song && settings?.profile == want && active && singSwitches == 0 &&
+                    host === h && songId == song && songProfile() == want && active && singSwitches == 0 &&
                         !h.singOwnsVolume() && h.mainPlayer().currentMediaItem?.mediaId == song
                 }
                 val key = "$song|$vid|${want.id}|$libraryEpoch"

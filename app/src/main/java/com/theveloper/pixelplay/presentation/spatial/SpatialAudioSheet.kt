@@ -1,6 +1,9 @@
 package com.theveloper.pixelplay.presentation.spatial
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
@@ -23,12 +26,14 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.CloudDone
 import androidx.compose.material.icons.rounded.CloudDownload
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.Headphones
 import androidx.compose.material.icons.rounded.HourglassTop
@@ -40,11 +45,15 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -69,6 +78,7 @@ import com.theveloper.pixelplay.data.spatial.SpatialProfile
 import com.theveloper.pixelplay.data.spatial.SpatialStatusLine
 import com.theveloper.pixelplay.presentation.components.AdaptiveModalBottomSheet
 import com.theveloper.pixelplay.presentation.viewmodel.SpatialAudioViewModel
+import com.theveloper.pixelplay.presentation.viewmodel.SpatialSongChoice
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 
@@ -91,6 +101,7 @@ fun SpatialAudioSheet(
         holder.settings.map { it.profile }.distinctUntilChanged()
     }.collectAsStateWithLifecycle(initialValue = holder.settings.value.profile)
     val statusLine by holder.statusLine.collectAsStateWithLifecycle()
+    val song by holder.currentSong.collectAsStateWithLifecycle()
 
     AdaptiveModalBottomSheet(
         onDismissRequest = onDismissRequest,
@@ -101,6 +112,8 @@ fun SpatialAudioSheet(
             selected = selected,
             statusLine = statusLine,
             onSelect = holder::selectProfile,
+            song = song,
+            onSongSpatialChange = holder::setCurrentSongSpatial,
         )
     }
 }
@@ -112,6 +125,8 @@ internal fun SpatialAudioSheetContent(
     statusLine: SpatialStatusLine,
     onSelect: (SpatialProfile?) -> Unit,
     modifier: Modifier = Modifier,
+    song: SpatialSongChoice? = null,
+    onSongSpatialChange: (Boolean) -> Unit = {},
 ) {
     val choices = remember(selected) { SpatialAudioUi.choices(selected) }
     LazyColumn(
@@ -120,6 +135,20 @@ internal fun SpatialAudioSheetContent(
     ) {
         item(key = "header", contentType = "header") {
             SpatialSheetHeader(modifier = Modifier.padding(start = 8.dp, end = 8.dp, bottom = 16.dp))
+        }
+        item(key = "song", contentType = "song") {
+            // Only while a profile is selected and a song plays: with Spatial audio off everything is the original.
+            val visible = selected != null && song != null
+            // Holds the last song while the card collapses, so it doesn't empty out as it goes.
+            var shown by remember { mutableStateOf(song) }
+            if (song != null) shown = song
+            AnimatedVisibility(
+                visible = visible,
+                enter = fadeIn(tween(200)) + expandVertically(spring(stiffness = Spring.StiffnessMediumLow)),
+                exit = fadeOut(tween(120)) + shrinkVertically(spring(stiffness = Spring.StiffnessMediumLow)),
+            ) {
+                shown?.let { choice -> SpatialThisSongCard(on = !choice.off, onChange = onSongSpatialChange) }
+            }
         }
         item(key = "status", contentType = "status") {
             SpatialStatusCard(line = statusLine)
@@ -187,6 +216,83 @@ private fun SpatialSheetHeader(modifier: Modifier = Modifier) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+    }
+}
+
+/**
+ * "This song": Spatial audio on or off for the song playing, remembered for every later play. Off plays the original
+ * at full quality. The whole card is the switch (one target for TalkBack); the icon disc and the line under the title
+ * follow the state, and the card's tone swaps with it (drawn in the draw phase, like the profile rows).
+ */
+@Composable
+private fun SpatialThisSongCard(on: Boolean, onChange: (Boolean) -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    val fill = rememberSpatialChoiceFill(
+        selected = on,
+        unselectedColor = colors.surfaceContainerHigh,
+        selectedColor = colors.primaryContainer,
+    )
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(bottom = 12.dp)
+            .graphicsLayer {
+                shape = RoundedCornerShape(OuterCorner)
+                clip = true
+            }
+            .drawBehind { drawRect(fill()) }
+            .toggleable(value = on, role = Role.Switch, onValueChange = onChange)
+            .padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .size(40.dp)
+                .background(if (on) colors.primary else colors.surfaceContainerHighest, CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                painter = painterResource(R.drawable.rounded_spatial_audio_24),
+                contentDescription = null,
+                tint = if (on) colors.onPrimary else colors.onSurfaceVariant,
+                modifier = Modifier.size(22.dp),
+            )
+        }
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                text = stringResource(R.string.spatial_ui_this_song),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = if (on) colors.onPrimaryContainer else colors.onSurface,
+            )
+            AnimatedContent(
+                targetState = on,
+                transitionSpec = {
+                    (fadeIn(tween(180, delayMillis = 40)) togetherWith fadeOut(tween(100)))
+                        .using(SizeTransform(clip = false))
+                },
+                label = "spatialThisSongLine",
+            ) { isOn ->
+                Text(
+                    text = stringResource(if (isOn) R.string.spatial_ui_this_song_on else R.string.spatial_ui_this_song_off),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (isOn) colors.onPrimaryContainer.copy(alpha = 0.8f) else colors.onSurfaceVariant,
+                )
+            }
+        }
+        // Decorative: the card itself is the toggle.
+        Switch(
+            checked = on,
+            onCheckedChange = null,
+            thumbContent = {
+                Icon(
+                    imageVector = if (on) Icons.Rounded.Check else Icons.Rounded.Close,
+                    contentDescription = null,
+                    modifier = Modifier.size(SwitchDefaults.IconSize),
+                )
+            },
+        )
     }
 }
 

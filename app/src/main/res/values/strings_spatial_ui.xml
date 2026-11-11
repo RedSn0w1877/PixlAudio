@@ -86,4 +86,7 @@
     <string name="spatial_ui_dev_diag_stems">Stem mode</string>
     <string name="spatial_ui_dev_diag_loudness">Loudness</string>
     <string name="spatial_ui_dev_diag_rate">Sample rate</string>
+    <string name="spatial_ui_this_song">This song</string>
+    <string name="spatial_ui_this_song_on">Spatial audio is on for this song.</string>
+    <string name="spatial_ui_this_song_off">Off for this song. It plays the original, at full quality.</string>
 </resources>

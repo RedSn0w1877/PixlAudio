@@ -132,6 +132,8 @@ data class SpatialAudible(
     val profile: SpatialProfile? = null,
     /** Why a selected profile is not audible, or null when it is audible or none is selected (§6.3). */
     val blockedBy: SpatialBlock? = null,
+    /** The Spotify track the item plays, or null: the key of the sheet's "This song" switch (`spatial.songsOff`). */
+    val spotifyId: String? = null,
 ) {
     /** A spatial rendition is audible: the on-device stage or a cloud render (§6.3 "Level" applies while true). */
     val isSpatial: Boolean get() = rendition != SpatialRendition.STEREO
