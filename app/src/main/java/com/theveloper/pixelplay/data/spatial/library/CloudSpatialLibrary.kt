@@ -227,6 +227,7 @@ class CloudSpatialLibrary(
 
     override suspend fun lookUp(songId: String, videoId: String, profile: SpatialProfile): SharedLookup {
         val key = SpatialRenderKey(videoId, profile)
+        if (!aheadWants(profile)) return SharedLookup.BUSY
         if (!networkSource.network.value.allowsAhead) return SharedLookup.BUSY
         if (claim(key, Want(songId, ahead = true)) != Claim.CLAIMED) return SharedLookup.BUSY
         return try {
@@ -242,11 +243,33 @@ class CloudSpatialLibrary(
         }
     }
 
-    override suspend fun sendAhead(songId: String, videoId: String, profile: SpatialProfile): CloudLibrarySend =
-        if (!_cloudRendersOn.value) CloudLibrarySend.Refused("Cloud renders are off.")
-        else engine.sendLibraryJob(songId, videoId, profile.id, ahead = true)
+    override suspend fun sendAhead(songId: String, videoId: String, profile: SpatialProfile): CloudLibrarySend {
+        if (!aheadWants(profile)) return CloudLibrarySend.Refused("The background queue isn't preparing this profile.")
+        val sent = engine.sendLibraryJob(songId, videoId, profile.id, ahead = true)
+        when {
+            sent is CloudLibrarySend.Sent && !aheadWants(profile) -> {
+                // The settings changed while the job was being added, after their own cancel ran: it goes too. (A job
+                // the person's play made theirs is no longer the queue's, and stays.)
+                val jobKey = sent.record.jobKey
+                engine.cancelPendingLibrary { it.jobKey == jobKey && it.isLibraryAhead }
+                return CloudLibrarySend.Refused("The background queue isn't preparing this profile.")
+            }
+            // A song the cloud can't take waits out the backoff, so the next runs don't look it up again.
+            sent is CloudLibrarySend.Refused && sent.permanent -> ledger.recordFailure(SpatialRenderKey(videoId, profile), nowMs())
+        }
+        return sent
+    }
 
     override fun aheadSentToday(): Int = engine.aheadSentToday()
+
+    /**
+     * The background queue still prepares [profile]: it is the selected profile, prepare ahead is on and both cloud
+     * switches are. Checked before every lookup and job of a run (a run lasts minutes; the settings may change).
+     */
+    private fun aheadWants(profile: SpatialProfile): Boolean {
+        val spatial = spatialSettings.value ?: return false
+        return _cloudRendersOn.value && spatial.prepareAhead && spatial.profile == profile
+    }
 
     // ─── Getting a render (§6.2) ────────────────────────────────────────────────────────────
 

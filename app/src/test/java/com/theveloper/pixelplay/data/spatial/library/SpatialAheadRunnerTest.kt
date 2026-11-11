@@ -63,12 +63,16 @@ class SpatialAheadRunnerTest {
         var capAfter = Int.MAX_VALUE
         var sentToday = 0
         val profiles = mutableListOf<SpatialProfile>()
+        /** What the person does while a lookup or a send is under way. */
+        var onLookUp: () -> Unit = {}
+        var onSend: () -> Unit = {}
 
         override fun hasLocal(videoId: String, profile: SpatialProfile) = videoId in local
         override fun isBusy(videoId: String, profile: SpatialProfile) = videoId in busy
         override suspend fun lookUp(songId: String, videoId: String, profile: SpatialProfile): SharedLookup {
             events += "look $videoId"
             profiles += profile
+            onLookUp()
             return when (videoId) {
                 in broken -> SharedLookup.ERROR
                 in inLibrary -> SharedLookup.FOUND.also { local += videoId }
@@ -80,6 +84,7 @@ class SpatialAheadRunnerTest {
             events += "send $videoId"
             profiles += profile
             sentToday++
+            onSend()
             return CloudLibrarySend.Sent(
                 CloudJobRecord(jobKey = "k", songId = songId, tasks = listOf(CloudTask.SPATIAL), origin = CloudJobOrigin.LIBRARY,
                     library = CloudLibraryJob(videoId, listOf(profile.id), ahead = true))
@@ -157,6 +162,32 @@ class SpatialAheadRunnerTest {
             videoIdOf = { ids[it.songId] }, target = FakeTarget(), nowMs = { now },
         )
         assertEquals(SpatialAheadRules.JOBS_PER_RUN, wide.run(now + 60_000).sent)
+    }
+
+    @Test fun `a run ends as soon as the profile or the queue changes, and fetches or sends nothing more for the old one`() = runBlocking {
+        // The person picks Night while the run looks songs up: no further lookup, and no job for Wide.
+        target.onLookUp = { settings = settings.copy(profile = SpatialProfile.NIGHT) }
+        val looking = runner().run(now + 60_000)
+        assertEquals(listOf("look AAAAAAAAAAA"), target.events)
+        assertEquals(0, looking.sent)
+        // Prepare ahead goes off while the run sends: the rest of its jobs never go.
+        settings = settings.copy(profile = SpatialProfile.WIDE)
+        target.events.clear()
+        target.onLookUp = {}
+        target.onSend = { settings = settings.copy(prepareAhead = false) }
+        val sending = runner().run(now + 60_000)
+        assertEquals(
+            listOf("look AAAAAAAAAAA", "look BBBBBBBBBBB", "look CCCCCCCCCCC", "look DDDDDDDDDDD", "send AAAAAAAAAAA"),
+            target.events,
+        )
+        assertEquals(1, sending.sent)
+        // The cloud switches going off end it too.
+        settings = settings.copy(prepareAhead = true)
+        target.events.clear()
+        target.onSend = {}
+        target.onLookUp = { cloudOn = false }
+        assertEquals(0, runner().run(now + 60_000).sent)
+        assertEquals(listOf("look AAAAAAAAAAA"), target.events)
     }
 
     @Test fun `the run stops at its deadline`() = runBlocking {

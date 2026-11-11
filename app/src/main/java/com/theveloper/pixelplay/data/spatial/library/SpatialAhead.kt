@@ -24,6 +24,7 @@ import com.theveloper.pixelplay.data.cloudstudio.auto.CloudAutoFactsGatherer
 import com.theveloper.pixelplay.data.cloudstudio.auto.CloudAutoPrepare
 import com.theveloper.pixelplay.data.cloudstudio.auto.LiveCloudAutoEnvironment
 import com.theveloper.pixelplay.data.database.SpotifyDao
+import com.theveloper.pixelplay.data.spatial.SpatialProfile
 import com.theveloper.pixelplay.data.spatial.SpatialSettings
 import com.theveloper.pixelplay.data.spatial.SpatialSettingsRepository
 import com.theveloper.pixelplay.data.stream.StreamNetworkConditions
@@ -106,11 +107,19 @@ class SpatialAheadRunner(
         val misses = mutableListOf<Pair<AutoCandidateFacts, String>>()
         var looked = 0
         var fetched = 0
+        // A run lasts minutes: the person may pick another profile, or switch the queue or the cloud off, meanwhile. The
+        // settings are read again before every lookup and every job, and the run ends as soon as they changed, so
+        // nothing is fetched or sent (and paid for) for a profile nobody selected.
+        var stopped = false
         for (candidate in ranked) {
             if (looked >= SpatialAheadRules.CANDIDATES_PER_RUN || fetched >= SpatialAheadRules.FETCHES_PER_RUN) break
             if (nowMs() >= deadlineMs || SpatialAheadRules.block(conditions()) != null) break
             val videoId = videoIdOf(candidate.facts)?.takeIf(CloudKeys::isValidVideoId) ?: continue
             if (target.hasLocal(videoId, profile) || target.isBusy(videoId, profile)) continue
+            if (!stillWanted(profile)) {
+                stopped = true
+                break
+            }
             looked++
             report(LOOKING_LINE)
             when (target.lookUp(candidate.facts.songId, videoId, profile)) {
@@ -123,7 +132,8 @@ class SpatialAheadRunner(
         var room = SpatialAheadRules.jobRoom(spatial.dailyAhead, target.aheadSentToday())
         var sent = 0
         for ((song, videoId) in misses) {
-            if (room <= 0 || nowMs() >= deadlineMs || SpatialAheadRules.block(conditions()) != null) break
+            if (stopped || room <= 0 || nowMs() >= deadlineMs || SpatialAheadRules.block(conditions()) != null) break
+            if (!stillWanted(profile)) break
             report(SENDING_LINE)
             when (target.sendAhead(song.songId, videoId, profile)) {
                 is CloudLibrarySend.Sent -> {
@@ -135,6 +145,12 @@ class SpatialAheadRunner(
             }
         }
         return SpatialAheadRun(SpatialAheadRun.Outcome.RAN, looked = looked, fetched = fetched, sent = sent)
+    }
+
+    /** The run's [profile] is still the selected one, with prepare ahead and both cloud switches on. */
+    private suspend fun stillWanted(profile: SpatialProfile): Boolean {
+        val now = settings()
+        return now.profile == profile && now.prepareAhead && now.cloud && cloudRendersOn()
     }
 
     companion object {

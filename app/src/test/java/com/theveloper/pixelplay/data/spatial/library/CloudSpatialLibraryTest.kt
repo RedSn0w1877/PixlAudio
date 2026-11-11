@@ -244,6 +244,30 @@ class CloudSpatialLibraryTest {
         assertEquals(Triple("ZD6rXLXZOEI", "studio", true), engine.sent.last())
     }
 
+    @Test fun `the background queue only looks up and sends the selected profile, while prepare ahead is on`() = runBlocking {
+        assertEquals(SharedLookup.BUSY, library.lookUp("s1", video, SpatialProfile.HALL))
+        assertTrue(library.sendAhead("s1", video, SpatialProfile.HALL) is CloudLibrarySend.Refused)
+        assertTrue(engine.fetches.isEmpty())
+        assertTrue(engine.sent.isEmpty())
+        // The person picks another profile just as a job of the old one is being added (after the settings' own cancel
+        // of the queue's jobs ran): that job doesn't stay either.
+        engine.beforeSend = {
+            val seen = schedules.size
+            spatial.update { it.copy(profile = SpatialProfile.HALL) }
+            eventually("the library saw the new profile") { schedules.size > seen }
+        }
+        assertTrue(library.sendAhead("s1", video, SpatialProfile.STUDIO) is CloudLibrarySend.Refused)
+        assertEquals(1, engine.sent.size)
+        assertTrue(engine.list.value.none { it.state.isPending }, "jobs: ${engine.list.value}")
+        // With prepare ahead off nothing goes, whatever the profile.
+        engine.beforeSend = null
+        spatial.update { it.copy(prepareAhead = false) }
+        eventually("prepare ahead seen off") { schedules.last() == false }
+        assertTrue(library.sendAhead("s1", video, SpatialProfile.HALL) is CloudLibrarySend.Refused)
+        assertEquals(SharedLookup.BUSY, library.lookUp("s1", video, SpatialProfile.HALL))
+        assertEquals(1, engine.sent.size)
+    }
+
     @Test fun `stats are the store's songs and bytes with the library's own month`() = runBlocking {
         engine.committed = 1_234_567
         engine.today = 4
@@ -266,6 +290,8 @@ class CloudSpatialLibraryTest {
         val sent = mutableListOf<Triple<String, String, Boolean>>()
         var capReached = false
         var refusal: CloudLibrarySend.Refused? = null
+        /** Runs as a job is being added (what the person does meanwhile). */
+        var beforeSend: (suspend () -> Unit)? = null
         var cancelledAll = 0
         var committed = 0L
         var today = 0
@@ -296,6 +322,7 @@ class CloudSpatialLibraryTest {
         override suspend fun sendLibraryJob(songId: String, videoId: String, profileId: String, ahead: Boolean): CloudLibrarySend {
             if (capReached) return CloudLibrarySend.CapReached
             refusal?.let { return it }
+            beforeSend?.invoke()
             sent += Triple(videoId, profileId, ahead)
             val existing = list.value.lastOrNull { it.state.isPending && it.library?.videoId == videoId }
             if (existing != null) {
