@@ -59,10 +59,10 @@ enum class SpatialRenditionStatus {
 
 /** What the current item sounds like (§6.3). */
 enum class SpatialRendition {
-    /** The normal stereo sound: the stream, its downloaded copy, or the Enhanced file. */
+    /** The normal stereo sound: the stream or its downloaded copy. */
     STEREO,
 
-    /** The stream (or the Enhanced file) through the on-device stage of §7. */
+    /** The stream through the on-device stage of §7. */
     ON_DEVICE,
 
     /** A cloud render from the local store, with the on-device stage bypassed for it (§6.3: never spatialize twice). */
@@ -112,8 +112,6 @@ data class SpatialAudible(
     val rendition: SpatialRendition = SpatialRendition.STEREO,
     /** The profile that is audible: the on-device preset or the render's own. Null while [rendition] is stereo. */
     val profile: SpatialProfile? = null,
-    /** The Enhanced file stands in for the stream (§6.3 "Enhanced"); a cloud render already contains it. */
-    val enhanced: Boolean = false,
     /** Why a selected profile is not audible, or null when it is audible or none is selected (§6.3). */
     val blockedBy: SpatialBlock? = null,
 ) {
@@ -137,7 +135,11 @@ data class SpatialRender(
     val profile: SpatialProfile,
     /** `filesDir/cloud_audio/<videoId>/sp-<profile>.flac` (§6.2): FLAC 16-bit, ready to play. */
     val file: File,
-    /** §3.1 `audio.sampleRate`: the source's own rate. */
+    /**
+     * §3.1 `audio.sampleRate`: the rate of the file that was uploaded for it. That may not be the rate this phone
+     * streams the song at (§6.2 step 3: 44.1 kHz when an iPhone made the render), so a render and the stream are
+     * lined up by media time, never by frame count.
+     */
     val sampleRate: Int,
     /** §3.1 `audio.samples`: the source's frame count, so the render keeps the song's timeline with no added delay. */
     val samples: Long,
@@ -150,8 +152,6 @@ data class SpatialRender(
     val headroomDb: Float,
     /** §3.1 `source.codec` (Developer mode's diagnostics, §6.5). */
     val sourceCodec: String? = null,
-    /** §3.1 `source.cutoffHz`: where the source's highs end (§6.5 diagnostics). */
-    val cutoffHz: Int? = null,
     /** §3.1 `render.stemMode`: `stems6`, `stems4` or `mix` (§6.5 diagnostics). */
     val stemMode: String? = null,
     /** §3.1 `loudness.integratedLufs` (§6.5 diagnostics). */
@@ -161,28 +161,11 @@ data class SpatialRender(
 )
 
 /**
- * A verified Enhanced file in the local store (§3 `enhanced.flac`, §6.3 "Enhanced"): the restored stereo song, at the
- * source's loudness. Only band-limited songs have one; for the others the library just remembers there is none.
- */
-data class EnhancedAudio(
-    /** The YouTube video it was made from, the library key (§2). */
-    val videoId: String,
-    /** `filesDir/cloud_audio/<videoId>/enhanced.flac` (§6.2). */
-    val file: File,
-    /** §3.1 `audio.sampleRate`: the source's own rate. */
-    val sampleRate: Int,
-    /** §3.1 `audio.samples`: the source's frame count. */
-    val samples: Long,
-    /** §3.1 `audio.durationMs`. */
-    val durationMs: Long,
-)
-
-/**
  * Settings' "Songs ready: N · X GB on this phone", and what library jobs have used of their own caps for Developer
  * mode's rows (§6.5, §6.1 "Money").
  */
 data class SpatialLibraryStats(
-    /** Songs with at least one verified render in the local store (a spatial render of any profile, or Enhanced). */
+    /** Songs with at least one verified render in the local store, of any profile. */
     val songsReady: Int = 0,
     /** What the local store holds, in bytes: audio and manifests. */
     val bytesOnPhone: Long = 0L,
@@ -202,9 +185,6 @@ sealed interface SpatialLibraryEvent {
      * (§6.3: at least 20 s left, no seek or track change in flight); otherwise the next play uses it.
      */
     data class RenderReady(val render: SpatialRender) : SpatialLibraryEvent
-
-    /** An Enhanced file was downloaded and verified (§6.3 "Enhanced"): the next play uses it. */
-    data class EnhancedReady(val audio: EnhancedAudio) : SpatialLibraryEvent
 
     /**
      * Files left the local store: every file of [videoId], or all of them when it is null ("Remove downloaded

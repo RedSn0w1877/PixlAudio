@@ -37,7 +37,6 @@ class SpatialSettingsRepository @Inject constructor(
         val ROUTE = stringPreferencesKey(KEY_ROUTE)
         val CLOUD = booleanPreferencesKey(KEY_CLOUD)
         val PREPARE_AHEAD = booleanPreferencesKey(KEY_PREPARE_AHEAD)
-        val ENHANCED = booleanPreferencesKey(KEY_ENHANCED)
         val STORAGE_MB = intPreferencesKey(KEY_STORAGE_MB)
         val MONTHLY_CAP_USD = intPreferencesKey(KEY_MONTHLY_CAP_USD)
         val DAILY_AHEAD = intPreferencesKey(KEY_DAILY_AHEAD)
@@ -49,7 +48,7 @@ class SpatialSettingsRepository @Inject constructor(
 
     /**
      * The settings of §6.1, as they change. Distinct: the shared store emits on every write of any setting, and
-     * only a change to one of these eight values passes.
+     * only a change to one of these seven values passes.
      */
     val settings: Flow<SpatialSettings> = dataStore.prefFlow(::read)
 
@@ -77,11 +76,6 @@ class SpatialSettingsRepository @Inject constructor(
     /** `spatial.prepareAhead` (§6.1, §6.4). */
     suspend fun setPrepareAhead(enabled: Boolean) {
         dataStore.edit { it[Keys.PREPARE_AHEAD] = enabled }
-    }
-
-    /** `enhanced.enabled` (§6.1, §6.3). */
-    suspend fun setEnhanced(enabled: Boolean) {
-        dataStore.edit { it[Keys.ENHANCED] = enabled }
     }
 
     /**
@@ -120,7 +114,6 @@ class SpatialSettingsRepository @Inject constructor(
             routeMode = SpatialRouteMode.fromId(stored[Keys.ROUTE] as? String),
             cloud = stored[Keys.CLOUD] as? Boolean ?: builtInCloud.isBundled,
             prepareAhead = stored[Keys.PREPARE_AHEAD] as? Boolean ?: SpatialSettings.DEFAULT_PREPARE_AHEAD,
-            enhanced = stored[Keys.ENHANCED] as? Boolean ?: SpatialSettings.DEFAULT_ENHANCED,
             storageMb = SpatialSettings.clampStorageMb(
                 stored[Keys.STORAGE_MB] as? Int ?: SpatialSettings.DEFAULT_STORAGE_MB
             ),
@@ -148,9 +141,6 @@ class SpatialSettingsRepository @Inject constructor(
 
         /** §6.1 key (Boolean). */
         const val KEY_PREPARE_AHEAD = "spatial.prepareAhead"
-
-        /** §6.1 key (Boolean). */
-        const val KEY_ENHANCED = "enhanced.enabled"
 
         /** §6.1 key (Int, megabytes, 256..65536). */
         const val KEY_STORAGE_MB = "cloudAudio.storageMB"

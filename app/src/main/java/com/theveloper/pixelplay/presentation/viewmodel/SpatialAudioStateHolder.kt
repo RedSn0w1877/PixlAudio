@@ -34,10 +34,10 @@ import kotlinx.coroutines.launch
 import timber.log.Timber
 
 /**
- * What the UI of Spatial audio and Enhanced audio reads and calls (cloud-audio-spec §6.5): the full player's sheet
- * (the profile list, Off, the status line) and Settings' Sound group (profile, cloud, prepare ahead, Enhanced,
- * "Songs ready", "Remove downloaded renders", and Developer mode's rows). Process-scoped like the other state
- * holders, so the sheet and Settings share one state and nothing is lost when a screen goes away.
+ * What the UI of Spatial audio reads and calls (cloud-audio-spec §6.5): the full player's sheet (the profile list,
+ * Off, the status line) and Settings' Sound group (profile, cloud, prepare ahead, "Songs ready", "Remove downloaded
+ * renders", and Developer mode's rows). Process-scoped like the other state holders, so the sheet and Settings
+ * share one state and nothing is lost when a screen goes away.
  *
  * It holds no rule of its own: the settings live in [SpatialSettingsRepository], what is audible comes from
  * [SpatialPlayback], renders and their status from [SpatialLibrary]. Every setter only writes the setting; the
@@ -59,8 +59,8 @@ class SpatialAudioStateHolder @Inject constructor(
     )
 
     /**
-     * The settings of §6.1: the selected profile (null is Off), the cloud switch, prepare ahead, Enhanced, and
-     * Developer mode's route mode, storage budget and caps. Starts on the defaults until the store has been read.
+     * The settings of §6.1: the selected profile (null is Off), the cloud switch, prepare ahead, and Developer
+     * mode's route mode, storage budget and caps. Starts on the defaults until the store has been read.
      */
     val settings: StateFlow<SpatialSettings> =
         repository.settings.stateIn(scope, SharingStarted.Eagerly, repository.defaults)
@@ -113,7 +113,7 @@ class SpatialAudioStateHolder @Inject constructor(
 
     /**
      * The current song's local render for the selected profile, once it is ready: Developer mode's per-song
-     * diagnostics (§6.5: source codec, cutoff, stem mode, loudness). Null otherwise.
+     * diagnostics (§6.5: source codec, stem mode, loudness). Null otherwise.
      */
     val currentRender: StateFlow<SpatialRender?> =
         combine(settings, playback.audible, currentStatus) { current, heard, status ->
@@ -153,11 +153,6 @@ class SpatialAudioStateHolder @Inject constructor(
     /** Settings' "prepare ahead" switch (§6.1 `spatial.prepareAhead`, §6.4). */
     fun setPrepareAhead(enabled: Boolean) {
         scope.launch { repository.setPrepareAhead(enabled) }
-    }
-
-    /** Settings' Enhanced audio switch (§6.1 `enhanced.enabled`). */
-    fun setEnhanced(enabled: Boolean) {
-        scope.launch { repository.setEnhanced(enabled) }
     }
 
     /** Developer mode's route mode (§6.1 `spatial.route`, §6.5). */

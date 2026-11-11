@@ -2,7 +2,6 @@ package com.theveloper.pixelplay.presentation.viewmodel
 
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import com.theveloper.pixelplay.data.cloudstudio.NoBuiltInCloudConfig
-import com.theveloper.pixelplay.data.spatial.EnhancedAudio
 import com.theveloper.pixelplay.data.spatial.SpatialAudible
 import com.theveloper.pixelplay.data.spatial.SpatialBlock
 import com.theveloper.pixelplay.data.spatial.SpatialLibrary
@@ -50,13 +49,12 @@ class SpatialAudioStateHolderTest {
         override val cloudRendersOn = MutableStateFlow(true)
 
         override suspend fun localRender(videoId: String, profile: SpatialProfile): SpatialRender? = renders[videoId to profile]
-        override suspend fun localEnhanced(videoId: String): EnhancedAudio? = null
         override fun request(songId: String, videoId: String, profile: SpatialProfile) = Unit
         override fun status(videoId: String, profile: SpatialProfile): Flow<SpatialRenditionStatus> =
             statuses.map { it[videoId to profile] ?: SpatialRenditionStatus.NONE }.distinctUntilChanged()
         override val events = MutableSharedFlow<SpatialLibraryEvent>()
         override val stats = MutableStateFlow(SpatialLibraryStats())
-        override fun markPlayed(videoId: String, profile: SpatialProfile?) = Unit
+        override fun markPlayed(videoId: String, profile: SpatialProfile) = Unit
         override suspend fun removeAll() {
             removeAllCalls++
         }
@@ -110,7 +108,6 @@ class SpatialAudioStateHolderTest {
 
             holder.setCloud(true)
             holder.setPrepareAhead(false)
-            holder.setEnhanced(false)
             holder.setRouteMode(SpatialRouteMode.ALWAYS)
             holder.setStorageMb(2048)
             holder.setMonthlyCapUsd(null)
@@ -120,7 +117,6 @@ class SpatialAudioStateHolderTest {
                 routeMode = SpatialRouteMode.ALWAYS,
                 cloud = true,
                 prepareAhead = false,
-                enhanced = false,
                 storageMb = 2048,
                 monthlyCapUsd = null,
                 dailyAhead = 5,
@@ -228,7 +224,6 @@ class SpatialAudioStateHolderTest {
                 durationMs = 202_000,
                 headroomDb = 4f,
                 sourceCodec = "opus",
-                cutoffHz = 20_000,
                 stemMode = "stems6",
                 integratedLufs = -13.8f,
                 sourceLufs = -9.8f,

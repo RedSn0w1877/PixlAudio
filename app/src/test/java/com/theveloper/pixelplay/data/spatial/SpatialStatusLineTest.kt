@@ -202,10 +202,8 @@ class SpatialStatusLineTest {
     @Test
     fun `before the cloud and player sides exist nothing is spatial and nothing is stored`() = runTest {
         assertNull(NoOpSpatialLibrary.localRender(video, SpatialProfile.STUDIO))
-        assertNull(NoOpSpatialLibrary.localEnhanced(video))
         NoOpSpatialLibrary.request("42", video, SpatialProfile.STUDIO)
         NoOpSpatialLibrary.markPlayed(video, SpatialProfile.STUDIO)
-        NoOpSpatialLibrary.markPlayed(video, null)
         NoOpSpatialLibrary.removeAll()
         assertEquals(SpatialRenditionStatus.NONE, NoOpSpatialLibrary.status(video, SpatialProfile.STUDIO).first())
         assertEquals(

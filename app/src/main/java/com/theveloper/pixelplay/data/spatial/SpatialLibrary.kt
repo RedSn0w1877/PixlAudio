@@ -10,15 +10,15 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.flowOf
 
 /**
- * The cloud side of Spatial audio and Enhanced audio as the rest of the app sees it (§3, §6.2, §6.4): the local store
- * of verified renders, and the way to get one (the shared library first, then a cloud job).
+ * The cloud side of Spatial audio as the rest of the app sees it (§3, §6.2, §6.4): the local store of verified
+ * renders, and the way to get one (the shared library first, then a cloud job).
  *
  * Every `videoId` here is the matched YouTube video id (§2, `CloudStreamSecurity.validateYouTubeVideoId`), never a
  * Spotify id: `SpotifyDao.getMatchedVideoId(spotifyId)` has it. A local render counts only for the current
  * [SpatialContract.LIB_V].
  *
- * The player calls [localRender], [localEnhanced], [request] and [markPlayed] and listens to [events]; the UI reads
- * [status], [stats] and [cloudRendersOn] and calls [removeAll], through
+ * The player calls [localRender], [request] and [markPlayed] and listens to [events]; the UI reads [status], [stats]
+ * and [cloudRendersOn] and calls [removeAll], through
  * [com.theveloper.pixelplay.presentation.viewmodel.SpatialAudioStateHolder]. The background queue of §6.4 lives
  * behind this interface: nobody asks for it from outside.
  *
@@ -45,23 +45,14 @@ interface SpatialLibrary {
     suspend fun localRender(videoId: String, profile: SpatialProfile): SpatialRender?
 
     /**
-     * §6.3 "Enhanced": the verified Enhanced file of [videoId], or null (none was made, it is not on this phone, or
-     * the song needed no restoring). Same rules as [localRender]: no network, quick, any thread.
-     */
-    suspend fun localEnhanced(videoId: String): EnhancedAudio?
-
-    /**
      * §6.2 steps 2-4: the song [songId] (the library's `Song.id`), which plays YouTube video [videoId], is playing
      * with Spatial audio active (§6.3) and has no local render of [profile]. The library fetches the shared render
-     * when one exists, else sends a cloud job with `tasks: ["spatial"]`, adding `"enhance"` when `enhanced.enabled`
-     * and no Enhanced manifest is known yet. Enhanced rides on Spatial jobs this round: there is no `enhance`-only
-     * request (§6.2 step 3).
+     * when one exists, else sends a cloud job with `tasks: ["spatial"]` and one render entry for the profile.
      *
      * Returns at once and never throws. The library decides whether anything happens: nothing while
      * [cloudRendersOn] is false, and inside the cap and the network rules otherwise (§6.1, §6.2). Calling it again
      * for the same video and profile while one is on its way, ready, or waiting out a failure's backoff changes
-     * nothing. Progress shows in [status]; the result arrives as [SpatialLibraryEvent.RenderReady] (and
-     * [SpatialLibraryEvent.EnhancedReady] when an Enhanced file came with it).
+     * nothing. Progress shows in [status]; the result arrives as [SpatialLibraryEvent.RenderReady].
      */
     fun request(songId: String, videoId: String, profile: SpatialProfile)
 
@@ -73,8 +64,8 @@ interface SpatialLibrary {
     fun status(videoId: String, profile: SpatialProfile): Flow<SpatialRenditionStatus>
 
     /**
-     * What changes in the local store, for the player (§6.3): a render or an Enhanced file arrived, or files were
-     * removed. Hot and without replay.
+     * What changes in the local store, for the player (§6.3): a render arrived, or files were removed. Hot and
+     * without replay.
      */
     val events: SharedFlow<SpatialLibraryEvent>
 
@@ -85,11 +76,10 @@ interface SpatialLibrary {
     val stats: StateFlow<SpatialLibraryStats>
 
     /**
-     * The player started playing a file from the local store: the render of [profile], or the Enhanced file when
-     * [profile] is null. The storage budget removes the least-recently-played first (§6.1 `cloudAudio.storageMB`),
-     * and never the one played last.
+     * The player started playing the render of [profile] from the local store. The storage budget removes the
+     * least-recently-played first (§6.1 `cloudAudio.storageMB`), and never the one played last.
      */
-    fun markPlayed(videoId: String, profile: SpatialProfile?)
+    fun markPlayed(videoId: String, profile: SpatialProfile)
 
     /**
      * §6.5 "Remove downloaded renders": deletes every file of the local store on this phone, never anything in the
@@ -108,8 +98,6 @@ object NoOpSpatialLibrary : SpatialLibrary {
 
     override suspend fun localRender(videoId: String, profile: SpatialProfile): SpatialRender? = null
 
-    override suspend fun localEnhanced(videoId: String): EnhancedAudio? = null
-
     override fun request(songId: String, videoId: String, profile: SpatialProfile) = Unit
 
     override fun status(videoId: String, profile: SpatialProfile): Flow<SpatialRenditionStatus> =
@@ -119,7 +107,7 @@ object NoOpSpatialLibrary : SpatialLibrary {
 
     override val stats: StateFlow<SpatialLibraryStats> = noStats.asStateFlow()
 
-    override fun markPlayed(videoId: String, profile: SpatialProfile?) = Unit
+    override fun markPlayed(videoId: String, profile: SpatialProfile) = Unit
 
     override suspend fun removeAll() = Unit
 }

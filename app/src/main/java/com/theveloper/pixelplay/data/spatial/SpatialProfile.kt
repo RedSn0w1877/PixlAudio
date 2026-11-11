@@ -1,7 +1,7 @@
 package com.theveloper.pixelplay.data.spatial
 
-// The contract of Spatial audio and Enhanced audio on Android (the spec is handoff/2026-11-10-plans/
-// cloud-audio-spec.md; "§" below is a section of it). This package holds only what the three parts of the feature
+// The contract of Spatial audio on Android (the spec is handoff/2026-11-10-plans/cloud-audio-spec.md; "§" below is
+// a section of it). This package holds only what the three parts of the feature
 // share: the ids, the settings, the status types and the two seams, [SpatialLibrary] (the cloud side) and
 // [SpatialPlayback] (the player side). The UI reads and calls
 // [com.theveloper.pixelplay.presentation.viewmodel.SpatialAudioStateHolder]. Who owns which file is in

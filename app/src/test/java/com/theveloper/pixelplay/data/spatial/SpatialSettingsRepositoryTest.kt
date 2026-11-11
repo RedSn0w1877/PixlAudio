@@ -59,7 +59,6 @@ class SpatialSettingsRepositoryTest {
             assertEquals(SpatialRouteMode.HEADPHONES, settings.routeMode)
             assertFalse(settings.cloud) // no built-in cloud keys in this build
             assertTrue(settings.prepareAhead)
-            assertTrue(settings.enhanced)
             assertEquals(3072, settings.storageMb)
             assertEquals(30, settings.monthlyCapUsd)
             assertEquals(25, settings.dailyAhead)
@@ -106,7 +105,6 @@ class SpatialSettingsRepositoryTest {
             repository.setRouteMode(SpatialRouteMode.ALWAYS)
             repository.setCloud(true)
             repository.setPrepareAhead(false)
-            repository.setEnhanced(false)
             repository.setStorageMb(1024)
             repository.setMonthlyCapUsd(75)
             repository.setDailyAhead(10)
@@ -117,7 +115,6 @@ class SpatialSettingsRepositoryTest {
                     "spatial.route" to "always",
                     "spatial.cloud" to true,
                     "spatial.prepareAhead" to false,
-                    "enhanced.enabled" to false,
                     "cloudAudio.storageMB" to 1024,
                     "cloudAudio.monthlyCapUSD" to 75,
                     "cloudAudio.dailyAhead" to 10,
@@ -130,7 +127,6 @@ class SpatialSettingsRepositoryTest {
                     routeMode = SpatialRouteMode.ALWAYS,
                     cloud = true,
                     prepareAhead = false,
-                    enhanced = false,
                     storageMb = 1024,
                     monthlyCapUsd = 75,
                     dailyAhead = 10,
@@ -266,7 +262,6 @@ class SpatialSettingsRepositoryTest {
                 it[stringPreferencesKey("spatial.route")] = "everywhere"
                 it[stringPreferencesKey("spatial.cloud")] = "yes"
                 it[intPreferencesKey("spatial.prepareAhead")] = 1
-                it[stringPreferencesKey("enhanced.enabled")] = "true"
                 it[stringPreferencesKey("cloudAudio.storageMB")] = "3 GB"
                 it[booleanPreferencesKey("cloudAudio.monthlyCapUSD")] = true
                 it[stringPreferencesKey("cloudAudio.dailyAhead")] = "25"
@@ -285,13 +280,13 @@ class SpatialSettingsRepositoryTest {
             val store = newStore(dir)
             val repository = SpatialSettingsRepository(store, NoBuiltInCloudConfig)
             repository.setProfile(SpatialProfile.NIGHT)
-            repository.setEnhanced(false)
+            repository.setPrepareAhead(false)
             repository.setMonthlyCapUsd(null)
 
             val exported = UserPreferencesRepository(dataStore = store, json = Json).exportPreferencesForBackup()
 
             assertTrue(exported.contains(PreferenceBackupEntry(key = "spatial.profile", type = "string", stringValue = "night")))
-            assertTrue(exported.contains(PreferenceBackupEntry(key = "enhanced.enabled", type = "boolean", booleanValue = false)))
+            assertTrue(exported.contains(PreferenceBackupEntry(key = "spatial.prepareAhead", type = "boolean", booleanValue = false)))
             assertTrue(exported.contains(PreferenceBackupEntry(key = "cloudAudio.monthlyCapUSD", type = "int", intValue = -1)))
         }
     }

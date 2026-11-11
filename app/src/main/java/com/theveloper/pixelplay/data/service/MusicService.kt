@@ -673,9 +673,9 @@ class MusicService : MediaLibraryService() {
             }
         }
 
-        // Spatial audio and Enhanced audio (handoff/2026-11-10-plans/cloud-audio-spec.md §6.1, §6.3): the stored
-        // settings reach the player here, like Hi-Fi mode above, so they apply with or without the app's UI. The
-        // first value arrives as soon as the store is read; applying the same settings again changes nothing.
+        // Spatial audio (handoff/2026-11-10-plans/cloud-audio-spec.md §6.1, §6.3): the stored settings reach the
+        // player here, like Hi-Fi mode above, so they apply with or without the app's UI. The first value arrives
+        // as soon as the store is read; applying the same settings again changes nothing.
         serviceScope.launch {
             spatialSettingsRepository.settings.collect { settings ->
                 spatialPlayback.apply(settings)

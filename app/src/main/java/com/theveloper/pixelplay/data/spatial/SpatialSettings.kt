@@ -44,11 +44,6 @@ data class SpatialSettings(
     /** `spatial.prepareAhead` (§6.1, §6.4): prepare favourites and most-played ahead, on Wi-Fi, battery not low. */
     val prepareAhead: Boolean = DEFAULT_PREPARE_AHEAD,
     /**
-     * `enhanced.enabled` (§6.1, §6.3): use the Enhanced version of band-limited songs. This round it only acts inside
-     * Spatial jobs (§6.2 step 3: no `enhance`-only jobs), so its switch sits with Spatial audio's rows (§6.5).
-     */
-    val enhanced: Boolean = DEFAULT_ENHANCED,
-    /**
      * `cloudAudio.storageMB` (§6.1): the local budget for downloaded renders, kept within
      * [MIN_STORAGE_MB]..[MAX_STORAGE_MB]; least-recently-played go first.
      */
@@ -81,9 +76,6 @@ data class SpatialSettings(
     companion object {
         /** §6.1: `spatial.prepareAhead` is on by default. */
         const val DEFAULT_PREPARE_AHEAD = true
-
-        /** §6.1: `enhanced.enabled` is on by default. */
-        const val DEFAULT_ENHANCED = true
 
         /** §6.1: `cloudAudio.storageMB` defaults to 3072. */
         const val DEFAULT_STORAGE_MB = 3072

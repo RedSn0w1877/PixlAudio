@@ -11,6 +11,6 @@ import javax.inject.Inject
  */
 @HiltViewModel
 class SpatialAudioViewModel @Inject constructor(
-    /** The state and actions of Spatial audio and Enhanced audio (§6.5). */
+    /** The state and actions of Spatial audio (§6.5). */
     val spatial: SpatialAudioStateHolder,
 ) : ViewModel()
