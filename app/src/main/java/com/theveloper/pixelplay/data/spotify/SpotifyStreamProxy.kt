@@ -9,11 +9,14 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
+import com.theveloper.pixelplay.data.spotiflac.SpotiFLACClient
+import com.theveloper.pixelplay.data.spotiflac.toSpotiFLACQuery
 import com.theveloper.pixelplay.data.stream.CloudStreamProxy
 import com.theveloper.pixelplay.data.stream.CloudStreamSecurity
 import com.theveloper.pixelplay.data.youtube.ChainedYouTubeStreamResolver
 import com.theveloper.pixelplay.data.youtube.newpipe.NewPipeStreamResolver
 import com.theveloper.pixelplay.data.youtube.piped.PipedStreamResolver
+import io.ktor.http.ContentType
 import okhttp3.OkHttpClient
 import timber.log.Timber
 import javax.inject.Inject
@@ -37,15 +40,35 @@ class SpotifyStreamProxy @Inject constructor(
     private val trackMatcher: TrackMatcher,
     private val streamResolver: ChainedYouTubeStreamResolver,
     private val newPipeStreamResolver: NewPipeStreamResolver,
-    private val pipedStreamResolver: PipedStreamResolver
+    private val pipedStreamResolver: PipedStreamResolver,
+    private val spotiFLACClient: SpotiFLACClient
 ) : CloudStreamProxy<String>(okHttpClient) {
+
+    constructor(
+        okHttpClient: OkHttpClient,
+        spotifyDao: SpotifyDao,
+        trackMatcher: TrackMatcher,
+        streamResolver: ChainedYouTubeStreamResolver,
+        newPipeStreamResolver: NewPipeStreamResolver,
+        pipedStreamResolver: PipedStreamResolver
+    ) : this(
+        okHttpClient = okHttpClient,
+        spotifyDao = spotifyDao,
+        trackMatcher = trackMatcher,
+        streamResolver = streamResolver,
+        newPipeStreamResolver = newPipeStreamResolver,
+        pipedStreamResolver = pipedStreamResolver,
+        spotiFLACClient = SpotiFLACClient(okHttpClient)
+    )
 
     // trustedHosts crece en caliente con las instancias que el registro oficial de Piped
     // devuelva (ver PipedStreamResolver) — de ahí el getter en vez de un valor fijo: la lista
     // fija de tres instancias murió entera de una sesión a otra, así que hace falta que esto
     // siga al día con lo que el resolver haya descubierto, no solo lo que había al arrancar.
     override val allowedHostSuffixes: Set<String>
-        get() = setOf("googlevideo.com") + pipedStreamResolver.trustedHosts
+        get() = setOf("googlevideo.com") +
+            pipedStreamResolver.trustedHosts +
+            SpotiFLACClient.TRUSTED_AUDIO_HOST_SUFFIXES
 
     // 3 horas: la mitad del plazo típico de caducidad, para no servir nunca una URL muerta.
     override val cacheExpirationMs: Long = 3 * 60 * 60 * 1000L
@@ -81,7 +104,11 @@ class SpotifyStreamProxy @Inject constructor(
      * googlevideo también responde con 403, indistinguible del resto. Cada URL es única por
      * resolución, así que usarla de clave elimina la carrera sin más.
      */
-    private data class StreamIdentity(val userAgent: String, val strategy: String?)
+    private data class StreamIdentity(
+        val userAgent: String,
+        val strategy: String?,
+        val mimeType: String? = null
+    )
     private val identityByUrl = java.util.Collections.synchronizedMap(
         object : LinkedHashMap<String, StreamIdentity>(128, 0.75f, true) {
             override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, StreamIdentity>?) = size > 256
@@ -109,6 +136,9 @@ class SpotifyStreamProxy @Inject constructor(
     override fun onUpstreamFailure(id: String, url: String, status: Int) {
         if (status !in setOf(401, 403, 404, 410)) return
         val strategy = identityByUrl[url]?.strategy ?: return
+        if (strategy == "SpotiFLAC") {
+            spotiFLACClient.invalidate(id)
+        }
         if (failuresById.size > 128) failuresById.clear()
         failuresById.compute(id) { _, previous ->
             previous.orEmpty().filter { it.name != strategy } + FailedStrategy(strategy, System.currentTimeMillis())
@@ -120,19 +150,78 @@ class SpotifyStreamProxy @Inject constructor(
         .mapTo(HashSet()) { it.name }
 
 
-    private fun rememberUserAgent(url: String, userAgent: String, strategy: String?) {
-        identityByUrl[url] = StreamIdentity(userAgent, strategy)
+    private fun rememberUserAgent(
+        url: String,
+        userAgent: String,
+        strategy: String?,
+        mimeType: String? = null
+    ) {
+        identityByUrl[url] = StreamIdentity(userAgent, strategy, mimeType)
+    }
+
+    override fun resolveResponseContentType(
+        id: String,
+        url: String,
+        upstreamContentType: String?
+    ): ContentType {
+        val knownMime = identityByUrl[url]?.mimeType
+        if (knownMime?.contains("flac", ignoreCase = true) == true) {
+            val normalizedUpstream = upstreamContentType?.substringBefore(';')?.trim()?.lowercase()
+            if (normalizedUpstream == null ||
+                normalizedUpstream == "application/octet-stream" ||
+                normalizedUpstream == "binary/octet-stream" ||
+                normalizedUpstream.contains("flac")
+            ) {
+                return ContentType.parse("audio/flac")
+            }
+        }
+        return super.resolveResponseContentType(id, url, upstreamContentType)
     }
 
     override fun upstreamHeaders(id: String, url: String): Map<String, String> {
-        val userAgent = identityByUrl[url]?.userAgent ?: return emptyMap()
+        val identity = identityByUrl[url] ?: return emptyMap()
+        if (identity.strategy == "SpotiFLAC") {
+            return mapOf("User-Agent" to identity.userAgent)
+        }
         // Exactamente las mismas cabeceras con las que se validó el enlace, ni una más.
-        return com.theveloper.pixelplay.data.youtube.InnerTubeContexts.streamHeaders(userAgent)
+        return com.theveloper.pixelplay.data.youtube.InnerTubeContexts.streamHeaders(identity.userAgent)
     }
 
     override suspend fun resolveStreamUrl(id: String): String? {
         // R12: how long matching (only when it happens on the spot) and resolving took.
         var matchMs: Long? = null
+        val excluded = excludedStrategies(id)
+
+        // 1. SpotiFLAC lossless resolver chain first (Monochrome -> Tidal HiFi -> Deezer ISRC),
+        //    unless the user manually pinned a specific YouTube video or SpotiFLAC failed on this track.
+        if ("SpotiFLAC" !in excluded) {
+            val song = spotifyDao.getSongBySpotifyId(id)
+            if (song != null && song.matchState != SpotifyMatchState.MANUAL) {
+                val flacResolveStartMs = SystemClock.elapsedRealtime()
+                val flacStream = withTimeoutOrNull(12_000L) {
+                    spotiFLACClient.resolve(song.toSpotiFLACQuery())
+                }
+                if (flacStream != null) {
+                    rememberUserAgent(
+                        url = flacStream.url,
+                        userAgent = flacStream.userAgent,
+                        strategy = "SpotiFLAC",
+                        mimeType = flacStream.mimeType
+                    )
+                    StreamStartTimings.urlResolved(
+                        id = id,
+                        matchMs = null,
+                        resolveMs = SystemClock.elapsedRealtime() - flacResolveStartMs,
+                        strategy = "SpotiFLAC",
+                        nParam = false,
+                        nTransformMs = null
+                    )
+                    return flacStream.url
+                }
+            }
+        }
+
+        // 2. Fallback to YouTube matching & InnerTube / Piped / NewPipe resolution.
         // Playback and offline rendering may start before WorkManager runs. Repair the
         // missing match here, coalescing concurrent requests for the same track.
         val videoId = spotifyDao.getMatchedVideoId(id) ?: matchLocks[(id.hashCode() and Int.MAX_VALUE) % matchLocks.size].withLock {
@@ -189,7 +278,6 @@ class SpotifyStreamProxy @Inject constructor(
                 nTransformMs = nTransformMs
             )
         }
-        val excluded = excludedStrategies(id)
         val resolved = streamResolver.resolveStream(videoId, validate = false, excludedStrategies = excluded)
         // Read right away: the flag belongs to this resolve (two clients said the video itself is
         // unplayable, none said OK; the bot wall is not counted).

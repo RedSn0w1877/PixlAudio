@@ -236,6 +236,21 @@ abstract class CloudStreamProxy<K : Any>(
      */
     protected open fun upstreamHeaders(id: K, url: String): Map<String, String> = emptyMap()
 
+    /**
+     * Resolves the HTTP `Content-Type` served by the local proxy for [url].
+     * Subclasses may override this when an upstream host serves raw audio bytes as
+     * `application/octet-stream` (for example, direct `.flac` streamers).
+     */
+    protected open fun resolveResponseContentType(
+        id: K,
+        url: String,
+        upstreamContentType: String?
+    ): ContentType {
+        return upstreamContentType?.substringBefore(';')
+            ?.let { runCatching { ContentType.parse(it) }.getOrNull() }
+            ?: ContentType.Audio.Any
+    }
+
     // ─── Internal ──────────────────────────────────────────────────────
 
     /** Olvida la URL cacheada de [id] para forzar que se vuelva a resolver. */
@@ -399,8 +414,7 @@ abstract class CloudStreamProxy<K : Any>(
                             call.response.header("Content-Range", "bytes $start-$end/$total")
                         }
                         call.response.header("Accept-Ranges", "bytes")
-                        val contentType = first.header("Content-Type")?.substringBefore(';')
-                            ?.let { runCatching { ContentType.parse(it) }.getOrNull() } ?: ContentType.Audio.Any
+                        val contentType = resolveResponseContentType(id, url, first.header("Content-Type"))
                         headersSent = true
                         call.respondBytesWriter(contentType = contentType, contentLength = responseLength) {
                             val channel = this
