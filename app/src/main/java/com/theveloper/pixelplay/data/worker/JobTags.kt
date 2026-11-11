@@ -27,6 +27,8 @@ enum class PixelPlayJobKind(val label: String) {
     AI_TASK("AI task"),
     AI_DAILY_MIX("Curating Daily Mix"),
     CLOUD_STUDIO("Cloud processing"),
+    /** Spatial audio's background queue getting songs ready ahead (cloud-audio-spec §6.4): quiet, this row only. */
+    SPATIAL_AUDIO("Spatial audio"),
     UNKNOWN("Working")
 }
 
@@ -40,6 +42,7 @@ fun WorkInfo.pixelPlayJobKind(): PixelPlayJobKind = when {
     tags.contains(AiWorker.WORK_NAME) -> PixelPlayJobKind.AI_TASK
     tags.contains(com.theveloper.pixelplay.data.cloudstudio.CloudStudioWorker.PASS_WORK) ||
         tags.contains(com.theveloper.pixelplay.data.cloudstudio.CloudStudioWorker.WIFI_WORK) -> PixelPlayJobKind.CLOUD_STUDIO
+    tags.contains(com.theveloper.pixelplay.data.spatial.library.SpatialAheadWorker.WORK_NAME) -> PixelPlayJobKind.SPATIAL_AUDIO
     tags.any { it == SyncWorker.WORK_NAME || it == SyncWorker.PERIODIC_MAINTENANCE_WORK_NAME } ->
         PixelPlayJobKind.LIBRARY_SYNC
     tags.contains(SpotifySyncWorker.WORK_NAME) -> PixelPlayJobKind.SPOTIFY_SYNC

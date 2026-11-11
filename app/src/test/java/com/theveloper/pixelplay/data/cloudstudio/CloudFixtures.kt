@@ -7,7 +7,8 @@ import kotlinx.serialization.json.JsonObject
 
 /**
  * The worker's golden examples (the `.json` files in `cloud/runpod-worker/schema/v1/examples/` of the PixlAudio-iOS
- * repo, copied byte for byte from iOS main @ 3ea323a into `src/test/resources/cloudstudio/worker/`) and the phone-side
+ * repo, copied byte for byte from iOS main @ 3ea323a into `src/test/resources/cloudstudio/worker/`; the Spatial audio
+ * ones, `*.spatial*.json` and `library.render.spatial.json`, from its `audio-worker` branch @ b6f8eda) and the phone-side
  * fixtures the iOS tests use (`cloudstudio/phone/`: RunPod answers, a bucket listing, lyrics edge cases).
  */
 internal object CloudFixtures {

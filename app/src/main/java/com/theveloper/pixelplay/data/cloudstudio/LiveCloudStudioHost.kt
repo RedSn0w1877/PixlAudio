@@ -82,6 +82,33 @@ class LiveCloudStudioHost(
         return withContext(Dispatchers.IO) { spotifyDao.getMatchedVideoId(spotifyId) }
     }
 
+    /**
+     * A Spatial audio job's audio: a complete copy already on the phone as it is, else (when allowed) a fresh copy into
+     * the listening cache. Never a permanent download: a render is keyed by the video and lined up by media time, so the
+     * song's file doesn't have to stay, and the background queue's songs must not pile up in Downloads.
+     */
+    override suspend fun libraryAudioSource(song: CloudSong, allowDownload: Boolean): String? {
+        val appSong = appSong(song.id) ?: return null
+        val spotifyId = appSong.spotifyId
+            ?: return appSong.contentUriString.ifBlank { appSong.path }.takeIf { it.isNotBlank() }
+        audioCacheManager.getPlayableFile(spotifyId)?.let { return it.absolutePath }
+        if (!allowDownload) return null
+        for (attempt in 1..3) {
+            currentCoroutineContext().ensureActive()
+            val file = withTimeoutOrNull(DOWNLOAD_TIMEOUT_MS) {
+                audioCacheManager.downloadAndCache(spotifyStreamProxy, spotifyId, isPermanent = false)
+            }
+            if (file != null) return file.absolutePath
+            if (attempt < 3) delay(attempt * 2_000L)
+        }
+        throw IOException("Couldn't download this song for the cloud. Check your connection; it will try again.")
+    }
+
+    override suspend fun streamItag(song: CloudSong): Int? {
+        val spotifyId = appSong(song.id)?.spotifyId ?: return null
+        return spotifyStreamProxy.cachedStreamItag(spotifyId)
+    }
+
     override suspend fun hasInstrumental(songId: String): Boolean = withContext(Dispatchers.IO) {
         TaisInstrumentalIndex.bestAvailableFile(context, songId) != null
     }

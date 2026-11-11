@@ -53,6 +53,8 @@ data class CloudProgress(val stage: String, val percent: Int?) {
             "probe", "decode" -> "Reading the audio"
             "separate" -> "Separating vocals"
             "stems4", "stems" -> "Splitting stems"
+            "stems6" -> "Splitting six stems"
+            "render" -> "Rendering Spatial audio"
             "lyrics", "align" -> "Timing the lyrics"
             "transcribe" -> "Writing the lyrics"
             "encode" -> "Encoding"

@@ -75,6 +75,9 @@ class PixelPlayApplication : Application(), ImageLoaderFactory, Configuration.Pr
     lateinit var cloudAutoPrepareScheduler: dagger.Lazy<com.theveloper.pixelplay.data.cloudstudio.auto.CloudAutoPrepareScheduler>
 
     @Inject
+    lateinit var spatialAheadScheduler: dagger.Lazy<com.theveloper.pixelplay.data.spatial.library.SpatialAheadScheduler>
+
+    @Inject
     lateinit var appUpdateManager: dagger.Lazy<com.theveloper.pixelplay.data.update.AppUpdateManager>
 
     @Inject
@@ -115,6 +118,8 @@ class PixelPlayApplication : Application(), ImageLoaderFactory, Configuration.Pr
                 cloudStudioEngine.get().setAppVisible(true)
                 // "Prepare songs ahead in the cloud": the 6-hourly worker follows the two switches (a no-op while off).
                 cloudAutoPrepareScheduler.get().sync()
+                // Spatial audio's background queue (prepare ahead) follows its switches and the selected profile.
+                runCatching { spatialAheadScheduler.get().sync() }
                 // Listening history from Spotify / YouTube Music: the worker syncs only when 6 h have passed.
                 com.theveloper.pixelplay.data.history.ListeningHistorySyncWorker.enqueue(this@PixelPlayApplication)
             }

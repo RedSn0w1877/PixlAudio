@@ -128,7 +128,8 @@ class CloudStudioAutoEngine(private val engine: CloudStudioEngine) : CloudAutoEn
     override suspend fun load() = engine.loadForDisplay()
     override fun usable() = engine.autoPrepareUsable()
     override fun personHasWork() = engine.hasWorkForThePerson()
-    override fun pendingCanonicalIds() = engine.state.value.jobs.filter { it.state.isPending }
+    // A Spatial audio render job says nothing about the song's instrumental: it doesn't keep Sing's ranker away.
+    override fun pendingCanonicalIds() = engine.state.value.jobs.filter { it.state.isPending && !it.isLibrary }
         .mapTo(HashSet()) { TaisInstrumentalIndex.canonicalSongId(it.songId) }
     override fun outstandingAutoJobs() = engine.state.value.jobs.count { it.origin == CloudJobOrigin.AUTO && it.state.isPending }
     override fun autoCommittedMicroUsd() = engine.autoCommittedThisMonthMicroUsd()
