@@ -1,6 +1,6 @@
 # Android Spatial audio: ENGINE handoff (2026-11-11)
 
-Branch `audio-engine`, cut from `origin/audio-hq` 50cf187, with `audio-hq` 8f53b62 (tables v1.1, spec §7 v1.1) merged. Last code commit: 3f28e36 (CI green, run 43070771228); this note follows it.
+Branch `audio-engine`, cut from `origin/audio-hq` 50cf187, with `audio-hq` 8f53b62 (tables v1.1, spec §7 v1.1) merged. Last code commit: 3d5779c (CI green, run 43072484627); this note follows it.
 Contract files untouched. Everything below follows `handoff/2026-11-10-plans/cloud-audio-spec.md` (spec §N) and
 `android-integration-map.md` (map N); where it does not, it says so under "Divergences".
 
@@ -78,6 +78,7 @@ How it plays:
 | 43067407001 (DSP measured first, still warming up) | 199.1 ns/frame | 124.1 ns/frame |
 | 43069152149 (both warmed up first) | 114.6 ns/frame | 118.1 ns/frame |
 
+Measured before tables v1.1, whose room high-pass adds one biquad per channel (about 10 multiply-adds a frame).
 Under the 250 ns/frame bar, so the FIRs stay time-domain (no FFT, no added latency): about 5.7 ms of CPU per second
 of 48 kHz audio on the runner. Nothing was measured on a phone (ART on ARM64 is expected to be slower; the inner loops
 have no dependency between frames and the JIT may vectorise them). The test prints the numbers (they are in the test
@@ -157,7 +158,8 @@ All on `android-ci.yml`:
 | 43067407001 | 64425aa (stage + tests) | compile green; golden, ramp and processor tests green; the benchmark failed on purpose to report its numbers |
 | 43069152149 | f3960a3 (wiring) | compile green; every unit test green but the deliberate benchmark failure |
 | 43070411528 | e235140 | cancelled by the next push |
-| 43070771228 | 3f28e36 | **green**: compile, all unit tests (Sing and crossfade tests unchanged and passing), Wear compile, debug APKs |
+| 43070771228 | 3f28e36 | green: compile, all unit tests (Sing and crossfade tests unchanged and passing), Wear compile, debug APKs |
+| 43072484627 | 3d5779c (audio-hq 8f53b62 merged, tables and spec section 7 v1.1) | **green**: the golden test reproduces the v1.1 golden file with the room high-pass; everything else as above |
 
 Not run anywhere: a phone. Everything about how it sounds (the 250 ms swap, the 80 ms ramps, gapless boundaries,
 offload gap length) and the stage's CPU on ART still needs a listen on Hoa's phone.
