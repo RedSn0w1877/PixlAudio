@@ -98,8 +98,8 @@ crossover and the delay lines; with no profile ever selected it is a buffer copy
 5. **Alignment tolerance 20 ms** (Sing's is 40 ms): two spatial renderings of the same song overlap for 250 ms.
 6. **Mid-song swaps also cover a local render found at song start** when the item had already been resolved to the
    stream (its next-item preload ran before the render arrived, or Sing or the route blocked Spatial then).
-7. **Known limitation: a preloaded next song keeps its decision.** Its source is opened up to a minute or two before
-   it plays; if Spatial is switched off or the profile changes after that, that one song may still start on the old
+7. **Known limitation: a preloaded next song keeps its decision.** Its source is opened about the last minute of the song
+   before (the 30-60 s buffer plus the 10 s preload); if Spatial is switched off or the profile changes after that, that one song may still start on the old
    render (heard spatial, without the stage). Fixing it means dropping the preloaded period on a settings change.
 8. **Route monitor** is the engine's own (registered only while a profile is selected and the service runs), not
    `ConnectivityStateHolder`, whose callbacks live and die with the UI's ViewModel. `ConnectivityStateHolder.kt` and
@@ -107,6 +107,13 @@ crossover and the delay lines; with no profile ever selected it is a buffer copy
 9. **Virtualizer**: already forced off by the service at start (the equalizer lock); nothing added. If that lock is
    lifted, the virtualizer must stay off while a profile is selected (`EqualizerManager` is not ENGINE's file).
 10. The stage writes 16-bit with saturation and float clamped to ±1 (spec §7); no other limiter.
+11. **Ramp shapes** (for the comparison with iOS): a bypass or Off is one 80 ms linear ramp to dry; a profile change
+    is 80 ms down to dry, the coefficients swap at fully dry, 80 ms back up (about 160 ms in all, as spec §7 reads:
+    "ramps a wet/dry mix ... then swaps coefficients"). The dry path's delay changes only where it cannot be heard
+    (fully wet, or a reset), so a first profile picked on a playing song crossfades from the undelayed signal.
+12. **Re-swaps**: after a render on the second player went back because of Sing or the route, the same render may take
+    over again when the conditions return (20 s rule applies); a render that could not start because a seek was in
+    flight is tried again once the seek settled (1 s).
 
 ## For the other roles and the lead
 

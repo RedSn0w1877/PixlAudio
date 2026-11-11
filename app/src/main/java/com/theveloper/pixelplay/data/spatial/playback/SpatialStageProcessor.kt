@@ -121,6 +121,16 @@ class SpatialStageProcessor internal constructor(
         val output = replaceOutputBuffer(frames * bytesPerFrame)
         val state = link.state
         if (state !== lastState) applyState(state, format.sampleRate)
+        if (kernel.isIdle) {
+            // Nobody has selected a profile: a plain copy, the cheapest thing a processor in the chain can do.
+            val limit = inputBuffer.limit()
+            inputBuffer.limit(inputBuffer.position() + frames * bytesPerFrame)
+            output.put(inputBuffer)
+            inputBuffer.limit(limit)
+            inputBuffer.position(limit)
+            output.flip()
+            return
+        }
         val isFloat = format.encoding == C.ENCODING_PCM_FLOAT
         val littleEndian = inputBuffer.order() == ByteOrder.LITTLE_ENDIAN
         var done = 0

@@ -75,6 +75,9 @@ internal class SpatialStageKernel(val maxBlock: Int = DEFAULT_MAX_BLOCK) {
     /** The preset whose coefficients are in use (for tests). */
     val currentPreset: SpatialPreset? get() = preset
 
+    /** No preset in use or wanted: [process] would copy its input unchanged (no delay, no state). */
+    val isIdle: Boolean get() = preset == null && pending == null
+
     /** Sizes the rings once for every preset of [tables] (the first time a table is there). */
     fun ensureCapacity(tables: SpatialPreviewTables) =
         ensureCapacity(tables.maxSparseDelay, tables.maxTaps, tables.maxLowDelay)
