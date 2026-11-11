@@ -4,8 +4,10 @@ import android.os.SystemClock
 import com.theveloper.pixelplay.data.database.SpotifyDao
 import com.theveloper.pixelplay.data.diagnostics.StreamStartTimings
 import com.theveloper.pixelplay.data.database.SpotifyMatchState
+import com.theveloper.pixelplay.data.preferences.UserPreferencesRepository
 import com.theveloper.pixelplay.data.youtube.TrackMatcher
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
@@ -43,7 +45,8 @@ class SpotifyStreamProxy @Inject constructor(
     private val streamResolver: ChainedYouTubeStreamResolver,
     private val newPipeStreamResolver: NewPipeStreamResolver,
     private val pipedStreamResolver: PipedStreamResolver,
-    private val spotiFLACClient: SpotiFLACClient
+    private val spotiFLACClient: SpotiFLACClient,
+    private val userPreferencesRepository: UserPreferencesRepository
 ) : CloudStreamProxy<String>(okHttpClient) {
 
     // trustedHosts crece en caliente con las instancias que el registro oficial de Piped
@@ -129,6 +132,18 @@ class SpotifyStreamProxy @Inject constructor(
         const val SPOTIFLAC_PARALLEL_PIECES = 3
     }
 
+    /**
+     * FLAC runs about 1,000 kbps, so it only plays when the audio quality setting has no cap
+     * (Ultrasound, the default). A capped tier (Low/Standard/High) stays on YouTube at its cap.
+     */
+    private suspend fun losslessAllowed(): Boolean = try {
+        userPreferencesRepository.audioQualityFlow.first().maxBitrateKbps == null
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        true
+    }
+
     /** A SpotiFLAC audio URL, even after its identity left [identityByUrl]. */
     private fun isSpotiFLACUrl(url: String): Boolean {
         if (identityByUrl[url]?.strategy == SPOTIFLAC_STRATEGY) return true
@@ -200,48 +215,58 @@ class SpotifyStreamProxy @Inject constructor(
     }
 
     override suspend fun resolveStreamUrl(id: String): String? {
+        val excluded = excludedStrategies(id)
+        // SpotiFLAC is skipped for two minutes after its URL failed on this track.
+        val spotiFLACUsable = SPOTIFLAC_STRATEGY !in excluded
+        // Uncapped quality (the default): FLAC first, YouTube as the fallback. A capped tier stays
+        // on YouTube at its cap and only falls back to FLAC when YouTube has nothing for the song.
+        val flacFirst = spotiFLACUsable && losslessAllowed()
+        if (flacFirst) resolveViaSpotiFLAC(id)?.let { return it }
+        val viaYouTube = resolveViaYouTube(id, excluded)
+        if (viaYouTube != null || flacFirst || !spotiFLACUsable) return viaYouTube
+        return resolveViaSpotiFLAC(id)
+    }
+
+    /**
+     * The SpotiFLAC lossless chain (Monochrome, then any Tidal HiFi instance), unless the user pinned a
+     * YouTube video by hand. Bounded by SPOTIFLAC_BUDGET_MS; any failure in it is a `null`.
+     */
+    private suspend fun resolveViaSpotiFLAC(id: String): String? {
+        val song = spotifyDao.getSongBySpotifyId(id) ?: return null
+        if (song.matchState == SpotifyMatchState.MANUAL) return null
+        val flacResolveStartMs = SystemClock.elapsedRealtime()
+        val flacStream = try {
+            withTimeoutOrNull(SPOTIFLAC_BUDGET_MS) {
+                spotiFLACClient.resolve(song.toSpotiFLACQuery())
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Timber.w(e, "SpotiFLAC lookup failed for %s", id)
+            null
+        } ?: return null
+        rememberUserAgent(
+            url = flacStream.url,
+            userAgent = flacStream.userAgent,
+            strategy = SPOTIFLAC_STRATEGY,
+            mimeType = flacStream.mimeType
+        )
+        StreamStartTimings.urlResolved(
+            id = id,
+            matchMs = null,
+            resolveMs = SystemClock.elapsedRealtime() - flacResolveStartMs,
+            strategy = SPOTIFLAC_STRATEGY,
+            nParam = false,
+            nTransformMs = null
+        )
+        return flacStream.url
+    }
+
+    /** YouTube matching & InnerTube / Piped / NewPipe resolution. */
+    private suspend fun resolveViaYouTube(id: String, excluded: Set<String>): String? {
         // R12: how long matching (only when it happens on the spot) and resolving took.
         var matchMs: Long? = null
-        val excluded = excludedStrategies(id)
 
-        // 1. SpotiFLAC lossless chain first (Monochrome, then any Tidal HiFi instance), unless the user
-        //    pinned a YouTube video by hand or SpotiFLAC just failed on this track. Bounded by
-        //    SPOTIFLAC_BUDGET_MS, and any failure in it falls through to the YouTube chain below.
-        if (SPOTIFLAC_STRATEGY !in excluded) {
-            val song = spotifyDao.getSongBySpotifyId(id)
-            if (song != null && song.matchState != SpotifyMatchState.MANUAL) {
-                val flacResolveStartMs = SystemClock.elapsedRealtime()
-                val flacStream = try {
-                    withTimeoutOrNull(SPOTIFLAC_BUDGET_MS) {
-                        spotiFLACClient.resolve(song.toSpotiFLACQuery())
-                    }
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    Timber.w(e, "SpotiFLAC lookup failed for %s; using YouTube", id)
-                    null
-                }
-                if (flacStream != null) {
-                    rememberUserAgent(
-                        url = flacStream.url,
-                        userAgent = flacStream.userAgent,
-                        strategy = SPOTIFLAC_STRATEGY,
-                        mimeType = flacStream.mimeType
-                    )
-                    StreamStartTimings.urlResolved(
-                        id = id,
-                        matchMs = null,
-                        resolveMs = SystemClock.elapsedRealtime() - flacResolveStartMs,
-                        strategy = SPOTIFLAC_STRATEGY,
-                        nParam = false,
-                        nTransformMs = null
-                    )
-                    return flacStream.url
-                }
-            }
-        }
-
-        // 2. Fallback to YouTube matching & InnerTube / Piped / NewPipe resolution.
         // Playback and offline rendering may start before WorkManager runs. Repair the
         // missing match here, coalescing concurrent requests for the same track.
         val videoId = spotifyDao.getMatchedVideoId(id) ?: matchLocks[(id.hashCode() and Int.MAX_VALUE) % matchLocks.size].withLock {

@@ -81,9 +81,9 @@ enum class AlbumArtQuality(val maxSize: Int, val label: String) {
  * User-selectable streaming audio quality tier. Caps the bitrate
  * [com.theveloper.pixelplay.data.youtube.YouTubeStreamResolver.pickBestAudio] will pick among the
  * candidate formats a video offers — it can only choose among what YouTube actually serves for
- * that video, it cannot demand a higher bitrate than exists. There is no lossless/hi-res stream
- * available by any route (see CLAUDE.md), so [ULTRASOUND] means "no cap, take the best available"
- * rather than an actual ultrasonic/hi-res guarantee.
+ * that video, it cannot demand a higher bitrate than exists. [ULTRASOUND] means "no cap, take the
+ * best available": only then does the Spotify proxy try SpotiFLAC's FLAC (about 1,000 kbps) before
+ * YouTube; every capped tier stays on YouTube at its cap. Not a hi-res guarantee either way.
  *
  * @property maxBitrateKbps upper bound on selectable bitrate, or null for no cap.
  */
