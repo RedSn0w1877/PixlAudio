@@ -33,6 +33,29 @@ class LyricsClockTest {
     }
 
     @Test
+    fun aCorrectionWhilePlaying_easesIn_andNeverStepsBack() {
+        var pos = 10_000L
+        val clock = LyricsClock(positionProvider = { pos })
+        clock.tick(0L)
+        clock.isPlaying = true
+        var t = 0L
+        var last = clock.currentMs
+        // The session's update lands: the player is 250 ms behind what the controller had extrapolated.
+        repeat(60) {
+            t += frame
+            pos += 8
+            if (it == 10) pos -= 250
+            clock.tick(t)
+            assertTrue("time stepped back at frame $it", clock.currentMs >= last)
+            assertTrue("jumped at frame $it", clock.currentMs - last <= 40)
+            last = clock.currentMs
+        }
+        // Caught up with the player within half a second.
+        assertTrue(kotlin.math.abs(clock.currentMs - pos) <= 15)
+        assertEquals(0, clock.seekCount)
+    }
+
+    @Test
     fun peek_readsPositionPlusOffset_withoutPublishing() {
         var pos = 5_000L
         val clock = LyricsClock(positionProvider = { pos }, offsetMsProvider = { 250L })

@@ -95,9 +95,14 @@ class LyricsClock(
             publish(raw)
             return true
         }
-        val backward = currentMs - raw
-        if (isPlaying && backward in 1 until BACKWARD_JITTER_MS) {
-            // Jitter: hold the current time rather than stepping back.
+        if (isPlaying) {
+            // Small disagreements ease in instead of snapping. The controller's position is extrapolated between
+            // the session's updates (every 3 s) and each update corrects it by up to a few hundred ms (the player's
+            // own position runs a little fast, then steps back), which made the words jump every few seconds
+            // (Hoa, 2026-11-11). Easing a fraction of the error per frame closes it in about a third of a second, and
+            // time never steps back while playing (a correction backwards is a short hold instead).
+            val eased = predicted + ((raw - predicted) * EASE_PER_FRAME).toLong()
+            if (eased > currentMs) publish(eased)
             return false
         }
         publish(raw)
@@ -131,5 +136,9 @@ class LyricsClock(
     companion object {
         const val BACKWARD_JITTER_MS = 80L
         const val SEEK_THRESHOLD_MS = 1_000L
+
+        /** The share of a small disagreement with the player taken per frame while playing (see [tick]). */
+        const val EASE_PER_FRAME = 0.12
+
     }
 }
