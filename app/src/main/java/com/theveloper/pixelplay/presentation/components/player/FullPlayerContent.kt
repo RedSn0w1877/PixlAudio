@@ -1766,14 +1766,15 @@ private fun PlayerProgressBarSection(
                 else -> "$base • $spatialFileInfo"
             }
         } else {
-            null
+            // The tier alone ("Pro", "Studio Pro", "High") is for everyone (Hoa, 2026-11-11); rate, codec and
+            // Spatial stay behind "Show player file info" in developer mode. Only what the stream says, never the
+            // setting's guess.
+            streamQualityTierLabel(audioMimeType, audioBitrate?.takeIf { it > 0 }?.let { it / 1000 }, audioSampleRate)
         }
     }
     var displayAudioMetaLabel by remember(songId) { mutableStateOf<String?>(null) }
-    LaunchedEffect(songId, audioMetaLabel, showAudioFileInfo) {
-        if (!showAudioFileInfo) {
-            displayAudioMetaLabel = null
-        } else if (!audioMetaLabel.isNullOrBlank()) {
+    LaunchedEffect(songId, audioMetaLabel) {
+        if (!audioMetaLabel.isNullOrBlank()) {
             displayAudioMetaLabel = audioMetaLabel
         } else {
             kotlinx.coroutines.delay(500)
@@ -1923,7 +1924,7 @@ private fun PlayerProgressBarSection(
                  ProgressPlaceholder(
                      color = placeholderColor,
                      onColor = placeholderOnColor,
-                     showAudioMetaChip = showAudioFileInfo && !displayAudioMetaLabel.isNullOrBlank()
+                     showAudioMetaChip = !displayAudioMetaLabel.isNullOrBlank()
                  )
              }
         }

@@ -367,13 +367,14 @@ class LyricsEngineTest {
         assertFalse(c.tick(f))
         assertEquals(10_000L, c.nowMs)
 
-        f += 16_000_000L; pos = 9_960L // 40 ms backwards: jitter, rejected
+        f += 16_000_000L; pos = 9_960L // 40 ms backwards: eased in, never a step back
         assertFalse(c.tick(f))
-        assertEquals(10_000L, c.nowMs)
+        assertTrue(c.nowMs in 10_000L..10_016L)
+        val held = c.nowMs
 
-        f += 16_000_000L; pos = 9_900L // 100 ms backwards: accepted, not a seek
+        f += 16_000_000L; pos = 9_900L // further back, not a seek: time never steps back while playing
         assertFalse(c.tick(f))
-        assertEquals(9_900L, c.nowMs)
+        assertTrue(c.nowMs in held..(held + 16L))
 
         f += 16_000_000L; pos = 20_000L
         assertTrue(c.tick(f))
