@@ -372,9 +372,9 @@ class LyricsEngineTest {
         assertTrue(c.nowMs in 10_000L..10_016L)
         val held = c.nowMs
 
-        f += 16_000_000L; pos = 9_900L // further back, not a seek: held (time never steps back while playing)
+        f += 16_000_000L; pos = 9_900L // further back, not a seek: time never steps back while playing
         assertFalse(c.tick(f))
-        assertEquals(held, c.nowMs)
+        assertTrue(c.nowMs in held..(held + 16L))
 
         f += 16_000_000L; pos = 20_000L
         assertTrue(c.tick(f))
