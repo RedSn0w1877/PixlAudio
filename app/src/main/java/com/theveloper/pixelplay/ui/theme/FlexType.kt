@@ -10,6 +10,9 @@ import androidx.compose.runtime.Stable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.MutableFloatState
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.referentialEqualityPolicy
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -53,6 +56,8 @@ import androidx.compose.ui.unit.sp
 import com.theveloper.pixelplay.R
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.withContext
 import timber.log.Timber
 import java.util.concurrent.ConcurrentHashMap
@@ -416,6 +421,104 @@ fun FlexFitText(
     )
 }
 
+/**
+ * The artist / playlist hero title: [FlexFitText] and [FlexCollapsingTitle] in one.
+ *
+ * Expanded (fraction 0) it fits by width at [expandedStyle]'s size: a short name widens up to
+ * [FlexFitPolicy.maxWidth] to fill the line, a long one condenses, a very long one wraps onto
+ * [FlexFitPolicy.maxLines] lines. As the header collapses it walks, in [steps] cached instances,
+ * from that fitted cut to [collapsed] (lighter, condensed) at [collapsedFontSize], and drops to
+ * [collapsedMaxLines] past the halfway step. The size moves continuously in graphicsLayer, scaled
+ * about [transformOrigin]; use [collapseScale] to place it.
+ *
+ * The parent may narrow the max width as the header collapses (e.g. to leave room for top bar
+ * buttons); the fit itself is solved against the width offered at step 0 and memoised, so each
+ * step costs one text layout. Once the fitted width is known, the instances of every step are
+ * warmed on Dispatchers.Default, so the first collapse never builds a font on the main thread.
+ */
+@Composable
+fun FlexFitCollapsingTitle(
+    text: String,
+    collapseFraction: () -> Float,
+    expandedStyle: TextStyle,
+    collapsedFontSize: TextUnit,
+    color: ColorProducer,
+    modifier: Modifier = Modifier,
+    expanded: FlexSpec = FlexPresets.HeroDisplay,
+    collapsed: FlexSpec = FlexPresets.HeroCollapsed,
+    policy: FlexFitPolicy = FlexFitPolicy(),
+    collapsedMaxLines: Int = 1,
+    steps: Int = 8,
+    transformOrigin: TransformOrigin = TransformOrigin(0f, 0.5f),
+) {
+    val context = LocalContext.current.applicationContext
+    val stepCount = steps.coerceAtLeast(2)
+    val measurer = rememberTextMeasurer(cacheSize = stepCount + 8)
+    val currentFraction = rememberUpdatedState(collapseFraction)
+    val index = remember(stepCount) { derivedStateOf { FlexMath.stepIndex(currentFraction.value(), stepCount) } }
+    val fromSize = expandedStyle.sizeSpOr(FlexAxis.OPSZ_DEFAULT)
+    val toSize = if (collapsedFontSize.isSpecified && collapsedFontSize.isSp) collapsedFontSize.value else fromSize
+    val fittedAxis = remember { mutableFloatStateOf(Float.NaN) }
+    val measurePolicy = remember(text, expandedStyle, expanded, collapsed, policy, collapsedMaxLines, stepCount, toSize, measurer) {
+        FitCollapsingMeasurePolicy(
+            measurer = measurer,
+            text = text,
+            policy = policy,
+            steps = stepCount,
+            fromSize = fromSize,
+            toSize = toSize,
+            expanded = expanded,
+            collapsed = collapsed,
+            collapsedMaxLines = collapsedMaxLines,
+            index = index,
+            fittedAxisOut = fittedAxis,
+        ) { spec, sizeSp ->
+            val sized = expandedStyle.withSize(fromSize, sizeSp)
+            flexTextStyle(sized, FlexFonts.family(context, spec), spec)
+        }
+    }
+    LaunchedEffect(measurePolicy) {
+        // The fit candidates at full size first (what the first layout measures)...
+        val atSize = expanded.atSize(fromSize)
+        FlexFonts.warmUp(context, listOf(policy.minWidth, policy.maxWidth, policy.multiLineMaxWidth).map { atSize.copy(width = it) })
+        // ...then every step of the path from the fitted cut, as soon as layout has solved it.
+        snapshotFlow { fittedAxis.floatValue }
+            .filter { !it.isNaN() }
+            .distinctUntilChanged()
+            .collect { axis -> FlexFonts.warmUp(context, measurePolicy.allSpecs(axis)) }
+    }
+    Layout(
+        modifier = modifier
+            .semantics { this.text = AnnotatedString(text) }
+            .graphicsLayer {
+                val s = FlexMath.continuousScale(currentFraction.value(), fromSize, toSize, stepCount)
+                scaleX = s
+                scaleY = s
+                this.transformOrigin = transformOrigin
+            }
+            .drawBehind { measurePolicy.result.value?.let { drawText(it, color = color()) } },
+        measurePolicy = measurePolicy,
+    )
+}
+
+/**
+ * The graphicsLayer scale [FlexFitCollapsingTitle] applies at [fraction], for parents that place
+ * it by its visual size (layout size × this).
+ */
+fun collapseScale(fraction: Float, expandedFontSize: TextUnit, collapsedFontSize: TextUnit, steps: Int = 8): Float {
+    val from = if (expandedFontSize.isSpecified && expandedFontSize.isSp) expandedFontSize.value else return 1f
+    val to = if (collapsedFontSize.isSpecified && collapsedFontSize.isSp) collapsedFontSize.value else from
+    return FlexMath.continuousScale(fraction, from, to, steps.coerceAtLeast(2))
+}
+
+/** [this] at [toSize] sp, with an sp line height scaled along (em line heights scale by themselves). */
+private fun TextStyle.withSize(fromSize: Float, toSize: Float): TextStyle {
+    if (fromSize == toSize) return this
+    val lh = lineHeight
+    val scaledLineHeight = if (lh.isSpecified && lh.isSp && fromSize > 0f) (lh.value * toSize / fromSize).sp else lh
+    return copy(fontSize = toSize.sp, lineHeight = scaledLineHeight)
+}
+
 /** Convenience for a fixed colour. */
 fun flexColor(color: Color): ColorProducer = ColorProducer { color }
 
@@ -480,19 +583,25 @@ private class RampTextMeasurePolicy(
     )
 }
 
-private class FitTextMeasurePolicy(
+/**
+ * The fit-by-width search behind [FlexFitText] and [FlexFitCollapsingTitle]: for one max width,
+ * the widest `wdth` that keeps [text] on one line, or else the widest that fits it on
+ * [FlexFitPolicy.maxLines] lines. Memoised per max width; a handful of measurements per solve.
+ */
+private class FlexWidthFitter(
     private val measurer: TextMeasurer,
     private val text: String,
     private val policy: FlexFitPolicy,
     private val styleForWidth: (Float) -> TextStyle,
-) : FlexTextMeasurePolicy() {
-    // Memo of the last fit: the axis chosen for a given max width.
+) {
     private var memoMaxWidth = -1
-    private var memoAxis = Float.NaN
-    private var memoSingleLine = true
+    var axis = Float.NaN
+        private set
+    var singleLine = true
+        private set
     private val candidates = policy.multiLineCandidates()
 
-    private fun singleLine(axis: Float): TextLayoutResult = measurer.measure(
+    fun singleLine(axis: Float): TextLayoutResult = measurer.measure(
         text = text,
         style = styleForWidth(axis),
         overflow = TextOverflow.Ellipsis,
@@ -500,7 +609,7 @@ private class FitTextMeasurePolicy(
         maxLines = 1,
     )
 
-    private fun wrapped(axis: Float, maxWidth: Int): TextLayoutResult = measurer.measure(
+    fun wrapped(axis: Float, maxWidth: Int): TextLayoutResult = measurer.measure(
         text = text,
         style = styleForWidth(axis),
         overflow = TextOverflow.Ellipsis,
@@ -509,48 +618,114 @@ private class FitTextMeasurePolicy(
         constraints = Constraints(maxWidth = maxWidth),
     )
 
+    /** Solves for [maxWidth] (no-op when it was the last one solved). */
+    fun fit(maxWidth: Int) {
+        if (maxWidth == memoMaxWidth && !axis.isNaN()) return
+        memoMaxWidth = maxWidth
+        val available = maxWidth.toFloat()
+        val wLo = singleLine(policy.minWidth).size.width.toFloat()
+        val wHi = singleLine(policy.maxWidth).size.width.toFloat()
+        val solved = FlexMath.solveSingleLineWidth(wLo, wHi, policy.minWidth, policy.maxWidth, available)
+        if (solved != null) {
+            var a: Float = solved
+            // The linear estimate is close but not exact; verify and step down a little if needed.
+            var tries = 0
+            while (a > policy.minWidth && singleLine(a).size.width > maxWidth && tries < 4) {
+                a = (a - 2f).coerceAtLeast(policy.minWidth)
+                tries++
+            }
+            axis = a
+            singleLine = true
+            return
+        }
+        val found = FlexMath.firstFitting(candidates) { candidate ->
+            !wrapped(candidate, maxWidth).hasVisualOverflow
+        }
+        axis = if (found >= 0) candidates[found] else policy.minWidth
+        singleLine = false
+    }
+}
+
+private class FitTextMeasurePolicy(
+    private val measurer: TextMeasurer,
+    private val text: String,
+    private val policy: FlexFitPolicy,
+    private val styleForWidth: (Float) -> TextStyle,
+) : FlexTextMeasurePolicy() {
+    private val fitter = FlexWidthFitter(measurer, text, policy, styleForWidth)
+
     override fun layoutFor(constraints: Constraints): TextLayoutResult {
         val maxWidth = constraints.maxWidth
-        if (maxWidth == Constraints.Infinity) return singleLine(policy.maxWidth)
-        if (maxWidth != memoMaxWidth || memoAxis.isNaN()) {
-            solve(maxWidth)
-            memoMaxWidth = maxWidth
-        }
-        return if (memoSingleLine) {
+        if (maxWidth == Constraints.Infinity) return fitter.singleLine(policy.maxWidth)
+        fitter.fit(maxWidth)
+        return if (fitter.singleLine) {
             measurer.measure(
                 text = text,
-                style = styleForWidth(memoAxis),
+                style = styleForWidth(fitter.axis),
                 overflow = TextOverflow.Ellipsis,
                 softWrap = false,
                 maxLines = 1,
                 constraints = Constraints(maxWidth = maxWidth),
             )
         } else {
-            wrapped(memoAxis, maxWidth)
+            fitter.wrapped(fitter.axis, maxWidth)
         }
     }
+}
 
-    private fun solve(maxWidth: Int) {
-        val available = maxWidth.toFloat()
-        val wLo = singleLine(policy.minWidth).size.width.toFloat()
-        val wHi = singleLine(policy.maxWidth).size.width.toFloat()
-        val solved = FlexMath.solveSingleLineWidth(wLo, wHi, policy.minWidth, policy.maxWidth, available)
-        if (solved != null) {
-            var axis: Float = solved
-            // The linear estimate is close but not exact; verify and step down a little if needed.
-            var tries = 0
-            while (axis > policy.minWidth && singleLine(axis).size.width > maxWidth && tries < 4) {
-                axis = (axis - 2f).coerceAtLeast(policy.minWidth)
-                tries++
-            }
-            memoAxis = axis
-            memoSingleLine = true
-            return
+private class FitCollapsingMeasurePolicy(
+    private val measurer: TextMeasurer,
+    private val text: String,
+    private val policy: FlexFitPolicy,
+    private val steps: Int,
+    private val fromSize: Float,
+    private val toSize: Float,
+    private val expanded: FlexSpec,
+    private val collapsed: FlexSpec,
+    private val collapsedMaxLines: Int,
+    private val index: State<Int>,
+    private val fittedAxisOut: MutableFloatState,
+    private val styleFor: (FlexSpec, Float) -> TextStyle,
+) : FlexTextMeasurePolicy() {
+    private val fitter = FlexWidthFitter(measurer, text, policy) { width ->
+        val spec = expanded.copy(width = width).atSize(fromSize)
+        styleFor(spec, fromSize)
+    }
+    private val styles = arrayOfNulls<TextStyle>(steps)
+    private var stylesAxis = Float.NaN
+
+    private fun sizeAt(i: Int): Float = FlexMath.lerp(fromSize, toSize, FlexMath.stepFraction(i, steps))
+
+    fun specAt(i: Int, axis: Float): FlexSpec =
+        expanded.copy(width = axis).lerp(collapsed, FlexMath.stepFraction(i, steps)).atSize(sizeAt(i))
+
+    fun allSpecs(axis: Float): List<FlexSpec> = List(steps) { specAt(it, axis) }
+
+    override fun layoutFor(constraints: Constraints): TextLayoutResult {
+        val i = index.value.coerceIn(0, steps - 1)
+        val maxWidth = constraints.maxWidth
+        if (maxWidth == Constraints.Infinity) return fitter.singleLine(policy.maxWidth)
+        // The fit belongs to the expanded title: solve it against step 0's width only.
+        if (i == 0 || fitter.axis.isNaN()) fitter.fit(maxWidth)
+        val axis = fitter.axis
+        if (axis != stylesAxis) {
+            styles.fill(null)
+            stylesAxis = axis
+            if (fittedAxisOut.floatValue != axis) fittedAxisOut.floatValue = axis
         }
-        val found = FlexMath.firstFitting(candidates) { candidate ->
-            !wrapped(candidate, maxWidth).hasVisualOverflow
+        val style = styles[i] ?: styleFor(specAt(i, axis), sizeAt(i)).also { styles[i] = it }
+        val lines = when {
+            i == 0 && fitter.singleLine -> 1
+            FlexMath.stepFraction(i, steps) < 0.5f -> policy.maxLines
+            else -> collapsedMaxLines
         }
-        memoAxis = if (found >= 0) candidates[found] else policy.minWidth
-        memoSingleLine = false
+        return measurer.measure(
+            text = text,
+            style = style,
+            overflow = TextOverflow.Ellipsis,
+            softWrap = lines > 1,
+            maxLines = lines,
+            constraints = Constraints(maxWidth = maxWidth),
+        )
     }
 }

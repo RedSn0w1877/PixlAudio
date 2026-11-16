@@ -1,37 +1,18 @@
 package com.theveloper.pixelplay.presentation.components.player
 
-import android.content.Context
-import android.graphics.Bitmap
-import android.graphics.BitmapShader
-import android.graphics.ComposeShader
-import android.graphics.LinearGradient
-import android.graphics.Matrix
-import android.graphics.PorterDuff
-import android.graphics.Shader
-import android.util.LruCache
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
-import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ShaderBrush
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import coil.request.CachePolicy
@@ -42,82 +23,23 @@ import com.theveloper.pixelplay.data.preferences.AlbumArtQuality
 import com.theveloper.pixelplay.presentation.components.OptimizedAlbumArt
 import com.theveloper.pixelplay.presentation.components.SafeOriginalAlbumArtSize
 import com.theveloper.pixelplay.presentation.components.albumArtMemoryCacheKey
+import com.theveloper.pixelplay.presentation.components.hero.HeroBlur
+import com.theveloper.pixelplay.presentation.components.hero.HeroBlurBaker
+import com.theveloper.pixelplay.presentation.components.hero.ScrimTint
+import com.theveloper.pixelplay.presentation.components.hero.heroBlurBrush
+import com.theveloper.pixelplay.presentation.components.hero.rememberHeroBlur
+import com.theveloper.pixelplay.presentation.components.hero.rememberHeroBlurCrossfade
 import com.theveloper.pixelplay.presentation.components.safeAlbumArtTargetSize
-import com.theveloper.pixelplay.presentation.lyrics.background.ArtworkSpriteBaker
-import com.theveloper.pixelplay.presentation.lyrics.background.SpriteBlur
 import com.theveloper.pixelplay.utils.LocalArtworkUri
 import kotlinx.collections.immutable.ImmutableList
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.ensureActive
-import kotlinx.coroutines.withContext
-import timber.log.Timber
 import kotlin.math.abs
-
-/**
- * The blurred copy of one cover: a 96 px, opaque, pre-blurred and slightly saturated bitmap, plus
- * the mean luminance of its bottom third (what the title ends up sitting on).
- */
-@Immutable
-internal class HeroBlur(val key: String, val bitmap: Bitmap, val coverLuma: Float)
-
-/**
- * Bakes [HeroBlur]s off the main thread, once per cover, through the same tiny decode and CPU blur
- * the lyrics background uses ([ArtworkSpriteBaker.decodeArt], [SpriteBlur]).
- *
- * Why a baked bitmap and not a `RenderEffect` blur on API 31+: HWUI applies a RenderEffect as an
- * image filter every time the node is drawn, and the full player redraws every frame while its
- * progress wave moves, so the blur would be recomputed 60-120 times a second for a picture that
- * never changes. The baked 96 px bitmap is blurred once (a few ms on a background thread), costs
- * one bilinear-filtered textured rect per frame, and looks the same on API 30, where RenderEffect
- * does not exist. The upscale itself is part of the softening.
- */
-internal object PlayerHeroBlurBaker {
-    private val cache = LruCache<String, HeroBlur>(6)
-
-    fun peek(uri: String?): HeroBlur? =
-        if (uri.isNullOrBlank()) null else cache.get(uri)
-
-    suspend fun bake(context: Context, uri: String): HeroBlur? {
-        peek(uri)?.let { return it }
-        return withContext(Dispatchers.Default) {
-            try {
-                val art = ArtworkSpriteBaker.decodeArt(context.applicationContext, uri)
-                    ?: return@withContext null
-                ensureActive()
-                val size = ArtworkSpriteBaker.ART_TEXELS
-                val pixels = SpriteBlur.bakeSprite(art, size, 0, PlayerHeroMath.BLUR_SIGMA_TEXELS, opaque = true)
-                PlayerHeroMath.saturate(pixels, PlayerHeroMath.BLUR_SATURATION)
-                val luma = PlayerHeroMath.meanLuma(pixels, size, size * 2 / 3, size)
-                val bitmap = Bitmap.createBitmap(pixels, size, size, Bitmap.Config.ARGB_8888)
-                HeroBlur(uri, bitmap, luma).also { cache.put(uri, it) }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                Timber.w(e, "Player hero: failed to bake the blurred cover")
-                null
-            }
-        }
-    }
-}
 
 /**
  * The blurred cover for [uri], baked in the background. Until a new one is ready the previous
  * song's stays (the hero cross-fades between them); a cover that can't be decoded gives null.
  */
 @Composable
-internal fun rememberPlayerHeroBlur(uri: String?): State<HeroBlur?> {
-    val context = LocalContext.current.applicationContext
-    val state = remember { mutableStateOf(PlayerHeroBlurBaker.peek(uri)) }
-    LaunchedEffect(uri) {
-        if (uri.isNullOrBlank()) {
-            state.value = null
-            return@LaunchedEffect
-        }
-        state.value = PlayerHeroBlurBaker.peek(uri) ?: PlayerHeroBlurBaker.bake(context, uri)
-    }
-    return state
-}
+internal fun rememberPlayerHeroBlur(uri: String?): State<HeroBlur?> = rememberHeroBlur(uri)
 
 /** Art size the hero requests, the same as the old carousel's so both share Coil's cache. */
 internal fun heroArtTargetSize(quality: AlbumArtQuality): Size =
@@ -148,21 +70,7 @@ internal fun PlayerHeroArtwork(
     val scrimTint = remember { ScrimTint() }
 
     // Cross-fade between the old and the new blurred cover (the sharp cover fades in Coil).
-    val current = blur.value
-    var shown by remember { mutableStateOf(current) }
-    var leaving by remember { mutableStateOf<HeroBlur?>(null) }
-    val swap = remember { Animatable(1f) }
-    LaunchedEffect(current) {
-        if (current === shown) return@LaunchedEffect
-        leaving = shown
-        shown = current
-        swap.snapTo(0f)
-        try {
-            swap.animateTo(1f, tween(durationMillis = 320, easing = FastOutSlowInEasing))
-        } finally {
-            leaving = null
-        }
-    }
+    val fade = rememberHeroBlurCrossfade(blur)
 
     Box(
         modifier = modifier.graphicsLayer {
@@ -189,12 +97,17 @@ internal fun PlayerHeroArtwork(
                 .matchParentSize()
                 .drawWithCache {
                     val stops = PlayerHeroMath.stops(size.width, size.height)
-                    val shownBrush = shown?.let { heroBlurBrush(it.bitmap, stops) }
-                    val leavingBrush = leaving?.let { heroBlurBrush(it.bitmap, stops) }
+                    // The sharp cover is the W×W square at the top; the blur lines up with it.
+                    val shownBrush = fade.shown?.let {
+                        heroBlurBrush(it.bitmap, stops.width, stops.width, stops.rampStart, stops.rampEnd)
+                    }
+                    val leavingBrush = fade.leaving?.let {
+                        heroBlurBrush(it.bitmap, stops.width, stops.width, stops.rampStart, stops.rampEnd)
+                    }
                     val scrimMask = heroScrimMask(stops)
                     onDrawBehind {
                         if (leavingBrush != null) drawRect(leavingBrush)
-                        if (shownBrush != null) drawRect(shownBrush, alpha = swap.value)
+                        if (shownBrush != null) drawRect(shownBrush, alpha = fade.progress.value)
                         drawRect(scrimMask, colorFilter = scrimTint.filterFor(backgroundState.value))
                     }
                 }
@@ -204,28 +117,6 @@ internal fun PlayerHeroArtwork(
 
 /** `matchParentSize` is a BoxScope member; this hero's Spacer is always the second Box child. */
 private fun Modifier.matchParentSize(): Modifier = this.then(Modifier.fillMaxSize())
-
-/**
- * The blurred cover scaled to the W×W square at the top (mirrored below it, which continues the
- * blur), shown only where the vertical mask is opaque: from [PlayerHeroMath.Stops.rampStart]
- * (clear) to [PlayerHeroMath.Stops.rampEnd] (fully blurred) and below.
- */
-private fun heroBlurBrush(bitmap: Bitmap, stops: PlayerHeroMath.Stops): Brush {
-    val image = BitmapShader(bitmap, Shader.TileMode.CLAMP, Shader.TileMode.MIRROR).apply {
-        setLocalMatrix(
-            Matrix().apply {
-                setScale(stops.width / bitmap.width, stops.width / bitmap.height)
-            }
-        )
-    }
-    val mask = LinearGradient(
-        0f, stops.rampStart, 0f, stops.rampEnd.coerceAtLeast(stops.rampStart + 1f),
-        0x00000000, 0xFF000000.toInt(),
-        Shader.TileMode.CLAMP
-    )
-    // ComposeShader(dst, src, DST_IN): the cover's colour, the gradient's alpha.
-    return ShaderBrush(ComposeShader(image, mask, PorterDuff.Mode.DST_IN))
-}
 
 /**
  * The player's background laid over the hero, as an alpha mask (tinted with the background colour
@@ -246,21 +137,6 @@ private fun heroScrimMask(stops: PlayerHeroMath.Stops): Brush {
         startY = 0f,
         endY = stops.height
     )
-}
-
-/** One tint filter per background colour: a new one only while the album colours fade. */
-private class ScrimTint {
-    private var color: Color = Color.Unspecified
-    private var filter: ColorFilter? = null
-
-    fun filterFor(background: Color): ColorFilter {
-        val cached = filter
-        if (cached != null && background == color) return cached
-        return ColorFilter.tint(background, BlendMode.SrcIn).also {
-            color = background
-            filter = it
-        }
-    }
 }
 
 /**
@@ -293,7 +169,7 @@ internal fun PrefetchHeroNeighbors(
                     .allowHardware(true)
                     .build()
             )
-            PlayerHeroBlurBaker.bake(context, uri)
+            HeroBlurBaker.bake(context, uri)
         }
     }
 }

@@ -113,6 +113,16 @@
     <string name="artist_action_change_photo">Change photo</string>
     <string name="artist_action_reset_to_default">Reset to default</string>
     <string name="artist_cd_shuffle_play">Shuffle play artist</string>
+    <string name="artist_section_albums">Albums</string>
+    <string name="artist_section_songs_by_album">Songs by album</string>
+    <string name="artist_cd_more_options">More options</string>
+    <string name="artist_cd_open_album">Open %1$s</string>
+    <!-- %1$s = "N songs", %2$s = "M albums" -->
+    <string name="artist_header_counts">%1$s · %2$s</string>
+    <plurals name="artist_album_count">
+        <item quantity="one">%d album</item>
+        <item quantity="other">%d albums</item>
+    </plurals>
 
     <!-- AlbumDetailScreen -->
     <string name="album_disc_number_header">Disc %d</string>

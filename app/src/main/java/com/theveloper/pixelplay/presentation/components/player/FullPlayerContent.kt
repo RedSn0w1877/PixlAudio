@@ -1,4 +1,5 @@
 package com.theveloper.pixelplay.presentation.components.player
+import com.theveloper.pixelplay.presentation.components.hero.HeroBlur
 import kotlinx.coroutines.flow.distinctUntilChanged
 import android.annotation.SuppressLint
 import android.content.Context

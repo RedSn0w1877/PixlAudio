@@ -1,5 +1,7 @@
 package com.theveloper.pixelplay.presentation.components.player
 
+import com.theveloper.pixelplay.presentation.components.hero.HeroBlurMath
+
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
@@ -43,11 +45,11 @@ internal object PlayerHeroMath {
     /** Background alpha right at the title row (the mockup's 58 % → 78 % ramp sampled there). */
     const val TITLE_SCRIM = 0.40f
 
-    /** Blur of the baked cover, in texels of the 96 px decode (≈ 5.7 % of the width on screen). */
-    const val BLUR_SIGMA_TEXELS = 5.5f
+    /** Blur of the baked cover (shared with the page heroes, see [HeroBlurMath]). */
+    const val BLUR_SIGMA_TEXELS = HeroBlurMath.BLUR_SIGMA_TEXELS
 
-    /** Saturation of the blurred copy (the mockup's `saturate(120%)`), baked into the pixels. */
-    const val BLUR_SATURATION = 1.2f
+    /** Saturation of the blurred copy (shared with the page heroes). */
+    const val BLUR_SATURATION = HeroBlurMath.BLUR_SATURATION
 
     /** One set of positions for a hero of [width]×[height] px. */
     class Stops(
@@ -83,49 +85,12 @@ internal object PlayerHeroMath {
         )
     }
 
-    /**
-     * Raises the saturation of opaque ARGB [pixels] in place by [amount] (1 = unchanged), around
-     * Rec.709 luma like CSS `saturate()`. Alpha is kept.
-     */
-    fun saturate(pixels: IntArray, amount: Float) {
-        if (amount == 1f) return
-        for (i in pixels.indices) {
-            val c = pixels[i]
-            val a = c ushr 24
-            val r = (c shr 16) and 0xFF
-            val g = (c shr 8) and 0xFF
-            val b = c and 0xFF
-            val luma = 0.2126f * r + 0.7152f * g + 0.0722f * b
-            val nr = (luma + (r - luma) * amount).roundToInt().coerceIn(0, 255)
-            val ng = (luma + (g - luma) * amount).roundToInt().coerceIn(0, 255)
-            val nb = (luma + (b - luma) * amount).roundToInt().coerceIn(0, 255)
-            pixels[i] = (a shl 24) or (nr shl 16) or (ng shl 8) or nb
-        }
-    }
+    /** See [HeroBlurMath.saturate]; kept here for the player's own callers and tests. */
+    fun saturate(pixels: IntArray, amount: Float) = HeroBlurMath.saturate(pixels, amount)
 
-    /**
-     * Mean relative luminance (0..1, Rec.709 on sRGB-ish values) of rows [fromRow] until [toRow]
-     * of a [size]-wide ARGB image: what the title sits on, for its GRAD bump.
-     */
-    fun meanLuma(pixels: IntArray, size: Int, fromRow: Int, toRow: Int): Float {
-        if (size <= 0 || pixels.isEmpty()) return 0f
-        val rows = pixels.size / size
-        val from = fromRow.coerceIn(0, rows)
-        val to = toRow.coerceIn(from, rows)
-        if (to == from) return 0f
-        var sum = 0.0
-        for (y in from until to) {
-            val row = y * size
-            for (x in 0 until size) {
-                val c = pixels[row + x]
-                val r = ((c shr 16) and 0xFF) / 255f
-                val g = ((c shr 8) and 0xFF) / 255f
-                val b = (c and 0xFF) / 255f
-                sum += 0.2126f * r + 0.7152f * g + 0.0722f * b
-            }
-        }
-        return (sum / ((to - from) * size)).toFloat()
-    }
+    /** See [HeroBlurMath.meanLuma]. */
+    fun meanLuma(pixels: IntArray, size: Int, fromRow: Int, toRow: Int): Float =
+        HeroBlurMath.meanLuma(pixels, size, fromRow, toRow)
 
     /** Luminance under the title: the blurred cover with the background laid over at [TITLE_SCRIM]. */
     fun titleBackdropLuma(coverLuma: Float, backgroundLuma: Float): Float =
