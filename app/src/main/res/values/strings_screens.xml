@@ -87,6 +87,8 @@
     <string name="search_placeholder">Search…</string>
     <string name="search_cd_search_icon">Search</string>
     <string name="search_cd_clear_search_query">Clear search</string>
+    <string name="nav_search_placeholder">Songs, artists, albums</string>
+    <string name="nav_search_cd_voice">Search by voice</string>
     <string name="search_recent_searches">Recent searches</string>
     <string name="search_action_clear_all">Clear all</string>
     <string name="search_cd_search_history_icon">History</string>

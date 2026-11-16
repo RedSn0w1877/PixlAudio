@@ -68,11 +68,19 @@ import com.theveloper.pixelplay.data.preferences.MIN_NAV_BAR_CORNER_RADIUS
 import com.theveloper.pixelplay.presentation.viewmodel.SettingsViewModel
 import racra.compose.smooth_corner_rect_library.AbsoluteSmoothCornerShape
 import com.theveloper.pixelplay.data.preferences.NavBarStyle
-import com.theveloper.pixelplay.presentation.components.resolveNavBarSurfaceHeight
+import com.theveloper.pixelplay.presentation.components.NavPillGap
+import com.theveloper.pixelplay.presentation.components.NavPillSideMargin
+import com.theveloper.pixelplay.presentation.components.SplitPillMath
+import com.theveloper.pixelplay.presentation.components.resolveNavBarOccupiedHeight
+import com.theveloper.pixelplay.presentation.components.resolveNavPillBottomMargin
+import com.theveloper.pixelplay.presentation.components.resolveNavPillHeight
 import com.theveloper.pixelplay.presentation.components.ValueSlider
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.ui.res.stringResource
 
-const val DEFAULT_NAV_BAR_CORNER_RADIUS = 28f
+// Matches the stored default (UserPreferencesRepository: nav_bar_corner_radius ?: 32), so Reset
+// goes back to what a fresh install shows: a near-full pill.
+const val DEFAULT_NAV_BAR_CORNER_RADIUS = 32f
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -315,44 +323,80 @@ fun NavBarCornerRadiusContent(
                     }
                 }
 
-                // Placeholder
+                // Preview of the split-pill nav at the slider's radius: the pills themselves when
+                // floating (capped at a full pill), the band's top corners on full width.
                 val bottomPadding = paddingValues.calculateBottomPadding()
-                val previewHeight = resolveNavBarSurfaceHeight(
-                    navBarStyle = if (isFullWidth) NavBarStyle.FULL_WIDTH else NavBarStyle.DEFAULT,
+                val previewHeight = resolveNavBarOccupiedHeight(
                     systemNavBarInset = bottomPadding,
                     compactMode = isCompactMode
                 )
-                Surface(
+                val pillHeight = resolveNavPillHeight(isCompactMode)
+                val pillRadius = if (isFullWidth) {
+                    pillHeight / 2
+                } else {
+                    SplitPillMath.pillCornerRadius(sliderValue, pillHeight.value).dp
+                }
+                val pillShape = AbsoluteSmoothCornerShape(
+                    cornerRadiusTL = pillRadius, smoothnessAsPercentTL = 60,
+                    cornerRadiusTR = pillRadius, smoothnessAsPercentTR = 60,
+                    cornerRadiusBL = pillRadius, smoothnessAsPercentBL = 60,
+                    cornerRadiusBR = pillRadius, smoothnessAsPercentBR = 60
+                )
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(previewHeight)
-                        .padding(horizontal = if (isFullWidth) 0.dp else bottomPadding), // Full Width: No horizontal padding
-                    color = MaterialTheme.colorScheme.onBackground,
-                    shape = if (isFullWidth) {
-                        AbsoluteSmoothCornerShape(
-                            cornerRadiusTL = sliderValue.dp, // Customize TOP
-                            smoothnessAsPercentTL = 60,
-                            cornerRadiusTR = sliderValue.dp, // Customize TOP
-                            smoothnessAsPercentTR = 60,
-                            cornerRadiusBL = 0.dp, // Fixed BOTTOM
-                            smoothnessAsPercentBL = 60,
-                            cornerRadiusBR = 0.dp, // Fixed BOTTOM
-                            smoothnessAsPercentBR = 60
-                        )
-                    } else {
-                        AbsoluteSmoothCornerShape(
-                            cornerRadiusTL = 10.dp,
-                            smoothnessAsPercentBL = 60,
-                            cornerRadiusTR = 10.dp,
-                            smoothnessAsPercentBR = 60,
-                            cornerRadiusBR = sliderValue.dp,
-                            smoothnessAsPercentTL = 60,
-                            cornerRadiusBL = sliderValue.dp,
-                            smoothnessAsPercentTR = 60
+                ) {
+                    if (isFullWidth) {
+                        Box(
+                            modifier = Modifier
+                                .matchParentSize()
+                                .background(
+                                    color = MaterialTheme.colorScheme.surfaceContainer,
+                                    shape = AbsoluteSmoothCornerShape(
+                                        cornerRadiusTL = sliderValue.dp, // Customize TOP
+                                        smoothnessAsPercentTL = 60,
+                                        cornerRadiusTR = sliderValue.dp, // Customize TOP
+                                        smoothnessAsPercentTR = 60,
+                                        cornerRadiusBL = 0.dp, // Fixed BOTTOM
+                                        smoothnessAsPercentBL = 60,
+                                        cornerRadiusBR = 0.dp, // Fixed BOTTOM
+                                        smoothnessAsPercentBR = 60
+                                    )
+                                )
                         )
                     }
-                ) {
-
+                    Row(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .fillMaxWidth()
+                            .padding(
+                                start = NavPillSideMargin,
+                                end = NavPillSideMargin,
+                                bottom = bottomPadding + resolveNavPillBottomMargin(isCompactMode)
+                            )
+                            .height(pillHeight),
+                        horizontalArrangement = Arrangement.spacedBy(NavPillGap)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                                .background(
+                                    color = if (isFullWidth) {
+                                        MaterialTheme.colorScheme.surfaceContainerHighest
+                                    } else {
+                                        MaterialTheme.colorScheme.surfaceContainerHigh
+                                    },
+                                    shape = pillShape
+                                )
+                        )
+                        Box(
+                            modifier = Modifier
+                                .size(pillHeight)
+                                .background(MaterialTheme.colorScheme.primaryContainer, pillShape)
+                        )
+                    }
                 }
             }
         }

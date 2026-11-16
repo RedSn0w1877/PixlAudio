@@ -126,6 +126,14 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.imeAnimationTarget
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import com.theveloper.pixelplay.presentation.components.NavPillHeight
+import com.theveloper.pixelplay.ui.theme.FlexPresets
+import com.theveloper.pixelplay.ui.theme.flexStyle
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.material.icons.automirrored.rounded.PlaylistPlay
@@ -181,14 +189,15 @@ fun SearchScreen(
     navController: NavHostController,
     onSearchBarActiveChange: (Boolean) -> Unit = {}
 ) {
-    val searchQueryState = rememberSaveable { mutableStateOf(playerViewModel.searchQuery) }
-    var searchQuery by searchQueryState
+    // The query is typed in the nav bar's search pill (SplitPillNavigationBar), which writes the
+    // view model's searchQuery; this screen only reads it. One source of truth for both.
+    val searchQuery = playerViewModel.searchQuery
     // The result list only needs the query when a row is tapped, so it gets a stable reader instead
     // of the String: typing no longer changes anything the list (and its rows) are passed.
-    val searchQueryProvider: () -> String = remember(searchQueryState) { { searchQueryState.value } }
-    val onSearchResultSelected: () -> Unit = remember(playerViewModel, searchQueryState) {
+    val searchQueryProvider: () -> String = remember(playerViewModel) { { playerViewModel.searchQuery } }
+    val onSearchResultSelected: () -> Unit = remember(playerViewModel) {
         {
-            val query = searchQueryState.value
+            val query = playerViewModel.searchQuery
             if (query.isNotBlank()) {
                 playerViewModel.onSearchQuerySubmitted(query)
             }
@@ -267,20 +276,11 @@ fun SearchScreen(
     val favoriteSongIds by playerViewModel.favoriteSongIds.collectAsStateWithLifecycle()
     val selectedSongForInfo by playerViewModel.selectedSongForInfo.collectAsStateWithLifecycle()
     var showSongInfoBottomSheet by remember { mutableStateOf(false) }
-    val keyboardController = LocalSoftwareKeyboardController.current
-    val searchInputFocusRequester = remember { FocusRequester() }
 
     LaunchedEffect(Unit) {
         onSearchBarActiveChange(false)
     }
-
-    LaunchedEffect(playerViewModel, keyboardController) {
-        playerViewModel.searchNavDoubleTapEvents.collect {
-            delay(40L)
-            searchInputFocusRequester.requestFocus()
-            keyboardController?.show()
-        }
-    }
+    // Double-tapping Search now focuses the field in the nav pill itself (SplitPillNavigationBar).
 
     // Search debouncing is centralized in SearchStateHolder.
     LaunchedEffect(searchQuery, currentFilter) {
@@ -361,88 +361,22 @@ fun SearchScreen(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                val searchBarInputFieldColors = SearchBarDefaults.inputFieldColors(
-                    focusedTextColor = MaterialTheme.colorScheme.onSurface,
-                    unfocusedTextColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f),
-                    focusedContainerColor = Color.Transparent,
-                    unfocusedContainerColor = Color.Transparent,
-                    cursorColor = MaterialTheme.colorScheme.primary
+                // The search field moved into the nav bar's big pill; the top of the screen is
+                // now just its title, in the hero cut of Google Sans Flex.
+                val titleBase = MaterialTheme.typography.displaySmall
+                val titleStyle = flexStyle(
+                    remember(titleBase) { titleBase.copy(fontSize = 36.sp, lineHeight = 44.sp) },
+                    FlexPresets.HeroDisplay
                 )
-
-                Box(
-                    Modifier
+                Text(
+                    text = stringResource(R.string.nav_bar_search),
+                    style = titleStyle,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    modifier = Modifier
                         .weight(1f)
-                        .background(color = Color.Transparent)
-                ) {
-                    DockedSearchBar(
-                        inputField = {
-                            SearchBarDefaults.InputField(
-                                modifier = Modifier.focusRequester(searchInputFocusRequester),
-                                query = searchQuery,
-                                onQueryChange = {
-                                    searchQuery = it
-                                    playerViewModel.updateSearchQuery(it)
-                                },
-                                onSearch = { query ->
-                                    if (query.isNotBlank()) {
-                                        playerViewModel.onSearchQuerySubmitted(query)
-                                    }
-                                    keyboardController?.hide()
-                                },
-                                expanded = false,
-                                onExpandedChange = {},
-                                placeholder = {
-                                    Text(
-                                        stringResource(R.string.search_placeholder),
-                                        style = MaterialTheme.typography.bodyLarge,
-                                        color = MaterialTheme.colorScheme.primary
-                                    )
-                                },
-                                leadingIcon = {
-                                    Icon(
-                                        imageVector = Icons.Rounded.Search,
-                                        contentDescription = stringResource(R.string.search_cd_search_icon),
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(24.dp)
-                                    )
-                                },
-                                trailingIcon = {
-                                    if (searchQuery.isNotBlank()) {
-                                        IconButton(
-                                            onClick = {
-                                                searchQuery = ""
-                                                playerViewModel.updateSearchQuery("")
-                                            },
-                                            modifier = Modifier
-                                                .size(48.dp)
-                                                .clip(CircleShape)
-                                                .background(
-                                                    MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.2f)
-                                                )
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Rounded.Close,
-                                                contentDescription = stringResource(R.string.search_cd_clear_search_query),
-                                                tint = MaterialTheme.colorScheme.primary
-                                            )
-                                        }
-                                    }
-                                },
-                                colors = searchBarInputFieldColors
-                            )
-                        },
-                        expanded = false,
-                        onExpandedChange = {},
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(searchbarCornerRadius)),
-                        colors = SearchBarDefaults.colors(
-                            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f),
-                            dividerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f),
-                            inputFieldColors = searchBarInputFieldColors
-                        ),
-                        content = {}
-                    )
-                }
+                        .semantics { heading() }
+                )
 
                 FilledIconButton(
                     modifier = Modifier.padding(bottom = 2.dp),
@@ -733,7 +667,8 @@ fun SearchScreen(
         }.value ?: false
         val removeFromListTrigger = remember(currentSong) {
             {
-                searchQuery = "$searchQuery "
+                // Re-run the same query (each request gets a fresh id) so the removed row goes.
+                playerViewModel.performSearch(playerViewModel.searchQuery)
             }
         }
 
@@ -1370,7 +1305,15 @@ fun SearchResultsList(
         }
     }
 
-    val imePadding = WindowInsets.ime.getBottom(localDensity).dp
+    // The search field rides above the keyboard in the nav pill, so with the keyboard up the list
+    // has to clear both. The animation *target* changes once per show/hide, not on every frame of
+    // the keyboard sliding, so this does not recompose the list while it moves. (It used to read
+    // the live inset in px as if it were dp.)
+    @OptIn(ExperimentalLayoutApi::class)
+    val imeTargetBottom = with(localDensity) {
+        WindowInsets.imeAnimationTarget.getBottom(localDensity).toDp()
+    }
+    val imePadding = if (imeTargetBottom > 8.dp) imeTargetBottom + NavPillHeight + 24.dp else 0.dp
     val systemBarPaddingBottom = WindowInsets.systemBars.asPaddingValues().calculateBottomPadding() + 94.dp
 
     LazyColumn(

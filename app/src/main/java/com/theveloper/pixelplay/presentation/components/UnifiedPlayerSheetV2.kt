@@ -231,8 +231,6 @@ fun UnifiedPlayerSheetV2(
     val prewarmFullPlayer = rememberPrewarmFullPlayer(hasCurrentSong = currentSong != null)
 
     val playerConfig by playerViewModel.playerConfigSlice.collectAsStateWithLifecycle()
-    val navBarCornerRadius = sanitizeNavBarCornerRadius(playerConfig.navBarCornerRadius)
-    val navBarStyle = playerConfig.navBarStyle
     val carouselStyle = playerConfig.carouselStyle
     val fullPlayerLoadingTweaks = playerConfig.fullPlayerLoadingTweaks
     val tapBackgroundClosesPlayer = playerConfig.tapBackgroundClosesPlayer
@@ -248,13 +246,6 @@ fun UnifiedPlayerSheetV2(
         with(density) { configuration.screenWidthDp.dp.toPx() }
     }
     val dismissThresholdPx = remember(screenWidthPx) { screenWidthPx * 0.4f }
-    // Changes on every frame of the mini-player dismiss drag: read only inside the providers.
-    val swipeDismissProgressState = remember(dismissThresholdPx) {
-        derivedStateOf {
-            if (dismissThresholdPx == 0f) 0f
-            else (abs(offsetAnimatable.value) / dismissThresholdPx).coerceIn(0f, 1f)
-        }
-    }
 
     val screenHeightPx = remember(configuration, density) {
         with(density) { configuration.screenHeightDp.dp.toPx() }
@@ -432,12 +423,6 @@ fun UnifiedPlayerSheetV2(
         containerHeight = containerHeight,
         currentSheetTranslationY = currentSheetTranslationY,
         sheetCollapsedTargetYProvider = sheetCollapsedTargetYProvider,
-        navBarStyle = navBarStyle,
-        navBarCornerRadiusDp = navBarCornerRadius.dp,
-        isNavBarHidden = isNavBarHidden,
-        isPlayingState = playerFieldStates.isPlaying,
-        hasCurrentSong = currentSong != null,
-        swipeDismissProgressState = swipeDismissProgressState
     )
     val currentBottomPadding = sheetVisualState.currentBottomPadding
     val playerContentAreaHeightPxProvider = sheetVisualState.playerContentAreaHeightPxProvider

@@ -35,6 +35,13 @@
     <!-- Self-updates from the app's GitHub releases (data/update). -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
+    <!-- Lets the nav search pill check for a speech recognizer before showing its mic button. -->
+    <queries>
+        <intent>
+            <action android:name="android.speech.action.RECOGNIZE_SPEECH" />
+        </intent>
+    </queries>
+
     <application
         android:name=".PixelPlayApplication"
         android:allowBackup="true"

@@ -12,10 +12,13 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp
-import com.theveloper.pixelplay.data.preferences.NavBarStyle
+import com.theveloper.pixelplay.presentation.components.MiniPlayerHeight
 import com.theveloper.pixelplay.presentation.viewmodel.PlayerSheetState
 
 private const val PREDICTIVE_BACK_SWIPE_EDGE_LEFT = 0
+
+/** Half the mini player height: a full pill. */
+private val MiniPlayerPillRadius = MiniPlayerHeight / 2
 private const val PREDICTIVE_BACK_SWIPE_EDGE_RIGHT = 1
 
 internal data class SheetVisualState(
@@ -42,14 +45,7 @@ internal fun rememberSheetVisualState(
     playerContentExpansionFraction: Animatable<Float, AnimationVector1D>,
     containerHeight: Dp,
     currentSheetTranslationY: Animatable<Float, AnimationVector1D>,
-    sheetCollapsedTargetYProvider: () -> Float,
-    navBarStyle: String,
-    navBarCornerRadiusDp: Dp,
-    isNavBarHidden: Boolean,
-    isPlayingState: State<Boolean>,
-    hasCurrentSong: Boolean,
-    /** Follows every frame of the mini-player dismiss drag: read only inside the providers. */
-    swipeDismissProgressState: State<Float>
+    sheetCollapsedTargetYProvider: () -> Float
 ): SheetVisualState {
     // Compute in px to be read inside graphicsLayer (draw phase) — zero relayout per drag frame.
     val density = LocalDensity.current
@@ -101,121 +97,28 @@ internal fun rememberSheetVisualState(
         }
     }
 
+    // The mini player floats above the split-pill nav as its own pill (it no longer docks onto
+    // the bar), so collapsed it is fully round top and bottom in every nav style, and opens to
+    // square corners as the player expands.
     val overallSheetTopCornerRadiusProvider: () -> Dp = remember(
         showPlayerContentArea,
         playerContentExpansionFraction,
-        predictiveBackCollapseProgressState,
-        navBarStyle,
-        navBarCornerRadiusDp,
-        isNavBarHidden,
-        currentSheetContentState
+        predictiveBackCollapseProgressState
     ) {
         {
-            val collapsedCornerTarget = if (isNavBarHidden) {
-                32.dp
-            } else if (navBarStyle == NavBarStyle.DEFAULT) {
-                navBarCornerRadiusDp
-            } else if (navBarStyle == NavBarStyle.FULL_WIDTH) {
-                32.dp
+            if (showPlayerContentArea) {
+                val effectiveFraction =
+                    playerContentExpansionFraction.value * (1f - predictiveBackCollapseProgressState.value)
+                lerp(MiniPlayerPillRadius, 0.dp, effectiveFraction.coerceIn(0f, 1f))
             } else {
-                navBarCornerRadiusDp
-            }
-
-            val effectiveFraction =
-                playerContentExpansionFraction.value * (1f - predictiveBackCollapseProgressState.value)
-            val safeFraction = effectiveFraction.coerceIn(0f, 1f)
-            val expandedTarget = 0.dp
-            val calculatedNormally = if (showPlayerContentArea) {
-                lerp(collapsedCornerTarget, expandedTarget, safeFraction)
-            } else {
-                if (navBarStyle == NavBarStyle.DEFAULT) {
-                    navBarCornerRadiusDp
-                } else if (navBarStyle == NavBarStyle.FULL_WIDTH) {
-                    0.dp
-                } else if (isNavBarHidden) {
-                    60.dp
-                } else {
-                    navBarCornerRadiusDp
-                }
-            }
-
-            calculatedNormally
-        }
-    }
-
-    // isPlaying and hasCurrentSong are only used in the fallback branch when
-    // !showPlayerContentArea. Reading them via rememberUpdatedState keeps the
-    // shape provider lambda stable across play/pause toggles — so the
-    // PlayerSheetDynamicShape instance (and the modifier chain that consumes it)
-    // is not recreated on every isPlaying flip.
-    val hasCurrentSongState = rememberUpdatedState(hasCurrentSong)
-    val playerContentActualBottomRadiusProvider: () -> Dp = remember(
-        navBarStyle,
-        showPlayerContentArea,
-        playerContentExpansionFraction,
-        predictiveBackCollapseProgressState,
-        swipeDismissProgressState,
-        isPlayingState,
-        isNavBarHidden,
-        navBarCornerRadiusDp,
-        currentSheetContentState
-    ) {
-        {
-            val collapsedRadius = if (isNavBarHidden) {
-                32.dp
-            } else if (navBarStyle == NavBarStyle.DEFAULT) {
-                10.dp
-            } else if (navBarStyle == NavBarStyle.FULL_WIDTH) {
-                32.dp
-            } else {
-                navBarCornerRadiusDp
-            }
-
-            val effectiveFraction =
-                playerContentExpansionFraction.value * (1f - predictiveBackCollapseProgressState.value)
-            val safeFraction = effectiveFraction.coerceIn(0f, 1f)
-            val swipeDismissProgress = swipeDismissProgressState.value
-            val calculatedNormally =
-                if (showPlayerContentArea) {
-                    val expandedTarget = 0.dp
-                    lerp(collapsedRadius, expandedTarget, safeFraction)
-                } else {
-                    if (!isPlayingState.value || !hasCurrentSongState.value) {
-                        if (isNavBarHidden) {
-                            32.dp
-                        } else if (navBarStyle == NavBarStyle.DEFAULT) {
-                            10.dp
-                        } else {
-                            navBarCornerRadiusDp
-                        }
-                    } else {
-                        collapsedRadius
-                    }
-                }
-
-            if (isNavBarHidden) {
-                calculatedNormally
-            } else if (currentSheetContentState == PlayerSheetState.COLLAPSED &&
-                swipeDismissProgress > 0f &&
-                showPlayerContentArea &&
-                playerContentExpansionFraction.value < 0.01f
-            ) {
-                if (navBarStyle == NavBarStyle.FULL_WIDTH) {
-                    calculatedNormally
-                } else if (navBarStyle == NavBarStyle.DEFAULT) {
-                    lerp(10.dp, navBarCornerRadiusDp, swipeDismissProgress)
-                } else {
-                    val baseCollapsedRadius = if (isNavBarHidden) 32.dp else navBarCornerRadiusDp
-                    lerp(baseCollapsedRadius, navBarCornerRadiusDp, swipeDismissProgress)
-                }
-            } else {
-                calculatedNormally
+                MiniPlayerPillRadius
             }
         }
     }
 
-    val actualCollapsedStateHorizontalPadding =
-        if (navBarStyle == NavBarStyle.FULL_WIDTH) 14.dp else collapsedStateHorizontalPadding
+    val playerContentActualBottomRadiusProvider: () -> Dp = overallSheetTopCornerRadiusProvider
+
+    val actualCollapsedStateHorizontalPadding = collapsedStateHorizontalPadding
     val collapsedStateHorizontalPaddingPx = remember(actualCollapsedStateHorizontalPadding, density) {
         with(density) { actualCollapsedStateHorizontalPadding.toPx() }
     }

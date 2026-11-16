@@ -125,14 +125,15 @@ import com.theveloper.pixelplay.presentation.components.DismissUndoBar
 import com.theveloper.pixelplay.presentation.components.DrawerDestination
 import com.theveloper.pixelplay.presentation.components.MiniPlayerBottomSpacer
 import com.theveloper.pixelplay.presentation.components.MiniPlayerHeight
-import com.theveloper.pixelplay.presentation.components.PlayerInternalNavigationBar
+import com.theveloper.pixelplay.presentation.components.SplitPillNavigationBar
+import com.theveloper.pixelplay.presentation.components.NavPillSideMargin
+import androidx.compose.runtime.mutableIntStateOf
 import com.theveloper.pixelplay.presentation.components.PlayStoreAnnouncementDefaults
 import com.theveloper.pixelplay.presentation.components.PlayStoreAnnouncementDialog
 import com.theveloper.pixelplay.presentation.components.PlayStoreAnnouncementUiModel
 import com.theveloper.pixelplay.presentation.components.UnifiedPlayerSheetV2
 import com.theveloper.pixelplay.presentation.components.calculatePlayerSheetCollapsedTargetY
 import com.theveloper.pixelplay.presentation.components.resolveNavBarOccupiedHeight
-import com.theveloper.pixelplay.presentation.components.resolveNavBarSurfaceHeight
 import com.theveloper.pixelplay.presentation.components.sanitizeNavigationBarBottomInset
 import com.theveloper.pixelplay.presentation.navigation.AppNavigation
 import com.theveloper.pixelplay.presentation.navigation.Screen
@@ -158,6 +159,8 @@ import kotlinx.coroutines.withContext
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.LayoutDirection
 import kotlinx.coroutines.launch
+import com.theveloper.pixelplay.ui.theme.FlexFonts
+import com.theveloper.pixelplay.ui.theme.FlexPresets
 import javax.inject.Inject
 import kotlin.math.roundToInt
 
@@ -238,6 +241,17 @@ class MainActivity : ComponentActivity() {
         }
         super.onCreate(savedInstanceState)
         requestHighestRefreshRate()
+
+        // The split-pill nav's labels are the first Google Sans Flex instances on screen. Loading
+        // the variable font and their two end cuts here, off the main thread while the splash is
+        // up, keeps that load out of the first frame (the ramp in between builds in well under a
+        // millisecond per step once the base font is in).
+        lifecycleScope.launch {
+            FlexFonts.warmUp(
+                applicationContext,
+                listOf(FlexPresets.NavLabel.atSize(15f), FlexPresets.NavLabelSelected.atSize(15f))
+            )
+        }
 
         // Spotify Connect volume keys (owner decision 2026-10-07): while a speaker that takes them
         // plays, this window's volume keys go straight to the MediaSession, whose remote volume
@@ -770,7 +784,6 @@ class MainActivity : ComponentActivity() {
         val navBarCornerRadiusRaw by playerViewModel.navBarCornerRadius.collectAsStateWithLifecycle()
         val navBarCornerRadius = sanitizeNavBarCornerRadius(navBarCornerRadiusRaw)
         val useSmoothCorners by playerViewModel.useSmoothCorners.collectAsStateWithLifecycle()
-        val isMiniPlayerDismissing by playerViewModel.isMiniPlayerDismissing.collectAsStateWithLifecycle()
         val hapticsEnabled by playerViewModel.hapticsEnabled.collectAsStateWithLifecycle()
         val developerMode by userPreferencesRepository.developerModeFlow.collectAsStateWithLifecycle(false)
         val disableBlurAllOver by playerViewModel.disableBlurAllOver.collectAsStateWithLifecycle()
@@ -803,18 +816,9 @@ class MainActivity : ComponentActivity() {
             rootView.rootView?.isHapticFeedbackEnabled = hapticsEnabled
         }
 
-        val horizontalPadding = if (navBarStyle == NavBarStyle.DEFAULT) {
-            if (systemNavBarInset > 30.dp) 16.dp else 14.dp
-        } else {
-            0.dp
-        }
-        val animatedBottomBarPadding by animateDpAsState(
-            targetValue = if (navBarStyle == NavBarStyle.FULL_WIDTH) 0.dp else systemNavBarInset,
-            animationSpec = tween(400),
-            label = "BottomBarPadding"
-        )
-        val bottomBarPadding = animatedBottomBarPadding
-        val navBarHeight = resolveNavBarSurfaceHeight(navBarStyle, systemNavBarInset, navBarCompactMode)
+        // The mini player and the undo bar line up with the split-pill nav's side margin, in
+        // both nav styles (the pills keep their margin on the full-width band too).
+        val horizontalPadding = NavPillSideMargin
         val navBarOccupiedHeight by remember(systemNavBarInset, navBarCompactMode) {
             derivedStateOf { resolveNavBarOccupiedHeight(systemNavBarInset, navBarCompactMode) }
         }
@@ -924,59 +928,18 @@ class MainActivity : ComponentActivity() {
                                 .distinctUntilChanged()
                         }.collectAsStateWithLifecycle(initialValue = null)
                         val showPlayerContentArea = currentSongId != null
-                        val navBarElevation = 3.dp
 
-                        val animatedNavBarCornerRadius = animateDpAsState(
-                            targetValue = navBarCornerRadius.dp,
-                            animationSpec = tween(400),
-                            label = "NavBarCornerRadius"
-                        )
-
-                        val animatedDefaultTopCornerRadius = animateDpAsState(
-                            targetValue = if (showPlayerContentArea && !isMiniPlayerDismissing) 10.dp else navBarCornerRadius.dp,
-                            animationSpec = tween(400),
-                            label = "NavBarDefaultTopCornerRadius"
-                        )
-
-                        // Shape is now resolved per quantized radius in the draw phase
-                        // (see the Surface graphicsLayer below) instead of being
-                        // re-remembered every animation frame.
-
-                        var componentHeightPx by remember { mutableStateOf(0) }
+                        var componentHeightPx by remember { mutableIntStateOf(0) }
                         val density = LocalDensity.current
-                        val shadowOverflowPx = remember(navBarElevation, density) {
-                            with(density) { (navBarElevation * 8).toPx() }
+                        // Room below the bar for the pills' shadow, so the slide-down hide
+                        // carries it fully off screen.
+                        val shadowOverflowPx = remember(density) { with(density) { 24.dp.toPx() } }
+                        val searchQueryProvider = remember(playerViewModel) { { playerViewModel.searchQuery } }
+                        val onSearchQueryChange = remember(playerViewModel) {
+                            { query: String -> playerViewModel.updateSearchQuery(query) }
                         }
-                        val bottomBarPaddingPx = remember(bottomBarPadding, density) {
-                            with(density) { bottomBarPadding.toPx() }
-                        }
-                        val navBarElevationPx = remember(navBarElevation, density) {
-                            with(density) { navBarElevation.toPx() }
-                        }
-                        val navBarShapeCache = remember { NavBarShapeCache() }
-
-                        // Top/bottom corner radii, read in the DRAW phase by the clip layer. Kept as
-                        // a lambda (not a remembered value) on purpose: it reads animated state,
-                        // and evaluating it during draw is what lets the radius animate without
-                        // recomposing or re-laying-out the bar.
-                        val navBarCorners: () -> Pair<Dp, Dp> = {
-                            val fraction = playerViewModel.playerContentExpansionFraction.value
-                            val safeFraction = fraction.coerceIn(0f, 1f)
-                            val topDp = when {
-                                navBarStyle == NavBarStyle.DEFAULT -> animatedDefaultTopCornerRadius.value
-                                navBarStyle == NavBarStyle.FULL_WIDTH -> lerp(navBarCornerRadius.dp, 26.dp, safeFraction)
-                                showPlayerContentArea -> if (fraction < 0.2f) {
-                                    lerp(navBarCornerRadius.dp, 26.dp, (fraction / 0.2f).coerceIn(0f, 1f))
-                                } else {
-                                    26.dp
-                                }
-                                else -> navBarCornerRadius.dp
-                            }
-                            val bottomDp = when (navBarStyle) {
-                                NavBarStyle.FULL_WIDTH -> 0.dp
-                                else -> animatedNavBarCornerRadius.value
-                            }
-                            topDp to bottomDp
+                        val onSearchSubmit = remember(playerViewModel) {
+                            { query: String -> playerViewModel.onSearchQuerySubmitted(query) }
                         }
 
                         Box(
@@ -984,20 +947,25 @@ class MainActivity : ComponentActivity() {
                                 .fillMaxWidth()
                                 .height(navBarOccupiedHeight)
                         ) {
-                            val onSearchIconDoubleTap = remember(playerViewModel) {
-                                { playerViewModel.onSearchNavIconDoubleTapped() }
-                            }
-
-                            Surface(
+                            SplitPillNavigationBar(
+                                navController = navController,
+                                navItems = commonNavItems,
+                                currentRoute = currentRouteProvider(),
+                                navBarStyle = navBarStyle,
+                                compactMode = navBarCompactMode,
+                                cornerRadius = navBarCornerRadius.dp,
+                                useSmoothCorners = useSmoothCorners,
+                                systemNavBarInset = systemNavBarInset,
+                                searchQuery = searchQueryProvider,
+                                onSearchQueryChange = onSearchQueryChange,
+                                onSearchSubmit = onSearchSubmit,
                                 modifier = Modifier
                                     .align(Alignment.BottomCenter)
-                                    .fillMaxWidth()
-                                    .padding(bottom = bottomBarPadding)
                                     .onSizeChanged { componentHeightPx = it.height }
                                     .graphicsLayer {
                                         // Slide-down hide: covers both the player-expansion
                                         // hide and the route-based hide as a pure translation,
-                                        // so child items never resize or get clipped/squished.
+                                        // so the pills never resize or get clipped/squished.
                                         val expansionHide = if (showPlayerContentArea) {
                                             playerViewModel.playerContentExpansionFraction.value.coerceIn(0f, 1f)
                                         } else {
@@ -1005,33 +973,9 @@ class MainActivity : ComponentActivity() {
                                         }
                                         val routeHide = (1f - navBarVisibilityProgressState.value).coerceIn(0f, 1f)
                                         val hideFraction = maxOf(expansionHide, routeHide)
-                                        translationY = (componentHeightPx + shadowOverflowPx + bottomBarPaddingPx) * hideFraction
-                                        alpha = 1f
+                                        translationY = (componentHeightPx + shadowOverflowPx) * hideFraction
                                     }
-                                    .height(navBarHeight)
-                                    .padding(horizontal = horizontalPadding)
-                                    .graphicsLayer {
-                                        // Animated corner shape resolved in the draw phase:
-                                        // animating the radius re-clips this layer only — no
-                                        // recomposition and no layout pass for the bar.
-                                        val (topDp, bottomDp) = navBarCorners()
-                                        shape = navBarShapeCache.get(this, topDp.toPx(), bottomDp.toPx(), useSmoothCorners)
-                                        clip = true
-                                        shadowElevation = navBarElevationPx
-                                    },
-                                color = NavigationBarDefaults.containerColor
-                            ) {
-                                PlayerInternalNavigationBar(
-                                    navController = navController,
-                                    navItems = commonNavItems,
-                                    currentRoute = currentRouteProvider(),
-                                    navBarStyle = navBarStyle,
-                                    compactMode = navBarCompactMode,
-                                    bottomBarPadding = bottomBarPadding,
-                                    onSearchIconDoubleTap = onSearchIconDoubleTap,
-                                    modifier = Modifier.fillMaxSize()
-                                )
-                            }
+                            )
                         }
                     }
                 }
@@ -1382,99 +1326,5 @@ private class BlurEffectCache {
                 .asComposeRenderEffect()
         }
         return cached
-    }
-}
-
-/**
- * Returns a cached Shape instance for a quantized (top, bottom) radius pair.
- * Because the instance identity is stable while the radii don't move past a
- * sub-pixel threshold, the graphics layer reuses its cached Outline between
- * frames and only re-clips when the radius actually changes.
- */
-private class NavBarShapeCache {
-    private var lastTopPx: Float = Float.NaN
-    private var lastBottomPx: Float = Float.NaN
-    private var lastSmooth: Boolean = true
-    private var cached: androidx.compose.ui.graphics.Shape = RectangleShape
-
-    fun get(
-        density: androidx.compose.ui.unit.Density,
-        topPx: Float,
-        bottomPx: Float,
-        smooth: Boolean
-    ): androidx.compose.ui.graphics.Shape {
-        if (smooth == lastSmooth &&
-            !lastTopPx.isNaN() &&
-            kotlin.math.abs(topPx - lastTopPx) < 0.5f &&
-            kotlin.math.abs(bottomPx - lastBottomPx) < 0.5f
-        ) {
-            return cached
-        }
-        lastTopPx = topPx
-        lastBottomPx = bottomPx
-        lastSmooth = smooth
-        cached = with(density) {
-            DynamicSmoothCornerShape(
-                useSmoothCorners = smooth,
-                topRadius = topPx.toDp(),
-                bottomRadius = bottomPx.toDp()
-            )
-        }
-        return cached
-    }
-}
-
-/**
- * Fixed-radius corner shape. Swaps AbsoluteSmoothCornerShape for a plain
- * RoundedCornerShape when smooth corners are disabled in settings. The radius
- * values are identical in both branches, so the animated radius behavior is
- * unchanged regardless of which delegate is active. The resulting Outline is
- * cached per (size, layoutDirection) so repeated draws are cheap.
- */
-private class DynamicSmoothCornerShape(
-    private val useSmoothCorners: Boolean,
-    private val topRadius: androidx.compose.ui.unit.Dp,
-    private val bottomRadius: androidx.compose.ui.unit.Dp
-) : androidx.compose.ui.graphics.Shape {
-
-    private var cachedSize: androidx.compose.ui.geometry.Size =
-        androidx.compose.ui.geometry.Size.Unspecified
-    private var cachedLayoutDirection: androidx.compose.ui.unit.LayoutDirection? = null
-    private var cachedOutline: androidx.compose.ui.graphics.Outline? = null
-
-    override fun createOutline(
-        size: androidx.compose.ui.geometry.Size,
-        layoutDirection: androidx.compose.ui.unit.LayoutDirection,
-        density: androidx.compose.ui.unit.Density
-    ): androidx.compose.ui.graphics.Outline {
-        cachedOutline?.let {
-            if (cachedSize == size && cachedLayoutDirection == layoutDirection) return it
-        }
-
-        val delegate: androidx.compose.ui.graphics.Shape = if (useSmoothCorners) {
-            AbsoluteSmoothCornerShape(
-                cornerRadiusTL = topRadius,
-                smoothnessAsPercentTL = 60,
-                cornerRadiusTR = topRadius,
-                smoothnessAsPercentTR = 60,
-                cornerRadiusBL = bottomRadius,
-                smoothnessAsPercentBL = 60,
-                cornerRadiusBR = bottomRadius,
-                smoothnessAsPercentBR = 60
-            )
-        } else {
-            RoundedCornerShape(
-                topStart = topRadius,
-                topEnd = topRadius,
-                bottomEnd = bottomRadius,
-                bottomStart = bottomRadius
-            )
-        }
-
-        return delegate.createOutline(size, layoutDirection, density).also {
-            cachedSize = size
-            cachedLayoutDirection = layoutDirection
-            cachedOutline = it
-        }
     }
 }
