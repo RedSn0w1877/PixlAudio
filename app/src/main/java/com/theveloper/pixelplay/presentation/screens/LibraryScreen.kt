@@ -249,12 +249,16 @@ import androidx.paging.compose.itemContentType
 import androidx.paging.LoadState
 import com.theveloper.pixelplay.presentation.components.ExpressiveScrollBar
 import com.theveloper.pixelplay.ui.theme.LocalShowScrollbar
+import com.theveloper.pixelplay.ui.theme.FlexFonts
+import com.theveloper.pixelplay.ui.theme.FlexSpec
+import com.theveloper.pixelplay.ui.theme.flexTextStyle
 import com.theveloper.pixelplay.presentation.components.LibrarySortBottomSheet
 import com.theveloper.pixelplay.presentation.components.subcomps.EnhancedSongListItem
 import com.theveloper.pixelplay.data.service.wear.PhoneWatchTransferState
 import com.theveloper.pixelplay.shared.WearTransferProgress
 import java.io.File
 import kotlin.math.abs
+import kotlin.math.roundToInt
 
 val ListExtraBottomGap = 30.dp
 val PlayerSheetCollapsedCornerRadius = 32.dp
@@ -2488,34 +2492,38 @@ private val LibraryNavigationPillMinimumTextWidth = 56.dp
 private val LibraryNavigationPillArrowPaddingExpanded = 10.dp
 private val LibraryNavigationPillArrowPaddingCompressed = 4.dp
 
-@OptIn(ExperimentalTextApi::class)
+/**
+ * The pill title's style at [widthAxis]. The axis is animated, and building a `Font` per frame
+ * made Compose reload the variable typeface on the main thread every frame; it is now snapped to
+ * whole wdth units and served from [FlexFonts] (one cached instance per unit, warmed off-thread
+ * for the compression range). wght is the real 600 rather than 400 + synthetic bold.
+ */
 @Composable
 private fun rememberLibraryNavigationPillTitleStyle(widthAxis: Float): TextStyle {
-    return remember(widthAxis) {
-        TextStyle(
-            fontFamily = FontFamily(
-                Font(
-                    resId = R.font.gflex_variable,
-                    variationSettings = FontVariation.Settings(
-                        FontVariation.weight(400),
-                        FontVariation.width(widthAxis.coerceIn(
-                            LibraryNavigationPillTitleWidthMin,
-                            LibraryNavigationPillTitleWidthMax
-                        )),
-                        FontVariation.Setting("ROND", 100f),
-                        FontVariation.Setting("XTRA", 520f),
-                        FontVariation.Setting("YOPQ", 90f),
-                        FontVariation.Setting("YTLC", 505f)
-                    )
-                )
+    val context = LocalContext.current.applicationContext
+    val axis = widthAxis
+        .coerceIn(LibraryNavigationPillTitleWidthMin, LibraryNavigationPillTitleWidthMax)
+        .roundToInt()
+    LaunchedEffect(Unit) {
+        val from = LibraryNavigationPillCompressedWidthAxis.roundToInt()
+        val to = LibraryNavigationPillTitleWidthMax.roundToInt()
+        FlexFonts.warmUp(context, (from..to).map { libraryPillTitleSpec(it) })
+    }
+    return remember(axis) {
+        val spec = libraryPillTitleSpec(axis)
+        flexTextStyle(
+            base = TextStyle(
+                fontSize = 26.sp,
+                lineHeight = 28.sp,
+                letterSpacing = (-0.2).sp
             ),
-            fontWeight = FontWeight.SemiBold,
-            fontSize = 26.sp,
-            lineHeight = 28.sp,
-            letterSpacing = (-0.2).sp
+            family = FlexFonts.family(context, spec),
+            spec = spec
         )
     }
 }
+
+private fun libraryPillTitleSpec(widthAxis: Int) = FlexSpec(weight = 600f, width = widthAxis.toFloat())
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
