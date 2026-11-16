@@ -5,6 +5,7 @@ import androidx.compose.runtime.compositionLocalOf
 import com.theveloper.pixelplay.data.blocking.BlockedArtistIndex
 import com.theveloper.pixelplay.data.model.Song
 import com.theveloper.pixelplay.data.preferences.PlayerGestureSettings
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 
 /**
@@ -40,8 +41,28 @@ class PlayerGestureHost(
     /** Adds [song] to the queue (next, or at the end) unless it is already there; true when added. */
     val queueSongIfAbsent: (song: Song, playNext: Boolean) -> Boolean,
     val showToast: (String) -> Unit,
+    /**
+     * Rows of the song options sheet that act on the full player (Spatial audio, Sing). The sheet
+     * lives in the overlay layer, the Spatial sheet and the lyrics view in the full player, so the
+     * sheet asks and the full player (which collects this) opens them.
+     */
+    val playerMenuRequests: MutableSharedFlow<PlayerMenuRequest> = MutableSharedFlow(
+        extraBufferCapacity = 1,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST
+    ),
 ) {
     fun requestSongOptions(song: Song) { songOptionsRequests.tryEmit(song) }
+
+    fun requestPlayerMenuAction(request: PlayerMenuRequest) { playerMenuRequests.tryEmit(request) }
+}
+
+/** What a player row of the song options sheet asks the full player to open. */
+enum class PlayerMenuRequest {
+    /** The Spatial audio sheet, exactly as the old player button opened it. */
+    SPATIAL_AUDIO,
+
+    /** Sing (vocals off / back on), then the lyrics view when it was switched on. */
+    SING,
 }
 
 val LocalPlayerGestureHost = compositionLocalOf<PlayerGestureHost?> { null }

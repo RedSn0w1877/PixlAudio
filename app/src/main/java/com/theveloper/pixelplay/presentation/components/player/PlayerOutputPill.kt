@@ -160,7 +160,9 @@ internal fun PlayerOutputUi.iconPainter(): Painter =
     }
 
 /**
- * The full player's top-bar actions in both modes: the output pill and the queue button. It
+ * The full player's top-bar actions in both modes: the output pill and the more (3-dot) button,
+ * which opens the song's options with the player's own rows (new UI, stage 3; the queue button
+ * moved next to the title in portrait and stays in the song row in landscape). It
  * collects its own flows, so an output change (earbuds connecting, a cast route, a Connect
  * device) recomposes only the top bar, never the 3000-line full player around it.
  */
@@ -172,7 +174,7 @@ internal fun FullPlayerTopActions(
     accent: Color,
     onAccent: Color,
     onOutputClick: () -> Unit,
-    onQueueClick: () -> Unit,
+    onMoreClick: () -> Unit,
 ) {
     val isCastRemoteActive by playerViewModel.isRemotePlaybackActive.collectAsStateWithLifecycle()
     val castRouteName by playerViewModel.selectedRouteName.collectAsStateWithLifecycle()
@@ -194,7 +196,7 @@ internal fun FullPlayerTopActions(
         // weight(fill = false): the pill hugs its content and only grows into the width the
         // collapse button leaves, where a long name ellipsizes.
         MaterialPlayerOutputPill(output, label, spoken, accent, onAccent, onOutputClick, Modifier.weight(1f, fill = false))
-        MaterialPlayerQueueButton(accent, onAccent, onQueueClick)
+        MaterialPlayerMoreButton(accent, onAccent, onMoreClick)
     }
 }
 
@@ -308,9 +310,9 @@ private fun MaterialPlayerOutputPill(
     }
 }
 
-/** Material 3 mode: the split button's trailing half, 50 × 42 dp. */
+/** Material 3 mode: the split button's trailing half, 50 × 42 dp: the song's options. */
 @Composable
-private fun MaterialPlayerQueueButton(accent: Color, onAccent: Color, onClick: () -> Unit) {
+private fun MaterialPlayerMoreButton(accent: Color, onAccent: Color, onClick: () -> Unit) {
     Box(
         modifier = Modifier
             .size(height = 42.dp, width = 50.dp)
@@ -327,8 +329,8 @@ private fun MaterialPlayerQueueButton(accent: Color, onAccent: Color, onClick: (
         contentAlignment = Alignment.Center
     ) {
         Icon(
-            painter = painterResource(R.drawable.rounded_queue_music_24),
-            contentDescription = stringResource(R.string.player_cd_open_queue),
+            painter = painterResource(R.drawable.rounded_more_vert_24),
+            contentDescription = stringResource(R.string.player_cd_more_options),
             tint = accent
         )
     }

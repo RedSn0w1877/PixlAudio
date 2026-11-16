@@ -192,4 +192,9 @@
     <string name="lyrics_artist_album_line">%1$s • %2$s</string>
     <string name="lyrics_provided_by">Letras proporcionadas por</string>
     <string name="lyrics_lrclib_uri">https://lrclib.net/</string>
+
+    <!-- Nueva UI (etapa 3): el menú de tres puntos del reproductor y sus filas. -->
+    <string name="player_cd_more_options">Más opciones</string>
+    <string name="player_menu_spatial_line">Toca para cambiar</string>
+    <string name="player_menu_sing_line">Canta con la voz quitada</string>
 </resources>

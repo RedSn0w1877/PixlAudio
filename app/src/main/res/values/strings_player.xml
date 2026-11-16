@@ -232,4 +232,9 @@
     <string name="lyrics_provided_by">Lyrics provided by</string>
     <string name="lyrics_lrclib_uri">https://lrclib.net/</string>
     <string name="lyrics_play_from_here">Play from here</string>
+
+    <!-- New UI (stage 3): the now-playing screen's 3-dot menu and its player rows. -->
+    <string name="player_cd_more_options">More options</string>
+    <string name="player_menu_spatial_line">Tap to change</string>
+    <string name="player_menu_sing_line">Sing along with the vocals off</string>
 </resources>

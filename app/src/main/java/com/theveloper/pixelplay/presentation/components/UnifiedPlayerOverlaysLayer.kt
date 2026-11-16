@@ -217,6 +217,31 @@ internal fun UnifiedPlayerSongInfoLayer(
         }.collectAsStateWithLifecycle(initialValue = staticSong)
 
         val liveSong = liveSongState
+        // The player's own rows (Spatial audio, Sing) only for the song that is playing: they act
+        // on the player, so the full player opens what they ask for (PlayerGestureHost).
+        val gestureHost = com.theveloper.pixelplay.presentation.utils.LocalPlayerGestureHost.current
+        val isPlayingSong = remember(liveSong.id) {
+            playerViewModel.stablePlayerState.value.currentSong?.id == liveSong.id
+        }
+        val playerExtras: (@Composable () -> Unit)? = if (isPlayingSong && gestureHost != null) {
+            {
+                com.theveloper.pixelplay.presentation.components.player.PlayerMenuListenRows(
+                    singUiFlow = playerViewModel.singUi,
+                    onSpatialClick = {
+                        onDismissSongInfo()
+                        gestureHost.requestPlayerMenuAction(
+                            com.theveloper.pixelplay.presentation.utils.PlayerMenuRequest.SPATIAL_AUDIO
+                        )
+                    },
+                    onSingClick = {
+                        onDismissSongInfo()
+                        gestureHost.requestPlayerMenuAction(
+                            com.theveloper.pixelplay.presentation.utils.PlayerMenuRequest.SING
+                        )
+                    }
+                )
+            }
+        } else null
 
         PlayerSchemeMaterialTheme(scheme = colorScheme) {
             SongInfoBottomSheet(
@@ -273,7 +298,8 @@ internal fun UnifiedPlayerSongInfoLayer(
                 removeFromListTrigger = {
                     playerViewModel.removeSongFromQueue(liveSong.id)
                     onDismissSongInfo()
-                }
+                },
+                playerExtras = playerExtras
             )
 
             if (showPlaylistBottomSheet) {

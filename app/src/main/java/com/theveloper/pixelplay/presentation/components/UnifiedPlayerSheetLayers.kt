@@ -17,6 +17,9 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableFloatStateOf
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -38,6 +41,9 @@ import com.theveloper.pixelplay.presentation.components.scoped.PlayerSheetFieldS
 import com.theveloper.pixelplay.presentation.components.scoped.rememberFullPlayerRuntimePolicy
 import com.theveloper.pixelplay.presentation.viewmodel.PlayerSheetState
 import com.theveloper.pixelplay.presentation.viewmodel.PlayerViewModel
+
+/** How often the mini player's ring re-reads the position while playing (~0.7 px of ring per step). */
+private const val MINI_PROGRESS_SAMPLE_MS = 250L
 
 @OptIn(UnstableApi::class)
 @Composable
@@ -127,6 +133,23 @@ internal fun BoxScope.UnifiedPlayerMiniAndFullLayers(
             }
             val isPlaying = fieldStates.isPlaying.value
             val connectDeviceName by playerViewModel.spotifyConnect.playingOnName.collectAsStateWithLifecycle()
+            // The wavy ring's progress: sampled a few times a second while the mini player is on
+            // screen and playing (once when it pauses or appears), written to one float the ring
+            // reads while drawing. No frame loop; the wave's own motion only runs while playing.
+            val miniProgress = remember { mutableFloatStateOf(0f) }
+            val miniSongId = currentSongNonNull.id
+            val miniSongDurationHint = currentSongNonNull.duration
+            LaunchedEffect(isMiniPlayerVisible, isPlaying, miniSongId) {
+                if (!isMiniPlayerVisible) return@LaunchedEffect
+                while (true) {
+                    val duration = fieldStates.totalDurationProvider().takeIf { it > 0L } ?: miniSongDurationHint
+                    miniProgress.floatValue = if (duration > 0L) {
+                        (playerViewModel.currentPositionForLyrics().toFloat() / duration.toFloat()).coerceIn(0f, 1f)
+                    } else 0f
+                    if (!isPlaying) break
+                    delay(MINI_PROGRESS_SAMPLE_MS)
+                }
+            }
                 MiniPlayerContentInternal(
                     song = currentSongNonNull,
                     isPlaying = fieldStates.isTransportPlaying.value,
@@ -137,6 +160,8 @@ internal fun BoxScope.UnifiedPlayerMiniAndFullLayers(
                     onNext = { playerViewModel.nextSong() },
                     canScroll = isMiniPlayerVisible && isPlaying,
                     remoteDeviceName = connectDeviceName,
+                    progressProvider = { miniProgress.floatValue },
+                    animateProgress = isMiniPlayerVisible && isPlaying,
                     modifier = Modifier.fillMaxSize()
                 )
         }

@@ -148,6 +148,11 @@ fun SongInfoBottomSheet(
         coverArtUpdate: CoverArtUpdate?
     ) -> Unit,
     removeFromListTrigger: () -> Unit,
+    /**
+     * Rows shown first on the Options page when the sheet is opened for the song that is playing
+     * (the player's Spatial audio and Sing, new UI stage 3). Null everywhere else.
+     */
+    playerExtras: (@Composable () -> Unit)? = null,
     songInfoViewModel: SongInfoBottomSheetViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
@@ -499,6 +504,8 @@ fun SongInfoBottomSheet(
                                             .padding(horizontal = 16.dp, vertical = 6.dp),
                                         verticalArrangement = Arrangement.spacedBy(10.dp)
                                     ) {
+                                        playerExtras?.invoke()
+
                                         Row1Actions(
                                             isFavorite = isFavorite,
                                             onPlaySong = onPlaySong,

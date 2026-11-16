@@ -120,7 +120,7 @@ object ArtworkSpriteBaker {
     }
 
     /** Decodes [uri] as unpremultiplied ARGB, centre-cropped to ART_TEXELS². */
-    private suspend fun decodeArt(context: Context, uri: String): IntArray? {
+    internal suspend fun decodeArt(context: Context, uri: String): IntArray? {
         val request = ImageRequest.Builder(context)
             .data(uri)
             .size(ART_TEXELS, ART_TEXELS)

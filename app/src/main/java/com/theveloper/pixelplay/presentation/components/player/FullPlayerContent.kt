@@ -132,7 +132,6 @@ import com.theveloper.pixelplay.presentation.components.LocalMaterialTheme
 import com.theveloper.pixelplay.presentation.components.LyricsSheet
 import com.theveloper.pixelplay.presentation.components.subcomps.FetchLyricsDialog
 import com.theveloper.pixelplay.presentation.model.LocalDeveloperMode
-import com.theveloper.pixelplay.presentation.spatial.SpatialAudioPlayerButton
 import com.theveloper.pixelplay.presentation.spatial.SpatialAudioSheet
 import com.theveloper.pixelplay.presentation.spatial.rememberSpatialFileInfoLabel
 import com.theveloper.pixelplay.presentation.viewmodel.LyricsSearchUiState
@@ -158,6 +157,21 @@ import com.theveloper.pixelplay.presentation.components.ToggleSegmentButton
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.withContext
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.runtime.MutableFloatState
+import androidx.compose.runtime.State
+import androidx.compose.animation.core.animate
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.unit.Constraints
+import com.theveloper.pixelplay.presentation.utils.LocalPlayerGestureHost
+import com.theveloper.pixelplay.presentation.utils.PlayerMenuRequest
+import com.theveloper.pixelplay.presentation.utils.horizontalIntentSwipe
+import com.theveloper.pixelplay.ui.theme.FlexFitText
+import com.theveloper.pixelplay.ui.theme.FlexMath
+import com.theveloper.pixelplay.ui.theme.FlexPresets
+import com.theveloper.pixelplay.ui.theme.flexColor
+import kotlinx.coroutines.Job
 
 private const val PREVIOUS_TRACK_RESTART_THRESHOLD_MS = 10_000L
 /** The sync editor fades in over ~280 ms; the player underneath stops drawing after this. */
@@ -386,6 +400,28 @@ fun FullPlayerContent(
 
     val onTaizoClick = { showTaizoSheet = true }
 
+    // New UI (stage 3): Spatial audio and Sing live in the song options sheet now (3-dot button).
+    // That sheet sits in the overlay layer; it asks, and the player opens the same Spatial sheet
+    // and toggles Sing exactly as the old buttons did (Sing then shows the lyrics it is for).
+    val playerGestureHost = LocalPlayerGestureHost.current
+    val latestSheetState by rememberUpdatedState(currentSheetState)
+    LaunchedEffect(playerGestureHost, playerViewModel) {
+        playerGestureHost?.playerMenuRequests?.collect { request ->
+            when (request) {
+                PlayerMenuRequest.SPATIAL_AUDIO -> showSpatialSheet = true
+                PlayerMenuRequest.SING -> {
+                    val sing = playerViewModel.singUi.value
+                    val turningOn = !sing.active && sing.enabled
+                    playerViewModel.toggleSing()
+                    if (turningOn && latestSheetState == PlayerSheetState.EXPANDED) {
+                        showLyricsSheet = true
+                    }
+                }
+            }
+        }
+    }
+    val onMoreClick = { playerGestureHost?.requestSongOptions(song) ?: Unit }
+
     if (showTaizoSheet) {
         com.theveloper.pixelplay.presentation.components.taizo.AskTaizoSheet(
             playerViewModel = playerViewModel,
@@ -394,8 +430,8 @@ fun FullPlayerContent(
         )
     }
 
-    // Spatial audio (cloud-audio-spec §6.5): the song row's button opens it; it wears the album-art colours.
-    val onSpatialClick = { showSpatialSheet = true }
+    // Spatial audio (cloud-audio-spec §6.5): the song options sheet's row opens it (it used to be
+    // the song row's button); it wears the album-art colours.
     if (showSpatialSheet) {
         MaterialTheme(
             colorScheme = LocalMaterialTheme.current,
@@ -632,9 +668,45 @@ fun FullPlayerContent(
             isFavoriteProvider = isFavoriteProvider,
             onShuffleToggle = onShuffleToggle,
             onRepeatToggle = onRepeatToggle,
-            onFavoriteToggle = onFavoriteToggle
+            onFavoriteToggle = onFavoriteToggle,
+            // Portrait: Shuffle / Repeat / Like moved into the bottom split pills.
+            showToggleRow = isLandscape
         )
     }
+
+    // New UI (stage 3), portrait: the bottom split pills (Shuffle / Repeat / Like + Lyrics).
+    val bottomPillsSection: @Composable () -> Unit = {
+        DelayedContent(
+            shouldDelay = loadingTweaks.delayAll || loadingTweaks.delayControls,
+            showPlaceholders = loadingTweaks.showPlaceholders,
+            applyPlaceholderDelayOnClose = loadingTweaks.applyPlaceholdersOnClose,
+            switchOnDragRelease = loadingTweaks.switchOnDragRelease,
+            isSheetDragGestureActive = isSheetDragGestureActive,
+            sharedBoundsModifier = Modifier.fillMaxWidth().height(PlayerPillHeight),
+            expansionFractionProvider = expansionFractionProvider,
+            isExpandedOverride = currentSheetState == PlayerSheetState.EXPANDED,
+            normalStartThreshold = 0.42f,
+            delayAppearThreshold = loadingTweaks.contentAppearThresholdPercent / 100f,
+            delayCloseThreshold = 1f - (loadingTweaks.contentCloseThresholdPercent / 100f),
+            placeholder = { Box(Modifier.fillMaxWidth().height(PlayerPillHeight)) }
+        ) {
+            PlayerBottomPills(
+                isShuffleEnabled = isShuffleEnabledProvider(),
+                isShuffleTransitionInProgress = shuffleTransitionInProgress,
+                repeatMode = repeatModeProvider(),
+                isFavoriteProvider = isFavoriteProvider,
+                onShuffleToggle = onShuffleToggle,
+                onRepeatToggle = onRepeatToggle,
+                onFavoriteToggle = onFavoriteToggle,
+                onLyricsClick = onLyricsClick
+            )
+        }
+    }
+
+    // The hero's blurred cover (baked once per cover, off the main thread). The title reads its
+    // luminance for the GRAD bump, the hero draws it.
+    val heroBlur = rememberPlayerHeroBlur(song.albumArtUriString)
+    val heroBackground = LocalMaterialTheme.current.primaryContainer
 
     val portraitSongMetadataSection: @Composable () -> Unit = {
         FullPlayerSongMetadataSection(
@@ -649,7 +721,6 @@ fun FullPlayerContent(
             isLandscape = false,
             onLyricsClick = onLyricsClick,
             onTaizoClick = onTaizoClick,
-            onSpatialClick = onSpatialClick,
             playerOnBaseColor = playerOnBaseColor,
             playerViewModel = playerViewModel,
             gradientEdgeColor = LocalMaterialTheme.current.primaryContainer,
@@ -657,7 +728,9 @@ fun FullPlayerContent(
             chipContentColor = playerAccentColor,
             onQueueClick = onSongMetadataQueueClick,
             onArtistClick = onSongMetadataArtistClick,
-            isPlayingProvider = isPlayingProvider
+            isPlayingProvider = isPlayingProvider,
+            heroBlur = heroBlur,
+            heroBackground = heroBackground
         )
     }
 
@@ -674,7 +747,6 @@ fun FullPlayerContent(
             isLandscape = true,
             onLyricsClick = onLyricsClick,
             onTaizoClick = onTaizoClick,
-            onSpatialClick = onSpatialClick,
             playerOnBaseColor = playerOnBaseColor,
             playerViewModel = playerViewModel,
             gradientEdgeColor = LocalMaterialTheme.current.primaryContainer,
@@ -810,10 +882,7 @@ fun FullPlayerContent(
                             accent = playerAccentColor,
                             onAccent = playerOnAccentColor,
                             onOutputClick = onShowCastClicked,
-                            onQueueClick = {
-                                showSongInfoBottomSheet = true
-                                onShowQueueClicked()
-                            }
+                            onMoreClick = onMoreClick
                         )
                     }
                 )
@@ -854,12 +923,43 @@ fun FullPlayerContent(
                     controlsSection = controlsSection
                 )
             } else {
-                FullPlayerPortraitContent(
+                // New UI (stage 3): the cover fills the top edge to edge and melts into the
+                // player; the swipe / tap / double-tap / long-press of the old carousel live on
+                // the cover's free area above the title.
+                PrefetchHeroNeighbors(
+                    queue = currentPlaybackQueue,
+                    currentIndex = currentQueueIndex,
+                    albumArtQuality = albumArtQuality
+                )
+                val heroDrag = remember { mutableFloatStateOf(0f) }
+                FullPlayerHeroPortraitContent(
                     paddingValues = paddingValues,
-                    albumCoverSection = albumCoverSection,
+                    hero = {
+                        PlayerHeroArtwork(
+                            song = song,
+                            albumArtQuality = albumArtQuality,
+                            blur = heroBlur,
+                            backgroundColor = heroBackground,
+                            dragOffsetPx = { heroDrag.floatValue }
+                        )
+                    },
+                    heroGestureArea = {
+                        FullPlayerHeroGestureArea(
+                            song = song,
+                            dragState = heroDrag,
+                            onSwipeCommit = { direction ->
+                                // Swipe left = next, right = previous (as the mini player).
+                                requestSkip(if (direction < 0) SkipDirection.NEXT else SkipDirection.PREVIOUS)
+                            },
+                            onAlbumClick = { albumSong ->
+                                playerViewModel.triggerAlbumNavigationFromPlayer(albumSong.albumId)
+                            }
+                        )
+                    },
                     songMetadataSection = portraitSongMetadataSection,
                     playerProgressSection = playerProgressSection,
-                    controlsSection = controlsSection
+                    controlsSection = controlsSection,
+                    bottomPillsSection = bottomPillsSection
                 )
             }
         }
@@ -1132,9 +1232,12 @@ private fun FullPlayerControlsSection(
     isFavoriteProvider: () -> Boolean,
     onShuffleToggle: () -> Unit,
     onRepeatToggle: () -> Unit,
-    onFavoriteToggle: () -> Unit
+    onFavoriteToggle: () -> Unit,
+    /** Landscape keeps the toggle row under the controls; portrait has the bottom split pills. */
+    showToggleRow: Boolean = true
 ) {
     val motionScheme = remember { MotionScheme.expressive() }
+    val sectionHeight = if (showToggleRow) 182.dp else 96.dp
     val controlSpatialSpec = remember { motionScheme.fastSpatialSpec<Float>() }
     val shouldDelay = loadingTweaks.delayAll || loadingTweaks.delayControls
 
@@ -1144,15 +1247,15 @@ private fun FullPlayerControlsSection(
         applyPlaceholderDelayOnClose = loadingTweaks.applyPlaceholdersOnClose,
         switchOnDragRelease = loadingTweaks.switchOnDragRelease,
         isSheetDragGestureActive = isSheetDragGestureActive,
-        sharedBoundsModifier = Modifier.fillMaxWidth().height(182.dp),
+        sharedBoundsModifier = Modifier.fillMaxWidth().height(sectionHeight),
         expansionFractionProvider = expansionFractionProvider,
         isExpandedOverride = currentSheetState == PlayerSheetState.EXPANDED,
         normalStartThreshold = 0.42f,
         delayAppearThreshold = loadingTweaks.contentAppearThresholdPercent / 100f,
         delayCloseThreshold = 1f - (loadingTweaks.contentCloseThresholdPercent / 100f),
         placeholder = {
-            if (loadingTweaks.transparentPlaceholders) {
-                Box(Modifier.fillMaxWidth().height(182.dp))
+            if (loadingTweaks.transparentPlaceholders || !showToggleRow) {
+                Box(Modifier.fillMaxWidth().height(sectionHeight))
             } else {
                 ControlsPlaceholder(placeholderColor, placeholderOnColor)
             }
@@ -1163,7 +1266,7 @@ private fun FullPlayerControlsSection(
         ) {
             AnimatedPlaybackControls(
                 modifier = Modifier
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                    .padding(horizontal = if (showToggleRow) 12.dp else 0.dp, vertical = 8.dp),
                 isPlayingProvider = isPlayingProvider,
                 onPrevious = onPrevious,
                 onPlayPause = onPlayPause,
@@ -1181,22 +1284,24 @@ private fun FullPlayerControlsSection(
                 tintNextIcon = transportSkipColors.content
             )
 
-            Spacer(modifier = Modifier.height(14.dp))
+            if (showToggleRow) {
+                Spacer(modifier = Modifier.height(14.dp))
 
-            BottomToggleRow(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 66.dp, max = 86.dp)
-                    .padding(horizontal = 26.dp, vertical = 0.dp)
-                    .padding(bottom = 6.dp),
-                isShuffleEnabled = isShuffleEnabledProvider(),
-                isShuffleTransitionInProgress = shuffleTransitionInProgress,
-                repeatMode = repeatModeProvider(),
-                isFavoriteProvider = isFavoriteProvider,
-                onShuffleToggle = onShuffleToggle,
-                onRepeatToggle = onRepeatToggle,
-                onFavoriteToggle = onFavoriteToggle
-            )
+                BottomToggleRow(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 66.dp, max = 86.dp)
+                        .padding(horizontal = 26.dp, vertical = 0.dp)
+                        .padding(bottom = 6.dp),
+                    isShuffleEnabled = isShuffleEnabledProvider(),
+                    isShuffleTransitionInProgress = shuffleTransitionInProgress,
+                    repeatMode = repeatModeProvider(),
+                    isFavoriteProvider = isFavoriteProvider,
+                    onShuffleToggle = onShuffleToggle,
+                    onRepeatToggle = onRepeatToggle,
+                    onFavoriteToggle = onFavoriteToggle
+                )
+            }
         }
     }
 }
@@ -1326,7 +1431,6 @@ private fun FullPlayerSongMetadataSection(
     isLandscape: Boolean,
     onLyricsClick: () -> Unit,
     onTaizoClick: () -> Unit = {},
-    onSpatialClick: () -> Unit = {},
     playerOnBaseColor: Color,
     playerViewModel: PlayerViewModel,
     gradientEdgeColor: Color,
@@ -1334,7 +1438,10 @@ private fun FullPlayerSongMetadataSection(
     chipContentColor: Color,
     onQueueClick: () -> Unit,
     onArtistClick: () -> Unit,
-    isPlayingProvider: () -> Boolean = { true }
+    isPlayingProvider: () -> Boolean = { true },
+    /** Portrait (the hero): the title fits by width over the blurred cover, GRAD-bumped for it. */
+    heroBlur: State<HeroBlur?>? = null,
+    heroBackground: Color = Color.Unspecified
 ) {
     val shouldDelay = loadingTweaks.delayAll || loadingTweaks.delaySongMetadata
 
@@ -1368,7 +1475,6 @@ private fun FullPlayerSongMetadataSection(
                 .padding(start = 0.dp),
             onClickLyrics = onLyricsClick,
             onClickTaizo = onTaizoClick,
-            onClickSpatial = onSpatialClick,
             song = song,
             currentSongArtists = currentSongArtists,
             expansionFractionProvider = expansionFractionProvider,
@@ -1381,49 +1487,167 @@ private fun FullPlayerSongMetadataSection(
             showQueueButton = isLandscape,
             onClickQueue = onQueueClick,
             onClickArtist = onArtistClick,
-            isPlayingProvider = isPlayingProvider
+            isPlayingProvider = isPlayingProvider,
+            heroBlur = heroBlur,
+            heroBackground = heroBackground
         )
     }
 }
 
+/**
+ * Portrait (new UI, stage 3). The song block (title, progress, controls, bottom pills) is measured
+ * first and sits at the bottom; everything above it belongs to the cover. The hero runs from the
+ * top of the screen to a little past the title ([PlayerHeroMath.heroHeight]) and the gesture area
+ * covers exactly the free cover above the title, so the layout alone decides where the blur ramps
+ * in: no positions are reported back through state, nothing re-lays out per frame.
+ */
 @Composable
-private fun FullPlayerPortraitContent(
+private fun FullPlayerHeroPortraitContent(
     paddingValues: PaddingValues,
-    albumCoverSection: @Composable (Modifier) -> Unit,
+    hero: @Composable () -> Unit,
+    heroGestureArea: @Composable () -> Unit,
     songMetadataSection: @Composable () -> Unit,
     playerProgressSection: @Composable () -> Unit,
-    controlsSection: @Composable () -> Unit
+    controlsSection: @Composable () -> Unit,
+    bottomPillsSection: @Composable () -> Unit
 ) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(paddingValues)
-            .padding(
-                horizontal = 24.dp,
-                vertical = 0.dp
-            ),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.SpaceAround
-    ) {
-        Column(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.SpaceAround
-        ) {
-            albumCoverSection(Modifier)
-
+    val bottomInset = paddingValues.calculateBottomPadding()
+    Layout(
+        modifier = Modifier.fillMaxSize(),
+        content = {
+            hero()
+            heroGestureArea()
             Column(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 16.dp, end = 16.dp, bottom = bottomInset + 12.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Box(Modifier.align(Alignment.Start)) {
+                Box(Modifier.fillMaxWidth()) {
                     songMetadataSection()
                 }
                 playerProgressSection()
+                controlsSection()
+                Spacer(modifier = Modifier.height(4.dp))
+                bottomPillsSection()
             }
         }
+    ) { measurables, constraints ->
+        val width = constraints.maxWidth
+        val height = if (constraints.hasBoundedHeight) constraints.maxHeight else constraints.minHeight
+        val block = measurables[2].measure(
+            Constraints(minWidth = width, maxWidth = width, minHeight = 0, maxHeight = height.coerceAtLeast(0))
+        )
+        val contentTop = (height - block.height).coerceAtLeast(0)
+        val heroPlaceable = measurables[0].measure(
+            Constraints.fixed(width, PlayerHeroMath.heroHeight(width, contentTop))
+        )
+        val gesturePlaceable = measurables[1].measure(Constraints.fixed(width, contentTop))
+        layout(width, height) {
+            heroPlaceable.place(0, 0)
+            gesturePlaceable.place(0, 0)
+            block.place(0, contentTop)
+        }
+    }
+}
 
-        controlsSection()
+/**
+ * What the old artwork carousel did, on the hero's free area: swipe sideways to skip (the cover
+ * follows the finger, rubber-banded, in the layer only), tap for the album, double-tap to like
+ * (with the heart burst), long-press for the song's options, and the same TalkBack actions.
+ * Vertical drags are left alone for the sheet and the queue.
+ */
+@Composable
+private fun FullPlayerHeroGestureArea(
+    song: Song,
+    dragState: MutableFloatState,
+    onSwipeCommit: (direction: Int) -> Unit,
+    onAlbumClick: (Song) -> Unit
+) {
+    val artworkGestures = com.theveloper.pixelplay.presentation.utils.LocalPlayerGestures.current
+    val gestureHost = LocalPlayerGestureHost.current
+    val haptics = LocalHapticFeedback.current
+    val scope = rememberCoroutineScope()
+    val latestSong by rememberUpdatedState(song)
+    val latestOnAlbumClick by rememberUpdatedState(onAlbumClick)
+    val latestOnSwipeCommit by rememberUpdatedState(onSwipeCommit)
+    var heartTrigger by remember { androidx.compose.runtime.mutableIntStateOf(0) }
+    val settleJob = remember { arrayOfNulls<Job>(1) }
+    val settleSpec = remember { MotionScheme.expressive().defaultSpatialSpec<Float>() }
+    val labelNext = stringResource(R.string.player_gesture_action_next)
+    val labelPrevious = stringResource(R.string.player_gesture_action_previous)
+    val labelLike = stringResource(R.string.player_gesture_action_like)
+    val labelMore = stringResource(R.string.player_gesture_action_more)
+
+    fun settle() {
+        settleJob[0]?.cancel()
+        settleJob[0] = scope.launch {
+            animate(dragState.floatValue, 0f, animationSpec = settleSpec) { value, _ ->
+                dragState.floatValue = value
+            }
+        }
+    }
+
+    val doubleTapEnabled = artworkGestures.playerDoubleTapLike && gestureHost != null
+    val longPressEnabled = artworkGestures.playerLongPressActions && gestureHost != null
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .semantics {
+                val actions = mutableListOf<androidx.compose.ui.semantics.CustomAccessibilityAction>()
+                if (gestureHost != null) {
+                    actions += androidx.compose.ui.semantics.CustomAccessibilityAction(labelNext) { gestureHost.skipNext(); true }
+                    actions += androidx.compose.ui.semantics.CustomAccessibilityAction(labelPrevious) { gestureHost.skipPrevious(); true }
+                    if (artworkGestures.playerDoubleTapLike) {
+                        actions += androidx.compose.ui.semantics.CustomAccessibilityAction(labelLike) { gestureHost.toggleFavoriteCurrent(); true }
+                    }
+                    if (artworkGestures.playerLongPressActions) {
+                        actions += androidx.compose.ui.semantics.CustomAccessibilityAction(labelMore) { gestureHost.requestSongOptions(latestSong); true }
+                    }
+                }
+                customActions = actions
+            }
+            .horizontalIntentSwipe(
+                enabled = artworkGestures.playerSwipeSkip,
+                threshold = 64.dp,
+                onDrag = { dx ->
+                    settleJob[0]?.cancel()
+                    dragState.floatValue = dx
+                },
+                onCancel = { settle() },
+                onCommit = { direction ->
+                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                    latestOnSwipeCommit(direction)
+                    settle()
+                }
+            )
+            .pointerInput(doubleTapEnabled, longPressEnabled) {
+                detectTapGestures(
+                    onTap = {
+                        val current = latestSong
+                        if (current.albumId != -1L) latestOnAlbumClick(current)
+                    },
+                    onDoubleTap = if (doubleTapEnabled) {
+                        {
+                            gestureHost?.toggleFavoriteCurrent()
+                            heartTrigger++
+                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        }
+                    } else null,
+                    onLongPress = if (longPressEnabled) {
+                        {
+                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                            gestureHost?.requestSongOptions(latestSong)
+                        }
+                    } else null
+                )
+            }
+    ) {
+        com.theveloper.pixelplay.presentation.utils.HeartBurst(
+            trigger = heartTrigger,
+            modifier = Modifier.align(Alignment.Center)
+        )
     }
 }
 
@@ -1490,12 +1714,13 @@ private fun SongMetadataDisplaySection(
     chipContentColor: Color,
     onClickLyrics: () -> Unit,
     onClickTaizo: () -> Unit = {},
-    onClickSpatial: () -> Unit = {},
     showQueueButton: Boolean,
     onClickQueue: () -> Unit,
     onClickArtist: () -> Unit,
     modifier: Modifier = Modifier,
-    isPlayingProvider: () -> Boolean = { true }
+    isPlayingProvider: () -> Boolean = { true },
+    heroBlur: State<HeroBlur?>? = null,
+    heroBackground: Color = Color.Unspecified
 ) {
     Row(
         modifier
@@ -1519,7 +1744,9 @@ private fun SongMetadataDisplaySection(
                 modifier = Modifier
                     .weight(1f)
                     .align(Alignment.CenterVertically),
-                isPlayingProvider = isPlayingProvider
+                isPlayingProvider = isPlayingProvider,
+                heroBlur = heroBlur,
+                heroBackground = heroBackground
             )
         }
         
@@ -1622,22 +1849,6 @@ private fun SongMetadataDisplaySection(
                     )
                 }
             }
-        } else {
-            // Portrait Mode: Just the Lyrics button (Queue is in TopBar)
-            FilledIconButton(
-                modifier = Modifier
-                    .size(width = 48.dp, height = 48.dp),
-                colors = IconButtonDefaults.filledIconButtonColors(
-                    containerColor = chipColor,
-                    contentColor = chipContentColor
-                ),
-                onClick = onClickLyrics,
-            ) {
-                Icon(
-                    painter = painterResource(R.drawable.rounded_lyrics_24),
-                    contentDescription = stringResource(R.string.common_lyrics)
-                )
-            }
         }
 
         // Taizo — TAIS Engine 3's on-device DJ. Same 48dp footprint and monochrome chipColor/
@@ -1658,13 +1869,26 @@ private fun SongMetadataDisplaySection(
             )
         }
 
-        // Spatial audio (cloud-audio-spec §6.5): the third sibling, showing "Off" or the profile's name. It
-        // collects its own slice, so a profile change recomposes only the button.
-        SpatialAudioPlayerButton(
-            containerColor = chipColor,
-            contentColor = chipContentColor,
-            onClick = onClickSpatial
-        )
+        if (!showQueueButton) {
+            // Portrait (new UI, stage 3): the Queue button takes the place the like button had in
+            // the mockup's title row; Lyrics is the small bottom pill, Spatial audio and Sing are
+            // in the 3-dot menu.
+            Box(
+                modifier = Modifier
+                    .size(56.dp)
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(chipColor)
+                    .clickable(onClick = onClickQueue),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    painter = painterResource(R.drawable.rounded_queue_music_24),
+                    contentDescription = stringResource(R.string.player_cd_open_queue),
+                    tint = chipContentColor,
+                    modifier = Modifier.size(26.dp)
+                )
+            }
+        }
     }
 }
 
@@ -2293,7 +2517,9 @@ private fun PlayerSongInfo(
     playerViewModel: PlayerViewModel,
     onClickArtist: () -> Unit,
     modifier: Modifier = Modifier,
-    isPlayingProvider: () -> Boolean = { true }
+    isPlayingProvider: () -> Boolean = { true },
+    heroBlur: State<HeroBlur?>? = null,
+    heroBackground: Color = Color.Unspecified
 ) {
     val coroutineScope = rememberCoroutineScope()
     var isNavigatingToArtist by remember { mutableStateOf(false) }
@@ -2328,14 +2554,42 @@ private fun PlayerSongInfo(
         // Let's check AutoScrollingTextOnDemand. Assuming it uses it for scrolling trigger.
         // If we want to avoid recomposition, we might need to pass the provider or just 1f if scrolling logic handles itself.
         // For now, let's pass the current value from provider for logic correctness, but ideally this component should be optimized too.
-        AutoScrollingTextOnDemand(
-            text = title,
-            style = titleStyle,
-            gradientEdgeColor = gradientEdgeColor,
-            expansionFractionProvider = expansionFractionProvider,
-            modifier = Modifier.fillMaxWidth(),
-            canScroll = isPlayingProvider()
-        )
+        if (heroBlur != null) {
+            // Hero title (new UI, stage 3): Google Sans Flex keeps its size and changes width to
+            // fit — short titles widen to fill the line, long ones condense to stay on one, the
+            // longest wrap to two. Over the blurred cover the strokes get a GRAD bump that grows
+            // with how bright the cover is under the title (GRAD never changes the width).
+            val coverLuma = heroBlur.value?.coverLuma
+            val lightText = textColor.luminance() > 0.5f
+            val backgroundLuma = if (heroBackground == Color.Unspecified) 0f else heroBackground.luminance()
+            val titleSpec = remember(coverLuma, lightText, backgroundLuma) {
+                val grade = coverLuma?.let {
+                    FlexMath.gradeForBackdrop(PlayerHeroMath.titleBackdropLuma(it, backgroundLuma), lightText)
+                } ?: 0f
+                FlexPresets.HeroDisplay.copy(grade = grade)
+            }
+            val titleColor = remember(textColor) { flexColor(textColor) }
+            FlexFitText(
+                text = title,
+                style = MaterialTheme.typography.headlineMedium.copy(
+                    fontSize = 30.sp,
+                    lineHeight = 36.sp,
+                    letterSpacing = (-0.3).sp
+                ),
+                color = titleColor,
+                spec = titleSpec,
+                modifier = Modifier.fillMaxWidth()
+            )
+        } else {
+            AutoScrollingTextOnDemand(
+                text = title,
+                style = titleStyle,
+                gradientEdgeColor = gradientEdgeColor,
+                expansionFractionProvider = expansionFractionProvider,
+                modifier = Modifier.fillMaxWidth(),
+                canScroll = isPlayingProvider()
+            )
+        }
         Spacer(modifier = Modifier.height(2.dp))
 
 
