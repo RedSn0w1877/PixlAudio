@@ -151,6 +151,12 @@
     <string name="playlist_cd_remove_songs">Remove songs</string>
     <string name="playlist_action_reorder_songs">Reorder</string>
     <string name="playlist_cd_reorder_songs">Reorder songs</string>
+    <!-- %1$s and %2$s: two parts of the playlist hero's meta line, e.g. "30 songs" and "1 h 52 min" -->
+    <string name="playlist_header_meta">%1$s · %2$s</string>
+    <string name="playlist_owner_ai">Made with AI</string>
+    <string name="playlist_owner_spotify">From Spotify</string>
+    <string name="playlist_cd_shuffle_play">Shuffle play playlist</string>
+    <string name="playlist_cd_cover">Cover of %1$s</string>
 
     <!-- EditTransitionScreen -->
     <string name="transition_title_global">Global transitions</string>

@@ -131,6 +131,11 @@
     <string name="playlist_cd_remove_songs">Quitar canciones</string>
     <string name="playlist_action_reorder_songs">Reordenar</string>
     <string name="playlist_cd_reorder_songs">Reordenar canciones</string>
+    <string name="playlist_header_meta">%1$s · %2$s</string>
+    <string name="playlist_owner_ai">Hecha con IA</string>
+    <string name="playlist_owner_spotify">De Spotify</string>
+    <string name="playlist_cd_shuffle_play">Reproducir la lista en aleatorio</string>
+    <string name="playlist_cd_cover">Portada de %1$s</string>
 
     <!-- EditTransitionScreen -->
     <string name="transition_title_global">Transiciones globales</string>

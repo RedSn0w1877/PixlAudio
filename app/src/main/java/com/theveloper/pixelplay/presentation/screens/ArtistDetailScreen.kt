@@ -90,7 +90,12 @@ import com.theveloper.pixelplay.presentation.components.SmartImage
 import com.theveloper.pixelplay.presentation.components.SmartImageCompactListTargetSize
 import com.theveloper.pixelplay.presentation.components.SongInfoBottomSheet
 import com.theveloper.pixelplay.presentation.components.hero.HeroBlurMath
+import com.theveloper.pixelplay.presentation.components.hero.CollapsingPageHeroHeader
+import com.theveloper.pixelplay.presentation.components.hero.PageContentShownFlag
+import com.theveloper.pixelplay.presentation.components.hero.PageHeroDefaults
+import com.theveloper.pixelplay.presentation.components.hero.PagePlayShuffleGroup
 import com.theveloper.pixelplay.presentation.components.hero.ProgressiveBlurPageHero
+import com.theveloper.pixelplay.presentation.components.hero.rememberCrossfadedPageColorScheme
 import com.theveloper.pixelplay.presentation.components.hero.rememberHeroBlur
 import com.theveloper.pixelplay.presentation.components.rememberAppListState
 import com.theveloper.pixelplay.presentation.components.rememberCollapseFraction
@@ -132,14 +137,6 @@ import kotlin.math.roundToInt
  * Performance: the header's height and collapse fraction are read only in its own measure /
  * placement and in layer and draw blocks, so scrolling never recomposes the header or the list.
  */
-
-/** Expanded and collapsed sizes of the hero name; the title's ramp has [HeroTitleSteps] steps. */
-private val HeroTitleExpandedSize = 48.sp
-private val HeroTitleCollapsedSize = 20.sp
-private const val HeroTitleSteps = 8
-
-/** Hero name at full size: tight leading for the two-line case, a touch of negative tracking. */
-private val HeroTitleStyle = TextStyle(fontSize = HeroTitleExpandedSize, lineHeight = 1.04.em, letterSpacing = (-0.5).sp)
 
 /** Section titles: a heavier, slightly wide Flex cut so they read as signposts over the list. */
 private val SectionTitleSpec = FlexSpec(weight = 680f, width = 106f)
@@ -202,13 +199,13 @@ fun ArtistDetailScreen(
         artistColorSchemePair?.let { pair -> if (isDarkTheme) pair.dark else pair.light }
             ?: baseColorScheme
     }
-    val artistContentShown = remember { ArtistContentShownFlag() }
+    val artistContentShown = remember { PageContentShownFlag() }
     val artistContentVisible = !uiState.isLoading && uiState.artist != null
     SideEffect {
         artistContentShown.shown = artistContentVisible
         artistContentShown.darkTheme = isDarkTheme
     }
-    val artistColorScheme = rememberCrossfadedArtistColorScheme(
+    val artistColorScheme = rememberCrossfadedPageColorScheme(
         target = targetArtistColorScheme,
         // Only a palette that arrives after the content is already on screen fades in; one
         // published together with the content (or a light/dark switch) applies at once, as before.
@@ -235,9 +232,7 @@ fun ArtistDetailScreen(
     val statusBarHeight = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val minTopBarHeight = 64.dp + statusBarHeight
     val maxTopBarHeight = remember(configuration.screenWidthDp, configuration.screenHeightDp, statusBarHeight) {
-        val byWidth = (configuration.screenWidthDp * 0.92f).dp
-        val cap = (configuration.screenHeightDp * 0.62f).dp
-        maxOf(minOf(byWidth, cap), statusBarHeight + 300.dp)
+        PageHeroDefaults.maxHeight(configuration.screenWidthDp, configuration.screenHeightDp, statusBarHeight)
     }
 
     val minTopBarHeightPx = with(density) { minTopBarHeight.toPx() }
@@ -746,18 +741,9 @@ fun ArtistDetailScreen(
 }
 
 /**
- * The artist hero. One custom layout, measured with fixed constraints for everything except its
- * own reported height and the title's per-step width, so a collapsing frame costs a re-measure of
- * this node (children skip), a re-placement, and layer / draw updates:
- *
- *  - the photo + progressive blur + scrim ([ProgressiveBlurPageHero]) is laid out once at the full
- *    height and slides up at half speed in its layer (parallax);
- *  - the bar backdrop (solid surface fading in, the status-bar shade, a soft bottom edge) is drawn
- *    from the collapse fraction in draw only;
- *  - the counts line and the Play / Shuffle group ride the header's bottom edge and fade out;
- *  - the name ([FlexFitCollapsingTitle]) travels from above the counts to beside the back button,
- *    its axes stepping in cached instances and its size scaling in its layer;
- *  - back and more stay put at the top.
+ * The artist hero: the shared [CollapsingPageHeroHeader] (photo, progressive blur, fit-by-width
+ * name collapsing into the bar) with the artist's counts, Play / Shuffle group, back button and
+ * the photo menu (block artist, change photo, reset).
  */
 @Composable
 private fun ArtistHeroHeader(
@@ -778,282 +764,80 @@ private fun ArtistHeroHeader(
     onClearCustomImage: () -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
-    val surface = colors.surface
-    val isDark = LocalPixelPlayDarkTheme.current
-    val density = LocalDensity.current
-    val statusBarTopPx = WindowInsets.statusBars.getTop(density).toFloat()
-
-    // Los iconos de la barra de estado van sobre la superficie (velo arriba, barra sólida al
-    // colapsar), así que basta con fijarlos una vez por esquema y no en cada frame.
-    PixelPlayStatusBarStyle(color = surface)
-
-    val blur = rememberHeroBlur(imageUrl)
-
-    // GRAD for the name over the blurred photo: light text on a bright photo gets heavier strokes
-    // (no reflow). Changes once, when the blur arrives or the palette settles.
-    val surfaceLuma = remember(surface) { surface.luminance() }
-    val grade by remember(isDark, surfaceLuma) {
-        derivedStateOf {
-            val cover = blur.value?.coverLuma ?: return@derivedStateOf 0f
-            FlexMath.gradeForBackdrop(HeroBlurMath.pageBackdropLuma(cover, surfaceLuma, 0.55f), lightText = isDark)
-        }
-    }
-    val expandedSpec = remember(grade) { FlexPresets.HeroDisplay.copy(grade = grade) }
-
-    val onSurfaceState = rememberUpdatedState(colors.onSurface)
-    val titleColor = remember { ColorProducer { onSurfaceState.value } }
-    val surfaceState = rememberUpdatedState(surface)
-    val statusShade = if (isDark) Color.Black.copy(alpha = 0.45f) else Color.White.copy(alpha = 0.35f)
-
-    val titleStep = remember(collapseFraction) {
-        derivedStateOf { FlexMath.stepIndex(collapseFraction.value, HeroTitleSteps) }
-    }
-    val fraction: () -> Float = remember(collapseFraction) { { collapseFraction.value } }
-
     var showImageMenu by remember { mutableStateOf(false) }
 
-    Layout(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clipToBounds(),
-        content = {
-            // 0 — photo, blur and scrim.
-            ProgressiveBlurPageHero(
-                imageUrl = imageUrl,
-                contentDescription = artist.name,
-                blur = blur,
-                backgroundColor = surface,
-                imageRequestSize = imageRequestSize,
-                modifier = Modifier.fillMaxSize(),
-                placeholder = { MusicIconPattern(modifier = Modifier.fillMaxSize()) }
-            )
-            // 1 — bar backdrop, drawn from the fraction and height only.
-            Spacer(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .drawWithCache {
-                        val shadeHeight = 80.dp.toPx()
-                        val edgeHeight = 40.dp.toPx()
-                        val shade = Brush.verticalGradient(
-                            listOf(statusShade, Color.Transparent),
-                            startY = 0f,
-                            endY = shadeHeight
-                        )
-                        // Read here, not per frame: the edge brush is rebuilt only when the
-                        // palette changes (its first-visit fade), never while collapsing.
-                        val edgeColor = surfaceState.value
-                        val edge = Brush.verticalGradient(
-                            listOf(edgeColor.copy(alpha = 0f), edgeColor),
-                            startY = 0f,
-                            endY = edgeHeight
-                        )
-                        val shadeSize = GeometrySize(size.width, shadeHeight)
-                        val edgeSize = GeometrySize(size.width, edgeHeight)
-                        onDrawBehind {
-                            val f = collapseFraction.value
-                            val h = height.floatValue.coerceIn(minHeightPx, maxHeightPx)
-                            val bg = surfaceState.value
-                            drawRect(shade, size = shadeSize)
-                            // A soft edge where the list meets the header mid-collapse.
-                            val edgeAlpha = (f * 3f).coerceAtMost(1f)
-                            if (edgeAlpha > 0f) {
-                                translate(top = h - edgeHeight) {
-                                    drawRect(brush = edge, size = edgeSize, alpha = edgeAlpha)
-                                }
-                            }
-                            val barAlpha = ((f - 0.4f) / 0.45f).coerceIn(0f, 1f)
-                            if (barAlpha > 0f) {
-                                drawRect(bg, size = GeometrySize(size.width, h), alpha = barAlpha)
-                            }
-                        }
-                    }
-            )
-            // 2 — counts + Play / Shuffle.
-            Column(modifier = Modifier.padding(horizontal = 16.dp)) {
-                Text(
-                    text = subtitle,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = colors.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Spacer(modifier = Modifier.height(12.dp))
-                ArtistPlayShuffleGroup(
-                    enabled = canPlay,
-                    onPlayClick = onPlayClick,
-                    onShuffleClick = onShuffleClick
-                )
-            }
-            // 3 — the name.
-            FlexFitCollapsingTitle(
-                text = artist.name,
-                collapseFraction = fraction,
-                expandedStyle = HeroTitleStyle,
-                collapsedFontSize = HeroTitleCollapsedSize,
-                color = titleColor,
-                expanded = expandedSpec,
-                collapsed = FlexPresets.HeroCollapsed,
-                steps = HeroTitleSteps,
-                modifier = Modifier.semantics { heading() }
-            )
-            // 4 — back and more.
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .statusBarsPadding()
-                    .height(64.dp)
-                    .padding(horizontal = 12.dp),
-                verticalAlignment = Alignment.CenterVertically
+    CollapsingPageHeroHeader(
+        title = artist.name,
+        imageUrl = imageUrl,
+        imageContentDescription = artist.name,
+        imageRequestSize = imageRequestSize,
+        height = height,
+        collapseFraction = collapseFraction,
+        minHeightPx = minHeightPx,
+        maxHeightPx = maxHeightPx,
+        placeholder = { MusicIconPattern(modifier = Modifier.fillMaxSize()) },
+        navigation = {
+            FilledIconButton(
+                onClick = onBackPressed,
+                colors = PageHeroDefaults.iconButtonColors(),
+                modifier = Modifier.size(48.dp)
             ) {
-                val buttonColors = IconButtonDefaults.filledIconButtonColors(
-                    containerColor = surface.copy(alpha = 0.62f),
-                    contentColor = colors.onSurface
-                )
+                Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = stringResource(R.string.common_back))
+            }
+        },
+        actions = {
+            Box {
                 FilledIconButton(
-                    onClick = onBackPressed,
-                    colors = buttonColors,
+                    onClick = { showImageMenu = true },
+                    colors = PageHeroDefaults.iconButtonColors(),
                     modifier = Modifier.size(48.dp)
                 ) {
-                    Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = stringResource(R.string.common_back))
+                    Icon(Icons.Rounded.MoreVert, contentDescription = stringResource(R.string.artist_cd_more_options))
                 }
-                Spacer(modifier = Modifier.weight(1f))
-                Box {
-                    FilledIconButton(
-                        onClick = { showImageMenu = true },
-                        colors = buttonColors,
-                        modifier = Modifier.size(48.dp)
-                    ) {
-                        Icon(Icons.Rounded.MoreVert, contentDescription = stringResource(R.string.artist_cd_more_options))
-                    }
-                    DropdownMenu(
-                        expanded = showImageMenu,
-                        onDismissRequest = { showImageMenu = false }
-                    ) {
-                        com.theveloper.pixelplay.presentation.components.BlockArtistMenuItem(artist.id, artist.name) { showImageMenu = false }
+                DropdownMenu(
+                    expanded = showImageMenu,
+                    onDismissRequest = { showImageMenu = false }
+                ) {
+                    com.theveloper.pixelplay.presentation.components.BlockArtistMenuItem(artist.id, artist.name) { showImageMenu = false }
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.artist_action_change_photo)) },
+                        leadingIcon = { Icon(Icons.Rounded.AddAPhoto, contentDescription = null) },
+                        onClick = {
+                            showImageMenu = false
+                            onChangeImage()
+                        }
+                    )
+                    if (hasCustomImage) {
                         DropdownMenuItem(
-                            text = { Text(stringResource(R.string.artist_action_change_photo)) },
-                            leadingIcon = { Icon(Icons.Rounded.AddAPhoto, contentDescription = null) },
+                            text = { Text(stringResource(R.string.artist_action_reset_to_default)) },
+                            leadingIcon = { Icon(Icons.Rounded.Delete, contentDescription = null) },
                             onClick = {
                                 showImageMenu = false
-                                onChangeImage()
+                                onClearCustomImage()
                             }
                         )
-                        if (hasCustomImage) {
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.artist_action_reset_to_default)) },
-                                leadingIcon = { Icon(Icons.Rounded.Delete, contentDescription = null) },
-                                onClick = {
-                                    showImageMenu = false
-                                    onClearCustomImage()
-                                }
-                            )
-                        }
                     }
                 }
             }
-        }
-    ) { measurables, constraints ->
-        val width = constraints.maxWidth
-        val fullHeight = maxHeightPx.roundToInt()
-        // The only per-frame read in measure: the height this node reports.
-        val currentHeight = height.floatValue.coerceIn(minHeightPx, maxHeightPx).roundToInt()
-        val full = Constraints.fixed(width, fullHeight)
-        val image = measurables[0].measure(full)
-        val backdrop = measurables[1].measure(full)
-        val bottom = measurables[2].measure(Constraints(maxWidth = width))
-        // The name narrows step by step toward the bar's room (between back and more).
-        val sidePx = 16.dp.roundToPx()
-        val barStartPx = 68.dp.roundToPx()
-        val barEndPx = 68.dp.roundToPx()
-        val stepT = FlexMath.stepFraction(titleStep.value, HeroTitleSteps)
-        val expandedTitleWidth = (width - 2 * sidePx).coerceAtLeast(0)
-        val collapsedTitleWidth = (width - barStartPx - barEndPx).coerceAtLeast(0)
-        val titleWidth = lerp(expandedTitleWidth.toFloat(), collapsedTitleWidth.toFloat(), stepT).roundToInt()
-        val title = measurables[3].measure(Constraints(maxWidth = titleWidth))
-        val top = measurables[4].measure(Constraints(maxWidth = width))
-        val bottomGapPx = 16.dp.toPx()
-        val titleGapPx = 4.dp.toPx()
-        val barCenterPx = statusBarTopPx + 32.dp.toPx()
-
-        layout(width, currentHeight) {
-            image.placeWithLayer(0, 0) {
-                val h = height.floatValue.coerceIn(minHeightPx, maxHeightPx)
-                translationY = -(maxHeightPx - h) * 0.5f
-                // Fully under the solid bar at the end: skip drawing it.
-                alpha = if (collapseFraction.value >= 0.999f) 0f else 1f
-            }
-            backdrop.place(0, 0)
-            val f = collapseFraction.value
-            val h = height.floatValue.coerceIn(minHeightPx, maxHeightPx)
-            val bottomY = h - bottomGapPx - bottom.height
-            bottom.placeWithLayer(0, bottomY.roundToInt()) {
-                alpha = (1f - collapseFraction.value * 2.2f).coerceIn(0f, 1f)
-            }
-            // Title: its visual box is the layout box scaled about its start-centre.
-            val s = collapseScale(f, HeroTitleExpandedSize, HeroTitleCollapsedSize, HeroTitleSteps)
-            val visualHeight = title.height * s
-            val expandedCenter = bottomY - titleGapPx - visualHeight / 2f
-            val center = lerp(expandedCenter, barCenterPx, f)
-            val x = lerp(sidePx.toFloat(), barStartPx.toFloat(), (f * 1.6f).coerceAtMost(1f))
-            title.place(x.roundToInt(), (center - title.height / 2f).roundToInt())
-            top.place(0, 0)
-        }
-    }
-}
-
-/**
- * Play + Shuffle as an M3 Expressive connected button group: a pill split in two with tight inner
- * corners that morph rounder on press (the group's own press shapes).
- */
-@Composable
-private fun ArtistPlayShuffleGroup(
-    enabled: Boolean,
-    onPlayClick: () -> Unit,
-    onShuffleClick: () -> Unit,
-) {
-    val colors = MaterialTheme.colorScheme
-    val leading = ButtonShapes(
-        ButtonGroupDefaults.connectedLeadingButtonShape,
-        ButtonGroupDefaults.connectedLeadingButtonPressShape
-    )
-    val trailing = ButtonShapes(
-        ButtonGroupDefaults.connectedTrailingButtonShape,
-        ButtonGroupDefaults.connectedTrailingButtonPressShape
-    )
-    Row(horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween)) {
-        Button(
-            onClick = onPlayClick,
-            shapes = leading,
-            enabled = enabled,
-            colors = ButtonDefaults.buttonColors(
-                containerColor = colors.primary,
-                contentColor = colors.onPrimary
-            ),
-            contentPadding = PaddingValues(start = 20.dp, end = 24.dp),
-            modifier = Modifier.height(56.dp)
-        ) {
-            Icon(Icons.Rounded.PlayArrow, contentDescription = null, modifier = Modifier.size(24.dp))
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(text = stringResource(R.string.common_play), style = MaterialTheme.typography.titleMedium)
-        }
-        Button(
-            onClick = onShuffleClick,
-            shapes = trailing,
-            enabled = enabled,
-            colors = ButtonDefaults.buttonColors(
-                containerColor = colors.secondaryContainer,
-                contentColor = colors.onSecondaryContainer
-            ),
-            contentPadding = PaddingValues(0.dp),
-            modifier = Modifier.size(width = 64.dp, height = 56.dp)
-        ) {
-            Icon(
-                Icons.Rounded.Shuffle,
-                contentDescription = stringResource(R.string.artist_cd_shuffle_play),
-                modifier = Modifier.size(24.dp)
+        },
+        bottomContent = {
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodyMedium,
+                color = colors.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
-        }
-    }
+            Spacer(modifier = Modifier.height(12.dp))
+            PagePlayShuffleGroup(
+                enabled = canPlay,
+                onPlayClick = onPlayClick,
+                onShuffleClick = onShuffleClick,
+                shuffleContentDescription = stringResource(R.string.artist_cd_shuffle_play)
+            )
+        },
+        titleExpandedSize = PageHeroDefaults.TitleExpandedSize
+    )
 }
 
 /** A Most played row: a chart-style rank numeral beside the regular song row. */
@@ -1521,42 +1305,4 @@ private fun MusicIconPattern(modifier: Modifier = Modifier) {
                 .graphicsLayer { rotationZ = -8f }
         )
     }
-}
-
-/** Plain holder (not state): whether the artist content was on screen in the previous frame. */
-private class ArtistContentShownFlag {
-    var shown: Boolean = false
-    var darkTheme: Boolean? = null
-}
-
-/**
- * Returns [target] as is, except when [animateChange] is set for this target: then it crossfades
- * from the colours on screen to [target] over 450 ms with one Animatable. Only consumers of the
- * scheme recompose during the fade, and only on a first visit.
- */
-@Composable
-private fun rememberCrossfadedArtistColorScheme(target: ColorScheme, animateChange: Boolean): ColorScheme {
-    val progress = remember { Animatable(1f) }
-    var fromScheme by remember { mutableStateOf(target) }
-    var toScheme by remember { mutableStateOf(target) }
-    val animate by rememberUpdatedState(animateChange)
-
-    LaunchedEffect(target) {
-        if (toScheme == target) return@LaunchedEffect
-        if (!animate) {
-            fromScheme = target
-            toScheme = target
-            progress.snapTo(1f)
-            return@LaunchedEffect
-        }
-        fromScheme = lerpColorScheme(fromScheme, toScheme, progress.value)
-        toScheme = target
-        progress.snapTo(0f)
-        progress.animateTo(1f, animationSpec = tween(durationMillis = 450, easing = FastOutSlowInEasing))
-    }
-
-    val interpolated by remember {
-        derivedStateOf { lerpColorScheme(fromScheme, toScheme, progress.value) }
-    }
-    return if (animateChange || progress.isRunning) interpolated else target
 }
