@@ -45,6 +45,26 @@ internal object PlayerHeroMath {
     /** Background alpha right at the title row (the mockup's 58 % → 78 % ramp sampled there). */
     const val TITLE_SCRIM = 0.40f
 
+    /** Background alpha the scrim reaches at the hero's end, where the whole hero has faded out. */
+    const val END_SCRIM = 0.62f
+
+    /**
+     * The whole hero fades out (to whatever the player draws behind it: the ambient background or
+     * the plain colour) from this far below the title row's top (fraction of the width) to its end.
+     * It used to end on a solid band of the background colour, which stopped in a hard line over the
+     * ambient background (Hoa, 2026-11-16: "an abrupt line ruining the immersion").
+     */
+    const val FADE_START_GAP_FRACTION = 0.04f
+
+    /**
+     * The fade-out's opacity at evenly spaced points from [Stops.fadeStart] to the end: a
+     * smootherstep, so neither end of the fade shows as an edge.
+     */
+    val FADE_OUT_ALPHAS: FloatArray = FloatArray(9) { i ->
+        val t = i / 8f
+        1f - t * t * t * (t * (t * 6f - 15f) + 10f)
+    }
+
     /** Blur of the baked cover (shared with the page heroes, see [HeroBlurMath]). */
     const val BLUR_SIGMA_TEXELS = HeroBlurMath.BLUR_SIGMA_TEXELS
 
@@ -59,6 +79,8 @@ internal object PlayerHeroMath {
         val rampStart: Float,
         val rampEnd: Float,
         val topScrimEnd: Float,
+        /** Where the whole hero starts fading out (it is gone at [height]). */
+        val fadeStart: Float = height,
     ) {
         /** Fraction of [height] for [y], for gradient colour stops (0 when the hero is empty). */
         fun fraction(y: Float): Float = if (height <= 0f) 0f else (y / height).coerceIn(0f, 1f)
@@ -82,6 +104,7 @@ internal object PlayerHeroMath {
             rampStart = rampStart,
             rampEnd = rampEnd,
             topScrimEnd = min(contentTop * TOP_SCRIM_END_FRACTION, rampStart),
+            fadeStart = min(contentTop + w * FADE_START_GAP_FRACTION, h),
         )
     }
 

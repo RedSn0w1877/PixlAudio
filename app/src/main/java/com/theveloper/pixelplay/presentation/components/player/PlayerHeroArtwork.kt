@@ -11,8 +11,10 @@ import androidx.compose.runtime.State
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import coil.request.CachePolicy
@@ -73,12 +75,25 @@ internal fun PlayerHeroArtwork(
     val fade = rememberHeroBlurCrossfade(blur)
 
     Box(
-        modifier = modifier.graphicsLayer {
-            val w = size.width
-            val d = PlayerHeroMath.dragOffset(dragOffsetPx(), w)
-            translationX = d
-            alpha = if (w > 0f) 1f - (abs(d) / w) * 0.6f else 1f
-        }
+        modifier = modifier
+            .graphicsLayer {
+                val w = size.width
+                val d = PlayerHeroMath.dragOffset(dragOffsetPx(), w)
+                translationX = d
+                alpha = if (w > 0f) 1f - (abs(d) / w) * 0.6f else 1f
+                // Offscreen so the fade-out below (DST_IN) cuts the whole hero, not the window.
+                compositingStrategy = CompositingStrategy.Offscreen
+            }
+            .drawWithCache {
+                // The hero dissolves into whatever the player draws behind it (the ambient
+                // background or the plain colour) instead of ending on a solid band. Built once
+                // per size; a frame draws one more rect.
+                val fadeOut = heroFadeOutMask(PlayerHeroMath.stops(size.width, size.height))
+                onDrawWithContent {
+                    drawContent()
+                    drawRect(fadeOut, blendMode = BlendMode.DstIn)
+                }
+            }
     ) {
         Box(
             modifier = Modifier
@@ -133,10 +148,28 @@ private fun heroScrimMask(stops: PlayerHeroMath.Stops): Brush {
         p1 to Color.Transparent,
         p2 to Color.Transparent,
         p3 to Color.Black.copy(alpha = PlayerHeroMath.TITLE_SCRIM),
-        1f to Color.Black,
+        1f to Color.Black.copy(alpha = PlayerHeroMath.END_SCRIM),
         startY = 0f,
         endY = stops.height
     )
+}
+
+/**
+ * The hero's own opacity as a DST_IN mask: opaque down to [PlayerHeroMath.Stops.fadeStart], then a
+ * smootherstep to nothing at the hero's end ([PlayerHeroMath.FADE_OUT_ALPHAS]).
+ */
+private fun heroFadeOutMask(stops: PlayerHeroMath.Stops): Brush {
+    val alphas = PlayerHeroMath.FADE_OUT_ALPHAS
+    val start = stops.fraction(stops.fadeStart)
+    val last = alphas.lastIndex
+    val pairs = Array(alphas.size + 1) { i ->
+        if (i == 0) 0f to Color.Black
+        else {
+            val k = i - 1
+            (start + (1f - start) * k / last) to Color.Black.copy(alpha = alphas[k])
+        }
+    }
+    return Brush.verticalGradient(*pairs, startY = 0f, endY = stops.height)
 }
 
 /**

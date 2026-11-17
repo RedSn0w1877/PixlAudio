@@ -56,6 +56,21 @@ class PlayerHeroMathTest {
     }
 
     @Test
+    fun theHeroFadesOutBelowTheTitleWithoutAnEdge() {
+        val w = 1000f
+        val s = PlayerHeroMath.stops(w, PlayerHeroMath.heroHeight(1000, 1300).toFloat())
+        assertEquals(1300f + w * PlayerHeroMath.FADE_START_GAP_FRACTION, s.fadeStart, 1f)
+        assertTrue(s.fadeStart < s.height)
+        val a = PlayerHeroMath.FADE_OUT_ALPHAS
+        // Opaque at the start, gone at the end, never rising, and flat at both ends (smootherstep).
+        assertEquals(1f, a.first(), 1e-6f)
+        assertEquals(0f, a.last(), 1e-6f)
+        for (i in 1 until a.size) assertTrue(a[i] <= a[i - 1])
+        assertTrue(1f - a[1] < 0.02f)
+        assertTrue(a[a.lastIndex - 1] < 0.02f)
+    }
+
+    @Test
     fun emptyHeroIsSafe() {
         val s = PlayerHeroMath.stops(0f, 0f)
         assertEquals(0f, s.fraction(10f), 0f)
