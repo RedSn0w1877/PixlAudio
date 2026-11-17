@@ -93,8 +93,9 @@ fun getNavigationBarHeight(): Dp {
 /**
  * The mini player (new UI, stage 3): a floating pill above the split navigation bar. Cover (an
  * expressive cookie shape), title and artist, then play/pause inside a circular WAVY progress
- * ring (Material 3 Expressive's [CircularWavyProgressIndicator]), then Next. Previous stays on the
- * swipe and TalkBack actions, as in the approved mockup.
+ * ring (Material 3 Expressive's [CircularWavyProgressIndicator]) between Previous and Next. The
+ * mockup dropped Previous, but swipe-to-skip is off by default (the swipe dismisses instead), so
+ * without the button a sighted user had no way back a track from the mini player.
  *
  * Performance: [progressProvider] is read only while the ring draws (the caller updates it a few
  * times a second, not per frame); the wave only moves while [animateProgress] (playing and on
@@ -129,6 +130,7 @@ internal fun MiniPlayerContentInternal(
 
     val playPauseInteraction = remember { MutableInteractionSource() }
     val nextInteraction = remember { MutableInteractionSource() }
+    val previousInteraction = remember { MutableInteractionSource() }
     val miniPlayerIndication = remember { ripple(bounded = false) }
 
     Row(
@@ -217,7 +219,29 @@ internal fun MiniPlayerContentInternal(
                 )
             }
         }
-        Spacer(modifier = Modifier.width(6.dp))
+        Spacer(modifier = Modifier.width(2.dp))
+
+        Box(
+            modifier = Modifier
+                .size(width = 44.dp, height = 48.dp)
+                .clip(CircleShape)
+                .clickable(
+                    interactionSource = previousInteraction,
+                    indication = miniPlayerIndication,
+                    enabled = controlsEnabled
+                ) {
+                    hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    onPrevious()
+                },
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.SkipPrevious,
+                contentDescription = "Anterior",
+                tint = scheme.onPrimaryContainer,
+                modifier = Modifier.size(24.dp)
+            )
+        }
 
         // Play / pause inside the wavy progress ring.
         val density = LocalDensity.current

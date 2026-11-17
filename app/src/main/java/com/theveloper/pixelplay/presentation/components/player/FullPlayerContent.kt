@@ -114,6 +114,7 @@ import androidx.compose.ui.unit.coerceAtLeast
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.runtime.derivedStateOf
@@ -748,6 +749,8 @@ fun FullPlayerContent(
             isLandscape = true,
             onLyricsClick = onLyricsClick,
             onTaizoClick = onTaizoClick,
+            // The top bar (and its 3-dot button) is hidden in landscape: the song row carries it.
+            onMoreClick = onMoreClick,
             playerOnBaseColor = playerOnBaseColor,
             playerViewModel = playerViewModel,
             gradientEdgeColor = LocalMaterialTheme.current.primaryContainer,
@@ -1432,6 +1435,8 @@ private fun FullPlayerSongMetadataSection(
     isLandscape: Boolean,
     onLyricsClick: () -> Unit,
     onTaizoClick: () -> Unit = {},
+    /** Landscape only: the song options (Spatial audio, Sing...) the hidden top bar opens in portrait. */
+    onMoreClick: (() -> Unit)? = null,
     playerOnBaseColor: Color,
     playerViewModel: PlayerViewModel,
     gradientEdgeColor: Color,
@@ -1476,6 +1481,7 @@ private fun FullPlayerSongMetadataSection(
                 .padding(start = 0.dp),
             onClickLyrics = onLyricsClick,
             onClickTaizo = onTaizoClick,
+            onClickMore = onMoreClick,
             song = song,
             currentSongArtists = currentSongArtists,
             expansionFractionProvider = expansionFractionProvider,
@@ -1715,6 +1721,7 @@ private fun SongMetadataDisplaySection(
     chipContentColor: Color,
     onClickLyrics: () -> Unit,
     onClickTaizo: () -> Unit = {},
+    onClickMore: (() -> Unit)? = null,
     showQueueButton: Boolean,
     onClickQueue: () -> Unit,
     onClickArtist: () -> Unit,
@@ -1868,6 +1875,25 @@ private fun SongMetadataDisplaySection(
                 tint = chipContentColor,
                 modifier = Modifier.size(22.dp)
             )
+        }
+
+        if (showQueueButton && onClickMore != null) {
+            // Landscape: the 3-dot menu (song options with Spatial audio and Sing) lives in the
+            // top bar in portrait, which landscape hides, so it gets a chip here.
+            Box(
+                modifier = Modifier
+                    .size(48.dp)
+                    .background(chipColor, CircleShape)
+                    .clickable { onClickMore() },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = androidx.compose.material.icons.Icons.Rounded.MoreVert,
+                    contentDescription = stringResource(R.string.player_cd_more_options),
+                    tint = chipContentColor,
+                    modifier = Modifier.size(22.dp)
+                )
+            }
         }
 
         if (!showQueueButton) {

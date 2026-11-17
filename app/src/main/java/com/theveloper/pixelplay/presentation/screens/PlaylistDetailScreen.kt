@@ -105,6 +105,8 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.painter.Painter
@@ -182,7 +184,8 @@ import com.theveloper.pixelplay.presentation.components.hero.CollapsingPageHeroH
 import com.theveloper.pixelplay.presentation.components.hero.PageContentShownFlag
 import com.theveloper.pixelplay.presentation.components.hero.PageHeroDefaults
 import com.theveloper.pixelplay.presentation.components.hero.PagePlayShuffleGroup
-import com.theveloper.pixelplay.presentation.components.hero.rememberCrossfadedPageColorScheme
+import com.theveloper.pixelplay.presentation.components.hero.rememberPageSurfaceFade
+import com.theveloper.pixelplay.presentation.components.hero.LocalPageSurfaceFade
 import com.theveloper.pixelplay.ui.theme.LocalPixelPlayDarkTheme
 import com.theveloper.pixelplay.utils.resolvePlaylistCoverContentColor
 import kotlin.math.roundToInt
@@ -353,9 +356,11 @@ fun PlaylistDetailScreen(
         pageContentShown.shown = pageContentVisible
         pageContentShown.darkTheme = isDarkTheme
     }
-    val pageColorScheme = rememberCrossfadedPageColorScheme(
-        target = targetPageColorScheme,
-        // Only a palette that arrives after the page is already on screen fades in.
+    val pageColorScheme = targetPageColorScheme
+    // The theme switches once; only the painted surfaces fade (in draw), and only for a palette
+    // that arrives after the page is already on screen.
+    val pageSurface = rememberPageSurfaceFade(
+        target = targetPageColorScheme.surface,
         animateChange = remember(targetPageColorScheme) {
             pageContentShown.shown && pageContentShown.darkTheme == isDarkTheme
         }
@@ -464,9 +469,13 @@ fun PlaylistDetailScreen(
         typography = MaterialTheme.typography,
         shapes = MaterialTheme.shapes
     ) {
+    CompositionLocalProvider(LocalPageSurfaceFade provides pageSurface) {
     Surface(
-        modifier = Modifier.fillMaxSize(),
-        color = MaterialTheme.colorScheme.surface
+        modifier = Modifier
+            .fillMaxSize()
+            .drawBehind { drawRect(pageSurface.value) },
+        color = Color.Transparent,
+        contentColor = MaterialTheme.colorScheme.onSurface
     ) {
         when {
             uiState.isLoading && currentPlaylist == null -> {
@@ -509,7 +518,8 @@ fun PlaylistDetailScreen(
                             verticalArrangement = Arrangement.spacedBy(6.dp),
                             contentPadding = PaddingValues(
                                 top = minTopBarHeight + 8.dp,
-                                bottom = MiniPlayerHeight + systemNavBarInset + 16.dp,
+                                // The nav pills stay on this page, the mini player above them.
+                                bottom = bottomBarHeightDp + MiniPlayerHeight + 16.dp,
                                 start = 12.dp,
                                 end = if (showScrollBar) 24.dp else 12.dp
                             )
@@ -642,7 +652,7 @@ fun PlaylistDetailScreen(
                                     .align(Alignment.CenterEnd)
                                     .padding(
                                         top = minTopBarHeight + 12.dp,
-                                        bottom = if (hasCurrentSong) MiniPlayerHeight + systemNavBarInset + 20.dp else systemNavBarInset + 16.dp,
+                                        bottom = if (hasCurrentSong) bottomBarHeightDp + MiniPlayerHeight + 20.dp else bottomBarHeightDp + 16.dp,
                                         end = 4.dp
                                     )
                             )
@@ -715,6 +725,7 @@ fun PlaylistDetailScreen(
                 }
             }
         }
+    }
     }
 
     if (showAddSongsSheet && currentPlaylist != null && !isFolderPlaylist) {

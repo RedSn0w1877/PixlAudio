@@ -26,7 +26,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ButtonGroupDefaults
 import androidx.compose.material3.ButtonShapes
-import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -36,7 +35,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.FloatState
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.State
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -51,6 +52,7 @@ import androidx.compose.ui.geometry.Size as GeometrySize
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorProducer
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.Layout
@@ -68,7 +70,6 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.util.lerp
 import coil.size.Size
 import com.theveloper.pixelplay.R
-import com.theveloper.pixelplay.presentation.components.scoped.lerpColorScheme
 import com.theveloper.pixelplay.ui.theme.FlexFitCollapsingTitle
 import com.theveloper.pixelplay.ui.theme.FlexMath
 import com.theveloper.pixelplay.ui.theme.FlexPresets
@@ -190,7 +191,11 @@ internal fun CollapsingPageHeroHeader(
 
     val onSurfaceState = rememberUpdatedState(colors.onSurface)
     val titleColor = remember { ColorProducer { onSurfaceState.value } }
-    val surfaceState = rememberUpdatedState(surface)
+    // The page's faded surface when it provides one (a first-visit palette fades in draw only),
+    // else the theme's. Either way it is read only while drawing.
+    val themeSurfaceState = rememberUpdatedState(surface)
+    val surfaceState = LocalPageSurfaceFade.current ?: themeSurfaceState
+    val edgeTint = remember { ScrimTint() }
     val statusShade = if (isDark) Color.Black.copy(alpha = 0.45f) else Color.White.copy(alpha = 0.35f)
 
     val titleStep = remember(collapseFraction) {
@@ -208,7 +213,7 @@ internal fun CollapsingPageHeroHeader(
                 imageUrl = imageUrl,
                 contentDescription = imageContentDescription,
                 blur = blur,
-                backgroundColor = surface,
+                backgroundColor = surfaceState,
                 imageRequestSize = imageRequestSize,
                 modifier = Modifier.fillMaxSize(),
                 placeholder = placeholder
@@ -225,11 +230,10 @@ internal fun CollapsingPageHeroHeader(
                             startY = 0f,
                             endY = shadeHeight
                         )
-                        // Read here, not per frame: the edge brush is rebuilt only when the
-                        // palette changes (its first-visit fade), never while collapsing.
-                        val edgeColor = surfaceState.value
+                        // An alpha mask tinted with the surface while drawing: a palette fade
+                        // never rebuilds it, and collapsing never touches it.
                         val edge = Brush.verticalGradient(
-                            listOf(edgeColor.copy(alpha = 0f), edgeColor),
+                            listOf(Color.Transparent, Color.Black),
                             startY = 0f,
                             endY = edgeHeight
                         )
@@ -244,7 +248,12 @@ internal fun CollapsingPageHeroHeader(
                             val edgeAlpha = (f * 3f).coerceAtMost(1f)
                             if (edgeAlpha > 0f) {
                                 translate(top = h - edgeHeight) {
-                                    drawRect(brush = edge, size = edgeSize, alpha = edgeAlpha)
+                                    drawRect(
+                                        brush = edge,
+                                        size = edgeSize,
+                                        alpha = edgeAlpha,
+                                        colorFilter = edgeTint.filterFor(bg)
+                                    )
                                 }
                             }
                             val barAlpha = ((f - 0.4f) / 0.45f).coerceIn(0f, 1f)
@@ -327,8 +336,14 @@ internal fun CollapsingPageHeroHeader(
             val f = collapseFraction.value
             val h = height.floatValue.coerceIn(minHeightPx, maxHeightPx)
             val bottomY = h - bottomGapPx - bottom.height
-            bottom.placeWithLayer(0, bottomY.roundToInt()) {
-                alpha = (1f - collapseFraction.value * 2.2f).coerceIn(0f, 1f)
+            // Once faded out it is not placed at all: an alpha-0 layer still takes touches and
+            // stays in the semantics tree, and collapsed it sits under the bar's title, so a tap
+            // there would start playback. Unplaced, it is neither hit-tested nor announced.
+            val bottomAlpha = (1f - f * 2.2f).coerceIn(0f, 1f)
+            if (bottomAlpha > 0f) {
+                bottom.placeWithLayer(0, bottomY.roundToInt()) {
+                    alpha = (1f - collapseFraction.value * 2.2f).coerceIn(0f, 1f)
+                }
             }
             // Title: its visual box is the layout box scaled about its start-centre.
             val s = collapseScale(f, titleExpandedSize, collapsedSize, steps)
@@ -350,36 +365,53 @@ internal class PageContentShownFlag {
 }
 
 /**
- * Returns [target] as is, except when [animateChange] is set for this target: then it crossfades
- * from the colours on screen to [target] over 450 ms with one Animatable. Only consumers of the
- * scheme recompose during the fade, and only on a first visit (a palette that arrives after the
- * page is already showing).
+ * The page surface faded by [rememberPageSurfaceFade]. Provided once per page (the State object
+ * never changes, so this static local never invalidates anything); the hero reads it while
+ * drawing. Null outside such a page: the hero then uses the theme's surface.
+ */
+internal val LocalPageSurfaceFade = staticCompositionLocalOf<State<Color>?> { null }
+
+/** The faded page surface: [to] once [progress] reaches 1, a lerp from [from] before that. */
+@Stable
+private class PageSurfaceFade(initial: Color) : State<Color> {
+    var from by mutableStateOf(initial)
+    var to by mutableStateOf(initial)
+    val progress = Animatable(1f)
+    override val value: Color
+        get() {
+            val t = progress.value
+            return if (t >= 1f) to else lerp(from, to, t)
+        }
+}
+
+/**
+ * The page's surface colour as a State to read **only while drawing** (the page background, the
+ * hero scrim, the bar backdrop). When [animateChange] is set for this [target] (a palette that
+ * arrives after the page is already showing) it fades over 450 ms; otherwise it snaps.
+ *
+ * The page's `MaterialTheme` switches to the new scheme once, at the target, instead of following
+ * an interpolated scheme: `LocalColorScheme` is a static local, so a per-frame scheme would
+ * recompose the whole page (header, title, every visible row) on every frame of the fade. Text and
+ * buttons snap; the large painted surfaces carry the fade, at the cost of a redraw.
  */
 @Composable
-internal fun rememberCrossfadedPageColorScheme(target: ColorScheme, animateChange: Boolean): ColorScheme {
-    val progress = remember { Animatable(1f) }
-    var fromScheme by remember { mutableStateOf(target) }
-    var toScheme by remember { mutableStateOf(target) }
+internal fun rememberPageSurfaceFade(target: Color, animateChange: Boolean): State<Color> {
+    val fade = remember { PageSurfaceFade(target) }
     val animate by rememberUpdatedState(animateChange)
-
     LaunchedEffect(target) {
-        if (toScheme == target) return@LaunchedEffect
+        if (fade.to == target && !fade.progress.isRunning) return@LaunchedEffect
         if (!animate) {
-            fromScheme = target
-            toScheme = target
-            progress.snapTo(1f)
+            fade.progress.snapTo(1f)
+            fade.from = target
+            fade.to = target
             return@LaunchedEffect
         }
-        fromScheme = lerpColorScheme(fromScheme, toScheme, progress.value)
-        toScheme = target
-        progress.snapTo(0f)
-        progress.animateTo(1f, animationSpec = tween(durationMillis = 450, easing = FastOutSlowInEasing))
+        fade.from = fade.value
+        fade.to = target
+        fade.progress.snapTo(0f)
+        fade.progress.animateTo(1f, animationSpec = tween(durationMillis = 450, easing = FastOutSlowInEasing))
     }
-
-    val interpolated by remember {
-        derivedStateOf { lerpColorScheme(fromScheme, toScheme, progress.value) }
-    }
-    return if (animateChange || progress.isRunning) interpolated else target
+    return fade
 }
 
 /**

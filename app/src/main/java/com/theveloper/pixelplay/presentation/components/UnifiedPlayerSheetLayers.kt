@@ -32,7 +32,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp
 import androidx.compose.ui.util.lerp
 import androidx.compose.ui.zIndex
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.media3.common.util.UnstableApi
 import com.theveloper.pixelplay.data.preferences.FullPlayerLoadingTweaks
 import com.theveloper.pixelplay.presentation.components.player.FullPlayerContent
@@ -44,6 +47,12 @@ import com.theveloper.pixelplay.presentation.viewmodel.PlayerViewModel
 
 /** How often the mini player's ring re-reads the position while playing (~0.7 px of ring per step). */
 private const val MINI_PROGRESS_SAMPLE_MS = 250L
+
+/**
+ * While paused: slow enough to cost nothing, quick enough that a seek made elsewhere (notification,
+ * lock screen, Wear, a cast or Connect device) shows on the ring. Same value, no redraw.
+ */
+private const val MINI_PROGRESS_PAUSED_SAMPLE_MS = 1_000L
 
 @OptIn(UnstableApi::class)
 @Composable
@@ -134,20 +143,25 @@ internal fun BoxScope.UnifiedPlayerMiniAndFullLayers(
             val isPlaying = fieldStates.isPlaying.value
             val connectDeviceName by playerViewModel.spotifyConnect.playingOnName.collectAsStateWithLifecycle()
             // The wavy ring's progress: sampled a few times a second while the mini player is on
-            // screen and playing (once when it pauses or appears), written to one float the ring
-            // reads while drawing. No frame loop; the wave's own motion only runs while playing.
+            // screen and playing, once a second while paused (an outside seek still shows), and
+            // not at all while the app is in the background (the loop follows the lifecycle: a
+            // LaunchedEffect alone keeps delaying after onStop). Written to one float the ring
+            // reads while drawing; an unchanged value does not redraw. No frame loop; the wave's
+            // own motion only runs while playing.
             val miniProgress = remember { mutableFloatStateOf(0f) }
             val miniSongId = currentSongNonNull.id
             val miniSongDurationHint = currentSongNonNull.duration
-            LaunchedEffect(isMiniPlayerVisible, isPlaying, miniSongId) {
+            val lifecycleOwner = LocalLifecycleOwner.current
+            LaunchedEffect(isMiniPlayerVisible, isPlaying, miniSongId, lifecycleOwner) {
                 if (!isMiniPlayerVisible) return@LaunchedEffect
-                while (true) {
-                    val duration = fieldStates.totalDurationProvider().takeIf { it > 0L } ?: miniSongDurationHint
-                    miniProgress.floatValue = if (duration > 0L) {
-                        (playerViewModel.currentPositionForLyrics().toFloat() / duration.toFloat()).coerceIn(0f, 1f)
-                    } else 0f
-                    if (!isPlaying) break
-                    delay(MINI_PROGRESS_SAMPLE_MS)
+                lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                    while (true) {
+                        val duration = fieldStates.totalDurationProvider().takeIf { it > 0L } ?: miniSongDurationHint
+                        miniProgress.floatValue = if (duration > 0L) {
+                            (playerViewModel.currentPositionForLyrics().toFloat() / duration.toFloat()).coerceIn(0f, 1f)
+                        } else 0f
+                        delay(if (isPlaying) MINI_PROGRESS_SAMPLE_MS else MINI_PROGRESS_PAUSED_SAMPLE_MS)
+                    }
                 }
             }
                 MiniPlayerContentInternal(

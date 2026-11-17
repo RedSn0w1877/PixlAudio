@@ -147,6 +147,37 @@ data class FlexFitPolicy(
         if (out.last() > minWidth) return out + minWidth
         return out
     }
+
+    /**
+     * [axis] snapped DOWN onto the single-line grid (minWidth + k·step, and maxWidth itself), so a
+     * fitted title never needs an instance outside [widthGrid]. Down, not nearest: narrower still
+     * fits.
+     */
+    fun snapDown(axis: Float): Float {
+        if (axis >= maxWidth) return maxWidth
+        if (axis <= minWidth) return minWidth
+        val k = floor((axis - minWidth) / step)
+        return (minWidth + k * step).coerceIn(minWidth, maxWidth)
+    }
+
+    /**
+     * Every wdth the fit can measure or settle at: the single-line grid from minWidth to maxWidth
+     * and the multi-line candidates (11 values with the defaults). Warm these and a fit never
+     * builds a font in layout.
+     */
+    fun widthGrid(): FloatArray {
+        val out = LinkedHashSet<Float>()
+        var k = 0
+        while (true) {
+            val w = minWidth + k * step
+            if (w >= maxWidth) break
+            out += w
+            k++
+        }
+        out += maxWidth
+        for (c in multiLineCandidates()) out += c
+        return out.toFloatArray()
+    }
 }
 
 /** Pure helpers behind the Flex type toolkit. No Android, no Compose runtime, no allocation. */

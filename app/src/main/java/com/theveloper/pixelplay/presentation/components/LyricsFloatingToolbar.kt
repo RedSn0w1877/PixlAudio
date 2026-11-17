@@ -89,8 +89,9 @@ data class LyricsTranslateSegment(
 )
 
 /**
- * The lyrics screen's toolbar: Back · Translate · Sing · More. (Translate · Sing replaced the
- * Synced · Static switch: synced vs plain is automatic.)
+ * The lyrics screen's toolbar: a small round Back pill and a big pill with Translate · Sing ·
+ * More, in the new UI's split-pill style. (Translate · Sing replaced the Synced · Static switch:
+ * synced vs plain is automatic.)
  *
  * - Translate: a tap shows or hides the lyrics' translations, or translates them with AI
  *   when they have none. A long press opens Translate via AI and Show romanization.
@@ -157,9 +158,15 @@ fun LyricsFloatingToolbar(
 
     // With no lyrics (loading, or none found) there is nothing to translate or sing along to, but
     // Back and More stay: the screen must always be easy to leave and to fix.
+    //
+    // New UI: the split-pill language of the navigation bar and the player. A small round pill
+    // (Back) on the left, as the round "back to your stuff" Home pill sits on the Search screen,
+    // and one big pill holding Translate, Sing and More. Same actions, same states as before.
     Row(
-        modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.Center,
+        modifier = modifier
+            .fillMaxWidth()
+            .height(LyricsPillHeight),
+        horizontalArrangement = Arrangement.spacedBy(LyricsPillGap),
         verticalAlignment = Alignment.CenterVertically
     ) {
         LyricsToolbarBackButton(
@@ -169,26 +176,29 @@ fun LyricsFloatingToolbar(
             backProgressProvider = backProgressProvider,
         )
 
-        Spacer(modifier = Modifier.width(8.dp))
-
-        val segmentHeight = MaterialSegmentHeight
-        if (!hasLyrics) {
-            Spacer(modifier = Modifier.weight(1f).height(segmentHeight))
-        } else Row(
+        Row(
             modifier = Modifier
                 .weight(1f)
-                .fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                .fillMaxHeight()
+                .clip(CircleShape)
+                .background(backgroundColor)
+                .padding(horizontal = LyricsPillInnerPadding),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Box(modifier = Modifier.weight(1f).height(segmentHeight)) {
+            val segmentHeight = LyricsPillToggleHeight
+            if (!hasLyrics) {
+                Spacer(modifier = Modifier.weight(1f).height(segmentHeight))
+            } else {
+                Box(modifier = Modifier.weight(1f).height(segmentHeight)) {
                     ToggleSegmentButton(
                         modifier = Modifier.fillMaxWidth().fillMaxHeight(),
                         active = translate.active,
                         activeColor = accentColor,
-                        inactiveColor = backgroundColor,
+                        inactiveColor = Color.Transparent,
                         activeContentColor = onAccentColor,
                         inactiveContentColor = onBackgroundColor,
-                        activeCornerRadius = 50.dp,
+                        activeCornerRadius = segmentHeight / 2,
                         onClick = tapTranslate,
                         text = translateLabel,
                         imageVector = Icons.Rounded.Translate,
@@ -199,46 +209,46 @@ fun LyricsFloatingToolbar(
                         stateDescription = translateState,
                         dimmed = !translate.available,
                     )
-                
-                MaterialTheme(colorScheme = menuColorScheme) {
-                    DropdownMenu(
-                        expanded = translateMenuOpen,
-                        onDismissRequest = { translateMenuOpen = false }
-                    ) {
-                        DropdownMenuItem(
-                            text = { Text(stringResource(R.string.lyrics_translate_via_ai)) },
-                            leadingIcon = { Icon(Icons.Rounded.AutoAwesome, contentDescription = null) },
-                            onClick = {
-                                translateMenuOpen = false
-                                onTranslateViaAi()
-                            }
-                        )
-                        if (translate.hasRomanization) {
+
+                    MaterialTheme(colorScheme = menuColorScheme) {
+                        DropdownMenu(
+                            expanded = translateMenuOpen,
+                            onDismissRequest = { translateMenuOpen = false }
+                        ) {
                             DropdownMenuItem(
-                                text = { Text(stringResource(R.string.lyrics_controls_show_romanization)) },
-                                leadingIcon = { Icon(Icons.Rounded.Abc, contentDescription = null) },
-                                trailingIcon = if (translate.showRomanization) {
-                                    { Icon(Icons.Rounded.Check, contentDescription = null) }
-                                } else null,
+                                text = { Text(stringResource(R.string.lyrics_translate_via_ai)) },
+                                leadingIcon = { Icon(Icons.Rounded.AutoAwesome, contentDescription = null) },
                                 onClick = {
                                     translateMenuOpen = false
-                                    onShowRomanizationChange(!translate.showRomanization)
+                                    onTranslateViaAi()
                                 }
                             )
+                            if (translate.hasRomanization) {
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.lyrics_controls_show_romanization)) },
+                                    leadingIcon = { Icon(Icons.Rounded.Abc, contentDescription = null) },
+                                    trailingIcon = if (translate.showRomanization) {
+                                        { Icon(Icons.Rounded.Check, contentDescription = null) }
+                                    } else null,
+                                    onClick = {
+                                        translateMenuOpen = false
+                                        onShowRomanizationChange(!translate.showRomanization)
+                                    }
+                                )
+                            }
                         }
                     }
                 }
-            }
 
                 ToggleSegmentButton(
                     modifier = Modifier.weight(1f).height(segmentHeight),
                     active = sing.active,
                     enabled = sing.enabled,
                     activeColor = accentColor,
-                    inactiveColor = backgroundColor,
+                    inactiveColor = Color.Transparent,
                     activeContentColor = onAccentColor,
                     inactiveContentColor = onBackgroundColor,
-                    activeCornerRadius = 50.dp,
+                    activeCornerRadius = segmentHeight / 2,
                     onClick = tapSing,
                     text = singLabel,
                     imageVector = singIcon,
@@ -247,14 +257,11 @@ fun LyricsFloatingToolbar(
                     progress = singProgressProvider,
                     stateDescription = singState,
                 )
-        }
+            }
 
-        Spacer(modifier = Modifier.width(8.dp))
-
-        run {
             IconButton(
                 colors = IconButtonDefaults.iconButtonColors(
-                    containerColor = backgroundColor,
+                    containerColor = Color.Transparent,
                     contentColor = onBackgroundColor
                 ),
                 onClick = onMoreClick
@@ -291,26 +298,31 @@ private fun LyricsToolbarBackButton(
         scaleY = combined
     }
     val backLabel = stringResource(R.string.common_back)
-    run {
-        IconButton(
-            modifier = pressAndGesture,
-            interactionSource = backInteractionSource,
-            colors = IconButtonDefaults.iconButtonColors(
-                containerColor = backgroundColor,
-                contentColor = onBackgroundColor
-            ),
-            onClick = onNavigateBack
-        ) {
-            Icon(
-                imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
-                contentDescription = backLabel,
-                tint = onBackgroundColor
-            )
-        }
+    // The small pill: 68 dp round, the toolbar's container colour.
+    IconButton(
+        modifier = pressAndGesture.size(LyricsPillHeight),
+        interactionSource = backInteractionSource,
+        shape = CircleShape,
+        colors = IconButtonDefaults.iconButtonColors(
+            containerColor = backgroundColor,
+            contentColor = onBackgroundColor
+        ),
+        onClick = onNavigateBack
+    ) {
+        Icon(
+            imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
+            contentDescription = backLabel,
+            tint = onBackgroundColor,
+            modifier = Modifier.size(26.dp)
+        )
     }
 }
 
-private val MaterialSegmentHeight = 50.dp
+/** The split pills' height: the same 68 dp as the navigation bar and the player's bottom pills. */
+private val LyricsPillHeight = 68.dp
+private val LyricsPillGap = 10.dp
+private val LyricsPillInnerPadding = 8.dp
+private val LyricsPillToggleHeight = 52.dp
 
 // Material 3 mode: the back button press spring (unchanged).
 private val BackPressSpring = spring<Float>(

@@ -202,7 +202,7 @@ private fun pageScrimMask(height: Float): Brush {
 /**
  * A full-bleed page hero (artist, playlist): the picture centre-cropped to fill this composable,
  * the blurred copy masked in from [HeroBlurMath.PAGE_RAMP_START] to [HeroBlurMath.PAGE_RAMP_END]
- * of its height, and the [backgroundColor] scrim on top. Shaders are built in `drawWithCache`
+ * of its height, and the [backgroundColor] scrim on top (a State read only while drawing). Shaders are built in `drawWithCache`
  * (once per size and blur), the background is read while drawing, so a palette fade or a
  * collapsing header only redraws three rects. [placeholder] shows when there is no picture.
  *
@@ -214,12 +214,12 @@ internal fun ProgressiveBlurPageHero(
     imageUrl: String?,
     contentDescription: String?,
     blur: State<HeroBlur?>,
-    backgroundColor: Color,
+    backgroundColor: State<Color>,
     imageRequestSize: Size?,
     modifier: Modifier = Modifier,
     placeholder: @Composable () -> Unit,
 ) {
-    val background = rememberUpdatedState(backgroundColor)
+    val background = backgroundColor
     val tint = remember { ScrimTint() }
     val fade = rememberHeroBlurCrossfade(blur)
     Box(modifier = modifier) {

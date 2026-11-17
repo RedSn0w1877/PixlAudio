@@ -44,6 +44,8 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size as GeometrySize
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.ColorProducer
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.Shape
@@ -95,7 +97,8 @@ import com.theveloper.pixelplay.presentation.components.hero.PageContentShownFla
 import com.theveloper.pixelplay.presentation.components.hero.PageHeroDefaults
 import com.theveloper.pixelplay.presentation.components.hero.PagePlayShuffleGroup
 import com.theveloper.pixelplay.presentation.components.hero.ProgressiveBlurPageHero
-import com.theveloper.pixelplay.presentation.components.hero.rememberCrossfadedPageColorScheme
+import com.theveloper.pixelplay.presentation.components.hero.rememberPageSurfaceFade
+import com.theveloper.pixelplay.presentation.components.hero.LocalPageSurfaceFade
 import com.theveloper.pixelplay.presentation.components.hero.rememberHeroBlur
 import com.theveloper.pixelplay.presentation.components.rememberAppListState
 import com.theveloper.pixelplay.presentation.components.rememberCollapseFraction
@@ -205,8 +208,11 @@ fun ArtistDetailScreen(
         artistContentShown.shown = artistContentVisible
         artistContentShown.darkTheme = isDarkTheme
     }
-    val artistColorScheme = rememberCrossfadedPageColorScheme(
-        target = targetArtistColorScheme,
+    val artistColorScheme = targetArtistColorScheme
+    // The theme switches once; only the painted surfaces fade (in draw), so a first-visit palette
+    // no longer recomposes the whole page on every frame of its fade.
+    val artistSurface = rememberPageSurfaceFade(
+        target = targetArtistColorScheme.surface,
         // Only a palette that arrives after the content is already on screen fades in; one
         // published together with the content (or a light/dark switch) applies at once, as before.
         animateChange = remember(targetArtistColorScheme) {
@@ -311,9 +317,13 @@ fun ArtistDetailScreen(
         typography = MaterialTheme.typography,
         shapes = MaterialTheme.shapes
     ) {
+    CompositionLocalProvider(LocalPageSurfaceFade provides artistSurface) {
     Surface(
-        modifier = Modifier.fillMaxSize(),
-        color = MaterialTheme.colorScheme.surface
+        modifier = Modifier
+            .fillMaxSize()
+            .drawBehind { drawRect(artistSurface.value) },
+        color = Color.Transparent,
+        contentColor = MaterialTheme.colorScheme.onSurface
     ) {
         Box(modifier = Modifier.nestedScroll(nestedScrollConnection)) {
             when {
@@ -381,7 +391,8 @@ fun ArtistDetailScreen(
                                 top = minTopBarHeight + 8.dp,
                                 start = 16.dp,
                                 end = if (showScrollBar) 24.dp else 16.dp,
-                                bottom = MiniPlayerHeight + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 8.dp
+                                // The nav pills stay on this page, the mini player above them.
+                                bottom = bottomBarHeightDp + MiniPlayerHeight + 8.dp
                             )
                         ) {
                             // Lo más escuchado va antes que los discos: al abrir un artista lo
@@ -602,7 +613,7 @@ fun ArtistDetailScreen(
                                     .align(Alignment.CenterEnd)
                                     .padding(
                                         top = minTopBarHeight + 12.dp,
-                                        bottom = MiniPlayerHeight + systemNavBarInset + 8.dp
+                                        bottom = bottomBarHeightDp + MiniPlayerHeight + 8.dp
                                     )
                             )
                         }
@@ -641,6 +652,7 @@ fun ArtistDetailScreen(
             }
         }
     } // End Surface
+    }
 
     // Bottom sheets inherit the artist's dynamic color palette — same approach as AlbumDetailScreen
     if (showSongInfoBottomSheet && selectedSongForInfo != null) {
@@ -829,6 +841,10 @@ private fun ArtistHeroHeader(
                 overflow = TextOverflow.Ellipsis
             )
             Spacer(modifier = Modifier.height(12.dp))
+            // No Follow toggle yet (the mockup has one): library artists carry no Spotify artist
+            // id, and following needs the `user-follow-modify` scope, which existing accounts
+            // would have to reconnect for. Left out on purpose until the owner decides; monthly
+            // listeners are not in the Web API at all.
             PagePlayShuffleGroup(
                 enabled = canPlay,
                 onPlayClick = onPlayClick,

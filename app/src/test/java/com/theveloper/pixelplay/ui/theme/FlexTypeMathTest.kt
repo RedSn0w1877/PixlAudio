@@ -171,6 +171,28 @@ class FlexTypeMathTest {
     }
 
     @Test
+    fun `snapDown lands on the single-line grid and never widens`() {
+        val policy = FlexFitPolicy()
+        assertThat(policy.snapDown(118.9f)).isEqualTo(115f)
+        assertThat(policy.snapDown(80f)).isEqualTo(80f)
+        assertThat(policy.snapDown(70f)).isEqualTo(75f)
+        assertThat(policy.snapDown(130f)).isEqualTo(125f)
+        for (raw in 75..125) {
+            val snapped = policy.snapDown(raw.toFloat())
+            assertThat(snapped).isAtMost(raw.toFloat())
+            assertThat(policy.widthGrid().toList()).contains(snapped)
+        }
+    }
+
+    @Test
+    fun `width grid holds every width a fit can use`() {
+        val policy = FlexFitPolicy()
+        assertThat(policy.widthGrid().toList())
+            .containsExactly(75f, 80f, 85f, 90f, 95f, 100f, 105f, 110f, 115f, 120f, 125f)
+        assertThat(policy.widthGrid().toList()).containsAtLeastElementsIn(policy.multiLineCandidates().toList())
+    }
+
+    @Test
     fun `first fitting finds the widest candidate that fits`() {
         val candidates = FlexFitPolicy().multiLineCandidates()
         var probes = 0

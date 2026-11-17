@@ -733,12 +733,12 @@ class MainActivity : ComponentActivity() {
                 Screen.Settings.route,
                 Screen.Plus.route,
                 Screen.Accounts.route,
-                Screen.PlaylistDetail.route,
+                // PlaylistDetail and ArtistDetail keep the split-pill nav (parent tab selected)
+                // with the mini player above it, as in the new UI's mockups.
                 Screen.DailyMixScreen.route,
                 Screen.RecentlyPlayed.route,
                 Screen.GenreDetail.route,
                 Screen.AlbumDetail.route,
-                Screen.ArtistDetail.route,
                 Screen.NavBarCrRad.route,
                 Screen.About.route,
                 Screen.OpenSourceLicenses.route,

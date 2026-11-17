@@ -249,6 +249,7 @@ import androidx.paging.compose.itemContentType
 import androidx.paging.LoadState
 import com.theveloper.pixelplay.presentation.components.ExpressiveScrollBar
 import com.theveloper.pixelplay.ui.theme.LocalShowScrollbar
+import com.theveloper.pixelplay.ui.theme.FlexAxis
 import com.theveloper.pixelplay.ui.theme.FlexFonts
 import com.theveloper.pixelplay.ui.theme.FlexSpec
 import com.theveloper.pixelplay.ui.theme.flexTextStyle
@@ -2250,6 +2251,10 @@ fun LibraryNavigationPill(
     val density = LocalDensity.current
     val textMeasurer = rememberTextMeasurer()
     var availableWidthPx by remember { mutableStateOf(0) }
+    // Every instance the title's wdth can step through, built once per process off the main
+    // thread (both title styles below share it).
+    val fontContext = LocalContext.current.applicationContext
+    LaunchedEffect(Unit) { warmLibraryPillTitleFonts(fontContext) }
 
     val animatedArrowCorner by animateDpAsState(
         targetValue = if (isExpanded) pillRadius else innerRadius,
@@ -2493,22 +2498,56 @@ private val LibraryNavigationPillArrowPaddingExpanded = 10.dp
 private val LibraryNavigationPillArrowPaddingCompressed = 4.dp
 
 /**
+ * The wdth instance the pill title uses for [widthAxis]: whole units over the forced-compression
+ * range (74..100, the animation people see), steps of [LibraryPillLowAxisStep] below it (only very
+ * long titles in a narrow pill get there, and 3 wdth units are invisible at 26 sp). Never below
+ * the font's own wdth minimum (the spec would clamp there anyway).
+ */
+private fun libraryPillTitleAxis(widthAxis: Float): Int {
+    val clamped = widthAxis.coerceIn(FlexAxis.WDTH_MIN, LibraryNavigationPillTitleWidthMax)
+    return if (clamped >= LibraryNavigationPillCompressedWidthAxis) {
+        clamped.roundToInt()
+    } else {
+        ((clamped / LibraryPillLowAxisStep).roundToInt() * LibraryPillLowAxisStep)
+            .coerceAtLeast(FlexAxis.WDTH_MIN.roundToInt())
+    }
+}
+
+private const val LibraryPillLowAxisStep = 3
+
+/** Every instance [libraryPillTitleAxis] can return (about 45 small Typeface wrappers). */
+private val LibraryPillTitleSpecs: List<FlexSpec> by lazy {
+    (FlexAxis.WDTH_MIN.roundToInt()..LibraryNavigationPillTitleWidthMax.roundToInt())
+        .map { libraryPillTitleAxis(it.toFloat()) }
+        .distinct()
+        .map { libraryPillTitleSpec(it) }
+}
+
+private val libraryPillFontsWarmed = java.util.concurrent.atomic.AtomicBoolean(false)
+
+/** Builds [LibraryPillTitleSpecs] once per process, on Dispatchers.Default. */
+private suspend fun warmLibraryPillTitleFonts(context: android.content.Context) {
+    if (!libraryPillFontsWarmed.compareAndSet(false, true)) return
+    try {
+        FlexFonts.warmUp(context, LibraryPillTitleSpecs)
+    } catch (e: kotlinx.coroutines.CancellationException) {
+        // Left the screen mid-warm-up: let the next visit finish it.
+        libraryPillFontsWarmed.set(false)
+        throw e
+    }
+}
+
+/**
  * The pill title's style at [widthAxis]. The axis is animated, and building a `Font` per frame
- * made Compose reload the variable typeface on the main thread every frame; it is now snapped to
- * whole wdth units and served from [FlexFonts] (one cached instance per unit, warmed off-thread
- * for the compression range). wght is the real 600 rather than 400 + synthetic bold.
+ * made Compose reload the variable typeface on the main thread every frame; it is now snapped by
+ * [libraryPillTitleAxis] and served from [FlexFonts], whose instances for the whole reachable range
+ * the pill warms off-thread once per process ([warmLibraryPillTitleFonts]). wght is the real 600
+ * rather than 400 + synthetic bold.
  */
 @Composable
 private fun rememberLibraryNavigationPillTitleStyle(widthAxis: Float): TextStyle {
     val context = LocalContext.current.applicationContext
-    val axis = widthAxis
-        .coerceIn(LibraryNavigationPillTitleWidthMin, LibraryNavigationPillTitleWidthMax)
-        .roundToInt()
-    LaunchedEffect(Unit) {
-        val from = LibraryNavigationPillCompressedWidthAxis.roundToInt()
-        val to = LibraryNavigationPillTitleWidthMax.roundToInt()
-        FlexFonts.warmUp(context, (from..to).map { libraryPillTitleSpec(it) })
-    }
+    val axis = libraryPillTitleAxis(widthAxis)
     return remember(axis) {
         val spec = libraryPillTitleSpec(axis)
         flexTextStyle(

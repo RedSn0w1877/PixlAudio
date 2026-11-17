@@ -402,10 +402,9 @@ fun FlexFitText(
         if (textAlign == TextAlign.Unspecified) style else style.copy(textAlign = textAlign)
     }
     LaunchedEffect(sized, policy) {
-        FlexFonts.warmUp(
-            context,
-            listOf(policy.minWidth, policy.maxWidth, policy.multiLineMaxWidth).map { sized.copy(width = it) },
-        )
+        // The whole grid the fit can land on (it snaps to it), so after the first title at this
+        // (spec, size) every fit is a cache hit.
+        FlexFonts.warmUp(context, policy.widthGrid().map { sized.copy(width = it) })
     }
     val measurePolicy = remember(text, baseStyle, sized, policy, measurer) {
         FitTextMeasurePolicy(measurer, text, policy) { width ->
@@ -478,9 +477,9 @@ fun FlexFitCollapsingTitle(
         }
     }
     LaunchedEffect(measurePolicy) {
-        // The fit candidates at full size first (what the first layout measures)...
+        // The fit grid at full size first (what layout measures; the fit snaps to it)...
         val atSize = expanded.atSize(fromSize)
-        FlexFonts.warmUp(context, listOf(policy.minWidth, policy.maxWidth, policy.multiLineMaxWidth).map { atSize.copy(width = it) })
+        FlexFonts.warmUp(context, policy.widthGrid().map { atSize.copy(width = it) })
         // ...then every step of the path from the fitted cut, as soon as layout has solved it.
         snapshotFlow { fittedAxis.floatValue }
             .filter { !it.isNaN() }
@@ -627,11 +626,13 @@ private class FlexWidthFitter(
         val wHi = singleLine(policy.maxWidth).size.width.toFloat()
         val solved = FlexMath.solveSingleLineWidth(wLo, wHi, policy.minWidth, policy.maxWidth, available)
         if (solved != null) {
-            var a: Float = solved
+            // Snapped onto the policy's grid (steps of 5 by default): every width measured here is
+            // one the screen warmed off-thread, so a new title never builds a font in layout.
+            var a: Float = policy.snapDown(solved)
             // The linear estimate is close but not exact; verify and step down a little if needed.
             var tries = 0
             while (a > policy.minWidth && singleLine(a).size.width > maxWidth && tries < 4) {
-                a = (a - 2f).coerceAtLeast(policy.minWidth)
+                a = policy.snapDown(a - policy.step)
                 tries++
             }
             axis = a

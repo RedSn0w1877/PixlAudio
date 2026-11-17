@@ -158,13 +158,29 @@ private fun Modifier.laidOutAtWidth(widthPx: () -> Int, bias: Float): Modifier =
         }
     }
 
-/** The floating pill surface: clip + shadow on one layer, tonal fill under the content. */
-private fun Modifier.navPill(shape: Shape, color: Color, elevationPx: Float): Modifier =
+/**
+ * The floating pill surface: clip + shadow on one layer, tonal fill under the content. [shape] is
+ * read in the layer block, so swapping it (see [SplitPillShapes]) never recomposes.
+ */
+private fun Modifier.navPill(shape: () -> Shape, color: Color, elevationPx: Float): Modifier =
     graphicsLayer {
-        this.shape = shape
+        this.shape = shape()
         clip = true
         shadowElevation = elevationPx
     }.background(color)
+
+/**
+ * The pills' resting shape and the one used while they flip. During the Home/Library <-> Search
+ * morph both pills change width every frame, and a smooth-corner shape builds a new cubic Path per
+ * size (two per frame, plus the shadow outline); a plain rounded rect is a cheap outline and at
+ * 68 dp the difference is invisible mid-motion. The smooth shape comes back once the morph settles.
+ */
+private class SplitPillShapes(val resting: Shape, val moving: Shape) {
+    fun at(morph: Float): Shape = if (morph <= 0.001f || morph >= 0.999f) resting else moving
+}
+
+private fun navPillMovingShape(radius: Dp, pillHeight: Dp): Shape =
+    RoundedCornerShape(SplitPillMath.pillCornerRadius(radius.value, pillHeight.value).dp)
 
 private fun navPillShape(radius: Dp, pillHeight: Dp, smooth: Boolean): Shape {
     val r = SplitPillMath.pillCornerRadius(radius.value, pillHeight.value).dp
@@ -330,9 +346,15 @@ fun SplitPillNavigationBar(
     val colors = MaterialTheme.colorScheme
     val leftColor = if (isFullWidth) colors.surfaceContainerHighest else colors.surfaceContainerHigh
     val rightColor = colors.primaryContainer
-    val pillShape = remember(cornerRadius, pillHeight, useSmoothCorners, isFullWidth) {
-        navPillShape(if (isFullWidth) pillHeight else cornerRadius, pillHeight, useSmoothCorners)
+    val pillShapes = remember(cornerRadius, pillHeight, useSmoothCorners, isFullWidth) {
+        val radius = if (isFullWidth) pillHeight else cornerRadius
+        val resting = navPillShape(radius, pillHeight, useSmoothCorners)
+        SplitPillShapes(
+            resting = resting,
+            moving = if (resting is RoundedCornerShape) resting else navPillMovingShape(radius, pillHeight)
+        )
     }
+    val pillShape: () -> Shape = remember(pillShapes) { { pillShapes.at(morph.value) } }
     val bandShape = remember(cornerRadius, useSmoothCorners) { navBandShape(cornerRadius, useSmoothCorners) }
     val elevationPx = if (isFullWidth) 0f else with(density) { NavPillElevation.toPx() }
     val gapPx = with(density) { NavPillGap.roundToPx() }
