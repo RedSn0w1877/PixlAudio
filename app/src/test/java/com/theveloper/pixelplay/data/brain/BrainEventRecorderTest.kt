@@ -185,6 +185,12 @@ class BrainEventRecorderTest {
         assertTrue(third.changedDirection)
         assertEquals(listOf("song-a"), third.anchors.map { it.mediaId })
         assertFalse(third.needsOtherDirection)
+        assertTrue(third.turned)
+        // From here on the session follows that one anchor, whatever plays.
+        val after = recorder.record(play("song-c", 200_000L, EndReason.TRACK_DONE, StartReason.AUTOPLAY, autoplayTag))!!
+        assertFalse(after.changedDirection)
+        assertTrue(after.turned)
+        assertEquals(listOf("song-a"), after.anchors.map { it.mediaId })
     }
 
     @Test

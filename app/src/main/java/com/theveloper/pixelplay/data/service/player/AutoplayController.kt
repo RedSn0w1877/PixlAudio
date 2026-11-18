@@ -204,6 +204,7 @@ class AutoplayController @Inject constructor(
     private var sessionAnchors: List<AnchorInfo> = emptyList()
     private var sessionAnchorsAtMs = 0L
     private var needsOtherDirection = false
+    private var sessionTurned = false
     private val likedTitles = HashMap<Long, String>()
     private var noteJob: Job? = null
 
@@ -314,6 +315,7 @@ class AutoplayController @Inject constructor(
         sessionAnchors = reaction.anchors
         sessionAnchorsAtMs = clock.nowMs()
         needsOtherDirection = reaction.needsOtherDirection
+        sessionTurned = reaction.turned
         if (reaction.liked) {
             if (likedTitles.size > 32) likedTitles.clear()
             likedTitles[reaction.event.rid] = reaction.title
@@ -486,13 +488,29 @@ class AutoplayController @Inject constructor(
     }
 
     /**
-     * What the pool is seeded from (7.1 "Seed set"): the session's anchors as the recorder last gave
-     * them, and while there are none yet, the last track the listener chose at or before the current
-     * one (normally the track that is playing).
+     * What the pool is seeded from (7.1 "Seed set"): the track the listener chose and is hearing now,
+     * then the session's anchors as the recorder last gave them, three at most. While the session has
+     * none yet, the last track the listener chose at or before the current one.
      */
     private fun anchorsOf(queue: List<MediaItem>, index: Int): List<Anchor> {
         val fresh = sessionAnchors.isNotEmpty() && clock.nowMs() - sessionAnchorsAtMs in 0 until Session.GAP_MS
-        if (fresh) return sessionAnchors.map { Anchor(it.mediaId, it.title, null, it) }
+        if (fresh) {
+            val anchors = ArrayList<Anchor>(Session.MAX_ANCHORS)
+            // The track the listener chose and is hearing right now leads, though the session has not
+            // heard it out yet: tap one song after an album, and autoplay follows the song. Not after
+            // a change of direction, which follows the one anchor it turned to.
+            val current = queue.getOrNull(index)
+            if (!sessionTurned && current != null && !BrainExtras.isEngineOwned(current.mediaMetadata.extras) &&
+                sessionAnchors.none { it.mediaId == current.mediaId }
+            ) {
+                anchors.add(Anchor(current.mediaId, current.mediaMetadata.title?.toString().orEmpty(), current, null))
+            }
+            for (info in sessionAnchors) {
+                if (anchors.size >= Session.MAX_ANCHORS) break
+                anchors.add(Anchor(info.mediaId, info.title, null, info))
+            }
+            return anchors
+        }
         return AutoplayPolicy.anchorIndices(
             currentAbsoluteIndex = index,
             queueSize = queue.size,

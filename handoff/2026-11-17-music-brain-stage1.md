@@ -279,3 +279,298 @@ the Autoplay line); tap one song and skip it at once (the backstop); turn the sw
 Build note (Windows): Gradle sometimes cannot delete a stale output directory under `app/build` or
 `shared/build` ("AccessDeniedException", "Unable to delete directory"). Deleting that directory by hand, or
 `rm -rf app/build shared/build brain/build`, and running again fixes it. It is not caused by this work.
+
+---
+
+## Milestone 1b: "it listens"
+
+Spec section 14, stage 1, items 6 to 9. Built on 1a after confirming 1a still compiled and passed
+(`:brain:test` + the filtered app tests: 159 tests, 0 failed, before any change).
+
+**Nothing below has been run on a device either.**
+
+### What the listener gets (once verified on a phone)
+
+- Every play is recorded with how it started, how it ended and where it came from, including a skip
+  after two seconds. Nothing is shown for it yet; every later stage learns from this log.
+- A skip changes what comes next: a hard skip keeps that artist out of the engine's picks for ten
+  tracks (a second one, for the rest of the session), and the engine's tail of the queue is re-scored
+  at once. Two skips in a row bring a track from the library by the artist last finished. Three in a
+  row change direction, and the Autoplay line says "Skipped three. Changing direction." for 12 seconds.
+- A like puts one more track by that artist (or its nearest neighbour) into the next picks.
+- Autoplay's picks are now ordered by the scorer (prior weights) instead of plain radio order, with
+  library tracks close to what is playing mixed in (two familiar openers, then about one new track
+  in four). With no history at all the order is the radio's own.
+- An engine track the listener has not saved no longer lands in `feedback_v1` or `song_engagements`.
+
+### Files
+
+**`:brain`** (`./gradlew :brain:test`: 82 tests)
+
+| File | What |
+|---|---|
+| `BrainMath.kt` | `ln`, `exp`, `sigmoid`, `log2`, `powNeg`, `logit`; `toQ` / `fromQ` (Q20); `orderKey`; `floorDiv`, `localDay`, `weekday`; `clip`. Constants as bit patterns. The expression order is the definition |
+| `BrainJson.kt` | the canonical text form: ordered keys, Int64 as decimal strings, doubles as 16 hex digits, non-ASCII escaped. Writer and a small reader |
+| `PlayEvent.kt` | the record of 4.1, `Origin`, `StartReason`, `EndReason`, `Route`, `EventFlags` (codes are part of the log: never renumber), `encode` / `decode`, `mintId` |
+| `Reward.kt` | `grade(event, Context(pastCompletions, skipStreak)) -> Graded(r, c, cOther, rule, isSkip, h)`, `isSkip`, `skipStrength` |
+| `Affinity.kt` | `Family` codes, `State`, `apply`, `applyEvent`, `aff`, `affRecent`, `share`, `p0`, `weight`, `clockJumpedBack` |
+| `Replay.kt` | `LibraryFacts`, `GradeTracker`, `Replay.rebuild(events, facts, nowMs)`, `applyFacts` |
+| `Brain.kt` | `SPEC_VERSION`, `onEvent` (grade, affinity, session: the live step) |
+| `Graph.kt` | the in-memory graph (`Graph.Builder.addList` / `addTrack`), `Similarity.sim` (the `adj` branch) |
+| `Session.kt` | `SessionState`, `Session.begin` / `isExpired` / `apply` / `seedOrder` / `patchQueue` |
+| `Features.kt` | `Candidate`, the 51-entry vector (stage 1 computes 0, 1, 2, 3, 8, 12-18, 22, 23, 25, 26, 36, 37, 38) |
+| `Ranker.kt` | `M0`, `SD0`, `weights(p0)`, `z`, `p` |
+| `Retrieval.kt` | `cooc`, `percentiles` |
+| `ListBuilder.kt` | the slot plan, the hard constraints of 6.4, `lambda`, quantised ordering with the SplitMix64 tie-break |
+| `StationPlanner.kt` | `plan(request, affinity, session, graph)` for autoplay, stations and the Home row; `buildGraph`; `consume` |
+| `WhyLine.kt` | the reason keys of 8.8 and `pick` |
+| tests | `BrainMathTest`, `RewardAffinityTest`, `SessionPlannerTest`, `BrainGoldenTest`, `GoldenGenerator` (the generator, in the test source set), `PurityTest` (rewritten scan) |
+| `brain/src/test/resources/brain-golden/` | the stage 1 golden vectors (13 files, 4.0 MB) with `README.md` (how each `fn` is replayed), `MANIFEST.sha256`, `SPEC_VERSION` |
+| `brain/src/test/resources/brain-corpus/` | `names.txt` (1,000), `titles.txt` (300, 108 Vietnamese / Korean / Japanese): the text the fold and title vectors run over; cut by `tools/brain/cut_corpus.py <raw captures>` |
+
+**App, new** (`data/brain/`)
+
+| File | What |
+|---|---|
+| `PlayContext.kt` | `PlayContext`, `FinishedPlay`, `PlaySink`, `PlayReasons` (the table of 4.2), `BrainSurfaces` |
+| `BrainEventRecorder.kt` | the recorder: one worker, in order; resolve, stamp, write, apply; `reactions` flow; the `killed` checkpoint |
+| `BrainEngine.kt` | the in-memory state behind one lock (`withState`), lazy load, background rebuild and swap |
+| `BrainRebuilder.kt` | `ReplayMerger` (log + imports, duplicates, merges), `AppStateRebuilder` (the migration, the facts) |
+| `LegacyMigration.kt` | the one-shot `playback_history` copy |
+| `ImportedPlayAdapter.kt` | `imported_plays` as events (read, never copied) |
+| `TrackCatalog.kt` | `TrackFacts`, `LibraryTrackCatalog` (library, then `playable`, then the item itself) |
+| `store/BrainStore.kt` | the storage seam (`RoomBrainStore`), row and entity mapping |
+
+**App, changed**
+
+| File | Change |
+|---|---|
+| `presentation/viewmodel/ListeningStatsTracker.kt` | `PlaySink` (4th constructor argument, default none); a brain play beside the legacy session; `context` and `endReason` on `onTrackChanged` / `ensureSession` / `finalizeCurrentSession` / `onPlaybackStopped`; `markFlag`, `onSeek`; the legacy counters skipped for a track outside the library |
+| `data/service/MusicService.kt` | `brainPlayContext`, `brainRoute`, `brainEndReason`; reasons from `onMediaItemTransition`, the hand-over publish, `STATE_ENDED`, both teardown sites, the player error; `onSeek` |
+| `presentation/viewmodel/PlaybackDispatchStateHolder.kt` | `brain.surface` / `brain.surfaceId` on every item a play from the UI builds (the start item too); `manualQueue` on "Add to queue" and "Play next" |
+| `data/service/player/AutoplayController.kt` | planner instead of radio order; session anchors; reactions; `rescoreTail`; the change of direction; library tracks by the anchors' artists as candidates |
+| `data/service/player/AutoplayPolicy.kt` | `rescoreStart`, `warmedAhead`, `anchorIndices(max)` |
+| `data/service/player/DualPlayerEngine.kt` | `replaceQueueTail(fromAbsoluteIndex, items)`: one edit, windowed-queue aware |
+| `data/brain/BrainExtras.kt` | `brain.primaryArtist`, `brain.whyKey` |
+| `data/brain/BrainIdentity.kt` (`TrackResolver`) | `resolveArtistNames`, `survivorOf`, `merges` |
+| `data/brain/EngineTrackSaver.kt`, `MusicRepositoryImpl.setFavoriteStatus`, `BrainSessionStateHolder.ensureSaved` | liked / saved / added-to-playlist flags on the play in flight |
+| `data/brain/store/BrainDaos.kt`, `data/history/ListeningHistoryDatabase.kt` (one query: `maxPlayId`) | queries only; no entity changed, no schema changed |
+| `di/BrainModule.kt` | `BrainStore`, `TrackCatalog`, `StateRebuilder`, `PlaySink` |
+| `presentation/components/AutoplayDivider.kt`, `strings_player.xml` | `queue_autoplay_changed_direction` |
+| `CLAUDE.md`, `.gitattributes` (golden files are LF), `brain/build.gradle.kts` (`generateGolden`) | |
+
+### Item 6: the event recorder
+
+How one play reaches the log, traced in code:
+
+1. `MusicService.syncLocalListeningStatsFromPlayer` builds a `PlayContext` from the current `MediaItem`
+   (title, artist line, `brain.primaryArtist`, Spotify id, the `brain.*` extras, shuffle, repeat-one, route)
+   and hands it, with the reasons, to `ListeningStatsTracker`.
+2. The tracker keeps a `BrainPlay` beside its legacy `ActiveSession`. When the play ends it calls
+   `PlaySink.onPlayFinished` BEFORE the five-second floor, which now only guards the legacy stores.
+3. `BrainEventRecorder` (one worker coroutine, plays in order) asks `TrackCatalog` what the media id is,
+   resolves it to a rid and its artists to aids, stamps it (`Session.begin`), builds the `PlayEvent`,
+   and inside `BrainEngine.withState` writes the event row and the affinity rows it touched in one
+   transaction after `Brain.onEvent` updated the in-memory state.
+4. A `Reaction` goes to `AutoplayController` on the main thread.
+
+End and start reasons, per finalisation site:
+
+| Site | End reason of the play that ends | Start reason of the next |
+|---|---|---|
+| `onMediaItemTransition`, `AUTO` | `trackDone` | `autoplay` when the new item has `brain.arm`, else `autoAdvance` |
+| `onMediaItemTransition`, `SEEK`, absolute index +1 / -1 / other | `next` / `prev` / `pickedOther` | `next` / `prev` / `tap` |
+| `onMediaItemTransition`, `PLAYLIST_CHANGED` | `queueEdit` when the full queue is exactly one shorter, else `pickedOther` | `tap`; `restore` while a snapshot is restored |
+| `onMediaItemTransition`, `REPEAT` | `trackDone` | `autoAdvance` (the `repeatOne` flag comes from the player's repeat mode) |
+| `publishMediaSessionPlayer` with another song (crossfade hand-over) | `trackDone` | `autoplay` / `autoAdvance` |
+| `onPlaybackStateChanged(STATE_ENDED)` | `trackDone` | - |
+| no current item, idle or ended | `stopped` | - |
+| `onDestroy`, `stopPlaybackAndUnload` | `stopped` | - |
+| `onPlayerError` | `error`, once, at whatever finalisation follows | - |
+| any other `ensureSession` on a new song | `unknown` (never a skip) | `unknown`; `restore` while restoring |
+| an open play found by the next process | `killed`, with what was heard by its last pause | - |
+| `PlayerViewModel.onCleared` | none: the legacy session closes as before, the brain's play stays open | - |
+
+### Item 7: the pure core and the golden vectors
+
+`./gradlew :brain:generateGolden` rewrites `brain/src/test/resources/brain-golden/`; `BrainGoldenTest`
+regenerates in memory and compares byte for byte, checks the manifest and the version file, checks the
+counts the spec asks for (2,000 each for `ln`, `exp`, `sigmoid`, `log2`, `powNeg`; 1,000 names; 300
+titles; 300 graded events), and generates twice to prove determinism. `README.md` in the folder is the
+replay recipe for the iOS port. Hand-rolled `ln` and `exp` agree with the JVM's own within 4 ulp over
+600 binades (`BrainMathTest`); that is a sanity check, not the contract: the bits in `math.jsonl` are.
+
+**For the iOS port:** copy the whole folder; transliterate the Kotlin operation by operation (no
+`addingProduct`); hashes are `UInt64` with wrapping operators; the tie-break comparison is unsigned;
+`Session.begin` must be called before `Brain.onEvent` where the README says so.
+
+### Item 8: the migration
+
+Runs in the background the first time the brain is needed (the first play that ends, or the first
+autoplay plan), never at app start, with the stored state serving meanwhile:
+
+1. `LegacyMigration.copy`: every `playback_history` row that ended before the brain's first use becomes
+   a `migratedHistory` event (start = end minus listened, length from the library, reasons and surface
+   unknown). Idempotent: the event id is a function of the row and the insert ignores an existing id.
+2. `ImportedPlayAdapter`: `imported_plays` as events, resolved once per distinct track, not stored.
+3. `ReplayMerger`: an imported play that ended within 90 s of a stored play of the same recording is
+   dropped; both streams are merged in ascending event id; merged recordings map to their survivor;
+   `Replay.rebuild` clamps every event time to now.
+4. `LibraryFacts`: favourites, Spotify top artists / top tracks / followed artists (`taste_seeds`),
+   boost and reduce taste adjustments for artists and songs, as pseudo-counts.
+5. The rows replace the `affinity` table in one transaction; plays recorded while it ran are applied
+   to the new state first, and not twice.
+
+It runs again when `Brain.SPEC_VERSION` changes, when `imported_plays` has a new highest row id, when a
+live update sees the clock 48 hours behind the newest counter, and once a week (to refresh the facts).
+
+### Item 9: session reactions
+
+`AutoplayController.onReaction`, after each recorded play:
+
+- A skip (`h > 0`), a like or a change of direction re-scores the engine's tail: `rescoreTail` asks
+  `Session.patchQueue` for the same number of tracks from the tail's own tracks plus the pool, and
+  when the answer differs applies it with ONE `DualPlayerEngine.replaceQueueTail`.
+- The re-score starts at `AutoplayPolicy.rescoreStart`: after the current track and the next one (the
+  next two on unmetered Wi-Fi), and only over the unbroken run of engine items at the end of the queue.
+  It is held while a transition runs, and dropped when the queue changed while it was planned.
+- Anchors come from the session (`Reaction.anchors`): the listener's own choices heard with r >= 0.5,
+  plus engine picks they liked, saved or replayed. The listener-chosen track that is playing right now
+  leads them (tap one song after an album, and autoplay follows the song), three at most. Before the
+  first play of a session is recorded, only the last listener-chosen track at or before the current one.
+- Third skip in a row: the next anchor alone seeds the pool. With no other anchor, a matched library
+  track by the library artist with the highest affinity, outside the artists skipped this session.
+
+### Deviations from the spec, and why (continuing the list)
+
+22. **`StartReason` has no `pickedOther`.** 4.1's enum does not list it; 4.2's table says "the same
+    word". Picking an item of the queue starts as `tap`.
+23. **The affinity tables are held in memory in full**, loaded on first use (one `SELECT *`), not
+    point-read per event. A listener with a large import has over 10,000 rows: a few megabytes and
+    tens of milliseconds, off the main thread. Rows an event touched are still upserted with it.
+24. **`affinity.family` codes beyond the families:** 16 + family is the family's sum row, 32 + family
+    its pseudo-count rows, 48 the per-track completion counts (`pastCompletions`). No schema change.
+25. **`affRecent` (feature 3) leaves the pseudo-counts out:** a follow is not recent evidence.
+26. **The bias weight is `logit(p0)` read when a list is planned**, not frozen "at first rebuild". It
+    is the same for every candidate of a list.
+27. **The slot plan counts the novelty share from the third slot:** `novelSoFar < nu * (slot - 2)`.
+    The formula as printed (`nu * slotIndex`) gives F F N F N at 0.25; the spec's own example is
+    F F N F F F N, which this reproduces.
+28. **Arms:** a library candidate is FAV with at least one completion, else DEEP ("not played in 90
+    days" is not checked; the 4-hour rule applies to everything). ARTIST needs `aff > 0.5` and a
+    decayed weight of 5, not five counted plays: the counters do not hold counts.
+29. **`nu0` is 0.25**, not the listener's first-play share. Autoplay's factor is 1.0 after a single
+    listener-chosen track and 0.8 otherwise.
+30. **No Thompson draw over arms.** A novel slot takes the best-valued novel candidate. `Bandit.kt`,
+    `MixPlanner.kt` and `Snapshot.kt` (listed for stage 1 in 13.1, absent from 10.1's stage 1 list)
+    are not written.
+31. **Reward, read literally:** "x 0 for a live play that stopped under 30 s" also zeroes a play in
+    which the listener pressed Like. The like still counts as a library fact.
+32. **The skip streak** counts live plays of one session whose ends are at most 60 s apart, and
+    restarts with a new session, so a replay grades exactly as the live path did. "Directly after a
+    skip" is a streak of 1 or more.
+33. **Session details:** `passiveRun` is the run of plays started by `autoAdvance` / `autoplay` (a
+    pause or seek inside a track does not reset it). `nuSession * 0.67` needs a hard skip (`h >= 0.6`).
+    "A second skip of that artist" counts hard skips. A process restart starts a new session.
+34. **A change of direction follows one anchor**, the one turned to. The same anchors in another order
+    would be the same pool.
+35. **`Session.begin` runs when a play is recorded, at its end.** Plays are sequential, so the stamps
+    are the same as if it ran at the start.
+36. **Golden files:** `math.jsonl` also pins `toQ`, `orderKey` and `localDay`; `hash.jsonl` pins the
+    unsigned remainders. The generator is in the test source set and reads a committed text corpus.
+37. **A play that never made a sound** is logged only when the listener or an error ended it, flagged
+    `neverAudible` (so it is worth nothing). A paused, restored item that is stopped is not an attempt.
+38. **"No library row"** is: no `songs` row and a `playable` row, looked up off the main thread, and
+    only for engine-owned items or synthetic ids.
+39. **Surface threading:** playlist (by id, stored as a hash), Liked Songs, Your Mix, Daily Mix, Taizo
+    (by the queue names the app passes, English only), and `manualQueue`. An album, an artist page and
+    search record `unknown`, which Reward treats like any surface the listener picked from.
+40. **Migration:** history rows whose song is gone are skipped. "Liked" is the in-app favourites;
+    Spotify's Liked Songs are not read separately. Genre and album taste adjustments give no
+    pseudo-counts (they need stage 2's ids). A backup restored later is not copied (the copy is one-shot).
+41. **A rebuild holds the imported plays in memory** (sorted by event id) instead of streaming them.
+42. **`killed`:** the open play is written down when it first sounds and at each pause, so a killed
+    play carries what was heard by its last pause, not by the moment of death.
+43. **Cast and Connect:** a local play that continues into a Cast session keeps recording under its
+    local context; a play that starts on Cast, and anything on Connect, is not recorded.
+44. **`TasteConstraintAdapter.kt` is not written.** Boost / reduce reach the planner as `boostLn`
+    from the existing `TasteAdjustments.combinedMultiplier`; mute and block are applied when the pool
+    is built, as in 1a. Matching by aid, rid and atlas id is stage 2.
+45. **The library-only pool keeps 1a's in-order pick:** its tracks have no recording ids.
+46. **`replaceQueueTail` refuses on a windowed queue whose window does not reach the queue's end.**
+47. **The queue snapshot was not extended:** `brain.primaryArtist`, `brain.whyKey`, `brain.whyArg`,
+    `brain.retrQ` and `brain.radioRank` are lost on a process restart (1c needs the first three for
+    the why-line; the recorder falls back to the artist line and records -1).
+
+### Cut or left for 1c
+
+- No UI for "Not for me" (the flag, the reward rule and the session effect are in the core and the
+  recorder accepts the flag through `ListeningStatsTracker.markFlag`) and none for Familiar / Blend /
+  Discover (`StationPlanner.Request.nuMultiplier`).
+- The why-line UI. Items now carry `brain.whyKey` (`radio_fans`, `artist_more`, `because_liked`,
+  `on_repeat`) and `brain.whyArg` (the name to show).
+- Stations and the Home row: `StationPlanner` has `MODE_STATION` and `MODE_HOME_ROW` (golden-tested);
+  nothing in the app calls them.
+- `BrainSwitch.engine = legacy | brain` still does not exist.
+- No instrumented tests for `brain.db` (the DAO queries are compiled by Room, not run).
+
+### Not verified on a device (all of it; the specific risks)
+
+1. The reasons: which callbacks really arrive, and in what order, for a tap, next, previous, a queue
+   edit, repeat, an error, and above all a crossfade hand-over (`PlayReasons.forHandOver` assumes the
+   publish of another song is the hand-over; the tracker merges a second announcement of the same
+   track within 2 s). A wrong order would show as plays cut in two or `unknown` reasons.
+2. That `play_event` rows are written at all on a phone (Room compiles the queries; no query was run).
+3. The cost of the first load, the migration and a rebuild on a real library and a real import
+   (budget in the spec: under 3 s for 50,000 imported plays). Memory for a large import.
+4. `rescoreTail` on a real player: `replaceMediaItems` behind the current track during playback, with
+   and without crossfade; whether the prefetcher's warmed track is ever inside the replaced range;
+   `replaceQueueTail` on a windowed queue.
+5. Whether the reaction is fast enough to be felt (the plan is made off the main thread after the
+   event is written).
+6. The change of direction end to end, including the fallback to a library artist.
+7. The Autoplay line showing the note; the queue UI while its tail is replaced under the thumb.
+8. Audio route detection (`AudioManager.getDevices`), read at most twice a minute.
+9. Bit-equality of `BrainMath` on ART (argued in the spec; proved only by running `BrainGoldenTest`
+   on a device, which was not done) and in Swift.
+10. That nothing runs at app start: traced (the recorder's worker starts with the first audible
+    play; a restored, paused queue sends nothing), not measured.
+11. Cast and Connect with the recorder in place.
+
+### How to test
+
+```
+export ANDROID_HOME="C:\\Users\\Hoa\\AppData\\Local\\Android\\Sdk"
+./gradlew :brain:test
+./gradlew :brain:generateGolden        # only after an intended change; then commit the folder
+./gradlew :app:testDebugUnitTest --tests "com.theveloper.pixelplay.data.brain.*" \
+  --tests "com.theveloper.pixelplay.data.service.player.AutoplayPolicyTest" \
+  --tests "com.theveloper.pixelplay.presentation.viewmodel.ListeningStatsTracker*" \
+  --tests "com.theveloper.pixelplay.data.youtube.InnerTubeMusicParsersTest" \
+  --tests "com.theveloper.pixelplay.data.recommendation.*"
+./gradlew :app:assembleDebug
+```
+
+Last run on the committed code (2026-11-18), one invocation:
+`./gradlew :brain:test :app:testDebugUnitTest :app:assembleDebug --continue` gave BUILD SUCCESSFUL in 14m 58s.
+
+- `:brain:test`: 82 tests in 10 classes, 0 failed (31 from 1a; new: `BrainMathTest` 7, `RewardAffinityTest` 16,
+  `SessionPlannerTest` 22, `BrainGoldenTest` 5; `PurityTest` 1 to 2).
+- `:app:testDebugUnitTest` (the whole suite): 2,132 tests in 274 classes, 0 failed, 1 skipped (the same one as
+  before). New: `BrainEventRecorderTest` 10, `BrainMigrationTest` 11, `PlayReasonsTest` 8,
+  `ListeningStatsTrackerBrainTest` 9; `AutoplayPolicyTest` 20 to 23. `ListeningStatsTrackerTest` (2) and
+  `data.recommendation.*` (61, with `RecommendationGoldenEqualityTest`) pass untouched.
+- `:app:assembleDebug`: both split APKs built, so the Hilt graph compiles with the new bindings.
+
+Build note, worse than in 1a: on this machine Gradle failed about one run in two with "Unable to delete
+directory" or `AccessDeniedException` somewhere under `app/build` or `brain/build` (a different directory
+each time: `packageDebugResources`, `built_in_kotlinc`, `merged_res_blame_folder`,
+`transformDebugClassesWithAsm`, `test-results/.../binary`, `generated/source/buildConfig`,
+`brain/build/reports`). Deleting the named directory by hand and running again got past it every time.
+Nothing was killed. It is not caused by this work.
+
+On a phone, after 1a's list: play a song, skip the next one after two seconds, and look at `play_event`
+in `brain.db` (Database Inspector) for a row with `endReason = 1` and `playedMs` near 2000; skip two
+engine picks by one artist and check that artist is gone from the tail; skip three in a row and read
+the Autoplay line; like an engine pick and look for a track by that artist in the next batch; let an
+engine track play and check `song_engagements` has no row for it.

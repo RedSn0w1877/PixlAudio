@@ -39,6 +39,8 @@ class Reaction(
     val anchors: List<AnchorInfo>,
     /** The engine changed direction but the session has no other anchor to turn to. */
     val needsOtherDirection: Boolean,
+    /** The session has changed direction at least once: [anchors] is the one anchor it follows. */
+    val turned: Boolean,
 ) {
     val liked: Boolean
         get() = event.flags and (EventFlags.LIKED_DURING or EventFlags.SAVED_DURING or EventFlags.ADDED_TO_PLAYLIST or EventFlags.REPLAYED) != 0 &&
@@ -195,6 +197,7 @@ class BrainEventRecorder @Inject constructor(
                 // the same set of anchors in another order would be the same pool again.
                 anchors = if (state.session.reseedCount == 0) order else order.take(1),
                 needsOtherDirection = state.session.reseedCount > 0 && state.session.anchorCount <= 1,
+                turned = state.session.reseedCount > 0,
             )
         }
     }
