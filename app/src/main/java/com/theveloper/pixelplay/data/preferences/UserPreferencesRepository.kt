@@ -250,6 +250,10 @@ class UserPreferencesRepository @Inject constructor(
         val IS_SHUFFLE_ON = booleanPreferencesKey("is_shuffle_on")
         val PERSISTENT_SHUFFLE_ENABLED = booleanPreferencesKey("persistent_shuffle_enabled")
         val DISABLE_CAST_AUTOPLAY = booleanPreferencesKey("disable_cast_autoplay")
+        // Music brain (docs/brain-spec.md, 7.1): Autoplay continues the queue; default on.
+        val BRAIN_AUTOPLAY_ENABLED = booleanPreferencesKey("brain_autoplay_enabled")
+        // Whether YouTube Music may be asked for related music; off means library-only autoplay.
+        val BRAIN_YOUTUBE_SOURCE_ENABLED = booleanPreferencesKey("brain_youtube_source_enabled")
         val RESUME_ON_HEADSET_RECONNECT = booleanPreferencesKey("resume_on_headset_reconnect")
         val SHOW_QUEUE_HISTORY = booleanPreferencesKey("show_queue_history")
         val PLAYBACK_QUEUE_SNAPSHOT = stringPreferencesKey("playback_queue_snapshot_v1")
@@ -588,6 +592,20 @@ class UserPreferencesRepository @Inject constructor(
 
     suspend fun setDisableCastAutoplay(disabled: Boolean) {
         dataStore.edit { it[PreferencesKeys.DISABLE_CAST_AUTOPLAY] = disabled }
+    }
+
+    val brainAutoplayEnabledFlow: Flow<Boolean> =
+        pref { it[PreferencesKeys.BRAIN_AUTOPLAY_ENABLED] ?: true }
+
+    suspend fun setBrainAutoplayEnabled(enabled: Boolean) {
+        dataStore.edit { it[PreferencesKeys.BRAIN_AUTOPLAY_ENABLED] = enabled }
+    }
+
+    val brainYouTubeSourceEnabledFlow: Flow<Boolean> =
+        pref { it[PreferencesKeys.BRAIN_YOUTUBE_SOURCE_ENABLED] ?: true }
+
+    suspend fun setBrainYouTubeSourceEnabled(enabled: Boolean) {
+        dataStore.edit { it[PreferencesKeys.BRAIN_YOUTUBE_SOURCE_ENABLED] = enabled }
     }
 
     val resumeOnHeadsetReconnectFlow: Flow<Boolean> =

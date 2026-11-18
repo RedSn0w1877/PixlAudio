@@ -324,7 +324,8 @@ object AppModule {
         favoritesDao: FavoritesDao,
         artistImageRepository: ArtistImageRepository,
         folderTreeBuilder: FolderTreeBuilder,
-        spotifyDao: com.theveloper.pixelplay.data.database.SpotifyDao
+        spotifyDao: com.theveloper.pixelplay.data.database.SpotifyDao,
+        engineTrackSaver: javax.inject.Provider<com.theveloper.pixelplay.data.brain.EngineTrackSaver>
     ): MusicRepository {
         return MusicRepositoryImpl(
             context = context,
@@ -337,7 +338,8 @@ object AppModule {
             favoritesDao = favoritesDao,
             artistImageRepository = artistImageRepository,
             folderTreeBuilder = folderTreeBuilder,
-            spotifyDao = spotifyDao
+            spotifyDao = spotifyDao,
+            engineTrackSaver = engineTrackSaver
         )
 
     }

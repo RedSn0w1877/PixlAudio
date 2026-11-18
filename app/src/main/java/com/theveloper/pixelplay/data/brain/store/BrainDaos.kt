@@ -1,0 +1,154 @@
+package com.theveloper.pixelplay.data.brain.store
+
+import androidx.room.Dao
+import androidx.room.Insert
+import androidx.room.OnConflictStrategy
+import androidx.room.Query
+import androidx.room.Transaction
+import androidx.room.Upsert
+
+@Dao
+interface PlayableDao {
+    @Upsert
+    suspend fun upsert(rows: List<PlayableEntity>)
+
+    @Query("SELECT * FROM playable WHERE synthId = :synthId")
+    suspend fun get(synthId: String): PlayableEntity?
+
+    @Query("SELECT videoId FROM playable WHERE synthId = :synthId")
+    suspend fun videoIdFor(synthId: String): String?
+
+    @Query("SELECT * FROM playable WHERE synthId IN (:synthIds)")
+    suspend fun getAll(synthIds: List<String>): List<PlayableEntity>
+
+    @Query("SELECT * FROM playable WHERE songId IN (:songIds)")
+    suspend fun getBySongIds(songIds: List<Long>): List<PlayableEntity>
+
+    @Query("SELECT * FROM playable WHERE songId = :songId")
+    suspend fun getBySongId(songId: Long): PlayableEntity?
+
+    @Query("UPDATE playable SET lastUsedAt = :nowMs WHERE synthId IN (:synthIds)")
+    suspend fun touch(synthIds: List<String>, nowMs: Long)
+
+    /** Rows nobody used since [olderThanMs], except [keep] (the saved queue, recent history). */
+    @Query("DELETE FROM playable WHERE lastUsedAt < :olderThanMs AND synthId NOT IN (:keep)")
+    suspend fun deleteUnused(olderThanMs: Long, keep: List<String>): Int
+
+    @Query("DELETE FROM playable WHERE synthId = :synthId")
+    suspend fun delete(synthId: String)
+
+    @Query("SELECT COUNT(*) FROM playable")
+    suspend fun count(): Int
+}
+
+@Dao
+interface AliasDao {
+    @Query("SELECT rid FROM track_alias WHERE `key` = :key")
+    fun trackId(key: String): Long?
+
+    @Query("SELECT durationMs FROM track_alias WHERE `key` = :key")
+    fun trackDurationMs(key: String): Int?
+
+    @Query("SELECT EXISTS(SELECT 1 FROM track_alias WHERE rid = :rid)")
+    fun trackIdTaken(rid: Long): Boolean
+
+    @Query("SELECT `into` FROM track_merge WHERE rid = :rid")
+    fun mergedInto(rid: Long): Long?
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    fun insertTrackAliases(rows: List<TrackAliasEntity>)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    fun insertMerge(row: TrackMergeEntity)
+
+    /** Flattens chains: whatever pointed at [from] now points at [into]. */
+    @Query("UPDATE track_merge SET `into` = :into WHERE `into` = :from")
+    fun repointMerges(from: Long, into: Long)
+
+    @Query("SELECT aid FROM artist_alias WHERE `key` = :key")
+    fun artistId(key: String): Long?
+
+    @Query("SELECT EXISTS(SELECT 1 FROM artist_alias WHERE aid = :aid)")
+    fun artistIdTaken(aid: Long): Boolean
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    fun insertArtistAliases(rows: List<ArtistAliasEntity>)
+
+    @Query("SELECT COUNT(*) FROM track_alias")
+    fun trackAliasCount(): Int
+
+    /** Every key stored for [rid]; used to find another audio id of a recording whose radio was junk. */
+    @Query("SELECT `key` FROM track_alias WHERE rid = :rid")
+    fun trackKeys(rid: Long): List<String>
+}
+
+@Dao
+interface RadioListDao {
+    @Query("SELECT * FROM radio_list WHERE seedRid = :seedRid AND kind = :kind AND chip = :chip")
+    suspend fun get(seedRid: Long, kind: Int, chip: String = ""): RadioListEntity?
+
+    @Upsert
+    suspend fun upsert(row: RadioListEntity)
+
+    @Query("UPDATE radio_list SET lastUsedAt = :nowMs WHERE seedRid = :seedRid AND kind = :kind AND chip = :chip")
+    suspend fun touch(seedRid: Long, kind: Int, chip: String, nowMs: Long)
+
+    @Query("SELECT COUNT(*) FROM radio_list")
+    suspend fun count(): Int
+
+    /** Keeps the [keep] most recently used lists. */
+    @Query(
+        "DELETE FROM radio_list WHERE rowid IN (" +
+            "SELECT rowid FROM radio_list ORDER BY lastUsedAt DESC LIMIT -1 OFFSET :keep)"
+    )
+    suspend fun trimTo(keep: Int)
+
+    /** How many radios were fetched from the network since [sinceMs]: the daily request budget. */
+    @Query("SELECT COUNT(*) FROM radio_list WHERE fetchedAt >= :sinceMs")
+    suspend fun fetchedSince(sinceMs: Long): Int
+}
+
+@Dao
+interface PlayEventDao {
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insert(event: PlayEventEntity): Long
+
+    @Query("SELECT COUNT(*) FROM play_event")
+    suspend fun count(): Int
+
+    /**
+     * Recordings the listener ignored three times (6.1): 3 or more engine-served plays under 30 s
+     * since [sinceMs] and none of 30 s or more. `arm` 9 is NONE.
+     */
+    @Query(
+        "SELECT rid FROM play_event WHERE arm != 9 AND startedAtMs >= :sinceMs AND playedMs >= 0 " +
+            "GROUP BY rid HAVING SUM(CASE WHEN playedMs < 30000 THEN 1 ELSE 0 END) >= 3 " +
+            "AND SUM(CASE WHEN playedMs >= 30000 THEN 1 ELSE 0 END) = 0"
+    )
+    suspend fun ignoredThreeTimes(sinceMs: Long): List<Long>
+
+    /** Recordings with any play since [sinceMs] (the 4-hour rule of 6.4). */
+    @Query("SELECT DISTINCT rid FROM play_event WHERE startedAtMs >= :sinceMs")
+    suspend fun playedSince(sinceMs: Long): List<Long>
+}
+
+@Dao
+interface AffinityDao {
+    @Upsert
+    suspend fun upsert(rows: List<AffinityEntity>)
+
+    @Query("SELECT * FROM affinity WHERE family = :family AND `key` IN (:keys)")
+    suspend fun get(family: Int, keys: List<Long>): List<AffinityEntity>
+
+    @Query("DELETE FROM affinity")
+    suspend fun clear()
+}
+
+@Dao
+interface BrainStateDao {
+    @Query("SELECT blob FROM brain_state WHERE `key` = :key")
+    suspend fun get(key: String): ByteArray?
+
+    @Upsert
+    suspend fun put(row: BrainStateEntity)
+}

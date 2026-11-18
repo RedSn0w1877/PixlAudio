@@ -43,6 +43,17 @@ data class StreamSource(
 )
 
 /**
+ * The video already known for [id], without searching: the library row first (a saved or hand-matched
+ * track always wins), then a track the music brain plays from outside the library, which has no
+ * `spotify_songs` row at all (docs/brain-spec.md, 7.2).
+ */
+internal suspend fun storedVideoIdFor(
+    id: String,
+    spotifyDao: SpotifyDao,
+    ephemeralTracks: com.theveloper.pixelplay.data.brain.source.EphemeralTrackLookup,
+): String? = spotifyDao.getMatchedVideoId(id)?.takeIf { it.isNotBlank() } ?: ephemeralTracks.videoIdFor(id)
+
+/**
  * Proxy HTTP local que sirve el audio de una pista de Spotify.
  *
  * ExoPlayer recibe siempre `spotify://<trackId>`, nunca la URL real de YouTube. Eso deja
@@ -62,7 +73,10 @@ class SpotifyStreamProxy @Inject constructor(
     private val newPipeStreamResolver: NewPipeStreamResolver,
     private val pipedStreamResolver: PipedStreamResolver,
     private val spotiFLACClient: SpotiFLACClient,
-    private val userPreferencesRepository: UserPreferencesRepository
+    private val userPreferencesRepository: UserPreferencesRepository,
+    // A track played from outside the library has no `spotify_songs` row: the music brain's `playable`
+    // table knows its video (docs/brain-spec.md, 7.2). Asked only after `spotify_songs` said nothing.
+    private val ephemeralTracks: com.theveloper.pixelplay.data.brain.source.EphemeralTrackLookup
 ) : CloudStreamProxy<String>(okHttpClient) {
 
     // trustedHosts crece en caliente con las instancias que el registro oficial de Piped
@@ -357,7 +371,10 @@ class SpotifyStreamProxy @Inject constructor(
 
         // Playback and offline rendering may start before WorkManager runs. Repair the
         // missing match here, coalescing concurrent requests for the same track.
-        val videoId = spotifyDao.getMatchedVideoId(id) ?: matchLocks[(id.hashCode() and Int.MAX_VALUE) % matchLocks.size].withLock {
+        // The library row first (a saved or hand-matched track wins), then a track from outside the
+        // library, then the on-demand match, which needs a `spotify_songs` row to search for.
+        val videoId = storedVideoIdFor(id, spotifyDao, ephemeralTracks)
+            ?: matchLocks[(id.hashCode() and Int.MAX_VALUE) % matchLocks.size].withLock {
             spotifyDao.getMatchedVideoId(id) ?: run {
                 val song = spotifyDao.getSongBySpotifyId(id) ?: return@withLock null
                 if (song.matchState == SpotifyMatchState.MANUAL) return@withLock null

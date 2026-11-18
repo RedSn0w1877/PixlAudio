@@ -61,7 +61,13 @@ class MediaMapper @Inject constructor(
             dateAdded = dateAdded,
             mimeType = null, 
             bitrate = null,
-            sampleRate = null
+            sampleRate = null,
+            // A track from outside the library has no row to take this from (docs/brain-spec.md, 7.2):
+            // the item carries it, and lyrics, Spatial audio and Like all key on it.
+            // A queue restored after a restart keeps the uri but not this extra: the uri says it too.
+            spotifyId = extras?.getString(MediaItemBuilder.EXTERNAL_EXTRA_SPOTIFY_ID)?.takeIf { it.isNotBlank() }
+                ?: contentUri.takeIf { it.startsWith("spotify://") }
+                    ?.removePrefix("spotify://")?.substringBefore('/')?.takeIf { it.isNotBlank() }
         )
     }
 }

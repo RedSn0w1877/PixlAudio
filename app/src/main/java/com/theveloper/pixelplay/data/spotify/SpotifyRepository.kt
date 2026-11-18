@@ -1017,8 +1017,11 @@ class SpotifyRepository @Inject constructor(
             )
         )
 
-        syncUnifiedLibrarySongsFromSpotify()
-        mirrorPlaylistsIntoApp()
+        // Only the rows this call touched (docs/brain-spec.md, 7.2 point 7): a full rewrite of the
+        // unified library and of every mirrored playlist for one saved song was the heaviest write
+        // in the app, and Like / Save on a track from outside the library lands here.
+        syncUnifiedLibrarySongsFromSpotify(onlySpotifyIds = entities.mapTo(HashSet()) { it.spotifyId })
+        mirrorPlaylistsIntoApp(onlyPlaylistId = SpotifyPlaylistEntity.BROWSE_ID)
 
         entities.count { it.spotifyId !in alreadyKnown }
     }
@@ -1035,11 +1038,7 @@ class SpotifyRepository @Inject constructor(
      * por videoId — el resto del pipeline (unifiedSongId, spotifyDao.getMatchedVideoId) no
      * necesita poder deshacer este hash, solo usarlo como clave consistente.
      */
-    fun youTubeMusicSyntheticId(videoId: String): String {
-        val digest = java.security.MessageDigest.getInstance("SHA-256")
-            .digest(videoId.toByteArray(Charsets.UTF_8))
-        return digest.joinToString("") { "%02x".format(it) }.take(22)
-    }
+    fun youTubeMusicSyntheticId(videoId: String): String = syntheticIdForVideo(videoId)
 
     private fun toYouTubeMusicSongEntity(
         result: com.theveloper.pixelplay.data.youtube.YouTubeSearchResult
@@ -1364,6 +1363,28 @@ class SpotifyRepository @Inject constructor(
         }
 
         fun unifiedSongId(spotifyId: String): Long = unifiedId(SONG_ID_OFFSET, spotifyId)
+
+        /**
+         * [youTubeMusicSyntheticId] without an instance: the first 22 hex characters of the SHA-256 of
+         * the video id. One definition, because the music brain plays a track under this id before it
+         * is imported, and the importer must then produce the same one.
+         */
+        fun syntheticIdForVideo(videoId: String): String {
+            val digest = java.security.MessageDigest.getInstance("SHA-256")
+                .digest(videoId.toByteArray(Charsets.UTF_8))
+            return digest.joinToString("") { "%02x".format(it) }.take(22)
+        }
+
+        /**
+         * The unified-library id of an artist by name: what [syncUnifiedLibrarySongsFromSpotify] gives
+         * that artist. The music brain uses it for tracks that have no library row, so a blocked or
+         * followed library artist is the same artist on a track played from outside the library.
+         */
+        fun unifiedArtistId(name: String): Long = unifiedId(ARTIST_ID_OFFSET, name.lowercase())
+
+        /** The unified-library id of an album with no Spotify album id, as the YouTube Music import keys it. */
+        fun unifiedAlbumIdByName(album: String, artistDisplay: String): Long =
+            unifiedId(ALBUM_ID_OFFSET, "$album|$artistDisplay")
     }
 }
 

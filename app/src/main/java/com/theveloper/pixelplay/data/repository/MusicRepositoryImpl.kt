@@ -90,7 +90,10 @@ class MusicRepositoryImpl @Inject constructor(
     private val favoritesDao: FavoritesDao,
     private val artistImageRepository: ArtistImageRepository,
     private val folderTreeBuilder: FolderTreeBuilder,
-    private val spotifyDao: com.theveloper.pixelplay.data.database.SpotifyDao
+    private val spotifyDao: com.theveloper.pixelplay.data.database.SpotifyDao,
+    // Like on a track from outside the library imports it first (docs/brain-spec.md, 7.2 point 7).
+    // A Provider: the saver sits on top of the Spotify importer and is only needed on that one path.
+    private val engineTrackSaver: javax.inject.Provider<com.theveloper.pixelplay.data.brain.EngineTrackSaver>? = null
 ) : MusicRepository {
 
     companion object {
@@ -810,6 +813,10 @@ class MusicRepositoryImpl @Inject constructor(
     override suspend fun setFavoriteStatus(songId: String, isFavorite: Boolean) = withContext(Dispatchers.IO) {
         val id = songId.toLongOrNull() ?: return@withContext
         if (isFavorite) {
+            // Every Like goes through here (player, notification, widget, watch, multi-select): a
+            // track the engine played becomes a library track before it becomes a favourite, or the
+            // favourite would point at nothing.
+            engineTrackSaver?.get()?.saveIfEngineTrack(songId)
             favoritesDao.setFavorite(
                 com.theveloper.pixelplay.data.database.FavoritesEntity(
                     songId = id,
