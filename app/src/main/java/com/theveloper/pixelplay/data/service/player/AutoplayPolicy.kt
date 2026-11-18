@@ -61,6 +61,12 @@ object AutoplayPolicy {
 
         /** A saved queue is being restored; its own engine items come back with it. */
         RESTORING,
+
+        /**
+         * A song was tapped in an album or a playlist and the rest of that queue is still on its way to
+         * the player: for a moment the queue is one item long. Nothing is decided until it is whole.
+         */
+        ATTACHING,
         NO_QUEUE,
         ENOUGH_QUEUED,
     }
@@ -81,11 +87,13 @@ object AutoplayPolicy {
         isRestoring: Boolean,
         fullQueueSize: Int,
         currentAbsoluteIndex: Int,
+        isAttachingQueue: Boolean = false,
     ): Decision = when {
         !autoplayEnabled -> Decision.OFF
         isRemoteSession -> Decision.REMOTE
         isRestoring -> Decision.RESTORING
         repeatMode != REPEAT_MODE_OFF -> Decision.REPEATING
+        isAttachingQueue -> Decision.ATTACHING
         fullQueueSize <= 0 || currentAbsoluteIndex < 0 -> Decision.NO_QUEUE
         remainingAfterCurrent(fullQueueSize, currentAbsoluteIndex) > TRIGGER_REMAINING -> Decision.ENOUGH_QUEUED
         else -> Decision.TOP_UP
@@ -96,6 +104,55 @@ object AutoplayPolicy {
      * held and released from the engine's transition-finished listener.
      */
     fun mustDeferQueueEdit(isTransitionRunning: Boolean): Boolean = isTransitionRunning
+
+    /**
+     * A batch that was held during a hand-over may go in only if the queue is still the one it was
+     * planned for: the same pool, the same length, the same last track, and still in need of a top-up.
+     * When the listener starts another queue during the fade the hand-over is cancelled, and picks
+     * planned for the old queue must not land in the new one.
+     */
+    fun heldBatchStillFits(
+        decision: Decision,
+        plannedPoolKey: String,
+        poolKey: String,
+        plannedQueueSize: Int,
+        queueSize: Int,
+        plannedLastMediaId: String?,
+        lastMediaId: String?,
+    ): Boolean = decision == Decision.TOP_UP && plannedPoolKey == poolKey &&
+        plannedQueueSize == queueSize && plannedLastMediaId == lastMediaId
+
+    /**
+     * Whether a change of direction (three skipped picks) decides the seeds right now. It does while
+     * the engine's own picks play. When the track that is playing is one the listener chose, they are
+     * steering: autoplay follows that track, whatever was skipped before. [turn] is 0 for "not turned";
+     * [reactionIsFresh] is false once the session that turned has gone quiet.
+     */
+    fun turnApplies(turn: Int, reactionIsFresh: Boolean, currentIsListenersChoice: Boolean): Boolean =
+        turn != 0 && reactionIsFresh && !currentIsListenersChoice
+
+    /**
+     * True when a library track plays with no network: a file of the device, or a track with a
+     * complete copy in the audio cache ([cachedIds], by Spotify id). Everything else is a stream.
+     */
+    fun playsWithoutNetwork(contentUri: String, spotifyId: String?, cachedIds: Set<String>): Boolean {
+        if (spotifyId != null && spotifyId in cachedIds) return true
+        if (contentUri.startsWith("/")) return true
+        return when (contentUri.substringBefore("://", "")) {
+            "content", "file", "android.resource" -> true
+            else -> false
+        }
+    }
+
+    /**
+     * The first index in `[start, size)` whose item is by [artistKey], or -1. From there on the caller
+     * rebuilds the tail without that artist, in one queue edit.
+     */
+    fun firstIndexOfArtist(start: Int, size: Int, artistKey: String, artistKeyAt: (Int) -> String): Int {
+        if (artistKey.isEmpty() || start < 0) return -1
+        for (i in start until size) if (artistKeyAt(i) == artistKey) return i
+        return -1
+    }
 
     /** The current track is far enough in for a radio request not to compete with its first bytes. */
     fun isSettled(positionMs: Long): Boolean = positionMs >= SETTLE_MS
@@ -112,6 +169,14 @@ object AutoplayPolicy {
      */
     fun backstopMayResume(endedAtMs: Long, nowMs: Long, playWhenReady: Boolean): Boolean =
         playWhenReady && nowMs >= endedAtMs && nowMs - endedAtMs <= BACKSTOP_WINDOW_MS
+
+    /**
+     * Next was pressed with nothing queued, and picks have landed. The player moves on to them only
+     * inside the backstop window and only if the track the press was about is still the current one.
+     */
+    fun nextMayStillSkip(askedAtMs: Long, nowMs: Long, askedMediaId: String?, currentMediaId: String?): Boolean =
+        askedMediaId != null && askedMediaId == currentMediaId &&
+            nowMs >= askedAtMs && nowMs - askedAtMs <= BACKSTOP_WINDOW_MS
 
     // ── Candidates ───────────────────────────────────────────────────────────
 

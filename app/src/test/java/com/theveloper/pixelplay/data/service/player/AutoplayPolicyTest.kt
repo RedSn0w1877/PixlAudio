@@ -95,6 +95,97 @@ class AutoplayPolicyTest {
     }
 
     @Test
+    fun `nothing is decided while the rest of a tapped song's queue is being attached`() {
+        // A song tapped in a playlist is a one-item queue for a moment. That is not a single-song play.
+        assertEquals(
+            Decision.ATTACHING,
+            AutoplayPolicy.decide(true, repeatOff, false, false, fullQueueSize = 1, currentAbsoluteIndex = 0, isAttachingQueue = true),
+        )
+        // Once the rest is there the queue is judged as it is.
+        assertEquals(Decision.ENOUGH_QUEUED, decide(size = 40, index = 0))
+        // A real single-song play (no attach follows) is topped up at once.
+        assertEquals(Decision.TOP_UP, decide(size = 1, index = 0))
+        // Off, remote, restoring and repeat still say what they are.
+        assertEquals(
+            Decision.OFF,
+            AutoplayPolicy.decide(false, repeatOff, false, false, fullQueueSize = 1, currentAbsoluteIndex = 0, isAttachingQueue = true),
+        )
+        assertEquals(
+            Decision.REPEATING,
+            AutoplayPolicy.decide(true, repeatAll, false, false, fullQueueSize = 1, currentAbsoluteIndex = 0, isAttachingQueue = true),
+        )
+    }
+
+    @Test
+    fun `a batch held during a hand-over goes in only if the queue is still the one it was planned for`() {
+        fun fits(
+            decision: Decision = Decision.TOP_UP,
+            poolKey: String = "a|b",
+            queueSize: Int = 12,
+            lastMediaId: String? = "last",
+        ) = AutoplayPolicy.heldBatchStillFits(decision, "a|b", poolKey, 12, queueSize, "last", lastMediaId)
+        assertTrue(fits())
+        // The listener started another queue during the fade (which cancels the hand-over).
+        assertFalse(fits(queueSize = 1, lastMediaId = "tapped"))
+        assertFalse(fits(lastMediaId = "other"))
+        // Other anchors, another pool: these picks belong to the old one.
+        assertFalse(fits(poolKey = "c"))
+        // The new queue is long enough, or its rest is still being attached.
+        assertFalse(fits(decision = Decision.ENOUGH_QUEUED))
+        assertFalse(fits(decision = Decision.ATTACHING))
+        assertFalse(fits(decision = Decision.OFF))
+    }
+
+    @Test
+    fun `a change of direction steers only while the engine's own picks play`() {
+        // Three picks were skipped and a pick of the new direction is playing.
+        assertTrue(AutoplayPolicy.turnApplies(turn = 1, reactionIsFresh = true, currentIsListenersChoice = false))
+        // The listener tapped a song: autoplay follows that song, whatever was skipped before.
+        assertFalse(AutoplayPolicy.turnApplies(turn = 1, reactionIsFresh = true, currentIsListenersChoice = true))
+        // Not turned, or the session that turned went quiet.
+        assertFalse(AutoplayPolicy.turnApplies(turn = 0, reactionIsFresh = true, currentIsListenersChoice = false))
+        assertFalse(AutoplayPolicy.turnApplies(turn = 2, reactionIsFresh = false, currentIsListenersChoice = false))
+    }
+
+    @Test
+    fun `offline only tracks with a copy on the phone can be queued`() {
+        val cached = setOf("4uLU6hMCjMI75M1A2tKUQC")
+        // A streamed library track with a complete copy in the audio cache.
+        assertTrue(AutoplayPolicy.playsWithoutNetwork("spotify://4uLU6hMCjMI75M1A2tKUQC", "4uLU6hMCjMI75M1A2tKUQC", cached))
+        // The same kind of track without one needs the network.
+        assertFalse(AutoplayPolicy.playsWithoutNetwork("spotify://0VjIjW4GlUZAMYd2vXMi3b", "0VjIjW4GlUZAMYd2vXMi3b", cached))
+        assertFalse(AutoplayPolicy.playsWithoutNetwork("spotify://0VjIjW4GlUZAMYd2vXMi3b", null, cached))
+        // Files of the device.
+        assertTrue(AutoplayPolicy.playsWithoutNetwork("content://media/external/audio/media/12", null, emptySet()))
+        assertTrue(AutoplayPolicy.playsWithoutNetwork("file:///storage/emulated/0/Music/a.mp3", null, emptySet()))
+        assertTrue(AutoplayPolicy.playsWithoutNetwork("/storage/emulated/0/Music/a.mp3", null, emptySet()))
+        assertFalse(AutoplayPolicy.playsWithoutNetwork("https://example.com/a.mp3", null, emptySet()))
+    }
+
+    @Test
+    fun `a skipped artist leaves a tail that cannot be planned again`() {
+        // Queue indices 3..7 are the engine's replaceable tail.
+        val artists = listOf("own", "own", "own", "x", "y", "x", "z", "y")
+        assertEquals(4, AutoplayPolicy.firstIndexOfArtist(start = 3, size = artists.size, artistKey = "y") { artists[it] })
+        assertEquals(3, AutoplayPolicy.firstIndexOfArtist(start = 3, size = artists.size, artistKey = "x") { artists[it] })
+        // Before the start nothing is touched: the track that is starting and the warmed ones stay.
+        assertEquals(-1, AutoplayPolicy.firstIndexOfArtist(start = 3, size = artists.size, artistKey = "own") { artists[it] })
+        assertEquals(-1, AutoplayPolicy.firstIndexOfArtist(start = 3, size = artists.size, artistKey = "") { artists[it] })
+        assertEquals(-1, AutoplayPolicy.firstIndexOfArtist(start = -1, size = artists.size, artistKey = "x") { artists[it] })
+    }
+
+    @Test
+    fun `next pressed with nothing queued moves on to the picks only in time and on the same track`() {
+        assertTrue(AutoplayPolicy.nextMayStillSkip(askedAtMs = 1_000, nowMs = 3_500, askedMediaId = "a", currentMediaId = "a"))
+        assertTrue(AutoplayPolicy.nextMayStillSkip(1_000, 1_000 + AutoplayPolicy.BACKSTOP_WINDOW_MS, "a", "a"))
+        // Too late: the listener has settled into the track.
+        assertFalse(AutoplayPolicy.nextMayStillSkip(1_000, 1_001 + AutoplayPolicy.BACKSTOP_WINDOW_MS, "a", "a"))
+        // They started something else meanwhile.
+        assertFalse(AutoplayPolicy.nextMayStillSkip(1_000, 2_000, "a", "b"))
+        assertFalse(AutoplayPolicy.nextMayStillSkip(1_000, 2_000, null, null))
+    }
+
+    @Test
     fun `a queue edit is deferred during a transition`() {
         assertTrue(AutoplayPolicy.mustDeferQueueEdit(isTransitionRunning = true))
         assertFalse(AutoplayPolicy.mustDeferQueueEdit(isTransitionRunning = false))

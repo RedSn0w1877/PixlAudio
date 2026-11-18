@@ -173,24 +173,58 @@ class BrainEventRecorderTest {
     }
 
     @Test
-    fun `three hard skips in a row change direction, to the next anchor only`() = runTest {
+    fun `three engine picks skipped in a row change direction, to the next anchor only`() = runTest {
         recorder.record(play("song-a", 200_000L, EndReason.TRACK_DONE))
         recorder.record(play("song-b", 200_000L, EndReason.TRACK_DONE))
         catalog.add("e2", "X", "One", inLibrary = false)
         catalog.add("e3", "Y", "Two", inLibrary = false)
         catalog.add("e4", "Z", "Three", inLibrary = false)
+        catalog.add("e5", "W", "Four", inLibrary = false)
         assertFalse(recorder.record(play("e2", 3_000L, EndReason.NEXT, StartReason.AUTOPLAY, autoplayTag))!!.changedDirection)
-        assertFalse(recorder.record(play("e3", 3_000L, EndReason.NEXT, StartReason.AUTOPLAY, autoplayTag))!!.changedDirection)
+        val second = recorder.record(play("e3", 3_000L, EndReason.NEXT, StartReason.AUTOPLAY, autoplayTag))!!
+        assertFalse(second.changedDirection)
+        assertEquals(0, second.turn)
+        // A hard skip: that artist's picks leave the tail.
+        assertTrue(second.artistBlocked)
+        assertEquals("y", second.artistKey)
         val third = recorder.record(play("e4", 3_000L, EndReason.NEXT, StartReason.AUTOPLAY, autoplayTag))!!
         assertTrue(third.changedDirection)
-        assertEquals(listOf("song-a"), third.anchors.map { it.mediaId })
+        assertEquals(1, third.turn)
+        // The normal anchors are still reported; the turn follows the older one.
+        assertEquals(listOf("song-b", "song-a"), third.anchors.map { it.mediaId })
+        assertEquals(listOf("song-a"), third.turnAnchors.map { it.mediaId })
         assertFalse(third.needsOtherDirection)
-        assertTrue(third.turned)
-        // From here on the session follows that one anchor, whatever plays.
-        val after = recorder.record(play("song-c", 200_000L, EndReason.TRACK_DONE, StartReason.AUTOPLAY, autoplayTag))!!
+        // While the engine's own picks play, the turn holds.
+        val after = recorder.record(play("e5", 200_000L, EndReason.TRACK_DONE, StartReason.AUTOPLAY, autoplayTag))!!
         assertFalse(after.changedDirection)
-        assertTrue(after.turned)
-        assertEquals(listOf("song-a"), after.anchors.map { it.mediaId })
+        assertEquals(1, after.turn)
+        assertEquals(listOf("song-a"), after.turnAnchors.map { it.mediaId })
+    }
+
+    @Test
+    fun `the turn ends when the listener plays a track of their own`() = runTest {
+        recorder.record(play("song-a", 200_000L, EndReason.TRACK_DONE))
+        recorder.record(play("song-b", 200_000L, EndReason.TRACK_DONE))
+        catalog.add("e2", "X", "One", inLibrary = false)
+        catalog.add("e3", "Y", "Two", inLibrary = false)
+        catalog.add("e4", "Z", "Three", inLibrary = false)
+        for (id in listOf("e2", "e3", "e4")) recorder.record(play(id, 3_000L, EndReason.NEXT, StartReason.AUTOPLAY, autoplayTag))
+        // They tap a song and hear it out: autoplay follows that song again, not the detour.
+        val own = recorder.record(play("song-c", 200_000L, EndReason.TRACK_DONE))!!
+        assertEquals(0, own.turn)
+        assertTrue(own.turnAnchors.isEmpty())
+        assertFalse(own.needsOtherDirection)
+        assertEquals("song-c", own.anchors.first().mediaId)
+    }
+
+    @Test
+    fun `skipping through one's own playlist changes nothing about the direction`() = runTest {
+        recorder.record(play("song-a", 200_000L, EndReason.TRACK_DONE))
+        for (id in listOf("song-b", "song-c", "song-b", "song-c")) {
+            val reaction = recorder.record(play(id, 3_000L, EndReason.NEXT))!!
+            assertFalse(reaction.changedDirection)
+            assertEquals(0, reaction.turn)
+        }
     }
 
     @Test

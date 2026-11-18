@@ -77,10 +77,15 @@ class BrainEngine @Inject constructor(
         /** What a radio request needs for each of the session's anchors, by rid. */
         val anchors: HashMap<Long, AnchorInfo> = HashMap()
 
-        /** Starts a new session: the old one's lists, blocks and anchors are gone. */
+        /** Which way three skipped picks turned the engine, for this session. */
+        var direction: Direction = Direction()
+            private set
+
+        /** Starts a new session: the old one's lists, blocks, anchors and direction are gone. */
         fun newSession() {
             session = SessionState()
             anchors.clear()
+            direction = Direction()
         }
     }
 
@@ -102,9 +107,14 @@ class BrainEngine @Inject constructor(
 
     private fun ensureLoadedLocked(): Loaded {
         loaded?.let { return it }
+        val startedNanos = System.nanoTime()
         val state = Affinity.State()
         store.loadAffinity(state)
         state.drainTouched { _, _ -> }
+        // How long the first use of the brain costs (never at app start: see the class comment).
+        com.theveloper.pixelplay.data.diagnostics.PerformanceMetrics.recordTiming(
+            "brain_state_load", (System.nanoTime() - startedNanos) / 1_000_000
+        )
         if (store.getState(BrainStore.KEY_FIRST_USE_MS) == null) {
             store.putState(BrainStore.KEY_FIRST_USE_MS, clock.nowMs().toString())
         }

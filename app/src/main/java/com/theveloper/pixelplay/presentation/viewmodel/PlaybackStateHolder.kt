@@ -44,7 +44,10 @@ class PlaybackStateHolder @Inject constructor(
     private val userPreferencesRepository: UserPreferencesRepository,
     private val castStateHolder: CastStateHolder,
     private val queueStateHolder: QueueStateHolder,
-    @param:ApplicationContext private val appContext: Context
+    @param:ApplicationContext private val appContext: Context,
+    // Tells Autoplay that a tapped song's queue is still being attached (it must not top up meanwhile).
+    private val queueAttachSignal: com.theveloper.pixelplay.data.service.player.QueueAttachSignal =
+        com.theveloper.pixelplay.data.service.player.QueueAttachSignal(),
 ) {
     companion object {
         private const val TAG = "PlaybackStateHolder"
@@ -88,11 +91,19 @@ class PlaybackStateHolder @Inject constructor(
     private val queueAttachGate = QueueAttachGate()
 
     /** The queue of a freshly started song is about to be attached; skips are held until [endQueueAttach]. */
-    fun beginQueueAttach(): Int = queueAttachGate.begin()
+    fun beginQueueAttach(): Int {
+        // Before the tapped song is set as a one-item queue: Autoplay must not take that for a
+        // single-song play and top it up (the attach would then refuse and the queue would be lost).
+        queueAttachSignal.onBegin()
+        return queueAttachGate.begin()
+    }
 
     /** The queue is attached: replays the skips tapped meanwhile. */
     fun endQueueAttach(token: Int) {
-        queueAttachGate.end(token).forEach { skip ->
+        val skips = queueAttachGate.end(token)
+        // A stale token leaves a newer attach running; only the end of the current one is announced.
+        if (!queueAttachGate.isAttaching) queueAttachSignal.onEnd()
+        skips.forEach { skip ->
             when (skip) {
                 QueueAttachGate.Skip.NEXT -> nextSong()
                 QueueAttachGate.Skip.PREVIOUS -> previousSong()
@@ -101,7 +112,10 @@ class PlaybackStateHolder @Inject constructor(
     }
 
     /** The attach was cancelled (a newer song started): the held skips belong to a queue that is gone. */
-    fun abandonQueueAttach(token: Int) = queueAttachGate.abandon(token)
+    fun abandonQueueAttach(token: Int) {
+        queueAttachGate.abandon(token)
+        if (!queueAttachGate.isAttaching) queueAttachSignal.onEnd()
+    }
 
     /** Called when the player becomes ready: applies a seek that had to wait for the song to load. */
     fun applyPendingSeek() {
@@ -643,7 +657,11 @@ class PlaybackStateHolder @Inject constructor(
             castStateHolder.castPlayer?.next()
         } else {
             if (queueAttachGate.deferIfAttaching(QueueAttachGate.Skip.NEXT)) return
-            PlayerTransport.skipNext(activeLocalPlayer())
+            val player = activeLocalPlayer()
+            // Nothing follows: the press has nowhere to go. Autoplay hears of it and moves on to its
+            // picks when they are in (a song tapped on its own, skipped in its first seconds).
+            if (!player.hasNextMediaItem()) queueAttachSignal.onNextWithNothingQueued()
+            PlayerTransport.skipNext(player)
         }
     }
 
@@ -983,12 +1001,14 @@ class PlaybackStateHolder @Inject constructor(
     private suspend fun buildQueueReplacement(
         newQueue: List<Song>,
         targetIndex: Int,
-        currentMediaItem: MediaItem?
+        currentMediaItem: MediaItem?,
+        existing: Map<String, MediaItem> = emptyMap(),
     ): PreparedQueueReplacement = withContext(Dispatchers.Default) {
         val safeTargetIndex = targetIndex.coerceIn(0, (newQueue.size - 1).coerceAtLeast(0))
         val mediaItems = List(newQueue.size) { index ->
             currentMediaItem
                 ?.takeIf { index == safeTargetIndex && it.mediaId == newQueue[safeTargetIndex].id }
+                ?: existing[newQueue[index].id]
                 ?: MediaItemBuilder.build(newQueue[index])
         }
 
@@ -1001,7 +1021,8 @@ class PlaybackStateHolder @Inject constructor(
     private suspend fun buildQueueSegments(
         newQueue: List<Song>,
         currentIndex: Int,
-        currentMediaItem: MediaItem?
+        currentMediaItem: MediaItem?,
+        existing: Map<String, MediaItem> = emptyMap(),
     ): PreparedQueueSegments? = withContext(Dispatchers.Default) {
         val safeCurrentIndex = currentIndex.coerceIn(0, (newQueue.size - 1).coerceAtLeast(0))
         val currentQueueSong = newQueue.getOrNull(safeCurrentIndex) ?: return@withContext null
@@ -1010,17 +1031,44 @@ class PlaybackStateHolder @Inject constructor(
         }
 
         val beforeCurrent = List(safeCurrentIndex) { index ->
-            MediaItemBuilder.build(newQueue[index])
+            existing[newQueue[index].id] ?: MediaItemBuilder.build(newQueue[index])
         }
         val afterStartIndex = safeCurrentIndex + 1
         val afterCurrent = List((newQueue.size - afterStartIndex).coerceAtLeast(0)) { offset ->
-            MediaItemBuilder.build(newQueue[afterStartIndex + offset])
+            val song = newQueue[afterStartIndex + offset]
+            existing[song.id] ?: MediaItemBuilder.build(song)
         }
 
         PreparedQueueSegments(
             beforeCurrent = beforeCurrent,
             afterCurrent = afterCurrent
         )
+    }
+
+    /**
+     * The items the player holds now, by media id. A queue that is rebuilt (shuffle on a long queue,
+     * shuffle switched off) reuses them, so each keeps what it carries in its extras: where it was
+     * played from, and for an engine pick its place under the Autoplay line and its reason. Building
+     * them again from the song would drop all of that.
+     */
+    private fun playerItemsById(): Map<String, MediaItem> {
+        val master = dualPlayerEngine.masterPlayer
+        val count = master.mediaItemCount
+        val out = HashMap<String, MediaItem>(count * 2)
+        for (i in 0 until count) {
+            val item = master.getMediaItemAt(i)
+            out.putIfAbsent(item.mediaId, item)
+        }
+        return out
+    }
+
+    /** How many items at the end of the player's queue are the engine's picks; 0 when [queueSize] is not the player's. */
+    private fun engineTailCount(queueSize: Int): Int {
+        val master = dualPlayerEngine.masterPlayer
+        if (master.mediaItemCount != queueSize) return 0
+        return EngineTail.count(queueSize) { index ->
+            com.theveloper.pixelplay.data.brain.BrainExtras.isEngineOwned(master.getMediaItemAt(index).mediaMetadata.extras)
+        }
     }
 
     private fun replacePlayerQueuePreservingCurrent(
@@ -1130,9 +1178,15 @@ class PlaybackStateHolder @Inject constructor(
                         val wasPlaying = player.isPlaying
                         val currentMediaItem = player.currentMediaItem
 
+                        // Shuffle mixes the listener's own queue. Autoplay's picks stay at the end,
+                        // under their line, in the order the engine gave them.
+                        val engineTail = engineTailCount(currentSongs.size)
+                        val existingItems = playerItemsById()
                         // Run heavy shuffle work off main to keep UI and playback responsive.
                         val shuffledQueue = withContext(Dispatchers.Default) {
-                            QueueUtils.buildAnchoredShuffleQueueSuspending(currentSongs, currentIndex)
+                            EngineTail.shuffleOwnPart(currentSongs, currentIndex, engineTail) { own, index ->
+                                QueueUtils.buildAnchoredShuffleQueueSuspending(own, index)
+                            }
                         }
 
                         // For large queues, use bulk replace (1 IPC call) instead of
@@ -1141,7 +1195,8 @@ class PlaybackStateHolder @Inject constructor(
                             val preservedReplacement = buildQueueSegments(
                                 newQueue = shuffledQueue,
                                 currentIndex = currentIndex,
-                                currentMediaItem = currentMediaItem
+                                currentMediaItem = currentMediaItem,
+                                existing = existingItems,
                             )
                             val replacedInPlace = preservedReplacement?.let { preparedSegments ->
                                 replacePlayerQueuePreservingCurrent(currentIndex, preparedSegments)
@@ -1151,7 +1206,8 @@ class PlaybackStateHolder @Inject constructor(
                                 val preparedQueue = buildQueueReplacement(
                                     newQueue = shuffledQueue,
                                     targetIndex = currentIndex,
-                                    currentMediaItem = currentMediaItem
+                                    currentMediaItem = currentMediaItem,
+                                    existing = existingItems,
                                 )
                                 replacePlayerQueue(player, preparedQueue, currentPosition)
                             }
@@ -1161,7 +1217,8 @@ class PlaybackStateHolder @Inject constructor(
                                 val preservedReplacement = buildQueueSegments(
                                     newQueue = shuffledQueue,
                                     currentIndex = currentIndex,
-                                    currentMediaItem = currentMediaItem
+                                    currentMediaItem = currentMediaItem,
+                                    existing = existingItems,
                                 )
                                 val replacedInPlace = preservedReplacement?.let { preparedSegments ->
                                     replacePlayerQueuePreservingCurrent(currentIndex, preparedSegments)
@@ -1171,7 +1228,8 @@ class PlaybackStateHolder @Inject constructor(
                                     val preparedQueue = buildQueueReplacement(
                                         newQueue = shuffledQueue,
                                         targetIndex = currentIndex,
-                                        currentMediaItem = currentMediaItem
+                                        currentMediaItem = currentMediaItem,
+                                        existing = existingItems,
                                     )
                                     replacePlayerQueue(player, preparedQueue, currentPosition)
                                 }
@@ -1202,7 +1260,15 @@ class PlaybackStateHolder @Inject constructor(
                             return@launch
                         }
 
-                        val originalQueue = queueStateHolder.originalQueueOrder
+                        // The stored order is the queue as the listener started it. Autoplay's picks
+                        // came later and are not in it: they stay where they are, at the end.
+                        val engineTail = engineTailCount(currentSongs.size)
+                        val existingItems = playerItemsById()
+                        val originalQueue = EngineTail.restoreOrder(
+                            original = queueStateHolder.originalQueueOrder,
+                            tail = currentSongs.takeLast(engineTail),
+                            idOf = { it.id },
+                        )
                         val wasPlaying = player.isPlaying
                         val currentPosition = player.currentPosition
                         val currentSongId = currentSong?.id ?: player.currentMediaItem?.mediaId
@@ -1219,7 +1285,8 @@ class PlaybackStateHolder @Inject constructor(
                             val preservedReplacement = buildQueueSegments(
                                 newQueue = originalQueue,
                                 currentIndex = originalIndex,
-                                currentMediaItem = currentMediaItem
+                                currentMediaItem = currentMediaItem,
+                                existing = existingItems,
                             )
                             val replacedInPlace = preservedReplacement?.let { preparedSegments ->
                                 replacePlayerQueuePreservingCurrent(originalIndex, preparedSegments)
@@ -1229,7 +1296,8 @@ class PlaybackStateHolder @Inject constructor(
                                 val preparedQueue = buildQueueReplacement(
                                     newQueue = originalQueue,
                                     targetIndex = originalIndex,
-                                    currentMediaItem = currentMediaItem
+                                    currentMediaItem = currentMediaItem,
+                                    existing = existingItems,
                                 )
                                 replacePlayerQueue(player, preparedQueue, currentPosition)
                             }
@@ -1239,7 +1307,8 @@ class PlaybackStateHolder @Inject constructor(
                                 val preservedReplacement = buildQueueSegments(
                                     newQueue = originalQueue,
                                     currentIndex = originalIndex,
-                                    currentMediaItem = currentMediaItem
+                                    currentMediaItem = currentMediaItem,
+                                    existing = existingItems,
                                 )
                                 val replacedInPlace = preservedReplacement?.let { preparedSegments ->
                                     replacePlayerQueuePreservingCurrent(originalIndex, preparedSegments)
@@ -1249,7 +1318,8 @@ class PlaybackStateHolder @Inject constructor(
                                     val preparedQueue = buildQueueReplacement(
                                         newQueue = originalQueue,
                                         targetIndex = originalIndex,
-                                        currentMediaItem = currentMediaItem
+                                        currentMediaItem = currentMediaItem,
+                                        existing = existingItems,
                                     )
                                     replacePlayerQueue(player, preparedQueue, currentPosition)
                                 }

@@ -2,6 +2,7 @@ package com.theveloper.pixelplay.data.brain
 
 import com.theveloper.pixelplay.brain.Arm
 import com.theveloper.pixelplay.brain.BrainJson
+import com.theveloper.pixelplay.brain.BrainText
 import com.theveloper.pixelplay.brain.EndReason
 import com.theveloper.pixelplay.brain.EventFlags
 import com.theveloper.pixelplay.brain.Origin
@@ -30,21 +31,31 @@ class Reaction(
     val graded: Reward.Graded,
     /** The title of the track that played, for "Because you liked ...". */
     val title: String,
-    /** The third hard skip in a row: the engine changes direction. */
+    /** The third engine pick skipped hard in a row: the engine changes direction ([Direction]). */
     val changedDirection: Boolean,
-    /**
-     * What the engine seeds from now, best first: the session's anchors, or after a change of
-     * direction only the anchor it turned to. Empty when the session has none yet.
-     */
+    /** The session's anchors, newest first: what the engine seeds from when it is not turned. */
     val anchors: List<AnchorInfo>,
-    /** The engine changed direction but the session has no other anchor to turn to. */
-    val needsOtherDirection: Boolean,
-    /** The session has changed direction at least once: [anchors] is the one anchor it follows. */
-    val turned: Boolean,
+    /**
+     * 0 while the engine follows [anchors]; otherwise the number of the turn it is on. A turn lasts
+     * while the engine's own picks play: the listener's next own track ends it.
+     */
+    val turn: Int = 0,
+    /**
+     * What the engine seeds from while turned, best first. Empty with [turn] set means the session has
+     * nothing left to turn to, and the pool is seeded from the library.
+     */
+    val turnAnchors: List<AnchorInfo> = emptyList(),
+    /** The folded primary artist of the track that played; "" when unknown. */
+    val artistKey: String = "",
+    /** That artist is not to be queued for now (a hard skip): their picks leave the engine's tail. */
+    val artistBlocked: Boolean = false,
 ) {
     val liked: Boolean
         get() = event.flags and (EventFlags.LIKED_DURING or EventFlags.SAVED_DURING or EventFlags.ADDED_TO_PLAYLIST or EventFlags.REPLAYED) != 0 &&
             !event.has(EventFlags.NOT_FOR_ME)
+
+    /** Turned, with no anchor of the session to follow. */
+    val needsOtherDirection: Boolean get() = turn != 0 && turnAnchors.isEmpty()
 }
 
 /**
@@ -176,32 +187,43 @@ class BrainEventRecorder @Inject constructor(
                 retrQ = context.retrQ,
                 radioRank = context.radioRank,
             )
-            val directionBefore = state.session.reseedCount
             val graded = engine.applyLocked(state, event) ?: return@withState null
             // A play the listener chose and heard out, or a pick they acted on, may head a Home row.
             runCatching { homeAnchors.onEvent(event, graded, facts, play.songId) }
             // Keep what a radio request needs for the tracks the session now anchors on.
             val anchors = state.session.anchors
+            val anchorCount = state.session.anchorCount
             var isAnchor = false
-            for (i in 0 until state.session.anchorCount) if (anchors[i] == rid) isAnchor = true
+            for (i in 0 until anchorCount) if (anchors[i] == rid) isAnchor = true
             if (isAnchor) {
                 state.anchors[rid] = AnchorInfo(rid, play.songId, facts.title, facts.primaryArtist, facts.spotifyId, facts.durationMs)
             }
             if (state.anchors.size > Session.MAX_ANCHORS) {
-                state.anchors.keys.retainAll { key -> (0 until state.session.anchorCount).any { anchors[it] == key } }
+                state.anchors.keys.retainAll { key -> (0 until anchorCount).any { anchors[it] == key } }
             }
-            val changed = state.session.reseedCount != directionBefore
-            val order = Session.seedOrder(state.session).toList().mapNotNull { state.anchors[it] }
+            val sessionAnchors = anchors.copyOf(anchorCount)
+            val notForMe = event.has(EventFlags.NOT_FOR_ME)
+            val likedNow = !notForMe && event.flags and
+                (EventFlags.LIKED_DURING or EventFlags.SAVED_DURING or EventFlags.ADDED_TO_PLAYLIST or EventFlags.REPLAYED) != 0
+            val h = if (notForMe) 1.0 else graded.h
+            val changed = state.direction.onEvent(
+                enginePick = context.isEngineOwned,
+                station = event.surface == Surface.STATION,
+                hardSkip = graded.c > 0.0 && h >= Session.HARD_SKIP,
+                positive = graded.c > 0.0 && h == 0.0 && (graded.isCompletion || likedNow),
+                anchors = sessionAnchors,
+            )
             Reaction(
                 event = event,
                 graded = graded,
                 title = facts.title,
                 changedDirection = changed,
-                // After a change of direction the engine follows ONE anchor, the one it turned to:
-                // the same set of anchors in another order would be the same pool again.
-                anchors = if (state.session.reseedCount == 0) order else order.take(1),
-                needsOtherDirection = state.session.reseedCount > 0 && state.session.anchorCount <= 1,
-                turned = state.session.reseedCount > 0,
+                anchors = sessionAnchors.toList().mapNotNull { state.anchors[it] },
+                turn = state.direction.turn,
+                turnAnchors = if (state.direction.turn == 0) emptyList()
+                    else state.direction.follow(sessionAnchors).toList().mapNotNull { state.anchors[it] },
+                artistKey = BrainText.fold(facts.primaryArtist),
+                artistBlocked = state.session.isBlocked(event.primaryAid),
             )
         }
     }

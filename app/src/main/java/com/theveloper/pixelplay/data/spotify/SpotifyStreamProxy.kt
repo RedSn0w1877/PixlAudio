@@ -364,6 +364,47 @@ class SpotifyStreamProxy @Inject constructor(
         return flacStream.url
     }
 
+    /**
+     * The YouTube id of [id], matched now when nobody matched it yet. For the music brain, which
+     * seeds a radio from the track the listener is following: with the FLAC source first a track can
+     * play without ever being matched, and the background matcher may not have reached it. One
+     * search fan-out, coalesced with a match the player asked for; the caller bounds the wait.
+     */
+    suspend fun matchedVideoIdNow(id: String): String? {
+        if (!validateId(id)) return null
+        storedVideoIdFor(id, spotifyDao, ephemeralTracks)?.let { return it }
+        return matchLocks[(id.hashCode() and Int.MAX_VALUE) % matchLocks.size].withLock {
+            matchOnDemandLocked(id) { }
+        }
+    }
+
+    /** The stored match of [id], or a match made on the spot. Called under the track's match lock. */
+    private suspend fun matchOnDemandLocked(id: String, onMatchMs: (Long) -> Unit): String? {
+        spotifyDao.getMatchedVideoId(id)?.let { return it }
+        val song = spotifyDao.getSongBySpotifyId(id) ?: return null
+        if (song.matchState == SpotifyMatchState.MANUAL) return null
+        val nowMs = System.currentTimeMillis()
+        if ((noMatchUntilMs[id] ?: 0L) > nowMs) return null
+        val matchStartedAtMs = SystemClock.elapsedRealtime()
+        var timedOut = true
+        // Fan-out: same video as the background matcher, without waiting for each
+        // search in turn (TrackMatcher.findMatchFanOut).
+        val match = withTimeoutOrNull(25_000L) {
+            trackMatcher.findMatchFanOut(song).also { timedOut = false }
+        }
+        onMatchMs(SystemClock.elapsedRealtime() - matchStartedAtMs)
+        if (match == null) {
+            if (!timedOut) {
+                if (noMatchUntilMs.size > 256) noMatchUntilMs.clear()
+                noMatchUntilMs[id] = nowMs + NO_MATCH_MEMORY_MS
+            }
+            return null
+        }
+        noMatchUntilMs.remove(id)
+        spotifyDao.updateAutomaticMatch(id, match.videoId, match.score, SpotifyMatchState.MATCHED)
+        return spotifyDao.getMatchedVideoId(id)
+    }
+
     /** YouTube matching & InnerTube / Piped / NewPipe resolution. */
     private suspend fun resolveViaYouTube(id: String, excluded: Set<String>): String? {
         // R12: how long matching (only when it happens on the spot) and resolving took.
@@ -375,31 +416,8 @@ class SpotifyStreamProxy @Inject constructor(
         // library, then the on-demand match, which needs a `spotify_songs` row to search for.
         val videoId = storedVideoIdFor(id, spotifyDao, ephemeralTracks)
             ?: matchLocks[(id.hashCode() and Int.MAX_VALUE) % matchLocks.size].withLock {
-            spotifyDao.getMatchedVideoId(id) ?: run {
-                val song = spotifyDao.getSongBySpotifyId(id) ?: return@withLock null
-                if (song.matchState == SpotifyMatchState.MANUAL) return@withLock null
-                val nowMs = System.currentTimeMillis()
-                if ((noMatchUntilMs[id] ?: 0L) > nowMs) return@withLock null
-                val matchStartedAtMs = SystemClock.elapsedRealtime()
-                var timedOut = true
-                // Fan-out: same video as the background matcher, without waiting for each
-                // search in turn (TrackMatcher.findMatchFanOut).
-                val match = withTimeoutOrNull(25_000L) {
-                    trackMatcher.findMatchFanOut(song).also { timedOut = false }
-                }
-                matchMs = SystemClock.elapsedRealtime() - matchStartedAtMs
-                if (match == null) {
-                    if (!timedOut) {
-                        if (noMatchUntilMs.size > 256) noMatchUntilMs.clear()
-                        noMatchUntilMs[id] = nowMs + NO_MATCH_MEMORY_MS
-                    }
-                    return@withLock null
-                }
-                noMatchUntilMs.remove(id)
-                spotifyDao.updateAutomaticMatch(id, match.videoId, match.score, SpotifyMatchState.MATCHED)
-                spotifyDao.getMatchedVideoId(id)
+                matchOnDemandLocked(id) { matchMs = it }
             }
-        }
         if (videoId.isNullOrBlank()) return null
         if (!CloudStreamSecurity.validateYouTubeVideoId(videoId)) {
             Timber.w("videoId guardado no válido para $id")

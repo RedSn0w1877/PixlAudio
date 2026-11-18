@@ -870,6 +870,17 @@ class PlaybackDispatchStateHolder @Inject constructor(
             )
 
             val playSongsAction = {
+                // The player holds only the tapped song until the rest is attached, so a
+                // next/previous tapped in that gap would have nothing to go to. The gate holds
+                // those taps and replays them once the queue is there. It opens BEFORE the tapped
+                // song is set: setting it announces a track change at once, and Autoplay must
+                // already know that this one-item queue is not the whole queue.
+                val attachToken = if (songsToPlay.size > 1) {
+                    pendingQueueSegmentsJob?.cancel()
+                    playbackStateHolder.beginQueueAttach()
+                } else {
+                    null
+                }
                 // Use Direct Engine Access to avoid TransactionTooLargeException on Binder
                 dualPlayerEngine.cancelNext()
                 val enginePlayer = dualPlayerEngine.masterPlayer
@@ -879,12 +890,7 @@ class PlaybackDispatchStateHolder @Inject constructor(
                 enginePlayer.play()
                 cb.updateUiState { it.copy(isLoadingInitialSongs = false) }
 
-                if (songsToPlay.size > 1) {
-                    pendingQueueSegmentsJob?.cancel()
-                    // The player holds only the tapped song until the rest is attached, so a
-                    // next/previous tapped in that gap would have nothing to go to. The gate holds
-                    // those taps and replays them once the queue is there.
-                    val attachToken = playbackStateHolder.beginQueueAttach()
+                if (attachToken != null) {
                     pendingQueueSegmentsJob = cb.scope.launch {
                         var attached = false
                         try {
