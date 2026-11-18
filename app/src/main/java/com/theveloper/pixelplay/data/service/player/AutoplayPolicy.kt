@@ -9,8 +9,10 @@ import com.theveloper.pixelplay.brain.BrainText
  * in, in what order. No player, no clock, no I/O: [AutoplayController] supplies the facts and carries
  * out the answer.
  *
- * Stage 1a has no scorer. The pool arrives in radio order and leaves in radio order; this file only
- * removes what must never be played and what would break a list rule.
+ * Which tracks of a radio pool are picked, and in what order, is `StationPlanner` in `:brain`. This
+ * file keeps the trigger, the filters that decide what may enter a pool at all, where a re-score may
+ * start, and [pickBatch], the plain in-order pick the library-only pool still uses (offline, or with
+ * the YouTube source off: those tracks have no recording ids).
  */
 object AutoplayPolicy {
 
@@ -267,16 +269,52 @@ object AutoplayPolicy {
      * anchors, so an hour of autoplay is still the radio of what the listener chose, not the radio of
      * a radio. [engineOwned] says, per queue index, whether the engine put that item there.
      */
-    fun anchorIndices(currentAbsoluteIndex: Int, queueSize: Int, engineOwned: (Int) -> Boolean, mediaIdAt: (Int) -> String): List<Int> {
-        if (queueSize <= 0) return emptyList()
-        val out = ArrayList<Int>(MAX_ANCHORS)
+    fun anchorIndices(
+        currentAbsoluteIndex: Int,
+        queueSize: Int,
+        engineOwned: (Int) -> Boolean,
+        mediaIdAt: (Int) -> String,
+        max: Int = MAX_ANCHORS,
+    ): List<Int> {
+        if (queueSize <= 0 || max <= 0) return emptyList()
+        val out = ArrayList<Int>(max)
         val seen = HashSet<String>()
         var i = currentAbsoluteIndex.coerceAtMost(queueSize - 1)
-        while (i >= 0 && out.size < MAX_ANCHORS) {
+        while (i >= 0 && out.size < max) {
             if (!engineOwned(i) && seen.add(mediaIdAt(i))) out.add(i)
             i--
         }
         return out
+    }
+
+    // ── Re-scoring the tail (7.3, decision D8) ───────────────────────────────
+
+    /**
+     * How many tracks after the current one the stream prefetcher has warmed: the next one on cellular,
+     * the next two on unmetered Wi-Fi. A re-score never replaces them, so a skip never changes the
+     * track that starts because of it.
+     */
+    fun warmedAhead(unmeteredWifi: Boolean): Int = if (unmeteredWifi) 2 else 1
+
+    /**
+     * The first queue index a re-score may replace, or -1 when there is nothing to re-score. It lies
+     * after the current track and the [warmedAhead] ones, and after the last track the listener put in
+     * the queue: only an unbroken run of engine items at the very end is the engine's to change.
+     * Indices are into the FULL queue.
+     */
+    fun rescoreStart(queueSize: Int, currentAbsoluteIndex: Int, warmedAhead: Int, engineOwned: (Int) -> Boolean): Int {
+        if (queueSize <= 0 || currentAbsoluteIndex < 0) return -1
+        var start = currentAbsoluteIndex + 1 + warmedAhead.coerceAtLeast(1)
+        if (start >= queueSize) return -1
+        var i = queueSize - 1
+        while (i >= start) {
+            if (!engineOwned(i)) {
+                start = i + 1
+                break
+            }
+            i--
+        }
+        return if (start >= queueSize) -1 else start
     }
 
     /** The arm of a library track the pool plays: FAV when it was ever played, DEEP when it never was. */

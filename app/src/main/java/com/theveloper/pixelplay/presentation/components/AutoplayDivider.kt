@@ -36,6 +36,7 @@ fun AutoplayDivider(
         when {
             !state.enabled -> R.string.queue_autoplay_off
             state.finding -> R.string.queue_autoplay_finding
+            state.changedDirection -> R.string.queue_autoplay_changed_direction
             state.fromLibrary -> R.string.queue_autoplay_from_library
             else -> R.string.queue_autoplay_on
         }

@@ -815,6 +815,34 @@ class DualPlayerEngine @Inject constructor(
         playerA.addMediaItems(items)
     }
 
+    /**
+     * Replaces everything from [fromAbsoluteIndex] to the end of the queue with [items], in ONE player
+     * edit (every timeline change republishes the whole queue to the media session). The index is into
+     * the FULL queue. Refused (false) when it is not after the current item, or when the active player
+     * holds a window that does not reach the end of the queue. Never call it during a transition.
+     */
+    fun replaceQueueTail(fromAbsoluteIndex: Int, items: List<MediaItem>): Boolean {
+        if (!::playerA.isInitialized) return false
+        val snapshot = queueSnapshot
+        val windowed = activePlayerUsesWindowedQueue
+        val windowStart = if (windowed) activeWindowStartIndex else 0
+        val count = playerA.mediaItemCount
+        val from = fromAbsoluteIndex - windowStart
+        if (from <= playerA.currentMediaItemIndex || from > count) return false
+        if (from == count && items.isEmpty()) return false
+        if (windowed) {
+            if (snapshot.isEmpty() || windowStart + count != snapshot.size || fromAbsoluteIndex > snapshot.size) return false
+            pendingWindowedAppend = ArrayList<MediaItem>(fromAbsoluteIndex + items.size).apply {
+                addAll(snapshot.subList(0, fromAbsoluteIndex))
+                addAll(items)
+            }
+        } else {
+            pendingWindowedAppend = null
+        }
+        if (items.isEmpty()) playerA.removeMediaItems(from, count) else playerA.replaceMediaItems(from, count, items)
+        return true
+    }
+
     /** The full queue [appendToQueueEnd] expects once its timeline change arrives; null otherwise. */
     private var pendingWindowedAppend: List<MediaItem>? = null
 

@@ -145,6 +145,51 @@ class AutoplayPolicyTest {
         assertEquals(listOf(3, 1), AutoplayPolicy.anchorIndices(3, twice.size, { false }, { twice[it] }))
     }
 
+    @Test
+    fun `before the session has anchors only the track that is playing seeds the pool`() {
+        val ids = listOf("u0", "u1", "u2", "e3")
+        assertEquals(listOf(2), AutoplayPolicy.anchorIndices(2, ids.size, { it >= 3 }, { ids[it] }, max = 1))
+        // Playing an engine pick: the last track the listener chose before it.
+        assertEquals(listOf(2), AutoplayPolicy.anchorIndices(3, ids.size, { it >= 3 }, { ids[it] }, max = 1))
+        assertEquals(emptyList<Int>(), AutoplayPolicy.anchorIndices(2, ids.size, { it >= 3 }, { ids[it] }, max = 0))
+    }
+
+    // ── Re-scoring the tail ──────────────────────────────────────────────────
+
+    @Test
+    fun `a re-score never touches the track that is starting, nor a warmed one`() {
+        // u0 u1 | e2 e3 e4 e5 e6, playing u1 (index 1).
+        val engineFrom = 2
+        fun start(current: Int, warmed: Int, size: Int = 7, engine: (Int) -> Boolean = { it >= engineFrom }) =
+            AutoplayPolicy.rescoreStart(size, current, warmed, engine)
+        assertEquals(1, AutoplayPolicy.warmedAhead(unmeteredWifi = false))
+        assertEquals(2, AutoplayPolicy.warmedAhead(unmeteredWifi = true))
+        // On cellular the next track (e2) is warmed: the re-score starts at e3.
+        assertEquals(3, start(current = 1, warmed = 1))
+        // On unmetered Wi-Fi the next two are.
+        assertEquals(4, start(current = 1, warmed = 2))
+        // Whatever the caller says, the next track is never replaced.
+        assertEquals(3, start(current = 1, warmed = 0))
+        // Nothing left behind the warmed tracks: nothing to re-score.
+        assertEquals(-1, start(current = 5, warmed = 1))
+        assertEquals(-1, start(current = 4, warmed = 2))
+        assertEquals(-1, start(current = 6, warmed = 1))
+        assertEquals(-1, AutoplayPolicy.rescoreStart(0, 0, 1) { true })
+        assertEquals(-1, start(current = -1, warmed = 1))
+    }
+
+    @Test
+    fun `a re-score only owns the unbroken run of engine items at the very end`() {
+        // u0 e1 e2 e3 U4 e5 e6: the listener queued U4 between the engine's picks.
+        val owned = setOf(1, 2, 3, 5, 6)
+        assertEquals(5, AutoplayPolicy.rescoreStart(7, 0, 1) { it in owned })
+        // The last item is the listener's: the engine owns nothing at the end.
+        assertEquals(-1, AutoplayPolicy.rescoreStart(7, 0, 1) { it in setOf(1, 2, 3) })
+        // On a windowed queue the indices are absolute: 400 items, playing 230, all engine after 300.
+        assertEquals(301, AutoplayPolicy.rescoreStart(400, 230, 1) { it > 300 })
+        assertEquals(232, AutoplayPolicy.rescoreStart(400, 230, 1) { it > 200 })
+    }
+
     // ── Filters ──────────────────────────────────────────────────────────────
 
     @Test

@@ -6,19 +6,34 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import com.theveloper.pixelplay.brain.Arm
 import com.theveloper.pixelplay.brain.BrainHash
+import com.theveloper.pixelplay.brain.BrainMath
 import com.theveloper.pixelplay.brain.BrainText
+import com.theveloper.pixelplay.brain.Candidate
+import com.theveloper.pixelplay.brain.Graph
+import com.theveloper.pixelplay.brain.ListBuilder
+import com.theveloper.pixelplay.brain.Retrieval
+import com.theveloper.pixelplay.brain.Session
+import com.theveloper.pixelplay.brain.StationPlanner
 import com.theveloper.pixelplay.brain.Surface
+import com.theveloper.pixelplay.brain.WhyLine
 import com.theveloper.pixelplay.data.DailyMixManager
 import com.theveloper.pixelplay.data.blocking.BlockedArtistsRepository
+import com.theveloper.pixelplay.data.brain.AnchorInfo
 import com.theveloper.pixelplay.data.brain.BrainClock
+import com.theveloper.pixelplay.data.brain.BrainEngine
+import com.theveloper.pixelplay.data.brain.BrainEventRecorder
 import com.theveloper.pixelplay.data.brain.BrainExtras
 import com.theveloper.pixelplay.data.brain.BrainItemTag
 import com.theveloper.pixelplay.data.brain.BrainRepository
 import com.theveloper.pixelplay.data.brain.BrainSwitch
 import com.theveloper.pixelplay.data.brain.EngineTrack
 import com.theveloper.pixelplay.data.brain.LibraryIndex
+import com.theveloper.pixelplay.data.brain.LibraryTrackCatalog
 import com.theveloper.pixelplay.data.brain.PlayableStore
 import com.theveloper.pixelplay.data.brain.RadioSeed
+import com.theveloper.pixelplay.data.brain.Reaction
+import com.theveloper.pixelplay.data.brain.TrackRequest
+import com.theveloper.pixelplay.data.brain.TrackResolver
 import com.theveloper.pixelplay.data.brain.store.PlayEventDao
 import com.theveloper.pixelplay.data.brain.store.RadioListEntity
 import com.theveloper.pixelplay.data.brain.store.StoredRadioRow
@@ -56,29 +71,35 @@ data class AutoplayUiState(
     val finding: Boolean = false,
     /** The picks come from the library alone (offline, or the YouTube source is off or had nothing). */
     val fromLibrary: Boolean = false,
+    /** Three skips in a row: the engine turned to something else (shown for a short while). */
+    val changedDirection: Boolean = false,
 )
 
 /**
  * Autoplay: when two or fewer tracks are left, five more are appended, so music does not stop at the
- * end of a queue (docs/brain-spec.md, 7.1).
+ * end of a queue (docs/brain-spec.md, 7.1), and what the listener does with them changes what comes
+ * next (7.3).
  *
  * Runs inside `MusicService`'s process and is driven by it: [onTransition] after every track change,
  * [onQueueEnded] as the backstop, [onTransitionFinished] to release an edit held during a crossfade.
- * All state here is confined to the main thread; pool building (database, network, text folding) runs
- * on background dispatchers and comes back with a finished pool.
+ * The event recorder tells it what each finished play did ([Reaction]). All state here is confined to
+ * the main thread; pool building and planning run on background dispatchers and come back finished.
  *
  * Rules this class keeps:
  *  - The trigger asks the in-memory pool, never the network. A radio request starts no earlier than
  *    1.5 s into a track, at most two at a time, under the YouTube budget.
  *  - The count is the FULL queue (`engine.getFullQueue()`), not the player's window.
- *  - One queue edit per top-up, never during a `DualPlayerEngine` transition.
- *  - Only tracks the listener chose are anchors. Engine picks that merely played are not, so an hour
- *    of autoplay is still about what the listener started with.
- *  - Tracks the listener queued are never moved or removed. Engine items are only ever appended.
+ *  - One queue edit per top-up and one per re-score, never during a `DualPlayerEngine` transition.
+ *  - Only the listener's own choices (and engine picks they liked) are anchors. Engine picks that
+ *    merely played are not, so an hour of autoplay is still about what the listener started with.
+ *  - Tracks the listener queued are never moved or removed.
+ *  - A re-score never touches the track that is starting or a track the prefetcher has warmed
+ *    (decision D8): it replaces the engine's tail behind them, in one edit, only when it changed.
  *  - Off under repeat, during Cast and Spotify Connect, and while a saved queue is being restored.
  *
- * Stage 1a picks in radio order under the hard constraints. There is no scorer and no session state
- * yet (stage 1b), so a skip does not change what comes next.
+ * Which tracks go in, and in what order, is `StationPlanner` in `:brain`: pure, golden-tested, and
+ * with an empty state the radio's own order. The library-only pool (offline, YouTube source off) has
+ * no recording ids and keeps the plain order of [AutoplayPolicy.pickBatch].
  */
 @Singleton
 class AutoplayController @Inject constructor(
@@ -96,6 +117,9 @@ class AutoplayController @Inject constructor(
     private val brainSwitch: BrainSwitch,
     private val networkConditions: StreamNetworkConditions,
     private val clock: BrainClock,
+    private val brain: BrainEngine,
+    private val recorder: BrainEventRecorder,
+    private val identity: TrackResolver,
 ) {
     /** What the service tells the controller about itself. */
     interface Host {
@@ -113,13 +137,38 @@ class AutoplayController @Inject constructor(
         val song: Song,
         /** Set for a track from outside the library: it must be in `playable` before it can play. */
         val engineTrack: EngineTrack?,
-        /** The artist the pick is explained by: the anchor's primary artist. */
+        /** The artist the pick is explained by when the planner names none: the anchor's primary artist. */
         val whyArtist: String,
+        /** ONE artist name: the track's own primary artist. */
+        val primaryArtist: String,
+        /** The same track as the pure core sees it; null in the library-only pool. */
+        val brain: Candidate?,
     )
 
-    private class Anchor(val mediaId: String, val title: String, val item: MediaItem)
+    /** A track the pool is seeded from: an item of the queue, or an anchor of the session. */
+    private class Anchor(val mediaId: String, val title: String, val item: MediaItem?, val info: AnchorInfo?)
 
-    private class BuiltPool(val entries: List<PoolEntry>, val fromLibrary: Boolean)
+    private class BuiltPool(
+        val entries: List<PoolEntry>,
+        val fromLibrary: Boolean,
+        /** The radios the entries came from, newest anchor first; empty for the library-only pool. */
+        val seeds: List<Retrieval.SeedList> = emptyList(),
+        /** Artist names by aid, for the reason line. */
+        val artistNames: Map<Long, String> = emptyMap(),
+    )
+
+    /** What one plan needs, gathered on the main thread. */
+    private class PlanInputs(
+        val candidates: List<Candidate>,
+        val entriesByRid: Map<Long, PoolEntry>,
+        val prior: List<ListBuilder.Prior>,
+        val excludedRids: Set<Long>,
+        val seeds: List<Retrieval.SeedList>,
+        val nuMultiplier: Double,
+        val nowMs: Long,
+        val tzOffsetMin: Int,
+        val batch: Int,
+    )
 
     private val _uiState = MutableStateFlow(AutoplayUiState())
     val uiState: StateFlow<AutoplayUiState> = _uiState.asStateFlow()
@@ -135,13 +184,28 @@ class AutoplayController @Inject constructor(
     private var poolKey = ""
     private var poolFromLibrary = false
     private var poolDeepened = false
+    private var poolSeeds: List<Retrieval.SeedList> = emptyList()
+    private var poolArtistNames: Map<Long, String> = emptyMap()
     private var fillJob: Job? = null
     private var fillKey = ""
+    private var appendJob: Job? = null
+    private var rescoreJob: Job? = null
     private var pendingAppend: List<MediaItem>? = null
+    private var pendingRescore = false
     private var queueEndedAtMs = 0L
     private var batchSeq = 0
     private var emptyBuildKey = ""
     private var emptyBuildAtMs = 0L
+
+    /** Engine items that went into the queue, by media id: a re-score needs to know what they are. */
+    private val served = LinkedHashMap<String, PoolEntry>()
+
+    // What the event recorder last said about the session.
+    private var sessionAnchors: List<AnchorInfo> = emptyList()
+    private var sessionAnchorsAtMs = 0L
+    private var needsOtherDirection = false
+    private val likedTitles = HashMap<Long, String>()
+    private var noteJob: Job? = null
 
     // Touched only by pool builds, which run one at a time.
     private var libraryIndex: LibraryIndex? = null
@@ -163,6 +227,8 @@ class AutoplayController @Inject constructor(
                 }
             }
             launch { brainSwitch.youTubeSourceEnabledFlow.collect { youTubeSourceEnabled = it } }
+            // What each finished play did to the session (7.3). The flow is silent until music plays.
+            launch { recorder.reactions.collect { onReaction(it) } }
         }
     }
 
@@ -188,13 +254,20 @@ class AutoplayController @Inject constructor(
         if (isPlaying && pool.isEmpty() && fillJob?.isActive != true) evaluate(settle = true)
     }
 
-    /** The crossfade hand-over is over: an append held back during it goes in now. */
+    /** The crossfade hand-over is over: a queue edit held back during it goes in now. */
     @MainThread
     fun onTransitionFinished() {
-        val items = pendingAppend ?: return
+        val items = pendingAppend
         pendingAppend = null
-        if (host == null || !enabled) return
-        engine.appendToQueueEnd(items)
+        if (host == null || !enabled) {
+            pendingRescore = false
+            return
+        }
+        if (items != null) engine.appendToQueueEnd(items)
+        if (pendingRescore) {
+            pendingRescore = false
+            rescoreTail()
+        }
     }
 
     /**
@@ -217,15 +290,145 @@ class AutoplayController @Inject constructor(
         adoptPoolFor(anchors)
         val endedAt = clock.nowMs()
         queueEndedAtMs = endedAt
-        if (appendFromPool(queue) && resumeAfterQueueEnd()) return
-        setFinding(true)
-        startFill(anchors, settle = false, deepen = false)
-        host.scope.launch {
-            delay(AutoplayPolicy.BACKSTOP_WINDOW_MS + 250L)
-            if (queueEndedAtMs == endedAt) {
-                // Nothing landed in time: the queue simply ended, as it always did.
-                queueEndedAtMs = 0L
-                setFinding(false)
+        appendFromPool(queue) { appended ->
+            // A batch that went in has already resumed playback (see commit).
+            if (appended && queueEndedAtMs == 0L) return@appendFromPool
+            setFinding(true)
+            startFill(anchors, settle = false, deepen = false)
+            host.scope.launch {
+                delay(AutoplayPolicy.BACKSTOP_WINDOW_MS + 250L)
+                if (queueEndedAtMs == endedAt) {
+                    // Nothing landed in time: the queue simply ended, as it always did.
+                    queueEndedAtMs = 0L
+                    setFinding(false)
+                }
+            }
+        }
+    }
+
+    // ── Reactions (7.3) ──────────────────────────────────────────────────────
+
+    /** A play ended and the session changed. Decides whether the engine's tail must be re-scored. */
+    @MainThread
+    private fun onReaction(reaction: Reaction) {
+        sessionAnchors = reaction.anchors
+        sessionAnchorsAtMs = clock.nowMs()
+        needsOtherDirection = reaction.needsOtherDirection
+        if (reaction.liked) {
+            if (likedTitles.size > 32) likedTitles.clear()
+            likedTitles[reaction.event.rid] = reaction.title
+        }
+        if (reaction.changedDirection) showDirectionNote()
+        val host = host
+        if (host == null || !enabled) return
+        if (reaction.changedDirection && !host.isRemoteSession() && !host.isRestoringQueue()) {
+            // Turning is not waiting for the queue to run low: the pool of the new direction is built
+            // now, and when it is ready the engine's tail is re-scored against it ([onPoolReady]).
+            val anchors = anchorsOf(engine.getFullQueue(), engine.getCurrentAbsoluteIndex())
+            if (anchors.isNotEmpty()) {
+                adoptPoolFor(anchors)
+                if (pool.isEmpty()) startFill(anchors, settle = true, deepen = false)
+            }
+        }
+        // A skip, a like or a change of direction changes what should come next; a plain completion
+        // does not move the tail.
+        if (reaction.graded.h > 0.0 || reaction.liked || reaction.changedDirection) rescoreTail()
+        // New anchors mean another pool; the trigger decides whether anything is needed now.
+        evaluate(settle = true)
+    }
+
+    private fun showDirectionNote() {
+        val host = host ?: return
+        _uiState.value = _uiState.value.copy(changedDirection = true)
+        noteJob?.cancel()
+        noteJob = host.scope.launch {
+            delay(DIRECTION_NOTE_MS)
+            _uiState.value = _uiState.value.copy(changedDirection = false)
+        }
+    }
+
+    /**
+     * Re-scores the engine-owned end of the queue against the pool, as ONE queue edit, and only when
+     * the result differs. The track after the current one is never touched, nor the one after that on
+     * unmetered Wi-Fi: the prefetcher has warmed them (2.3 step 7, decision D8).
+     */
+    @MainThread
+    private fun rescoreTail() {
+        val host = host ?: return
+        if (!enabled || poolFromLibrary || poolSeeds.isEmpty() || host.isRemoteSession() || host.isRestoringQueue()) return
+        if (rescoreJob?.isActive == true || appendJob?.isActive == true) {
+            pendingRescore = true
+            return
+        }
+        if (AutoplayPolicy.mustDeferQueueEdit(engine.isTransitionRunning())) {
+            pendingRescore = true
+            return
+        }
+        val queue = engine.getFullQueue()
+        val current = engine.getCurrentAbsoluteIndex()
+        val conditions = networkConditions.current()
+        val start = AutoplayPolicy.rescoreStart(
+            queueSize = queue.size,
+            currentAbsoluteIndex = current,
+            warmedAhead = AutoplayPolicy.warmedAhead(
+                unmeteredWifi = conditions.network == StreamPrefetchPolicy.Network.WIFI && !conditions.metered
+            ),
+            engineOwned = { BrainExtras.isEngineOwned(queue[it].mediaMetadata.extras) },
+        )
+        if (start < 0) return
+        val tailEntries = ArrayList<PoolEntry>(queue.size - start)
+        for (i in start until queue.size) {
+            // An engine item this process did not put there (a restored queue): leave the tail alone.
+            tailEntries.add(served[queue[i].mediaId] ?: return)
+        }
+        if (tailEntries.any { it.brain == null }) return
+        val tailRids = LongArray(tailEntries.size) { tailEntries[it].brain!!.rid }
+        val tailIds = queue.subList(start, queue.size).map { it.mediaId }
+        val inputs = planInputs(queue, start, tailEntries)
+        val key = poolKey
+        rescoreJob = host.scope.launch {
+            val plan = try {
+                planOnBrain(inputs, count = tailRids.size, bridge = false, tail = tailRids)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Timber.w(e, "autoplay: re-scoring the tail failed")
+                null
+            } ?: return@launch
+            if (key != poolKey || this@AutoplayController.host == null || !enabled) return@launch
+            // The queue may have moved on while the plan was made: only an unchanged tail is replaced,
+            // and never during a hand-over.
+            val now = engine.getFullQueue()
+            val protectedUntil = engine.getCurrentAbsoluteIndex() + 1
+            if (now.size != start + tailIds.size || start <= protectedUntil ||
+                AutoplayPolicy.mustDeferQueueEdit(engine.isTransitionRunning())
+            ) return@launch
+            for (i in tailIds.indices) if (now[start + i].mediaId != tailIds[i]) return@launch
+
+            batchSeq = (batchSeq + 1) and 0xff
+            val recId = (inputs.nowMs shl 8) or batchSeq.toLong()
+            val surfaceId = poolKey.substringBefore('|').take(BrainExtras.MAX_SURFACE_ID_LENGTH)
+            val items = ArrayList<MediaItem>(plan.picks.size)
+            val kept = HashSet<String>()
+            for (pick in plan.picks) {
+                val entry = inputs.entriesByRid[pick.rid] ?: continue
+                items.add(mediaItemFor(entry, recId, pick.slot, surfaceId, pick))
+                kept.add(entry.candidate.mediaId)
+            }
+            if (!engine.replaceQueueTail(start, items)) return@launch
+            // What left the tail goes back to the pool; what came from the pool is now served.
+            for (entry in tailEntries) {
+                if (entry.candidate.mediaId !in kept) {
+                    served.remove(entry.candidate.mediaId)
+                    pool.add(entry)
+                }
+            }
+            pool.removeAll { it.candidate.mediaId in kept }
+            for (pick in plan.picks) inputs.entriesByRid[pick.rid]?.let { remember(it) }
+        }.also { job ->
+            job.invokeOnCompletion {
+                // A second reaction arrived while this one was planned: look once more.
+                if (rescoreJob === job) rescoreJob = null
             }
         }
     }
@@ -252,50 +455,220 @@ class AutoplayController @Inject constructor(
         val anchors = anchorsOf(queue, index)
         if (anchors.isEmpty()) return
         adoptPoolFor(anchors)
-        if (appendFromPool(queue)) {
-            if (pool.size < AutoplayPolicy.POOL_REFILL_BELOW && !poolFromLibrary && !poolDeepened) {
-                startFill(anchors, settle = true, deepen = true)
+        appendFromPool(queue) { appended ->
+            if (appended) {
+                if (pool.size < AutoplayPolicy.POOL_REFILL_BELOW && !poolFromLibrary && !poolDeepened) {
+                    startFill(anchors, settle = true, deepen = true)
+                }
+                return@appendFromPool
             }
-            return
+            // Nothing fits from what is in memory: build it, or once per set of anchors rebuild it deeper
+            // (continuation pages, then the library behind them). After that the queue is allowed to end.
+            if (pool.isNotEmpty() && poolDeepened) return@appendFromPool
+            startFill(anchors, settle, deepen = pool.isNotEmpty())
         }
-        // Nothing fits from what is in memory: build it, or once per set of anchors rebuild it deeper
-        // (continuation pages, then the library behind them). After that the queue is allowed to end.
-        if (pool.isNotEmpty() && poolDeepened) return
-        startFill(anchors, settle, deepen = pool.isNotEmpty())
     }
 
     /** A pool belongs to its anchors: other anchors, another pool. */
     private fun adoptPoolFor(anchors: List<Anchor>) {
-        val key = anchors.joinToString("|") { it.mediaId }
+        val key = anchors.joinToString("|") { it.mediaId } + if (needsOtherDirection) "|turn" else ""
         if (key == poolKey) return
         poolKey = key
         pool = ArrayList()
         poolFromLibrary = false
         poolDeepened = false
+        poolSeeds = emptyList()
+        poolArtistNames = emptyMap()
         if (fillKey != key) {
             fillJob?.cancel()
             fillJob = null
         }
     }
 
-    private fun anchorsOf(queue: List<MediaItem>, index: Int): List<Anchor> =
-        AutoplayPolicy.anchorIndices(
+    /**
+     * What the pool is seeded from (7.1 "Seed set"): the session's anchors as the recorder last gave
+     * them, and while there are none yet, the last track the listener chose at or before the current
+     * one (normally the track that is playing).
+     */
+    private fun anchorsOf(queue: List<MediaItem>, index: Int): List<Anchor> {
+        val fresh = sessionAnchors.isNotEmpty() && clock.nowMs() - sessionAnchorsAtMs in 0 until Session.GAP_MS
+        if (fresh) return sessionAnchors.map { Anchor(it.mediaId, it.title, null, it) }
+        return AutoplayPolicy.anchorIndices(
             currentAbsoluteIndex = index,
             queueSize = queue.size,
             engineOwned = { BrainExtras.isEngineOwned(queue[it].mediaMetadata.extras) },
             mediaIdAt = { queue[it].mediaId },
+            max = 1,
         ).map { i ->
             val item = queue[i]
-            Anchor(item.mediaId, item.mediaMetadata.title?.toString().orEmpty(), item)
+            Anchor(item.mediaId, item.mediaMetadata.title?.toString().orEmpty(), item, null)
         }
+    }
 
     // ── Append ───────────────────────────────────────────────────────────────
 
     /**
-     * Appends one batch from the in-memory pool. True when a batch went in (or is held for the end of a
-     * transition). No I/O: a few hundred comparisons over what is already in memory.
+     * Appends one batch from the in-memory pool and tells [onDone] whether one went in (or is held for
+     * the end of a transition). No network. The plan itself is a few milliseconds of arithmetic on a
+     * background thread; the library-only pool is picked in place.
      */
-    private fun appendFromPool(queue: List<MediaItem>): Boolean {
+    private fun appendFromPool(queue: List<MediaItem>, onDone: (Boolean) -> Unit) {
+        val host = host
+        if (host == null || appendJob?.isActive == true) return
+        if (pool.isEmpty()) {
+            onDone(false)
+            return
+        }
+        if (poolFromLibrary || poolSeeds.isEmpty()) {
+            onDone(appendInPoolOrder(queue))
+            return
+        }
+        val inputs = planInputs(queue, queue.size, emptyList())
+        if (inputs.candidates.isEmpty()) {
+            onDone(false)
+            return
+        }
+        val key = poolKey
+        val queueSize = queue.size
+        appendJob = host.scope.launch {
+            val plan = try {
+                planOnBrain(inputs, count = AutoplayPolicy.BATCH_SIZE, bridge = inputs.prior.isEmpty(), tail = null)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Timber.w(e, "autoplay: planning a batch failed")
+                null
+            }
+            appendJob = null
+            if (key != poolKey || this@AutoplayController.host == null || !enabled) return@launch
+            // Someone else changed the queue while the plan was made: the trigger looks again.
+            if (engine.getFullQueue().size != queueSize) {
+                evaluate(settle = true)
+                return@launch
+            }
+            onDone(plan != null && commit(plan, inputs))
+            runPendingRescore()
+        }
+    }
+
+    /** A re-score that had to wait for a plan in flight runs once that plan is done. */
+    private fun runPendingRescore() {
+        if (!pendingRescore || engine.isTransitionRunning()) return
+        pendingRescore = false
+        rescoreTail()
+    }
+
+    /** Everything a plan reads, taken from the queue and the pool on the main thread. */
+    private fun planInputs(queue: List<MediaItem>, tailStart: Int, tailEntries: List<PoolEntry>): PlanInputs {
+        val now = clock.nowMs()
+        val queuedIds = HashSet<String>(queue.size * 2 + 64)
+        val prior = ArrayList<ListBuilder.Prior>()
+        val excludedRids = HashSet<Long>()
+        var listenerItems = 0
+        for (i in queue.indices) {
+            val item = queue[i]
+            val extras = item.mediaMetadata.extras
+            if (!BrainExtras.isEngineOwned(extras)) listenerItems++
+            if (i >= tailStart) continue
+            queuedIds.add(item.mediaId)
+            val entry = served[item.mediaId]
+            val candidate = entry?.brain
+            if (candidate != null) {
+                excludedRids.add(candidate.rid)
+                if (BrainExtras.isEngineOwned(extras)) {
+                    prior.add(ListBuilder.Prior(candidate.rid, candidate.aid, candidate.albumKey, !candidate.inLibrary))
+                }
+            }
+        }
+        // 6.4: nothing played in the last four hours. The affinity tables answer that for anything
+        // the brain recorded; the playback history covers a play it could not identify.
+        val since = now - FOUR_HOURS_MS
+        for (entry in listeningStatsTracker.playbackHistory.value) {
+            if (entry.timestamp >= since) queuedIds.add(entry.songId)
+        }
+        val candidates = ArrayList<Candidate>(pool.size + tailEntries.size)
+        val entriesByRid = HashMap<Long, PoolEntry>((pool.size + tailEntries.size) * 2)
+        for (entry in tailEntries) {
+            val candidate = entry.brain ?: continue
+            if (entriesByRid.putIfAbsent(candidate.rid, entry) == null) candidates.add(candidate)
+        }
+        for (entry in pool) {
+            val candidate = entry.brain ?: continue
+            if (entry.candidate.mediaId in queuedIds) {
+                // A track the listener queued themselves is also in the pool: it may not be picked again.
+                excludedRids.add(candidate.rid)
+                continue
+            }
+            if (entriesByRid.putIfAbsent(candidate.rid, entry) == null) candidates.add(candidate)
+        }
+        batchSeq = (batchSeq + 1) and 0xff
+        return PlanInputs(
+            candidates = candidates,
+            entriesByRid = entriesByRid,
+            prior = if (prior.size > 50) prior.subList(prior.size - 50, prior.size) else prior,
+            excludedRids = excludedRids,
+            seeds = poolSeeds,
+            // After a single track the listener asked for "more like this"; after an album or a
+            // playlist autoplay stays closer to home (6.2).
+            nuMultiplier = if (listenerItems <= 1) 1.0 else 0.8,
+            nowMs = now,
+            tzOffsetMin = java.util.TimeZone.getDefault().getOffset(now) / 60_000,
+            batch = batchSeq,
+        )
+    }
+
+    /** Runs the pure planner on the brain's state. [tail] non-null asks for a patch of that tail. */
+    private suspend fun planOnBrain(inputs: PlanInputs, count: Int, bridge: Boolean, tail: LongArray?): StationPlanner.Plan? =
+        withContext(Dispatchers.Default) {
+            brain.withState { state ->
+                val graph = StationPlanner.buildGraph(inputs.seeds, inputs.candidates, state.session)
+                val request = StationPlanner.Request(
+                    mode = StationPlanner.MODE_AUTOPLAY,
+                    count = count,
+                    candidates = inputs.candidates,
+                    seeds = inputs.seeds,
+                    prior = inputs.prior,
+                    nowMs = inputs.nowMs,
+                    tzOffsetMin = inputs.tzOffsetMin,
+                    nuMultiplier = inputs.nuMultiplier,
+                    tieSeed = state.session.sessionId xor inputs.batch.toLong(),
+                    excludedRids = inputs.excludedRids,
+                    bridge = bridge,
+                )
+                val plan = if (tail == null) {
+                    StationPlanner.plan(request, state.affinity, state.session, graph)
+                } else {
+                    Session.patchQueue(state.session, tail, request, state.affinity, graph)
+                }
+                if (plan != null) StationPlanner.consume(state.session, plan)
+                plan
+            }
+        }
+
+    /** Puts a plan's picks at the end of the queue in one edit. True when anything went in. */
+    private fun commit(plan: StationPlanner.Plan, inputs: PlanInputs): Boolean {
+        if (plan.picks.isEmpty()) return false
+        val recId = (inputs.nowMs shl 8) or inputs.batch.toLong()
+        val surfaceId = poolKey.substringBefore('|').take(BrainExtras.MAX_SURFACE_ID_LENGTH)
+        val items = ArrayList<MediaItem>(plan.picks.size)
+        val pickedIds = HashSet<String>()
+        for (pick in plan.picks) {
+            val entry = inputs.entriesByRid[pick.rid] ?: continue
+            items.add(mediaItemFor(entry, recId, pick.slot, surfaceId, pick))
+            pickedIds.add(entry.candidate.mediaId)
+            remember(entry)
+        }
+        if (items.isEmpty()) return false
+        pool.removeAll { it.candidate.mediaId in pickedIds }
+        deliver(items)
+        return true
+    }
+
+    /**
+     * The library-only pool (offline, the YouTube source off, or no radio had anything): in pool order
+     * under the hard constraints, as in stage 1a.
+     */
+    private fun appendInPoolOrder(queue: List<MediaItem>): Boolean {
         if (pool.isEmpty()) return false
         val now = clock.nowMs()
         val excludedMediaIds = HashSet<String>(queue.size * 2 + 64)
@@ -312,8 +685,6 @@ class AutoplayController @Inject constructor(
                 )
             }
         }
-        // 6.4: nothing played in the last four hours. Until the event log records (stage 1b) the
-        // existing playback history answers this.
         val since = now - FOUR_HOURS_MS
         for (entry in listeningStatsTracker.playbackHistory.value) {
             if (entry.timestamp >= since) excludedMediaIds.add(entry.songId)
@@ -336,19 +707,35 @@ class AutoplayController @Inject constructor(
         val items = ArrayList<MediaItem>(picked.size)
         for (slot in picked.indices) {
             val entry = entries[picked[slot].mediaId] ?: continue
-            items.add(mediaItemFor(entry, recId, slot, surfaceId))
+            items.add(mediaItemFor(entry, recId, tail.size + slot, surfaceId, null))
+            remember(entry)
         }
         if (items.isEmpty()) return false
+        deliver(items)
+        return true
+    }
+
+    /** Appends now, or holds the items until a running hand-over is over; then resumes an ended queue. */
+    private fun deliver(items: List<MediaItem>) {
         if (AutoplayPolicy.mustDeferQueueEdit(engine.isTransitionRunning())) {
             pendingAppend = items
         } else {
             engine.appendToQueueEnd(items)
         }
         _uiState.value = _uiState.value.copy(fromLibrary = poolFromLibrary)
-        return true
+        if (queueEndedAtMs != 0L) resumeAfterQueueEnd()
     }
 
-    private fun mediaItemFor(entry: PoolEntry, recId: Long, slot: Int, surfaceId: String): MediaItem {
+    private fun remember(entry: PoolEntry) {
+        served[entry.candidate.mediaId] = entry
+        if (served.size > SERVED_LIMIT) {
+            val oldest = served.keys.iterator()
+            oldest.next()
+            oldest.remove()
+        }
+    }
+
+    private fun mediaItemFor(entry: PoolEntry, recId: Long, slot: Int, surfaceId: String, pick: StationPlanner.Pick?): MediaItem {
         val base = MediaItemBuilder.build(entry.song)
         val extras = Bundle(base.mediaMetadata.extras ?: Bundle.EMPTY)
         BrainExtras.write(
@@ -358,12 +745,21 @@ class AutoplayController @Inject constructor(
                 surfaceId = surfaceId,
                 recId = recId,
                 slot = slot,
-                arm = Arm.nameOf(entry.candidate.arm),
+                arm = Arm.nameOf(pick?.arm ?: entry.candidate.arm),
             )
         )
-        extras.putInt(BrainExtras.RETR_Q, -1)
-        extras.putInt(BrainExtras.RADIO_RANK, if (entry.candidate.radioRank > 0) entry.candidate.radioRank else -1)
-        if (entry.whyArtist.isNotBlank()) extras.putString(BrainExtras.WHY_ARG, entry.whyArtist)
+        extras.putInt(BrainExtras.RETR_Q, pick?.retrQ ?: -1)
+        extras.putInt(BrainExtras.RADIO_RANK, pick?.radioRank ?: if (entry.candidate.radioRank > 0) entry.candidate.radioRank else -1)
+        // The reason line (8.8): a key from the pure core and the name its argument stands for.
+        val whyName = when (pick?.whyKey) {
+            null -> entry.whyArtist
+            WhyLine.RADIO_FANS, WhyLine.ARTIST_MORE -> poolArtistNames[pick.whyArg] ?: entry.whyArtist
+            WhyLine.BECAUSE_LIKED -> likedTitles[pick.whyArg].orEmpty()
+            else -> ""
+        }
+        if (pick != null && pick.whyKey != WhyLine.NONE) extras.putString(BrainExtras.WHY_KEY, WhyLine.nameOf(pick.whyKey))
+        if (whyName.isNotBlank()) extras.putString(BrainExtras.WHY_ARG, whyName)
+        if (entry.primaryArtist.isNotBlank()) extras.putString(BrainExtras.PRIMARY_ARTIST, entry.primaryArtist)
         extras.putString(EXTRA_ARTIST_KEY, entry.candidate.artistKey)
         entry.candidate.albumKey?.let { extras.putString(EXTRA_ALBUM_KEY, it) }
         return base.buildUpon()
@@ -399,14 +795,17 @@ class AutoplayController @Inject constructor(
         }
         fillKey = key
         val currentMediaId = engine.masterPlayer.currentMediaItem?.mediaId
+        val otherDirection = needsOtherDirection
         fillJob = host.scope.launch {
             try {
                 if (settle && !waitUntilSettled(currentMediaId)) return@launch
                 val queueIds = engine.getFullQueue().map { it.mediaId }
-                val built = withContext(Dispatchers.Default) { buildPool(anchors, deepen, queueIds) }
+                val built = withContext(Dispatchers.Default) { buildPool(anchors, deepen, queueIds, otherDirection) }
                 if (key != poolKey) return@launch
                 pool = built.entries.toMutableList()
                 poolFromLibrary = built.fromLibrary
+                poolSeeds = built.seeds
+                poolArtistNames = built.artistNames
                 if (deepen) poolDeepened = true
                 if (built.entries.isEmpty()) {
                     emptyBuildKey = key
@@ -445,7 +844,11 @@ class AutoplayController @Inject constructor(
             enabled, player.repeatMode, host.isRemoteSession(), host.isRestoringQueue(),
             queue.size, engine.getCurrentAbsoluteIndex()
         )
-        if (decision != AutoplayPolicy.Decision.TOP_UP || pendingAppend != null) return
+        if (decision != AutoplayPolicy.Decision.TOP_UP || pendingAppend != null) {
+            // The queue is long enough, but its engine tail may be from the direction just left.
+            if (decision == AutoplayPolicy.Decision.ENOUGH_QUEUED) rescoreTail()
+            return
+        }
         if (queueEndedAtMs != 0L) {
             // Backstop: outside the window, or after a pause, the queue stays ended and nothing is added.
             if (!AutoplayPolicy.backstopMayResume(queueEndedAtMs, clock.nowMs(), player.playWhenReady)) {
@@ -453,14 +856,14 @@ class AutoplayController @Inject constructor(
                 setFinding(false)
                 return
             }
-            if (appendFromPool(queue)) resumeAfterQueueEnd() else setFinding(false)
+            appendFromPool(queue) { appended -> if (!appended) setFinding(false) }
             return
         }
-        appendFromPool(queue)
+        appendFromPool(queue) { }
     }
 
     /** Background. Database, network and text folding all happen here; the result is a finished pool. */
-    private suspend fun buildPool(anchors: List<Anchor>, deepen: Boolean, queueIds: List<String>): BuiltPool {
+    private suspend fun buildPool(anchors: List<Anchor>, deepen: Boolean, queueIds: List<String>, otherDirection: Boolean): BuiltPool {
         val now = clock.nowMs()
         val library = musicRepository.getAllSongsOnce()
         val index = libraryIndexFor(library, now)
@@ -471,6 +874,7 @@ class AutoplayController @Inject constructor(
         val everPlayed = runCatching {
             engagementDao.getAllEngagements().filter { it.playCount > 0 }.mapTo(HashSet()) { it.songId }
         }.getOrDefault(HashSet())
+        val favourites = runCatching { musicRepository.getFavoriteSongIdsOnce() }.getOrDefault(emptySet())
         val ignoredRids = runCatching { playEventDao.ignoredThreeTimes(now - SIXTY_DAYS_MS).toHashSet() }
             .getOrDefault(HashSet())
         val allowed: (Song) -> Boolean = { song ->
@@ -480,38 +884,52 @@ class AutoplayController @Inject constructor(
         val online = networkConditions.current().network != StreamPrefetchPolicy.Network.OFFLINE
         val allowNetwork = AutoplayPolicy.mayUseNetwork(online, youTubeSourceEnabled)
 
+        // Three skips in a row with nothing else to turn to: the listener's best-loved library artist
+        // outside the ones just skipped (7.3).
+        val seedAnchors = if (otherDirection) {
+            otherDirectionAnchor(library, index)?.let(::listOf) ?: anchors
+        } else {
+            anchors
+        }
+
         var seedFlags = 0
         val anchorArtistKeys = LinkedHashSet<String>()
-        val seeds = ArrayList<Pair<RadioSeed, String>>(anchors.size)
-        for (anchor in anchors) {
+        val seeds = ArrayList<Pair<RadioSeed, String>>(seedAnchors.size)
+        for (anchor in seedAnchors) {
             seedFlags = seedFlags or BrainText.cleanTitle(anchor.title).versionFlags
             val librarySong = libraryById[anchor.mediaId]
-            val primaryArtist = librarySong?.let(LibraryIndex::primaryArtistName).orEmpty()
+            val primaryArtist = librarySong?.let(LibraryIndex::primaryArtistName)
+                ?: anchor.info?.primaryArtist
+                ?: anchor.item?.mediaMetadata?.extras?.getString(BrainExtras.PRIMARY_ARTIST)
+                ?: ""
             if (primaryArtist.isNotBlank()) anchorArtistKeys.add(BrainText.fold(primaryArtist))
             seedFor(anchor, librarySong, primaryArtist)?.let { seeds.add(it to primaryArtist) }
         }
 
-        val lists: List<List<PoolEntry>> = coroutineScope {
+        class Fetched(val entries: List<PoolEntry>, val seedRid: Long, val rids: LongArray, val related: Boolean, val artist: String)
+
+        val lists: List<Fetched?> = coroutineScope {
             seeds.mapIndexed { i, (seed, whyArtist) ->
                 async {
                     val radio = brainRepository.radioFor(
                         seed = seed,
                         allowNetwork = allowNetwork,
                         continuations = if (deepen && i == 0) DEEPEN_CONTINUATIONS else 0,
-                    ) ?: return@async emptyList<PoolEntry>()
+                    ) ?: return@async null
                     val artistRadio = radio.kind == RadioListEntity.KIND_ARTIST
                     val list = ArrayList<PoolEntry>(radio.rows.size)
                     for (rank in radio.rows.indices) {
-                        entryFor(radio.rows[rank], rank + 1, index, everPlayed, whyArtist, artistRadio)?.let(list::add)
+                        entryFor(radio.rows[rank], rank + 1, index, everPlayed, favourites, adjustments, whyArtist, artistRadio)?.let(list::add)
                     }
-                    list
+                    Fetched(list, radio.seedRid, LongArray(radio.rows.size) { radio.rows[it].rid }, radio.kind == RadioListEntity.KIND_RELATED, whyArtist)
                 }
             }.awaitAll()
         }
+        val fetched = lists.filterNotNull()
 
         val byMediaId = HashMap<String, PoolEntry>()
-        for (list in lists) for (entry in list) byMediaId.putIfAbsent(entry.candidate.mediaId, entry)
-        val ordered = AutoplayPolicy.interleave(lists.map { list -> list.map { it.candidate } })
+        for (list in fetched) for (entry in list.entries) byMediaId.putIfAbsent(entry.candidate.mediaId, entry)
+        val ordered = AutoplayPolicy.interleave(fetched.map { list -> list.entries.map { it.candidate } })
         val entries = ArrayList<PoolEntry>(ordered.size)
         for (candidate in ordered) {
             if (!AutoplayPolicy.passesFilters(candidate, seedFlags)) continue
@@ -522,20 +940,81 @@ class AutoplayController @Inject constructor(
         }
 
         if (entries.isNotEmpty()) {
+            // Library tracks by the anchors' artists are candidates too (6.1 FAV and DEEP), whether or
+            // not a radio names them.
+            val known = entries.mapTo(HashSet()) { it.candidate.mediaId }
+            val anchorIds = seedAnchors.mapTo(HashSet()) { it.mediaId }
+            val extra = ArrayList<Song>()
+            for (artistKey in anchorArtistKeys) {
+                var taken = 0
+                for (song in index.byPrimaryArtist(artistKey)) {
+                    if (taken >= LIBRARY_PER_ANCHOR_ARTIST) break
+                    if (song.id in anchorIds || !known.add(song.id) || !allowed(song)) continue
+                    extra.add(song)
+                    taken++
+                }
+            }
+            val extraFacts = extra.map(LibraryTrackCatalog::factsOf)
+            val extraRids = identity.resolveTracks(
+                extraFacts.map { f ->
+                    TrackRequest(f?.keys ?: com.theveloper.pixelplay.brain.Ids.TrackKeys(), f?.durationMs?.coerceIn(0L, Int.MAX_VALUE.toLong())?.toInt() ?: 0)
+                }
+            )
+            for (i in extra.indices) {
+                if (extraRids[i] == 0L || extraRids[i] in ignoredRids) continue
+                val entry = libraryEntry(extra[i], extraRids[i], 0, everPlayed, favourites, adjustments, "")
+                if (AutoplayPolicy.passesFilters(entry.candidate, seedFlags)) entries.add(entry)
+            }
+
+            // Artists by id: stage 1 joins them by folded name (3.1), through the alias table.
+            val names = LinkedHashSet<String>()
+            for (list in fetched) if (list.artist.isNotBlank()) names.add(list.artist)
+            for (entry in entries) if (entry.primaryArtist.isNotBlank()) names.add(entry.primaryArtist)
+            val nameList = names.toList()
+            val aids = identity.resolveArtistNames(nameList)
+            val aidByName = HashMap<String, Long>(nameList.size * 2)
+            val nameByAid = HashMap<Long, String>(nameList.size * 2)
+            for (i in nameList.indices) {
+                aidByName[nameList[i]] = aids[i]
+                if (aids[i] != 0L) nameByAid.putIfAbsent(aids[i], nameList[i])
+            }
+            val withIds = entries.map { entry ->
+                val candidate = entry.brain ?: return@map entry
+                PoolEntry(
+                    entry.candidate, entry.song, entry.engineTrack, entry.whyArtist, entry.primaryArtist,
+                    Candidate(
+                        rid = candidate.rid, aid = aidByName[entry.primaryArtist] ?: 0L, albumKey = candidate.albumKey,
+                        inLibrary = candidate.inLibrary, liked = candidate.liked,
+                        fromArtistRadio = candidate.fromArtistRadio, boostLn = candidate.boostLn,
+                    ),
+                )
+            }
+            val seedLists = fetched.map { list ->
+                Retrieval.SeedList(
+                    seedRid = list.seedRid,
+                    seedAid = aidByName[list.artist] ?: 0L,
+                    rids = list.rids,
+                    edgeFactor = if (list.related) Graph.RELATED else Graph.RADIO,
+                )
+            }
+
             // Every engine track of the pool goes into `playable` BEFORE it can reach the player: the
             // stream proxy asks for its video id the moment ExoPlayer opens `spotify://<synthId>`.
-            playableStore.register(entries.mapNotNull { it.engineTrack }, now)
+            playableStore.register(withIds.mapNotNull { it.engineTrack }, now)
             prunePlayableOncePerDay(queueIds, now)
-            if (deepen && entries.size < AutoplayPolicy.POOL_REFILL_BELOW) {
+            if (deepen && withIds.size < AutoplayPolicy.POOL_REFILL_BELOW) {
                 // The radios are running dry even with their continuation pages: the library carries on
-                // behind them, so the queue does not end while there is anything left to play.
-                val known = entries.mapTo(HashSet()) { it.candidate.mediaId }
-                libraryPool(library, index, anchors, anchorArtistKeys, everPlayed, allowed)
-                    .filterTo(entries) { known.add(it.candidate.mediaId) }
+                // behind them, so the queue does not end while there is anything left to play. That
+                // pool has no recording ids, so it is picked in its own order.
+                val all = ArrayList(withIds)
+                val seen = all.mapTo(HashSet()) { it.candidate.mediaId }
+                libraryPool(library, index, seedAnchors, anchorArtistKeys, everPlayed, allowed)
+                    .filterTo(all) { seen.add(it.candidate.mediaId) }
+                return BuiltPool(all, fromLibrary = false)
             }
-            return BuiltPool(entries, fromLibrary = false)
+            return BuiltPool(withIds, fromLibrary = false, seeds = seedLists, artistNames = nameByAid)
         }
-        return BuiltPool(libraryPool(library, index, anchors, anchorArtistKeys, everPlayed, allowed), fromLibrary = true)
+        return BuiltPool(libraryPool(library, index, seedAnchors, anchorArtistKeys, everPlayed, allowed), fromLibrary = true)
     }
 
     private fun entryFor(
@@ -543,38 +1022,24 @@ class AutoplayController @Inject constructor(
         rank: Int,
         index: LibraryIndex,
         everPlayed: Set<String>,
+        favourites: Set<String>,
+        adjustments: com.theveloper.pixelplay.data.recommendation.TasteAdjustments,
         anchorArtist: String,
         artistRadio: Boolean,
     ): PoolEntry? {
         val row = stored.row
         val librarySong = index.match(row)
-        if (librarySong != null) {
-            return PoolEntry(
-                candidate = AutoplayPolicy.Candidate(
-                    mediaId = librarySong.id,
-                    rid = stored.rid,
-                    artistKey = LibraryIndex.artistKeyOf(librarySong),
-                    albumKey = albumKeyOf(librarySong.album),
-                    durationMs = librarySong.duration,
-                    versionFlags = BrainText.cleanTitle(librarySong.title).versionFlags,
-                    officialAudio = true,
-                    inLibrary = true,
-                    arm = AutoplayPolicy.libraryArm(librarySong.id in everPlayed),
-                    radioRank = rank,
-                ),
-                song = librarySong,
-                engineTrack = null,
-                whyArtist = anchorArtist,
-            )
-        }
+        if (librarySong != null) return libraryEntry(librarySong, stored.rid, rank, everPlayed, favourites, adjustments, anchorArtist)
         if (row.artists.isEmpty()) return null
         val track = EngineTrack.from(row, stored.rid)
+        val song = track.toSong()
+        val albumKey = row.album?.let(::albumKeyOf)
         return PoolEntry(
             candidate = AutoplayPolicy.Candidate(
                 mediaId = track.songId.toString(),
                 rid = stored.rid,
                 artistKey = BrainRepository.artistKeyOf(row),
-                albumKey = row.album?.let(::albumKeyOf),
+                albumKey = albumKey,
                 durationMs = track.durationMs,
                 versionFlags = BrainText.cleanTitle(row.title).versionFlags,
                 officialAudio = row.isOfficialAudio,
@@ -582,10 +1047,89 @@ class AutoplayController @Inject constructor(
                 arm = if (artistRadio) Arm.ARTIST else Arm.RADIO,
                 radioRank = rank,
             ),
-            song = track.toSong(),
+            song = song,
             engineTrack = track,
             whyArtist = anchorArtist,
+            primaryArtist = row.artists.first().name,
+            brain = Candidate(
+                rid = stored.rid, aid = 0L, albumKey = albumHash(albumKey), inLibrary = false,
+                fromArtistRadio = artistRadio, boostLn = boostLn(adjustments, song),
+            ),
         )
+    }
+
+    private fun libraryEntry(
+        song: Song,
+        rid: Long,
+        rank: Int,
+        everPlayed: Set<String>,
+        favourites: Set<String>,
+        adjustments: com.theveloper.pixelplay.data.recommendation.TasteAdjustments,
+        anchorArtist: String,
+    ): PoolEntry {
+        val albumKey = albumKeyOf(song.album)
+        return PoolEntry(
+            candidate = AutoplayPolicy.Candidate(
+                mediaId = song.id,
+                rid = rid,
+                artistKey = LibraryIndex.artistKeyOf(song),
+                albumKey = albumKey,
+                durationMs = song.duration,
+                versionFlags = BrainText.cleanTitle(song.title).versionFlags,
+                officialAudio = true,
+                inLibrary = true,
+                arm = AutoplayPolicy.libraryArm(song.id in everPlayed),
+                radioRank = rank,
+            ),
+            song = song,
+            engineTrack = null,
+            whyArtist = anchorArtist,
+            primaryArtist = LibraryIndex.primaryArtistName(song),
+            brain = Candidate(
+                rid = rid, aid = 0L, albumKey = albumHash(albumKey), inLibrary = true,
+                liked = song.isFavorite || song.id in favourites, boostLn = boostLn(adjustments, song),
+            ),
+        )
+    }
+
+    /** The listener's boost / reduce for a song, as the planner adds it: `ln(product)`, 0 for none (5.11). */
+    private fun boostLn(adjustments: com.theveloper.pixelplay.data.recommendation.TasteAdjustments, song: Song): Double {
+        if (adjustments.isEmpty) return 0.0
+        val multiplier = adjustments.combinedMultiplier(song)
+        return if (multiplier == 1.0 || multiplier <= 0.0) 0.0 else BrainMath.ln(multiplier)
+    }
+
+    /**
+     * The seed for a change of direction when the session has no other anchor: a matched library
+     * track by the library artist the listener finishes most, outside the artists just skipped.
+     */
+    private suspend fun otherDirectionAnchor(library: List<Song>, index: LibraryIndex): Anchor? {
+        if (library.isEmpty()) return null
+        val keys = index.artistKeys().toList()
+        val names = keys.map { key -> index.byPrimaryArtist(key).firstOrNull()?.let(LibraryIndex::primaryArtistName).orEmpty() }
+        val aids = identity.resolveArtistNames(names)
+        val now = clock.nowMs()
+        val order: List<Int> = brain.withState { state ->
+            val p0 = com.theveloper.pixelplay.brain.Affinity.p0(state.affinity, now)
+            keys.indices
+                .filter { aids[it] != 0L && state.session.skipsOf(aids[it]) == 0 && !state.session.isBlocked(aids[it]) }
+                .map { it to com.theveloper.pixelplay.brain.Affinity.aff(state.affinity, com.theveloper.pixelplay.brain.Family.ARTIST, aids[it], now, p0) }
+                .filter { it.second > 0.0 }
+                .sortedWith { a, b -> if (a.second != b.second) b.second.compareTo(a.second) else aids[a.first].compareTo(aids[b.first]) }
+                .take(OTHER_DIRECTION_TRIES)
+                .map { it.first }
+        }
+        for (i in order) {
+            for (song in index.byPrimaryArtist(keys[i]).take(OTHER_DIRECTION_TRIES)) {
+                val spotifyId = song.spotifyId ?: continue
+                if (runCatching { spotifyDao.getMatchedVideoId(spotifyId) }.getOrNull() == null) continue
+                return Anchor(
+                    song.id, song.title, null,
+                    AnchorInfo(0L, song.id, song.title, names[i], spotifyId, song.duration),
+                )
+            }
+        }
+        return null
     }
 
     /**
@@ -593,10 +1137,11 @@ class AutoplayController @Inject constructor(
      * audio id yet (a library track that was never matched).
      */
     private suspend fun seedFor(anchor: Anchor, librarySong: Song?, primaryArtist: String): RadioSeed? {
-        val extras = anchor.item.mediaMetadata.extras
+        val extras = anchor.item?.mediaMetadata?.extras
         val spotifyId = librarySong?.spotifyId
+            ?: anchor.info?.spotifyId
             ?: extras?.getString(MediaItemBuilder.EXTERNAL_EXTRA_SPOTIFY_ID)
-            ?: anchor.item.localConfiguration?.uri?.toString()
+            ?: anchor.item?.localConfiguration?.uri?.toString()
                 ?.takeIf { it.startsWith(EngineTrack.CONTENT_URI_PREFIX) }
                 ?.removePrefix(EngineTrack.CONTENT_URI_PREFIX)?.substringBefore('/')
             ?: return null
@@ -604,6 +1149,7 @@ class AutoplayController @Inject constructor(
             ?: playableStore.videoIdFor(spotifyId)
             ?: return null
         val durationMs = librarySong?.duration
+            ?: anchor.info?.durationMs
             ?: extras?.getLong(MediaItemBuilder.EXTERNAL_EXTRA_DURATION, 0L)
             ?: 0L
         return RadioSeed(
@@ -613,7 +1159,7 @@ class AutoplayController @Inject constructor(
             primaryArtist = primaryArtist,
             durationMs = durationMs,
             // A YouTube Music import carries a synthetic id (22 hex characters), not a Spotify track id.
-            spotifyId = spotifyId.takeUnless(::isSyntheticId),
+            spotifyId = spotifyId.takeUnless(LibraryTrackCatalog::isSyntheticId),
         )
     }
 
@@ -665,7 +1211,7 @@ class AutoplayController @Inject constructor(
                 radioRank = 0,
             )
             if (AutoplayPolicy.passesFilters(candidate, 0)) {
-                out.add(PoolEntry(candidate, song, engineTrack = null, whyArtist = ""))
+                out.add(PoolEntry(candidate, song, engineTrack = null, whyArtist = "", primaryArtist = LibraryIndex.primaryArtistName(song), brain = null))
             }
         }
         return out
@@ -705,7 +1251,12 @@ class AutoplayController @Inject constructor(
     private fun cancelWork() {
         fillJob?.cancel()
         fillJob = null
+        appendJob?.cancel()
+        appendJob = null
+        rescoreJob?.cancel()
+        rescoreJob = null
         pendingAppend = null
+        pendingRescore = false
         queueEndedAtMs = 0L
         setFinding(false)
     }
@@ -718,8 +1269,7 @@ class AutoplayController @Inject constructor(
     private fun albumKeyOf(album: String): String? =
         BrainText.fold(album).takeIf { it.isNotEmpty() && it != "unknown album" }
 
-    private fun isSyntheticId(id: String): Boolean =
-        id.length == 22 && id.all { it in '0'..'9' || it in 'a'..'f' }
+    private fun albumHash(albumKey: String?): Long = if (albumKey == null) 0L else BrainHash.fnv1a64(albumKey)
 
     private companion object {
         /** Folded primary artist and album of an engine-owned queue item, for the spacing rules. */
@@ -731,8 +1281,12 @@ class AutoplayController @Inject constructor(
         const val SIXTY_DAYS_MS = 60L * ONE_DAY_MS
         const val LIBRARY_INDEX_TTL_MS = 10L * 60 * 1000
         const val LIBRARY_PICKS = 40
+        const val LIBRARY_PER_ANCHOR_ARTIST = 30
         const val DEEPEN_CONTINUATIONS = 2
         const val SETTLE_POLLS = 8
         const val EMPTY_BUILD_RETRY_MS = 5L * 60 * 1000
+        const val SERVED_LIMIT = 400
+        const val DIRECTION_NOTE_MS = 12_000L
+        const val OTHER_DIRECTION_TRIES = 5
     }
 }

@@ -44,6 +44,9 @@ class LibraryIndex(songs: List<Song>) {
         return null
     }
 
+    /** Every folded primary-artist key of the library. */
+    fun artistKeys(): Set<String> = byArtistKey.keys
+
     /** Library songs whose primary artist folds to [artistKey], in library order. */
     fun byPrimaryArtist(artistKey: String): List<Song> = byArtistKey[artistKey].orEmpty()
 
