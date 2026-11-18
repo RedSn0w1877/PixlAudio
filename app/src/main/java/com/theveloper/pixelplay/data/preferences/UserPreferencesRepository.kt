@@ -257,6 +257,10 @@ class UserPreferencesRepository @Inject constructor(
         // The station of the current queue (8.3) and the Familiar / Blend / Discover switch.
         val BRAIN_STATION = stringPreferencesKey("brain_station")
         val BRAIN_NOVELTY = intPreferencesKey("brain_novelty")
+        // Which engine ranks Daily Mix and Your Mix: 0 legacy, 1 brain (default). Developer mode flips it.
+        val BRAIN_ENGINE = intPreferencesKey("brain_engine")
+        // The one background job of the brain (BrainRefreshWorker); default on.
+        val BRAIN_REFRESH_ENABLED = booleanPreferencesKey("brain_refresh_enabled")
         val RESUME_ON_HEADSET_RECONNECT = booleanPreferencesKey("resume_on_headset_reconnect")
         val SHOW_QUEUE_HISTORY = booleanPreferencesKey("show_queue_history")
         val PLAYBACK_QUEUE_SNAPSHOT = stringPreferencesKey("playback_queue_snapshot_v1")
@@ -627,6 +631,21 @@ class UserPreferencesRepository @Inject constructor(
 
     suspend fun setBrainNovelty(level: Int) {
         dataStore.edit { it[PreferencesKeys.BRAIN_NOVELTY] = level }
+    }
+
+    /** 0 legacy, 1 brain (default): the engine that ranks Daily Mix and Your Mix. */
+    val brainEngineFlow: Flow<Int> =
+        pref { it[PreferencesKeys.BRAIN_ENGINE] ?: 1 }
+
+    suspend fun setBrainEngine(engine: Int) {
+        dataStore.edit { it[PreferencesKeys.BRAIN_ENGINE] = engine }
+    }
+
+    val brainRefreshEnabledFlow: Flow<Boolean> =
+        pref { it[PreferencesKeys.BRAIN_REFRESH_ENABLED] ?: true }
+
+    suspend fun setBrainRefreshEnabled(enabled: Boolean) {
+        dataStore.edit { it[PreferencesKeys.BRAIN_REFRESH_ENABLED] = enabled }
     }
 
     val resumeOnHeadsetReconnectFlow: Flow<Boolean> =

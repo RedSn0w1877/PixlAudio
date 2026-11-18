@@ -1,26 +1,47 @@
 package com.theveloper.pixelplay.data.brain
 
+import com.theveloper.pixelplay.data.brain.source.BrainRemoteFlags
 import com.theveloper.pixelplay.data.preferences.UserPreferencesRepository
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 
 /**
- * The switches of the music brain (docs/brain-spec.md, 2.1, 7.1, 12.3). Stage 1 has two, both local:
- * whether Autoplay continues the queue, and whether YouTube Music may be asked for related music.
- * With the second one off, autoplay continues from the library alone.
+ * The switches of the music brain (docs/brain-spec.md, 2.1, 3.7, 7.1, 12.3): whether Autoplay
+ * continues the queue, whether YouTube Music may be asked for related music (with it off, autoplay
+ * continues from the library alone), which engine ranks the mixes (`engine = legacy | brain`), and
+ * whether the one background job runs (a local switch and a remote one).
  */
 @Singleton
 class BrainSwitch @Inject constructor(
     private val preferences: UserPreferencesRepository,
+    private val remote: BrainRemoteFlags,
 ) {
     val autoplayEnabledFlow: Flow<Boolean> get() = preferences.brainAutoplayEnabledFlow
 
     val youTubeSourceEnabledFlow: Flow<Boolean> get() = preferences.brainYouTubeSourceEnabledFlow
 
+    /** [BrainEngineChoice.LEGACY] or [BrainEngineChoice.BRAIN] (the default). */
+    val engineFlow: Flow<Int> get() = preferences.brainEngineFlow
+
+    val refreshEnabledFlow: Flow<Boolean> get() = preferences.brainRefreshEnabledFlow
+
     suspend fun setAutoplayEnabled(enabled: Boolean) = preferences.setBrainAutoplayEnabled(enabled)
 
     suspend fun setYouTubeSourceEnabled(enabled: Boolean) = preferences.setBrainYouTubeSourceEnabled(enabled)
+
+    suspend fun setEngine(engine: Int) = preferences.setBrainEngine(BrainEngineChoice.clamp(engine))
+
+    suspend fun setRefreshEnabled(enabled: Boolean) = preferences.setBrainRefreshEnabled(enabled)
+
+    suspend fun engine(): Int = BrainEngineChoice.clamp(engineFlow.first())
+
+    /**
+     * The refresh worker may run: the local switch is on AND the remote config does not switch it off.
+     * Read at the start of every run and between lanes, so flipping either takes effect within one fetch.
+     */
+    suspend fun refreshAllowed(): Boolean = refreshEnabledFlow.first() && remote.refreshAllowed()
 
     companion object {
         /**
