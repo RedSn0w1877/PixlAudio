@@ -482,6 +482,8 @@ dependencies {
 
     // Projects
     implementation(project(":shared"))
+    // The music brain's pure logic (docs/brain-spec.md): Kotlin JVM, no Android dependency.
+    implementation(project(":brain"))
 
     // Testing (Unit)
     testImplementation(libs.junit.jupiter.api)

@@ -301,6 +301,8 @@ apache-httpclient = { module = "org.apache.httpcomponents:httpclient", version.r
 android-application = { id = "com.android.application", version.ref = "agp" }
 aboutlibraries = { id = "com.mikepenz.aboutlibraries.plugin.android", version.ref = "aboutLibraries" }
 jetbrains-kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
+# The pure-JVM :brain module (docs/brain-spec.md, D1). Same Kotlin version as everything else.
+jetbrains-kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
 compose-compiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin"}
 
 dagger-hilt-android = { id = "com.google.dagger.hilt.android" , version.ref = "dagger" }

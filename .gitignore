@@ -66,3 +66,6 @@ markdown.xml
 
 # Lyric forced-alignment model (~360MB) exceeds GitHub's 100MB per-file limit.
 app/src/main/assets/tais/*.onnx
+
+# The music brain module (pure JVM)
+brain/build/
