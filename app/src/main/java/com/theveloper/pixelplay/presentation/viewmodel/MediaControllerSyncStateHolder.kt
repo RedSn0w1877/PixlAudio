@@ -97,6 +97,7 @@ class MediaControllerSyncStateHolder @Inject constructor(
     private val lyricsStateHolder: LyricsStateHolder,
     private val sleepTimerStateHolder: SleepTimerStateHolder,
     private val playbackDispatchStateHolder: PlaybackDispatchStateHolder,
+    private val brainSession: BrainSessionStateHolder,
     @param:ApplicationContext private val context: Context,
 ) {
 
@@ -191,6 +192,7 @@ class MediaControllerSyncStateHolder @Inject constructor(
                 )
                 if (lastQueueSignature != emptySignature) {
                     lastQueueSignature = emptySignature
+                    brainSession.onQueueItems(emptyList())
                     cb.updateUiState { it.copy(currentPlaybackQueue = persistentListOf()) }
                 }
                 return@launch
@@ -221,6 +223,8 @@ class MediaControllerSyncStateHolder @Inject constructor(
             val allSongsById = libraryStateHolder.allSongsById.value
 
             val queue = withContext(Dispatchers.Default) {
+                // Which items the engine put there: the queue draws its Autoplay line from this.
+                brainSession.onQueueItems(mediaItems)
                 mediaItems.mapNotNull { mediaItem ->
                     resolveSongFromMediaItem(mediaItem, allSongsById)
                 }

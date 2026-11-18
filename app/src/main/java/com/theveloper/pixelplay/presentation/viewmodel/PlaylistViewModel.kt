@@ -86,6 +86,7 @@ class PlaylistViewModel @Inject constructor(
     private val m3uManager: M3uManager,
     private val audioCacheManager: AudioCacheManager,
     private val workManager: WorkManager,
+    private val brainSession: BrainSessionStateHolder,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
 
@@ -640,6 +641,8 @@ class PlaylistViewModel @Inject constructor(
     fun addSongsToPlaylist(playlistId: String, songIdsToAdd: List<String>) {
         if (isFolderPlaylistId(playlistId)) return
         viewModelScope.launch {
+            // A track from outside the library becomes a library track when it is added to a playlist.
+            brainSession.ensureSaved(songIdsToAdd)
             playlistPreferencesRepository.addSongsToPlaylist(playlistId, songIdsToAdd)
             if (_uiState.value.currentPlaylistDetails?.id == playlistId) {
                 loadPlaylistDetails(playlistId)
@@ -656,6 +659,7 @@ class PlaylistViewModel @Inject constructor(
         currentPlaylistId: String?
     ) {
         viewModelScope.launch {
+            if (playlistIds.isNotEmpty()) brainSession.ensureSaved(listOf(songId))
             val removedFromPlaylists =
                 playlistPreferencesRepository.addOrRemoveSongFromPlaylists(songId, playlistIds)
             if (currentPlaylistId != null && removedFromPlaylists.contains (currentPlaylistId)) {
@@ -666,6 +670,7 @@ class PlaylistViewModel @Inject constructor(
 
     fun addSongsToPlaylists(songIds: List<String>, playlistIds: List<String>) {
         viewModelScope.launch {
+            brainSession.ensureSaved(songIds)
             playlistIds.forEach { playlistId ->
                 playlistPreferencesRepository.addSongsToPlaylist(playlistId, songIds)
             }

@@ -239,6 +239,18 @@ class MusicService : MediaLibraryService() {
     // The same singleton as [spatialPlayback], with the service-side hooks (items, Sing, swaps).
     @Inject
     lateinit var realSpatialPlayback: com.theveloper.pixelplay.data.spatial.playback.RealSpatialPlayback
+    // Autoplay (docs/brain-spec.md, 7.1): tops the queue up when two or fewer tracks are left.
+    @Inject
+    lateinit var autoplayController: com.theveloper.pixelplay.data.service.player.AutoplayController
+
+    private val autoplayHost by lazy {
+        object : com.theveloper.pixelplay.data.service.player.AutoplayController.Host {
+            override val scope: CoroutineScope get() = serviceScope
+            override fun isRemoteSession(): Boolean =
+                connectSessionPlayer != null || castSyncCoordinator.currentRemoteMediaClient() != null
+            override fun isRestoringQueue(): Boolean = isRestoringPlaybackSnapshot
+        }
+    }
 
     /**
      * The MediaSession's player while a Spotify Connect session runs (wrapping the local player,
@@ -509,6 +521,8 @@ class MusicService : MediaLibraryService() {
             realSpatialPlayback.onItemChanged(item?.mediaId, spotifyIdOf(item), item?.localConfiguration?.uri?.toString())
         }
         replayGainProcessor.onTransitionFinished()
+        // An Autoplay top-up held back during the hand-over goes in now.
+        autoplayController.onTransitionFinished()
     }
 
     private fun publishMediaSessionPlayer(requestedPlayer: Player, logMessage: String) {
@@ -665,6 +679,7 @@ class MusicService : MediaLibraryService() {
         engine.addPlayerSwapListener(playerSwapListener)
         engine.addTransitionDisplayPlayerListener(transitionDisplayPlayerListener)
         engine.addTransitionFinishedListener(transitionFinishedListener)
+        autoplayController.attach(autoplayHost)
         // Spatial audio (cloud-audio-spec §6.3): items, stage reports, Sing and library events reach the player side.
         realSpatialPlayback.attach(spatialHost)
 
@@ -1768,6 +1783,7 @@ class MusicService : MediaLibraryService() {
             }
             updateNextStreamPrefetch()
             syncLocalListeningStatsFromPlayer(player)
+            autoplayController.onPlayingChanged(isPlaying)
 
             // Re-apply the last known RG volume immediately when resuming playback.
             // After a pause, ExoPlayer may reset the audio track volume internally,
@@ -1830,7 +1846,12 @@ class MusicService : MediaLibraryService() {
             Timber.tag(TAG).d("Playback state changed: $playbackState")
             if (playbackState == Player.STATE_ENDED) {
                 listeningStatsTracker.finalizeCurrentSession()
+                // "Stop after this track" was set for the track that just ended: the listener asked for
+                // silence, so Autoplay's backstop must not start anything.
+                val stopAfterThisTrack = endOfTrackTimerSongId != null
                 endOfTrackTimerSongId = null
+                // Backstop only: Autoplay normally tops the queue up long before it ends.
+                if (!stopAfterThisTrack) autoplayController.onQueueEnded()
             } else {
                 syncLocalListeningStatsFromPlayer(mediaSession?.player ?: engine.masterPlayer)
             }
@@ -1905,6 +1926,7 @@ class MusicService : MediaLibraryService() {
                 return
             }
             enforceBlockedArtists(reason)
+            autoplayController.onTransition()
             if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_SEEK) reviveIdlePlayerAfterNavigation()
             automaticStudioManager.onSongChanged(mediaItem?.mediaId)
             updateNextStreamPrefetch()
@@ -2087,6 +2109,7 @@ class MusicService : MediaLibraryService() {
         engine.removePlayerSwapListener(playerSwapListener)
         engine.removeTransitionDisplayPlayerListener(transitionDisplayPlayerListener)
         engine.removeTransitionFinishedListener(transitionFinishedListener)
+        autoplayController.detach()
         engine.setOnPlayerAboutToBeReleasedListener {}
         mediaSession?.player?.removeListener(playerListener)
         engine.masterPlayer.removeListener(playerListener)
@@ -2321,7 +2344,9 @@ class MusicService : MediaLibraryService() {
                     albumTitle = metadata.albumTitle?.toString(),
                     artworkUri = resolveStoredArtworkUriString(metadata),
                     durationMs = durationMs,
-                )
+                // The brain's context survives a restart: the Autoplay line is drawn from it, and an
+                // engine item must come back as an engine item or it would be taken for an anchor.
+                ).withBrainTag(com.theveloper.pixelplay.data.brain.BrainExtras.read(metadata.extras))
             )
         }
 
@@ -2488,6 +2513,7 @@ class MusicService : MediaLibraryService() {
             snapshotItem.durationMs?.takeIf { it > 0L }?.let {
                 putLong(MediaItemBuilder.EXTERNAL_EXTRA_DURATION, it)
             }
+            com.theveloper.pixelplay.data.brain.BrainExtras.write(this, snapshotItem.brainTag())
         }
         metadataBuilder.setExtras(extras)
 

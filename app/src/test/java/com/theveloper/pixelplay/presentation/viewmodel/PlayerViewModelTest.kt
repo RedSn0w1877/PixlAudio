@@ -296,6 +296,7 @@ class PlayerViewModelTest {
             mockLyricsStateHolder,
             mockSleepTimerStateHolder,
             playbackDispatchStateHolder,
+            mockk(relaxed = true),
             mockContext
         )
         playerViewModel = PlayerViewModel(
@@ -347,6 +348,7 @@ class PlayerViewModelTest {
             lyricsSing = mockLyricsSing,
             sessionToken = sessionToken,
             mediaControllerFactory = mockMediaControllerFactory,
+            brainSession = mockk(relaxed = true),
         )
     }
 

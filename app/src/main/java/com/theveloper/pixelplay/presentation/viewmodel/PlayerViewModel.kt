@@ -235,7 +235,9 @@ class PlayerViewModel @Inject constructor(
     /** The lyrics page's Sing button and the studio-instrumental state it owns. */
     private val lyricsSing: LyricsSingStateHolder,
     private val sessionToken: SessionToken,
-    private val mediaControllerFactory: com.theveloper.pixelplay.data.media.MediaControllerFactory
+    private val mediaControllerFactory: com.theveloper.pixelplay.data.media.MediaControllerFactory,
+    /** The music brain's UI state: the Autoplay line, engine-owned queue items, non-library songs. */
+    val brainSession: BrainSessionStateHolder
 ) : ViewModel() {
 
     private val _playerUiState = MutableStateFlow(PlayerUiState())
@@ -2649,8 +2651,12 @@ class PlayerViewModel @Inject constructor(
         playbackStateHolder.stopProgressUpdates()
     }
 
+    /**
+     * The songs for [songIds]. An id the library does not have but the music brain played (Autoplay, a
+     * station) resolves through its `playable` table, so Recently Played can show and replay it.
+     */
     fun observeSongs(songIds: List<String>): Flow<List<Song>> {
-        return musicRepository.getSongsByIds(songIds)
+        return musicRepository.getSongsByIds(songIds).map { found -> brainSession.withEngineSongs(songIds, found) }
     }
 
     fun searchSongs(query: String): Flow<List<Song>> {

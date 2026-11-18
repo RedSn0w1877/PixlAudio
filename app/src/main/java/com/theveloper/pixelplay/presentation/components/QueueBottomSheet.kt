@@ -298,6 +298,26 @@ fun QueueBottomSheet(
     // Read show queue history preference
     val showQueueHistory by viewModel.showQueueHistory.collectAsStateWithLifecycle()
 
+    // Autoplay (music brain): the items the engine put in the queue sit under the Autoplay line.
+    val autoplayState by viewModel.brainSession.autoplayUiState.collectAsStateWithLifecycle()
+    val engineQueueIds by viewModel.brainSession.engineQueueIds.collectAsStateWithLifecycle()
+    val onToggleAutoplay: (Boolean) -> Unit = remember(viewModel) {
+        { enabled -> viewModel.brainSession.setAutoplayEnabled(enabled) }
+    }
+    val hasUpcomingEngineItems = remember(queue, engineQueueIds, currentSongIndex) {
+        if (engineQueueIds.isEmpty()) {
+            false
+        } else {
+            var found = false
+            var i = (currentSongIndex + 1).coerceAtLeast(0)
+            while (i < queue.size && !found) {
+                found = queue[i].id in engineQueueIds
+                i++
+            }
+            found
+        }
+    }
+
     // Offset to convert display indices to queue indices when history is hidden.
     val queueIndexOffset = if (showQueueHistory || currentSongIndex < 0) 0 else currentSongIndex
 
@@ -873,6 +893,15 @@ fun QueueBottomSheet(
                                 val itemStableKey = activeKeyAt(index)
                                 val song = activeSongSource[queueIndex]
                                 val canReorder = index > currentSongDisplayIndex
+                                // The Autoplay line goes above the first engine item of a run of upcoming
+                                // engine items. It is drawn inside that item, so the list's own indices
+                                // (which reordering depends on) stay exactly as they were.
+                                val showAutoplayLine = canReorder && song.id in engineQueueIds && run {
+                                    val previousQueueIndex = if (index > 0) activeQueueIndexAt(index - 1) else -1
+                                    index - 1 <= currentSongDisplayIndex ||
+                                        previousQueueIndex !in activeSongSource.indices ||
+                                        activeSongSource[previousQueueIndex].id !in engineQueueIds
+                                }
                                 ReorderableItem(
                                     state = reorderableState,
                                     key = itemStableKey,
@@ -900,6 +929,10 @@ fun QueueBottomSheet(
                                         label = "scaleAnimation"
                                     )
 
+                                    Column {
+                                    if (showAutoplayLine) {
+                                        AutoplayDivider(state = autoplayState, onToggle = onToggleAutoplay)
+                                    }
                                     QueuePlaylistSongItem(
                                         modifier = Modifier
                                             .fillMaxWidth()
@@ -955,6 +988,15 @@ fun QueueBottomSheet(
                                             }
                                         }
                                     )
+                                    }
+                                }
+                            }
+
+                            // No engine items yet: the Autoplay line closes the queue, so the switch is
+                            // always reachable. A trailing item: the song items keep their indices.
+                            if (!hasUpcomingEngineItems) {
+                                item(key = "queue_autoplay_footer", contentType = "queue_autoplay") {
+                                    AutoplayDivider(state = autoplayState, onToggle = onToggleAutoplay)
                                 }
                             }
                         }

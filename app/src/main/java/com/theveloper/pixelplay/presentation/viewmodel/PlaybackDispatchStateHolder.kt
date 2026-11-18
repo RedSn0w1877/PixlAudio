@@ -979,9 +979,28 @@ class PlaybackDispatchStateHolder @Inject constructor(
     fun addSongToQueue(song: Song) {
         cb.getController()?.let { controller ->
             val mediaItem = buildPlaybackMediaItem(song)
-            controller.addMediaItem(mediaItem)
+            // What the listener queues goes above the Autoplay line: the engine's picks stay last
+            // (docs/brain-spec.md, 7.1 "Ownership").
+            val firstEngineIndex = firstUpcomingEngineIndex(controller)
+            if (firstEngineIndex >= 0) {
+                controller.addMediaItem(firstEngineIndex, mediaItem)
+            } else {
+                controller.addMediaItem(mediaItem)
+            }
             // Queue UI is synced via onTimelineChanged listener
         }
+    }
+
+    /** Index of the first engine-owned item after the current one, or -1. */
+    private fun firstUpcomingEngineIndex(controller: androidx.media3.common.Player): Int {
+        val count = controller.mediaItemCount
+        var i = controller.currentMediaItemIndex.coerceAtLeast(-1) + 1
+        while (i < count) {
+            val extras = controller.getMediaItemAt(i).mediaMetadata.extras
+            if (com.theveloper.pixelplay.data.brain.BrainExtras.isEngineOwned(extras)) return i
+            i++
+        }
+        return -1
     }
 
     fun addSongNextToQueue(song: Song) {

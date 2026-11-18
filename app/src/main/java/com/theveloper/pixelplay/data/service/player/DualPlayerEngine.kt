@@ -635,6 +635,9 @@ class DualPlayerEngine @Inject constructor(
         override fun onTimelineChanged(timeline: Timeline, reason: Int) {
             if (transitionRunning) return
             if (reason == Player.TIMELINE_CHANGE_REASON_PLAYLIST_CHANGED || queueSnapshot.isEmpty()) {
+                // An append made through appendToQueueEnd on a windowed player: the full queue is the
+                // old full queue plus the new items, not the 200-item window the player holds.
+                if (reason == Player.TIMELINE_CHANGE_REASON_PLAYLIST_CHANGED && applyPendingWindowedAppend()) return
                 refreshQueueSnapshotFromMaster(windowStartIndex = 0, usesWindowedQueue = false)
             }
         }
@@ -783,6 +786,53 @@ class DualPlayerEngine @Inject constructor(
     fun isUsingWindowedQueue(): Boolean = activePlayerUsesWindowedQueue
 
     fun getFullQueue(): List<MediaItem> = ensureQueueSnapshot()
+
+    /**
+     * Appends [items] to the end of the queue with ONE timeline change (Autoplay's top-up). Main thread.
+     *
+     * After a crossfade the active player can hold only a window of a longer queue. A plain
+     * `addMediaItems` there makes the timeline listener rebuild the full-queue snapshot from the
+     * player, which would cut a 200-plus queue down to that window. When the window reaches the end of
+     * the full queue (the only case in which the appended items really are the queue's tail), the
+     * snapshot is extended instead and the player stays windowed. Not reproduced on a device yet: see
+     * handoff/2026-11-17-music-brain-stage1.md.
+     *
+     * Callers must not append while [isTransitionRunning]; they wait for the transition-finished listener.
+     */
+    fun appendToQueueEnd(items: List<MediaItem>) {
+        if (items.isEmpty() || !::playerA.isInitialized) return
+        val snapshot = queueSnapshot
+        pendingWindowedAppend = if (activePlayerUsesWindowedQueue && snapshot.isNotEmpty() &&
+            activeWindowStartIndex + playerA.mediaItemCount == snapshot.size
+        ) {
+            ArrayList<MediaItem>(snapshot.size + items.size).apply {
+                addAll(snapshot)
+                addAll(items)
+            }
+        } else {
+            null
+        }
+        playerA.addMediaItems(items)
+    }
+
+    /** The full queue [appendToQueueEnd] expects once its timeline change arrives; null otherwise. */
+    private var pendingWindowedAppend: List<MediaItem>? = null
+
+    /**
+     * Adopts [pendingWindowedAppend] as the full-queue snapshot when it still describes the player: the
+     * window must end exactly where the expected queue ends, on the same last item. Anything else (a
+     * different edit got in first) falls back to the normal rebuild.
+     */
+    private fun applyPendingWindowedAppend(): Boolean {
+        val expected = pendingWindowedAppend ?: return false
+        pendingWindowedAppend = null
+        if (!activePlayerUsesWindowedQueue) return false
+        val count = playerA.mediaItemCount
+        if (count <= 0 || activeWindowStartIndex + count != expected.size) return false
+        if (playerA.getMediaItemAt(count - 1).mediaId != expected[expected.size - 1].mediaId) return false
+        queueSnapshot = expected
+        return true
+    }
 
     fun getCurrentAbsoluteIndex(): Int {
         if (!::playerA.isInitialized) return 0
