@@ -61,21 +61,23 @@ class BrainCopyTest {
         assertEquals("Because you liked %1\$s", brain["brain_why_because_liked"])
         assertEquals("Because you listened to %1\$s", brain["brain_why_because_listened"])
         assertEquals("More from %1\$s", brain["brain_why_artist_more"])
-        assertEquals("On repeat this month", brain["brain_why_on_repeat"])
+        assertEquals("On repeat lately", brain["brain_why_on_repeat"])
         assertEquals("How picks work", brain["brain_how_picks_work"])
-        // Stage 1 promises only the half of "less repetition" that is true of stage 1 (8.9).
-        assertEquals("A new song you skipped three times stays away for 60 days.", brain["brain_promise_repeat_body"])
-        assertTrue(brain.values.none { "two mixes" in it })
+        // Stage 2a keeps the other half: a song is in one mix a day (served log, 6.4), and says so (8.9).
+        assertEquals(
+            "A song is never in two mixes on the same day, and a new song you skipped three times stays away for 60 days.",
+            brain["brain_promise_repeat_body"],
+        )
     }
 
     @Test
     fun `a reason line is a true statement or nothing`() {
         val resources = mockk<Resources> {
             every { getString(R.string.brain_why_radio_fans, "d4vd") } returns "Fans of d4vd also play this"
-            every { getString(R.string.brain_why_on_repeat) } returns "On repeat this month"
+            every { getString(R.string.brain_why_on_repeat) } returns "On repeat lately"
         }
         assertEquals("Fans of d4vd also play this", WhyLineText.format(resources, "radio_fans", "d4vd"))
-        assertEquals("On repeat this month", WhyLineText.format(resources, "on_repeat", ""))
+        assertEquals("On repeat lately", WhyLineText.format(resources, "on_repeat", ""))
         // A sentence that needs a name is not shown without one.
         assertNull(WhyLineText.format(resources, "radio_fans", ""))
         assertNull(WhyLineText.format(resources, "because_liked", "  "))

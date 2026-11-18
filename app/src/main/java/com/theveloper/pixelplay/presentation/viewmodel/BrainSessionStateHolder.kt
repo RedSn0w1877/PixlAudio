@@ -45,6 +45,7 @@ class BrainSessionStateHolder @Inject constructor(
     private val brainSwitch: BrainSwitch,
     private val playableStore: PlayableStore,
     private val engineTrackSaver: EngineTrackSaver,
+    private val eventExport: com.theveloper.pixelplay.data.brain.BrainEventExport,
     private val stationStore: StationStore,
     /** "Start station": the seed and the hand-over to the player. */
     val stations: StationStateHolder,
@@ -141,6 +142,19 @@ class BrainSessionStateHolder @Inject constructor(
     suspend fun ensureSaved(songIds: Collection<String>): Int {
         engineTrackSaver.onAddedToPlaylist(songIds)
         return engineTrackSaver.saveAll(songIds)
+    }
+
+    /** The Save button of a mix row: imports the tracks for good, through the same importer Like uses. */
+    fun saveEngineSongs(songIds: Collection<String>) {
+        appScope.launch { engineTrackSaver.saveAll(songIds) }
+    }
+
+    /** Developer mode: writes the play log to a file for the evaluation harness; [onDone] gets its path, or null. */
+    fun exportPlayEvents(onDone: (String?) -> Unit) {
+        appScope.launch {
+            val file = eventExport.export()
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) { onDone(file?.absolutePath) }
+        }
     }
 
     private companion object {

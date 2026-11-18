@@ -91,7 +91,7 @@ import com.theveloper.pixelplay.utils.shapes.RoundedStarShape
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
-import com.theveloper.pixelplay.presentation.components.subcomps.EnhancedSongListItem
+import com.theveloper.pixelplay.presentation.components.MixSongRow
 import com.theveloper.pixelplay.presentation.components.subcomps.TightWrapText
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
@@ -110,6 +110,8 @@ fun DailyMixScreen(
     val playItLabel = stringResource(R.string.daily_mix_action_play_it)
     val shuffleLabel = stringResource(R.string.common_shuffle)
     val dailyMixSongs: ImmutableList<Song> by playerViewModel.dailyMixSongs.collectAsStateWithLifecycle()
+    val mixReasons by playerViewModel.mixReasons.collectAsStateWithLifecycle()
+    val mixNovelSongIds by playerViewModel.mixNovelSongIds.collectAsStateWithLifecycle()
     val currentSongId by remember { playerViewModel.stablePlayerState.map { it.currentSong?.id }.distinctUntilChanged() }.collectAsStateWithLifecycle(initialValue = null)
     val isPlaying by remember { playerViewModel.stablePlayerState.map { it.isPlaying }.distinctUntilChanged() }.collectAsStateWithLifecycle(initialValue = false)
     val isShuffleEnabled by remember { playerViewModel.stablePlayerState.map { it.isShuffleEnabled }.distinctUntilChanged() }.collectAsStateWithLifecycle(initialValue = false)
@@ -184,6 +186,7 @@ fun DailyMixScreen(
             onToggleFavorite = { playerViewModel.toggleFavoriteSpecificSong(song) },
             onDismiss = { showSongInfoSheet = false },
             onPlaySong = {
+                playerViewModel.expectMixPlay(dailyMixTitle, isYourMix = false)
                 playerViewModel.showAndPlaySong(song, dailyMixSongs, dailyMixTitle, isVoluntaryPlay = false)
             },
             onAddToQueue = {
@@ -296,6 +299,7 @@ fun DailyMixScreen(
                         Button(
                             onClick = {
                                 if (dailyMixSongs.isNotEmpty()) {
+                                    playerViewModel.expectMixPlay(dailyMixTitle, isYourMix = false)
                                     playerViewModel.playSongs(dailyMixSongs, dailyMixSongs.first(), dailyMixTitle)
                                     if (isShuffleEnabled) playerViewModel.toggleShuffle() // Desactivar shuffle si estaba activo
                                 }
@@ -326,6 +330,7 @@ fun DailyMixScreen(
                         FilledTonalButton(
                             onClick = {
                                 if (dailyMixSongs.isNotEmpty()) {
+                                    playerViewModel.expectMixPlay(dailyMixTitle, isYourMix = false)
                                     playerViewModel.playSongsShuffled(
                                         songsToPlay = dailyMixSongs,
                                         queueName = dailyMixTitle,
@@ -360,17 +365,21 @@ fun DailyMixScreen(
                 }
 
                 items(dailyMixSongs, key = { it.id }) { song ->
-                    EnhancedSongListItem(
-                        modifier = Modifier
-                            .padding(horizontal = 16.dp),
+                    MixSongRow(
                         song = song,
+                        reason = mixReasons[song.id],
+                        isNovel = song.id in mixNovelSongIds,
                         isCurrentSong = currentSongId == song.id,
                         isPlaying = currentSongId == song.id && isPlaying,
-                        onClick = { playerViewModel.showAndPlaySong(song, dailyMixSongs, dailyMixTitle, isVoluntaryPlay = false) },
+                        onClick = {
+                            playerViewModel.expectMixPlay(dailyMixTitle, isYourMix = false)
+                            playerViewModel.showAndPlaySong(song, dailyMixSongs, dailyMixTitle, isVoluntaryPlay = false)
+                        },
                         onMoreOptionsClick = {
                             playerViewModel.selectSongForInfo(song)
                             showSongInfoSheet = true
-                        }
+                        },
+                        onSave = { playerViewModel.brainSession.saveEngineSongs(listOf(song.id)) },
                     )
                 }
             }

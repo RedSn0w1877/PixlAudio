@@ -1522,6 +1522,27 @@ class SettingsViewModel @Inject constructor(
     val developerMode: StateFlow<Boolean> = userPreferencesRepository.developerModeFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
+    // The music brain's two switches (Developer mode): which engine ranks Daily Mix and Your Mix, and
+    // whether the one background job runs. Their own flows, for the same reason as the one above.
+    val brainEngine: StateFlow<Int> = userPreferencesRepository.brainEngineFlow
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), com.theveloper.pixelplay.data.brain.BrainEngineChoice.BRAIN)
+
+    val brainRefreshEnabled: StateFlow<Boolean> = userPreferencesRepository.brainRefreshEnabledFlow
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
+
+    fun setBrainEngine(useBrain: Boolean) {
+        viewModelScope.launch {
+            userPreferencesRepository.setBrainEngine(
+                if (useBrain) com.theveloper.pixelplay.data.brain.BrainEngineChoice.BRAIN
+                else com.theveloper.pixelplay.data.brain.BrainEngineChoice.LEGACY
+            )
+        }
+    }
+
+    fun setBrainRefreshEnabled(enabled: Boolean) {
+        viewModelScope.launch { userPreferencesRepository.setBrainRefreshEnabled(enabled) }
+    }
+
     // "Sync it yourself" tap timing. Own flows on purpose: the Group1/Group2 combines above cast
     // by position, so a new flow there would shift every later index.
     val lyricsTapOffsetMs: StateFlow<Int> = userPreferencesRepository.lyricsTapOffsetSpeakerMsFlow

@@ -18,7 +18,7 @@ class DailyMixPersistenceTest {
     private val preferences = mockk<UserPreferencesRepository>(relaxed = true)
     private val music = mockk<MusicRepository>()
     private val workers = mockk<AiWorkerManager>(relaxed = true)
-    private val holder = DailyMixStateHolder(manager, preferences, music, workers, mockk())
+    private val holder = DailyMixStateHolder(manager, preferences, music, workers, mockk(), mockk(relaxed = true), mockk(relaxed = true), mockk(relaxed = true))
     private val saved = Song.emptySong().copy(id = "spotify_saved", title = "Discovery")
 
     private fun savedToday() {

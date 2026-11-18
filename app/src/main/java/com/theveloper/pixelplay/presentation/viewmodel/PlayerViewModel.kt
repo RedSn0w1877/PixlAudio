@@ -1508,6 +1508,15 @@ class PlayerViewModel @Inject constructor(
     val yourMixSongs: StateFlow<ImmutableList<Song>> = dailyMixStateHolder.yourMixSongs
     val isRegeneratingYourMix: StateFlow<Boolean> = dailyMixStateHolder.isRegeneratingYourMix
 
+    /** The reason under a row of the brain's mixes, by song id (8.2); empty for the legacy mixes. */
+    val mixReasons: StateFlow<Map<String, com.theveloper.pixelplay.data.brain.MixReason>> = dailyMixStateHolder.mixReasons
+
+    /** Song ids of the mix rows that are music the listener does not have yet (they offer Save). */
+    val mixNovelSongIds: StateFlow<Set<String>> = dailyMixStateHolder.novelSongIds
+
+    /** Called just before a mix is played, so its rows carry the mix and their reasons into the queue and the log. */
+    fun expectMixPlay(queueName: String, isYourMix: Boolean) = dailyMixStateHolder.expectMixPlay(queueName, isYourMix)
+
     fun removeFromDailyMix(songId: String) {
         dailyMixStateHolder.removeFromDailyMix(songId)
     }

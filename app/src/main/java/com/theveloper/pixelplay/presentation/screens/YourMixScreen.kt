@@ -77,7 +77,7 @@ import com.theveloper.pixelplay.presentation.components.SongInfoBottomSheet
 import com.theveloper.pixelplay.presentation.components.threeShapeSwitch
 import com.theveloper.pixelplay.presentation.components.resolveNavBarOccupiedHeight
 import com.theveloper.pixelplay.presentation.components.MiniPlayerHeight
-import com.theveloper.pixelplay.presentation.components.subcomps.EnhancedSongListItem
+import com.theveloper.pixelplay.presentation.components.MixSongRow
 import com.theveloper.pixelplay.presentation.components.subcomps.TightWrapText
 import com.theveloper.pixelplay.presentation.navigation.Screen
 import com.theveloper.pixelplay.presentation.viewmodel.PlayerViewModel
@@ -108,6 +108,8 @@ fun YourMixScreen(
     val shuffleLabel = stringResource(R.string.common_shuffle)
 
     val curatedYourMixSongs by playerViewModel.yourMixSongs.collectAsStateWithLifecycle()
+    val mixReasons by playerViewModel.mixReasons.collectAsStateWithLifecycle()
+    val mixNovelSongIds by playerViewModel.mixNovelSongIds.collectAsStateWithLifecycle()
     val isRegeneratingYourMix by playerViewModel.isRegeneratingYourMix.collectAsStateWithLifecycle()
     val dailyMixSongs by playerViewModel.dailyMixSongs.collectAsStateWithLifecycle()
     val homeMixPreviewSongs by playerViewModel.homeMixPreviewSongs.collectAsStateWithLifecycle()
@@ -149,6 +151,7 @@ fun YourMixScreen(
     }
 
     fun playSong(song: Song) {
+        playerViewModel.expectMixPlay(yourMixTitle, isYourMix = true)
         if (usesFallbackHomeMix) {
             playerViewModel.showAndPlaySongFromLibrary(song, queueName = yourMixTitle)
         } else {
@@ -277,6 +280,7 @@ fun YourMixScreen(
                                     if (usesFallbackHomeMix) {
                                         playerViewModel.shuffleAllSongs(queueName = yourMixTitle)
                                     } else {
+                                        playerViewModel.expectMixPlay(yourMixTitle, isYourMix = true)
                                         playerViewModel.playSongsShuffled(
                                             songsToPlay = yourMixSongs,
                                             queueName = yourMixTitle,
@@ -307,16 +311,18 @@ fun YourMixScreen(
                 }
 
                 items(yourMixSongs, key = { it.id }) { song ->
-                    EnhancedSongListItem(
-                        modifier = Modifier.padding(horizontal = 16.dp),
+                    MixSongRow(
                         song = song,
+                        reason = mixReasons[song.id],
+                        isNovel = song.id in mixNovelSongIds,
                         isCurrentSong = currentSongId == song.id,
                         isPlaying = currentSongId == song.id && isPlaying,
                         onClick = { playSong(song) },
                         onMoreOptionsClick = {
                             playerViewModel.selectSongForInfo(song)
                             showSongInfoSheet = true
-                        }
+                        },
+                        onSave = { playerViewModel.brainSession.saveEngineSongs(listOf(song.id)) },
                     )
                 }
             }

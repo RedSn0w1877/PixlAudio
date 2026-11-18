@@ -1763,6 +1763,36 @@ fun SettingsCategoryScreen(
                     item(key = "developer_maintenance", contentType = "settings_subsection") {
                         Column {
                             SettingsSubsection(title = stringResource(R.string.settings_maintenance_section)) {
+                                val brainEngine by settingsViewModel.brainEngine.collectAsStateWithLifecycle()
+                                val brainRefreshEnabled by settingsViewModel.brainRefreshEnabled.collectAsStateWithLifecycle()
+                                SwitchSettingItem(
+                                    title = stringResource(R.string.brain_engine_title),
+                                    subtitle = stringResource(R.string.brain_engine_subtitle),
+                                    checked = brainEngine == com.theveloper.pixelplay.data.brain.BrainEngineChoice.BRAIN,
+                                    onCheckedChange = { settingsViewModel.setBrainEngine(it) },
+                                    leadingIcon = { Icon(painterResource(R.drawable.rounded_instant_mix_24), null, tint = MaterialTheme.colorScheme.secondary) }
+                                )
+                                SwitchSettingItem(
+                                    title = stringResource(R.string.brain_refresh_title),
+                                    subtitle = stringResource(R.string.brain_refresh_subtitle),
+                                    checked = brainRefreshEnabled,
+                                    onCheckedChange = { settingsViewModel.setBrainRefreshEnabled(it) },
+                                    leadingIcon = { Icon(Icons.Rounded.Science, null, tint = MaterialTheme.colorScheme.secondary) }
+                                )
+                                val exportContext = LocalContext.current
+                                ActionSettingsItem(
+                                    title = stringResource(R.string.brain_export_title),
+                                    subtitle = stringResource(R.string.brain_export_subtitle),
+                                    icon = { Icon(Icons.Rounded.Science, null, tint = MaterialTheme.colorScheme.secondary) },
+                                    primaryActionLabel = stringResource(R.string.brain_export_action),
+                                    onPrimaryAction = {
+                                        playerViewModel.brainSession.exportPlayEvents { path ->
+                                            val message = if (path != null) exportContext.getString(R.string.brain_export_done, path)
+                                            else exportContext.getString(R.string.brain_export_failed)
+                                            Toast.makeText(exportContext, message, Toast.LENGTH_LONG).show()
+                                        }
+                                    }
+                                )
                                 ActionSettingsItem(
                                     title = stringResource(R.string.settings_force_daily_mix_title),
                                     subtitle = stringResource(R.string.settings_force_daily_mix_subtitle),

@@ -40,6 +40,10 @@ class AiDailyMixWorker @AssistedInject constructor(
     }
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
+        // The brain's mixes (stage 2a) are built by the brain, from the served log: this job (which contains
+        // no AI) would publish the legacy mixes over them. It runs only for the legacy engine.
+        if (dailyMixStateHolder.brainOwnsMixes()) return@withContext Result.success()
+
         if (PlaybackActivityTracker.isPlaybackActive && runAttemptCount < MAX_PLAYBACK_DEFERRALS) {
             Timber.d("AiDailyMixWorker deferring (playback active, attempt=$runAttemptCount)")
             return@withContext Result.retry()

@@ -23,7 +23,7 @@
     <string name="brain_why_because_liked">Because you liked %1$s</string>
     <string name="brain_why_because_listened">Because you listened to %1$s</string>
     <string name="brain_why_artist_more">More from %1$s</string>
-    <string name="brain_why_on_repeat">On repeat this month</string>
+    <string name="brain_why_on_repeat">On repeat lately</string>
     <string name="brain_why_sheet_title">Why this song</string>
     <string name="brain_why_sheet_basis">Picks are based on what you play.</string>
     <string name="brain_why_cd">Why this song was picked</string>
@@ -44,12 +44,27 @@
     <string name="brain_home_because_listened">Because you listened to %1$s</string>
     <string name="brain_home_because_listened_subtitle">Music you don\'t have yet</string>
 
+    <!-- Daily Mix and Your Mix (8.2) -->
+    <string name="brain_mix_save">Save</string>
+    <string name="brain_mix_saved">Saved</string>
+
+    <!-- Developer mode: the engine that ranks the mixes -->
+    <string name="brain_engine_title">Music engine</string>
+    <string name="brain_engine_subtitle">Rank Daily Mix and Your Mix with the new engine. Off uses the old one. Regenerate the daily mix to see the change.</string>
+    <string name="brain_export_title">Export play events</string>
+    <string name="brain_export_subtitle">Writes your play log to a file on this phone, for measuring the picks on a computer. Nothing is uploaded.</string>
+    <string name="brain_export_action">Export</string>
+    <string name="brain_export_done">Saved to %1$s</string>
+    <string name="brain_export_failed">Couldn\'t write the file</string>
+    <string name="brain_refresh_title">Background music search</string>
+    <string name="brain_refresh_subtitle">Looks up music like your favourites once a day on Wi-Fi, so your mixes have new songs in them</string>
+
     <!-- How picks work (8.9) -->
     <string name="brain_how_picks_work">How picks work</string>
     <string name="brain_how_intro">Picks are based on what you play: what you finish, what you skip and what you save.</string>
     <string name="brain_promise_paid_title">Nobody can pay to be in your picks</string>
     <string name="brain_promise_repeat_title">Less repetition</string>
-    <string name="brain_promise_repeat_body">A new song you skipped three times stays away for 60 days.</string>
+    <string name="brain_promise_repeat_body">A song is never in two mixes on the same day, and a new song you skipped three times stays away for 60 days.</string>
     <string name="brain_promise_why_title">You can see why, and change it</string>
     <string name="brain_promise_why_body">A pick shows why it is there when there is a reason to give. Changes apply from the next track and can be undone.</string>
     <string name="brain_promise_playlists_title">Nothing is slipped into your playlists</string>

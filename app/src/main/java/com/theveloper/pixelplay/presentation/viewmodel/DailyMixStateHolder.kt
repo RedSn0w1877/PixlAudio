@@ -1,6 +1,13 @@
 package com.theveloper.pixelplay.presentation.viewmodel
 
+import com.theveloper.pixelplay.brain.MixPlanner
 import com.theveloper.pixelplay.data.DailyMixManager
+import com.theveloper.pixelplay.data.brain.BrainEngineChoice
+import com.theveloper.pixelplay.data.brain.BrainMixes
+import com.theveloper.pixelplay.data.brain.BrainPlayTags
+import com.theveloper.pixelplay.data.brain.BrainSwitch
+import com.theveloper.pixelplay.data.brain.MixReason
+import com.theveloper.pixelplay.data.brain.MixView
 import com.theveloper.pixelplay.data.model.Song
 import com.theveloper.pixelplay.data.preferences.UserPreferencesRepository
 import com.theveloper.pixelplay.data.repository.MusicRepository
@@ -36,7 +43,10 @@ class DailyMixStateHolder @Inject constructor(
     private val userPreferencesRepository: UserPreferencesRepository,
     private val musicRepository: MusicRepository,
     private val aiWorkerManager: AiWorkerManager,
-    private val musicDiscoveryRepository: com.theveloper.pixelplay.data.recommendation.MusicDiscoveryRepository
+    private val musicDiscoveryRepository: com.theveloper.pixelplay.data.recommendation.MusicDiscoveryRepository,
+    private val brainMixes: BrainMixes,
+    private val brainPlayTags: BrainPlayTags,
+    private val brainSwitch: BrainSwitch,
 ) {
     private val persistenceScope = CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO)
     private var scope: CoroutineScope? = null
@@ -47,6 +57,83 @@ class DailyMixStateHolder @Inject constructor(
 
     private val _yourMixSongs = MutableStateFlow<ImmutableList<Song>>(persistentListOf())
     val yourMixSongs: StateFlow<ImmutableList<Song>> = _yourMixSongs.asStateFlow()
+
+    // What the brain's mixes say about their rows (docs/brain-spec.md, 8.2): the reason under a row and
+    // which rows are music the listener does not have yet. Empty for the legacy mixes.
+    private val _mixReasons = MutableStateFlow<Map<String, MixReason>>(emptyMap())
+    val mixReasons: StateFlow<Map<String, MixReason>> = _mixReasons.asStateFlow()
+
+    private val _novelSongIds = MutableStateFlow<Set<String>>(emptySet())
+    val novelSongIds: StateFlow<Set<String>> = _novelSongIds.asStateFlow()
+
+    // The two brain mixes as they were built, by kind: what a play of one carries into the queue.
+    @Volatile private var brainDaily: MixView? = null
+    @Volatile private var brainYour: MixView? = null
+
+    /**
+     * Waits out the first seconds of the process before the brain is touched (stage 1's "nothing at app
+     * start": `brain.db` stays closed while the app starts). Today's saved mixes are then read; until
+     * then the screens show the legacy ids saved with them (the library songs of the same mix). A
+     * var so a test does not wait.
+     */
+    internal var startupQuiet: suspend () -> Unit = {
+        val sinceStart = android.os.SystemClock.elapsedRealtime() - android.os.Process.getStartElapsedRealtime()
+        val wait = STARTUP_QUIET_MS - sinceStart
+        if (wait > 0) kotlinx.coroutines.delay(wait)
+    }
+
+    /**
+     * Publishes the brain's mixes (stage 2a) when the brain owns them: the engine switch is on and the
+     * brain has played tracks to rank by. Today's saved mixes are read back first and need no brain
+     * state, so a restart shows them at once. False means the legacy mixes build as they always did.
+     */
+    private suspend fun publishBrainMixes(regenerate: Boolean): Boolean {
+        if (brainSwitch.engine() != BrainEngineChoice.BRAIN) return false
+        startupQuiet()
+        var daily = if (regenerate) null else brainMixes.saved(MixPlanner.KIND_DAILY)
+        var your = if (regenerate) null else brainMixes.saved(MixPlanner.KIND_YOUR)
+        if (daily == null || your == null) {
+            if (!brainMixes.hasState()) return false
+            // Daily Mix first: Your Mix may not hold a track the Daily Mix of the same day holds.
+            if (daily == null) daily = brainMixes.today(MixPlanner.KIND_DAILY, regenerate)
+            if (your == null) your = brainMixes.today(MixPlanner.KIND_YOUR, regenerate)
+        }
+        if (daily == null || your == null) return false
+        publish(daily, your)
+        return true
+    }
+
+    private suspend fun publish(daily: MixView?, your: MixView?) {
+        if (daily != null) {
+            brainDaily = daily
+            _dailyMixSongs.value = daily.songs.toImmutableList()
+            userPreferencesRepository.saveDailyMixSongIds(daily.songs.filter { it.id !in daily.novelIds }.map { it.id })
+            userPreferencesRepository.saveLastDailyMixUpdateTimestamp(System.currentTimeMillis())
+        }
+        if (your != null) {
+            brainYour = your
+            _yourMixSongs.value = your.songs.toImmutableList()
+            userPreferencesRepository.saveYourMixSongIds(your.songs.filter { it.id !in your.novelIds }.map { it.id })
+        }
+        val reasons = HashMap<String, MixReason>()
+        val novel = HashSet<String>()
+        brainDaily?.let { reasons.putAll(it.reasons); novel.addAll(it.novelIds) }
+        brainYour?.let { reasons.putAll(it.reasons); novel.addAll(it.novelIds) }
+        _mixReasons.value = reasons
+        _novelSongIds.value = novel
+    }
+
+    /** True when the brain scorer builds the mixes (the engine switch is on and the brain has state). */
+    suspend fun brainOwnsMixes(): Boolean = brainMixes.ownsMixes()
+
+    /**
+     * The listener is about to play a mix: its rows carry the mix, the pick's arm and its reason into the
+     * queue and the event log. [queueName] is the name the screen plays the queue under.
+     */
+    fun expectMixPlay(queueName: String, isYourMix: Boolean) {
+        val view = (if (isYourMix) brainYour else brainDaily) ?: return
+        brainPlayTags.expect(queueName = queueName, bySongId = view.tags)
+    }
 
     /**
      * Initialize with coroutine scope from ViewModel.
@@ -63,7 +150,12 @@ class DailyMixStateHolder @Inject constructor(
         _dailyMixSongs.update { currentList ->
             currentList.filterNot { it.id == songId }.toImmutableList()
         }
-        persistenceScope.launch { userPreferencesRepository.saveDailyMixSongIds(_dailyMixSongs.value.map { it.id }) }
+        persistenceScope.launch {
+            val novel = _novelSongIds.value
+            userPreferencesRepository.saveDailyMixSongIds(_dailyMixSongs.value.filter { it.id !in novel }.map { it.id })
+            // A brain mix is read back from the served log: the removal has to be written there too.
+            if (brainDaily != null) brainMixes.removeItem(MixPlanner.KIND_DAILY, songId)
+        }
     }
 
     /**
@@ -73,6 +165,8 @@ class DailyMixStateHolder @Inject constructor(
     fun updateDailyMix(favoriteSongIdsFlow: kotlinx.coroutines.flow.Flow<Set<String>>, force: Boolean = false): Job? {
         updateJob?.cancel()
         updateJob = scope?.launch(Dispatchers.IO) {
+            // The brain's mixes (stage 2a) when it owns them; otherwise the legacy mixes below, unchanged.
+            if (publishBrainMixes(regenerate = force)) return@launch
             // Startup and library sync both call here. Keep today's saved discoveries and
             // explicit edits instead of regenerating from the local library on every launch.
             val lastUpdate = userPreferencesRepository.lastDailyMixUpdateFlow.first()
@@ -140,6 +234,14 @@ class DailyMixStateHolder @Inject constructor(
         regenerateJob = scope?.launch(Dispatchers.IO) {
             _isRegeneratingYourMix.value = true
             try {
+                // The brain draws another list, and the served log counts the one it replaces (8.2).
+                if (brainSwitch.engine() == BrainEngineChoice.BRAIN && brainMixes.hasState()) {
+                    val your = brainMixes.today(MixPlanner.KIND_YOUR, regenerate = true)
+                    if (your != null) {
+                        publish(null, your)
+                        return@launch
+                    }
+                }
                 val allSongs = musicRepository.getAllSongsOnce()
                 if (allSongs.isNotEmpty()) {
                     val favoriteIds = favoriteSongIdsFlow.first()
@@ -228,5 +330,10 @@ class DailyMixStateHolder @Inject constructor(
         updateJob?.cancel()
         regenerateJob?.cancel()
         scope = null
+    }
+
+    private companion object {
+        /** The first moments of the process, in which `brain.db` stays closed (as in `BrainSessionStateHolder`). */
+        const val STARTUP_QUIET_MS = 4_000L
     }
 }
