@@ -219,6 +219,22 @@ class BrainRepositoryTest {
     }
 
     @Test
+    fun `a radio of music videos has nothing playable - it takes the junk path to the related tab`() = runTest {
+        val seed = row(1, "Seed").copy(kind = MusicVideoKind.OMV)
+        // Long enough and full of the seed's artist, but every row is a music video.
+        val videos = healthyRadio(seed).let { radio -> radio.copy(rows = radio.rows.map { it.copy(kind = MusicVideoKind.OMV) }) }
+        source.songRadios[seed.videoId] = videos
+        source.relatedPages["MPTRt_seed"] = RelatedPage(
+            youMightAlsoLike = List(20) { row(300 + it, "Related$it", seconds = 0) },
+            otherPerformances = emptyList(),
+            similarArtists = emptyList(),
+        )
+        val radio = repository.radioFor(seedOf(seed), allowNetwork = true)!!
+        assertEquals(RadioListEntity.KIND_RELATED, radio.kind)
+        assertTrue(radio.rows.all { it.row.isOfficialAudio })
+    }
+
+    @Test
     fun `an empty radio is junk too - remembered, and the related tab is tried`() = runTest {
         val seed = row(1, "Seed")
         source.songRadios[seed.videoId] = FetchedRadio(rows = emptyList(), relatedBrowseId = "MPTRt_seed")

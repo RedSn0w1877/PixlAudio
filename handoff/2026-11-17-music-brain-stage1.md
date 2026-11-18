@@ -204,7 +204,10 @@ playlist" import through `importYouTubeMusicTracks`, whose two full rewrites are
 19. **The backstop does not run when "stop after this track" was set for the track that ended**
     (`MusicService`, STATE_ENDED). The spec says a timer is untouched; without this the backstop would have
     restarted playback for a one-song queue.
-20. **`InnerTubeClient.browse` is named `browseMusic`** and `next` is `nextRadio` / `nextRadioContinuation`
+20. **A song radio with fewer than 10 official-audio rows is treated as junk** (`BrainRepository.isJunk`).
+    A library track can be matched to a music video, and the radio of a music video is music videos, which
+    stage 1 does not play. The junk path's Related tab lists official-audio songs.
+21. **`InnerTubeClient.browse` is named `browseMusic`** and `next` is `nextRadio` / `nextRadioContinuation`
     (the client already has a `post`-based search; the names say what they are for).
 
 ### Cut or left for the next milestone
@@ -254,6 +257,17 @@ export ANDROID_HOME="C:\\Users\\Hoa\\AppData\\Local\\Android\\Sdk"
 ./gradlew :app:testDebugUnitTest --tests "com.theveloper.pixelplay.data.recommendation.*"
 ./gradlew :app:assembleDebug
 ```
+
+Last run on the committed code (2026-11-18), one invocation:
+`./gradlew :brain:test :app:testDebugUnitTest :app:assembleDebug --continue` gave BUILD SUCCESSFUL in 15m 44s.
+
+- `:brain:test`: 31 tests, 0 failed.
+- `:app:testDebugUnitTest` (the whole suite): 2,091 tests in 270 classes, 0 failed, 1 skipped (it was
+  skipped before this work). Of those, 67 are new: `InnerTubeMusicParsersTest` 15, `AutoplayPolicyTest` 20,
+  `PlayableStoreTest` 8, `PlaybackQueueSnapshotBrainFieldsTest` 5, `BrainRepositoryTest` 13,
+  `LibraryIndexTest` 6. `data.recommendation.*`: 61 tests, 0 failed, untouched
+  (`RecommendationGoldenEqualityTest` 5 of 5).
+- `:app:assembleDebug`: both split APKs built (the Hilt graph compiles with the new bindings).
 
 Regenerate tables after editing a `.tsv`: `python tools/brain/gen_tables.py kotlin`.
 Re-cut parser fixtures: `python tools/brain/cut_fixtures.py <folder with the raw captures>`.

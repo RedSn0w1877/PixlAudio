@@ -181,13 +181,20 @@ class BrainRepository @Inject constructor(
         return staleOrNull()
     }
 
-    private fun isJunk(fetched: FetchedRadio, seed: RadioSeed): Boolean =
-        InnerTubeMusicParsers.isJunkRadio(
+    private fun isJunk(fetched: FetchedRadio, seed: RadioSeed): Boolean {
+        // A library track can be matched to a music video, and the radio of a music video is music
+        // videos. Stage 1 only plays official audio, so such a radio has nothing to offer: it takes the
+        // junk path, whose first stop (the Related tab) lists official-audio songs.
+        var officialAudio = 0
+        for (row in fetched.rows) if (row.isOfficialAudio) officialAudio++
+        if (officialAudio < MIN_OFFICIAL_AUDIO_ROWS) return true
+        return InnerTubeMusicParsers.isJunkRadio(
             rows = fetched.rows,
             seedVideoId = seed.videoId,
             seedArtistIds = emptySet(),
             seedArtistNames = listOf(seed.primaryArtist),
         )
+    }
 
     /** The seed itself is the first row of its own radio; it is not a candidate. */
     private fun withoutSeed(rows: List<RadioRow>, seed: RadioSeed): List<RadioRow> {
@@ -242,6 +249,9 @@ class BrainRepository @Inject constructor(
         const val CACHE_TTL_MS = 14L * 24 * 60 * 60 * 1000
         const val JUNK_RETRY_MS = 24L * 60 * 60 * 1000
         const val MIN_FALLBACK_ROWS = 5
+
+        /** A song radio with fewer official-audio rows than this is treated as junk. */
+        const val MIN_OFFICIAL_AUDIO_ROWS = 10
 
         /** The `radio_list.chip` value of a song radio stored with its continuation pages. */
         const val DEEP_CHIP = "+pages"
