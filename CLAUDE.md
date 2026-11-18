@@ -55,6 +55,7 @@ Lint is not enforced on release builds (`lint.checkReleaseBuilds = false`); ther
 - `:app` — the phone app; everything below lives here unless noted.
 - `:shared` — Android library holding only serializable DTOs for the phone↔Wear Data Layer protocol (`Wear*.kt`). No platform APIs; keep it dependency-free.
 - `:wear` — standalone Wear OS app, its own Compose UI + Hilt graph, talks to the phone via `:shared` DTOs.
+- `:brain` — the music brain's pure logic (`docs/brain-spec.md`). **Kotlin JVM, standard library only**: no Android class, no I/O, no clock, no `kotlin.math`, no regex, no `hashCode()`. `PurityTest` enforces it. Test with `./gradlew :brain:test` (no Android build needed).
 - `:baselineprofile` — baseline-profile generator and macrobenchmarks. `automaticGenerationDuringBuild = false`, profiles are checked into source (`saveInSrc = true`).
 
 ## Architecture
@@ -123,7 +124,18 @@ Cloud audio is streamed through a **local Ktor CIO HTTP proxy**: subclass `data/
 
 ### Database
 
-`PixelPlayDatabase` — Room, **version 1**, no migrations. The upstream chain of 39 hand-written migrations was dropped when the remote sources were removed; this is a private fork with no installs to upgrade. Schemas are exported to `app/schemas` and `PixelPlayDatabaseMigrationTest` is now a create-and-open smoke test. `createRuntimeArtifactsCallback()` installs the FTS and favorites triggers Room cannot generate. Any entity change means bumping the version and adding a migration from then on.
+`PixelPlayDatabase` — Room, **version 5**, with real migrations (`MIGRATION_1_2` to `MIGRATION_4_5`). Schemas are exported to `app/schemas`. `createRuntimeArtifactsCallback()` installs the FTS and favorites triggers Room cannot generate. Any entity change means bumping the version and adding a migration from then on.
+
+### Music brain
+
+`docs/brain-spec.md` is the contract; `handoff/2026-11-17-music-brain-stage1.md` says what is built. The engine that makes the app feel like a streaming service: Autoplay continues a queue with related music, some of it not in the library.
+
+- **Its own database**, `MusicBrainDatabase` (`brain.db`, `data/brain/store/`). Never add its tables to `PixelPlayDatabase`. `play_event`, `track_alias`, `track_merge` and `artist_alias` are the listener's history: real migrations only, no destructive fallback.
+- **A track from outside the library has no row in the main database.** It plays as `spotify://<synthId>` and `SpotifyStreamProxy` finds its video through the brain's `playable` table (`EphemeralTrackLookup`) after `spotify_songs` said nothing. Register it in `PlayableStore` BEFORE its media item reaches the player. Like, "Add to playlist" and Save import it for good (`EngineTrackSaver`).
+- **Queue items the engine added carry a `brain.arm` extra** (`BrainExtras`). They sit under the Autoplay line, are saved with the queue (`PlaybackQueueItemSnapshot.brain*`), and are never anchors for more picks.
+- `AutoplayPolicy` (pure, unit-tested) decides; `AutoplayController` carries it out inside `MusicService`. Count the queue with `engine.getFullQueue()` / `getCurrentAbsoluteIndex()`, never the player's own count: after a crossfade the player can hold a 200-item window. Append through `DualPlayerEngine.appendToQueueEnd`, never during a transition.
+- YouTube Music radios go through `InnerTubeClient.nextRadio` / `browseMusic` (the `@YouTubeOkHttpClient`), anonymous, under `HostBudget` (at most 60 a day, 2 at a time), and are parsed by `InnerTubeMusicParsers` (fixture-tested: `app/src/test/resources/innertube`, cut by `tools/brain/cut_fixtures.py`).
+- No brain work at app start and no background job in stage 1.
 
 ### Theming
 
