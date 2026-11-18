@@ -254,6 +254,9 @@ class UserPreferencesRepository @Inject constructor(
         val BRAIN_AUTOPLAY_ENABLED = booleanPreferencesKey("brain_autoplay_enabled")
         // Whether YouTube Music may be asked for related music; off means library-only autoplay.
         val BRAIN_YOUTUBE_SOURCE_ENABLED = booleanPreferencesKey("brain_youtube_source_enabled")
+        // The station of the current queue (8.3) and the Familiar / Blend / Discover switch.
+        val BRAIN_STATION = stringPreferencesKey("brain_station")
+        val BRAIN_NOVELTY = intPreferencesKey("brain_novelty")
         val RESUME_ON_HEADSET_RECONNECT = booleanPreferencesKey("resume_on_headset_reconnect")
         val SHOW_QUEUE_HISTORY = booleanPreferencesKey("show_queue_history")
         val PLAYBACK_QUEUE_SNAPSHOT = stringPreferencesKey("playback_queue_snapshot_v1")
@@ -606,6 +609,24 @@ class UserPreferencesRepository @Inject constructor(
 
     suspend fun setBrainYouTubeSourceEnabled(enabled: Boolean) {
         dataStore.edit { it[PreferencesKeys.BRAIN_YOUTUBE_SOURCE_ENABLED] = enabled }
+    }
+
+    /** The encoded station of the current queue (`Station.encode`), or null. */
+    val brainStationFlow: Flow<String?> =
+        pref { it[PreferencesKeys.BRAIN_STATION] }
+
+    suspend fun setBrainStation(encoded: String?) {
+        dataStore.edit {
+            if (encoded == null) it.remove(PreferencesKeys.BRAIN_STATION) else it[PreferencesKeys.BRAIN_STATION] = encoded
+        }
+    }
+
+    /** 0 Familiar, 1 Blend (default), 2 Discover. */
+    val brainNoveltyFlow: Flow<Int> =
+        pref { it[PreferencesKeys.BRAIN_NOVELTY] ?: 1 }
+
+    suspend fun setBrainNovelty(level: Int) {
+        dataStore.edit { it[PreferencesKeys.BRAIN_NOVELTY] = level }
     }
 
     val resumeOnHeadsetReconnectFlow: Flow<Boolean> =

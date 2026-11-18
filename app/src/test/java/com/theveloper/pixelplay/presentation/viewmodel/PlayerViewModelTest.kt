@@ -279,6 +279,11 @@ class PlayerViewModelTest {
                 io.mockk.every { it.current } returns com.theveloper.pixelplay.data.blocking.BlockedArtistIndex.EMPTY
                 io.mockk.every { it.allowedMediaId } returns null
             },
+            // Nothing announces a station or a Home row in these tests: every play takes nothing.
+            com.theveloper.pixelplay.data.brain.BrainPlayTags(
+                io.mockk.mockk(relaxed = true),
+                com.theveloper.pixelplay.data.brain.BrainClock { 0L }
+            ),
             mockContext
         )
         // Real controller-sync holder wired to the same mocks, so existing tests

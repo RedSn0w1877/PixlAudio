@@ -181,6 +181,104 @@ class BrainRepository @Inject constructor(
         return staleOrNull()
     }
 
+    /**
+     * The radio of the artist of [seed] (8.3, 6.2 "Station from an artist"): the artist page's top songs
+     * followed by the artist radio the page's own button starts. Null when nothing is known and the
+     * network may not be asked, or the artist has no channel the brain can find.
+     *
+     * Costs, the first time: at most one `next` to learn the channel id (only when no cached radio row
+     * names the artist), one `browse` and one `next`. After that it is the cache, for two weeks.
+     */
+    suspend fun artistRadioFor(seed: RadioSeed, allowNetwork: Boolean): StoredRadio? {
+        val seedRid = try {
+            identity.resolveTrack(
+                Ids.TrackKeys(
+                    spotifyId = seed.spotifyId,
+                    videoId = seed.videoId,
+                    nameKey = Ids.nameKey(seed.primaryArtist, seed.title),
+                ),
+                seed.durationMs.coerceIn(0L, Int.MAX_VALUE.toLong()).toInt(),
+            )
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Timber.w(e, "brain: could not resolve the seed")
+            return null
+        }
+        if (seedRid == 0L) return null
+        val lock = seedLocks[java.lang.Long.remainderUnsigned(seedRid, seedLocks.size.toLong()).toInt()]
+        return lock.withLock {
+            try {
+                artistRadioForLocked(seed, seedRid, allowNetwork)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Timber.w(e, "brain: artist radio lookup failed")
+                null
+            }
+        }
+    }
+
+    private suspend fun artistRadioForLocked(seed: RadioSeed, seedRid: Long, allowNetwork: Boolean): StoredRadio? {
+        val now = clock.nowMs()
+        val cached = radioLists.get(seedRid, RadioListEntity.KIND_ARTIST, ARTIST_STATION_CHIP)
+        fun cachedOrNull(): StoredRadio? = cached?.takeIf { it.healthy }?.let {
+            StoredRadio(seedRid, RadioListEntity.KIND_ARTIST, RadioRowCodec.decodeRows(it.rowsBlob), fromCache = true)
+        }
+        if (cached != null && cached.healthy && now - cached.fetchedAt in 0 until CACHE_TTL_MS) {
+            radioLists.touch(seedRid, RadioListEntity.KIND_ARTIST, ARTIST_STATION_CHIP, now)
+            return cachedOrNull()
+        }
+        if (!allowNetwork) return cachedOrNull()
+        // An artist with no radio is not asked again for a day.
+        if (cached != null && !cached.healthy && now - cached.fetchedAt in 0 until JUNK_RETRY_MS) return null
+        if (radioLists.fetchedSince(now - HostBudget.DAY_MS) >= HostBudget.DAILY_LIMIT) return cachedOrNull()
+
+        val channelId = channelIdFor(seed, seedRid) ?: return cachedOrNull()
+        val page = radioSource.artistPage(channelId) ?: return cachedOrNull()
+        val radio = page.radio?.let { radioSource.artistRadio(it) }
+        val rows = ArrayList<RadioRow>(page.topSongs.size + (radio?.rows?.size ?: 0))
+        val seenVideoIds = HashSet<String>()
+        for (row in page.topSongs) if (seenVideoIds.add(row.videoId)) rows.add(row)
+        if (radio != null && !InnerTubeMusicParsers.isJunkRadio(radio.rows, page.radio.videoId, setOf(channelId))) {
+            for (row in radio.rows) if (seenVideoIds.add(row.videoId)) rows.add(row)
+        }
+        if (rows.size < MIN_FALLBACK_ROWS) {
+            radioLists.upsert(
+                RadioListEntity(
+                    seedRid = seedRid, kind = RadioListEntity.KIND_ARTIST, chip = ARTIST_STATION_CHIP, fetchedAt = now,
+                    lastUsedAt = now, healthy = false, rowsBlob = EMPTY, chipsBlob = EMPTY,
+                )
+            )
+            return null
+        }
+        return store(seedRid, RadioListEntity.KIND_ARTIST, withoutSeed(rows, seed), emptyList(), now, ARTIST_STATION_CHIP)
+    }
+
+    /**
+     * The `UC...` id of [seed]'s primary artist: from a cached radio row by that artist, else from the
+     * seed's own row of its radio (one `next`).
+     */
+    private suspend fun channelIdFor(seed: RadioSeed, seedRid: Long): String? {
+        val artistKey = BrainText.fold(seed.primaryArtist)
+        if (artistKey.isEmpty()) return null
+        fun channelIn(rows: List<RadioRow>): String? {
+            for (row in rows) {
+                val first = row.artists.firstOrNull() ?: continue
+                if (first.channelId != null && BrainText.fold(first.name) == artistKey) return first.channelId
+            }
+            return null
+        }
+        for (kind in KINDS) {
+            val cached = radioLists.get(seedRid, kind, "") ?: continue
+            if (!cached.healthy) continue
+            channelIn(RadioRowCodec.decodeRows(cached.rowsBlob).map { it.row })?.let { return it }
+        }
+        val fetched = radioSource.songRadio(seed.videoId, 0) ?: return null
+        return channelIn(fetched.rows)
+            ?: fetched.rows.firstOrNull { it.videoId == seed.videoId }?.artists?.firstOrNull { it.channelId != null }?.channelId
+    }
+
     private fun isJunk(fetched: FetchedRadio, seed: RadioSeed): Boolean {
         // A library track can be matched to a music video, and the radio of a music video is music
         // videos. Stage 1 only plays official audio, so such a radio has nothing to offer: it takes the
@@ -255,6 +353,9 @@ class BrainRepository @Inject constructor(
 
         /** The `radio_list.chip` value of a song radio stored with its continuation pages. */
         const val DEEP_CHIP = "+pages"
+
+        /** The `radio_list.chip` value of an artist station's list (top songs, then the artist radio). */
+        const val ARTIST_STATION_CHIP = "+artist"
 
         private val KINDS = intArrayOf(RadioListEntity.KIND_SONG, RadioListEntity.KIND_RELATED, RadioListEntity.KIND_ARTIST)
         private val EMPTY = ByteArray(0)

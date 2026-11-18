@@ -31,6 +31,7 @@ import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Radio
 import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.SurroundSound
 import androidx.compose.material3.*
@@ -171,6 +172,7 @@ fun ArtistDetailScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val playbackRowState = rememberPlaybackRowState(playerViewModel.stablePlayerState)
+    val brainUi = com.theveloper.pixelplay.presentation.utils.LocalBrainUi.current
 
     // Optimization: Defer heavy list rendering until navigation transition settles
     var isTransitionFinished by remember { mutableStateOf(false) }
@@ -645,7 +647,10 @@ fun ArtistDetailScreen(
                                 }
                             },
                             onChangeImage = { imagePickerLauncher.launch("image/*") },
-                            onClearCustomImage = { viewModel.clearCustomImage() }
+                            onClearCustomImage = { viewModel.clearCustomImage() },
+                            // Music brain (8.3): a station from this artist, starting with the
+                            // listener's most-played track by them.
+                            onStartStation = brainUi?.let { ui -> { ui.startArtistStation(artist.name, songs) } }
                         )
                     }
                 }
@@ -774,6 +779,7 @@ private fun ArtistHeroHeader(
     onShuffleClick: () -> Unit,
     onChangeImage: () -> Unit,
     onClearCustomImage: () -> Unit,
+    onStartStation: (() -> Unit)? = null,
 ) {
     val colors = MaterialTheme.colorScheme
     var showImageMenu by remember { mutableStateOf(false) }
@@ -810,6 +816,16 @@ private fun ArtistHeroHeader(
                     expanded = showImageMenu,
                     onDismissRequest = { showImageMenu = false }
                 ) {
+                    if (onStartStation != null && canPlay) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.brain_start_station)) },
+                            leadingIcon = { Icon(Icons.Rounded.Radio, contentDescription = null) },
+                            onClick = {
+                                showImageMenu = false
+                                onStartStation()
+                            }
+                        )
+                    }
                     com.theveloper.pixelplay.presentation.components.BlockArtistMenuItem(artist.id, artist.name) { showImageMenu = false }
                     DropdownMenuItem(
                         text = { Text(stringResource(R.string.artist_action_change_photo)) },

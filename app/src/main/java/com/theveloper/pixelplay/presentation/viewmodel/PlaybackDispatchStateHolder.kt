@@ -98,6 +98,7 @@ class PlaybackDispatchStateHolder @Inject constructor(
     private val connectivityStateHolder: ConnectivityStateHolder,
     private val themeStateHolder: ThemeStateHolder,
     private val blockedArtists: com.theveloper.pixelplay.data.blocking.BlockedArtistsRepository,
+    private val brainPlayTags: com.theveloper.pixelplay.data.brain.BrainPlayTags,
     @param:ApplicationContext private val context: Context,
 ) {
 
@@ -737,7 +738,8 @@ class PlaybackDispatchStateHolder @Inject constructor(
         songsToPlay: List<Song>,
         startSongId: String,
         playlistId: String?,
-        brainTag: com.theveloper.pixelplay.data.brain.BrainItemTag? = null
+        brainTag: com.theveloper.pixelplay.data.brain.BrainItemTag? = null,
+        brainTagsBySongId: Map<String, com.theveloper.pixelplay.data.brain.BrainItemTag> = emptyMap()
     ): PreparedPlaybackQueueSegments = withContext(Dispatchers.Default) {
         val currentIndex = songsToPlay
             .indexOfFirst { it.id == startSongId }
@@ -745,11 +747,13 @@ class PlaybackDispatchStateHolder @Inject constructor(
             ?: 0
 
         val beforeCurrent = List(currentIndex) { index ->
-            buildPlaybackMediaItem(songsToPlay[index], playlistId, brainTag)
+            val song = songsToPlay[index]
+            buildPlaybackMediaItem(song, playlistId, brainTagsBySongId[song.id] ?: brainTag)
         }
         val afterStartIndex = currentIndex + 1
         val afterCurrent = List((songsToPlay.size - afterStartIndex).coerceAtLeast(0)) { offset ->
-            buildPlaybackMediaItem(songsToPlay[afterStartIndex + offset], playlistId, brainTag)
+            val song = songsToPlay[afterStartIndex + offset]
+            buildPlaybackMediaItem(song, playlistId, brainTagsBySongId[song.id] ?: brainTag)
         }
 
         PreparedPlaybackQueueSegments(
@@ -781,6 +785,9 @@ class PlaybackDispatchStateHolder @Inject constructor(
     }
 
     suspend fun internalPlaySongs(requestedSongs: List<Song>, requestedStart: Song, queueName: String = "None", playlistId: String? = null) {
+        // What a station start or a Home row announced for this play (its surface, each pick's reason);
+        // any other play ends the station the queue was (docs/brain-spec.md, 8.3).
+        val brainExpected = brainPlayTags.take(queueName)
         // Blocked artists never play automatically: they are dropped from the queue, unless the
         // owner just chose that very song with "Play anyway".
         val blockedIndex = blockedArtists.current
@@ -853,8 +860,14 @@ class PlaybackDispatchStateHolder @Inject constructor(
 
             // Where this queue was started from travels with every item, so the event log can say
             // "from a playlist" or "from Liked Songs" (docs/brain-spec.md, 4.2).
-            val brainTag = com.theveloper.pixelplay.data.brain.BrainSurfaces.forQueue(queueName, playlistId)
-            val startMediaItem = withBrainTag(buildResolvedPlaybackMediaItem(effectiveStartSong), playlistId, brainTag)
+            val brainTag = brainExpected?.default
+                ?: com.theveloper.pixelplay.data.brain.BrainSurfaces.forQueue(queueName, playlistId)
+            val brainTagsBySongId = brainExpected?.bySongId.orEmpty()
+            val startMediaItem = withBrainTag(
+                buildResolvedPlaybackMediaItem(effectiveStartSong),
+                playlistId,
+                brainTagsBySongId[effectiveStartSong.id] ?: brainTag
+            )
 
             val playSongsAction = {
                 // Use Direct Engine Access to avoid TransactionTooLargeException on Binder
@@ -879,7 +892,8 @@ class PlaybackDispatchStateHolder @Inject constructor(
                                 songsToPlay = songsToPlay,
                                 startSongId = effectiveStartSong.id,
                                 playlistId = playlistId,
-                                brainTag = brainTag
+                                brainTag = brainTag,
+                                brainTagsBySongId = brainTagsBySongId
                             )
                             attached = withContext(Dispatchers.Main.immediate) {
                                 attachPreparedQueueSegmentsIfCurrent(
