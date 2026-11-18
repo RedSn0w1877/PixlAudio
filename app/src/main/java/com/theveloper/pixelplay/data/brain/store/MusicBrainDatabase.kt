@@ -6,10 +6,11 @@ import androidx.room.RoomDatabase
 /**
  * The music brain's own database, file `brain.db` (docs/brain-spec.md, 3.8).
  *
- * Version 1 holds the stage 1 tables only. Every later table arrives with the stage that first uses
- * it, as a real Room migration: `play_event`, `track_alias`, `track_merge` and `artist_alias` are the
- * listener's history and identity and must survive every upgrade. Nothing here is opened at app
- * start; the first query (a non-library track resolving, an autoplay pool) opens the file.
+ * Version 1 held the stage 1 tables. Version 2 (stage 2a) adds `graph_edge`, `served_list` and
+ * `feedback`, by a real migration ([MusicBrainMigrations]); `play_event`, `track_alias`, `track_merge`,
+ * `artist_alias` and `feedback` are the listener's history and identity and must survive every
+ * upgrade. Nothing here is opened at app start; the first query (a non-library track resolving, an
+ * autoplay pool, a saved mix) opens the file.
  */
 @Database(
     entities = [
@@ -21,8 +22,11 @@ import androidx.room.RoomDatabase
         RadioListEntity::class,
         PlayableEntity::class,
         BrainStateEntity::class,
+        GraphEdgeEntity::class,
+        ServedListEntity::class,
+        FeedbackEntity::class,
     ],
-    version = 1,
+    version = 2,
     exportSchema = true,
 )
 abstract class MusicBrainDatabase : RoomDatabase() {
@@ -32,6 +36,10 @@ abstract class MusicBrainDatabase : RoomDatabase() {
     abstract fun playEventDao(): PlayEventDao
     abstract fun affinityDao(): AffinityDao
     abstract fun brainStateDao(): BrainStateDao
+    abstract fun graphEdgeDao(): GraphEdgeDao
+    abstract fun servedListDao(): ServedListDao
+    abstract fun feedbackDao(): FeedbackDao
+    abstract fun seedDao(): SeedDao
 
     companion object {
         const val FILE_NAME = "brain.db"

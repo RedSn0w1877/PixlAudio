@@ -59,6 +59,8 @@ class BrainRepository @Inject constructor(
     private val identity: TrackResolver,
     private val radioSource: RadioSource,
     private val clock: BrainClock,
+    /** Every stored radio also becomes edges of the persisted graph (3.6); the default writes none. */
+    private val edges: RadioEdges = RadioEdges.None,
 ) {
     // One seed is fetched once: a second caller for the same seed waits and then reads the cache.
     private val seedLocks = Array(8) { Mutex() }
@@ -355,7 +357,30 @@ class BrainRepository @Inject constructor(
             )
         )
         if (radioLists.count() > MusicBrainDatabase.MAX_RADIO_LISTS) radioLists.trimTo(MusicBrainDatabase.MAX_RADIO_LISTS)
+        // An artist station's list is the artist's top songs, not a ranking by closeness to the seed:
+        // it is not an edge of the graph.
+        if (chip != ARTIST_STATION_CHIP) edges.record(seedRid, kind, LongArray(stored.size) { stored[it].rid }, now)
         return StoredRadio(seedRid, kind, stored, fromCache = false)
+    }
+
+    /**
+     * The list a mix reads for the library track [seedRid]: what the cache holds, however old, never
+     * the network (a mix is built in the background from what the worker and the listening left
+     * behind). A song radio is preferred over the Related tab; null when neither is stored healthy.
+     */
+    suspend fun cachedRadio(seedRid: Long): StoredRadio? {
+        for (kind in intArrayOf(RadioListEntity.KIND_SONG, RadioListEntity.KIND_RELATED)) {
+            val row = radioLists.get(seedRid, kind, "")?.takeIf { it.healthy } ?: continue
+            val rows = RadioRowCodec.decodeRows(row.rowsBlob)
+            if (rows.isNotEmpty()) return StoredRadio(seedRid, kind, rows, fromCache = true)
+        }
+        return null
+    }
+
+    /** The artist top songs and radio the artist station of [seedRid] cached, however old; empty when none. */
+    suspend fun cachedArtistRadio(seedRid: Long): List<StoredRadioRow> {
+        val row = radioLists.get(seedRid, RadioListEntity.KIND_ARTIST, ARTIST_STATION_CHIP)?.takeIf { it.healthy } ?: return emptyList()
+        return RadioRowCodec.decodeRows(row.rowsBlob)
     }
 
     companion object {

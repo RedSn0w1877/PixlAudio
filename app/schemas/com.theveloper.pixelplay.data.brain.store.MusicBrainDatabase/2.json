@@ -1,0 +1,744 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 2,
+    "identityHash": "7eeb2c2f5c5847f27a9d6ea24eaebf3c",
+    "entities": [
+      {
+        "tableName": "play_event",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`eventId` INTEGER NOT NULL, `schema` INTEGER NOT NULL, `origin` INTEGER NOT NULL, `rid` INTEGER NOT NULL, `primaryAid` INTEGER NOT NULL, `otherAids` TEXT NOT NULL, `keyAtWrite` TEXT NOT NULL, `startedAtMs` INTEGER NOT NULL, `tzOffsetMin` INTEGER, `playedMs` INTEGER NOT NULL, `durationMs` INTEGER NOT NULL, `startReason` INTEGER NOT NULL, `endReason` INTEGER NOT NULL, `flags` INTEGER NOT NULL, `surface` INTEGER NOT NULL, `surfaceId` TEXT NOT NULL, `recId` INTEGER NOT NULL, `slot` INTEGER NOT NULL, `arm` INTEGER NOT NULL, `sessionId` INTEGER NOT NULL, `posInSession` INTEGER NOT NULL, `passiveRun` INTEGER NOT NULL, `route` INTEGER NOT NULL, `retrQ` INTEGER NOT NULL, `radioRank` INTEGER NOT NULL, `pServedQ` INTEGER NOT NULL, `modelVersion` INTEGER NOT NULL, PRIMARY KEY(`eventId`))",
+        "fields": [
+          {
+            "fieldPath": "eventId",
+            "columnName": "eventId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "schema",
+            "columnName": "schema",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "origin",
+            "columnName": "origin",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "rid",
+            "columnName": "rid",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "primaryAid",
+            "columnName": "primaryAid",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "otherAids",
+            "columnName": "otherAids",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "keyAtWrite",
+            "columnName": "keyAtWrite",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "startedAtMs",
+            "columnName": "startedAtMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "tzOffsetMin",
+            "columnName": "tzOffsetMin",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "playedMs",
+            "columnName": "playedMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "durationMs",
+            "columnName": "durationMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "startReason",
+            "columnName": "startReason",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "endReason",
+            "columnName": "endReason",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "flags",
+            "columnName": "flags",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "surface",
+            "columnName": "surface",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "surfaceId",
+            "columnName": "surfaceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "recId",
+            "columnName": "recId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "slot",
+            "columnName": "slot",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "arm",
+            "columnName": "arm",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sessionId",
+            "columnName": "sessionId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "posInSession",
+            "columnName": "posInSession",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "passiveRun",
+            "columnName": "passiveRun",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "route",
+            "columnName": "route",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "retrQ",
+            "columnName": "retrQ",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "radioRank",
+            "columnName": "radioRank",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "pServedQ",
+            "columnName": "pServedQ",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "modelVersion",
+            "columnName": "modelVersion",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "eventId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_play_event_rid",
+            "unique": false,
+            "columnNames": [
+              "rid"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_play_event_rid` ON `${TABLE_NAME}` (`rid`)"
+          },
+          {
+            "name": "index_play_event_startedAtMs",
+            "unique": false,
+            "columnNames": [
+              "startedAtMs"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_play_event_startedAtMs` ON `${TABLE_NAME}` (`startedAtMs`)"
+          }
+        ]
+      },
+      {
+        "tableName": "track_alias",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`key` TEXT NOT NULL, `rid` INTEGER NOT NULL, `durationMs` INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(`key`))",
+        "fields": [
+          {
+            "fieldPath": "key",
+            "columnName": "key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "rid",
+            "columnName": "rid",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "durationMs",
+            "columnName": "durationMs",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "key"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_track_alias_rid",
+            "unique": false,
+            "columnNames": [
+              "rid"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_track_alias_rid` ON `${TABLE_NAME}` (`rid`)"
+          }
+        ]
+      },
+      {
+        "tableName": "track_merge",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`rid` INTEGER NOT NULL, `into` INTEGER NOT NULL, PRIMARY KEY(`rid`))",
+        "fields": [
+          {
+            "fieldPath": "rid",
+            "columnName": "rid",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "into",
+            "columnName": "into",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "rid"
+          ]
+        }
+      },
+      {
+        "tableName": "artist_alias",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`key` TEXT NOT NULL, `aid` INTEGER NOT NULL, PRIMARY KEY(`key`))",
+        "fields": [
+          {
+            "fieldPath": "key",
+            "columnName": "key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "aid",
+            "columnName": "aid",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "key"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_artist_alias_aid",
+            "unique": false,
+            "columnNames": [
+              "aid"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_artist_alias_aid` ON `${TABLE_NAME}` (`aid`)"
+          }
+        ]
+      },
+      {
+        "tableName": "affinity",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`family` INTEGER NOT NULL, `key` INTEGER NOT NULL, `posQ` INTEGER NOT NULL, `negQ` INTEGER NOT NULL, `lastMs` INTEGER NOT NULL, `posRQ` INTEGER NOT NULL, `negRQ` INTEGER NOT NULL, `lastRMs` INTEGER NOT NULL, PRIMARY KEY(`family`, `key`))",
+        "fields": [
+          {
+            "fieldPath": "family",
+            "columnName": "family",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "key",
+            "columnName": "key",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "posQ",
+            "columnName": "posQ",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "negQ",
+            "columnName": "negQ",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastMs",
+            "columnName": "lastMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "posRQ",
+            "columnName": "posRQ",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "negRQ",
+            "columnName": "negRQ",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastRMs",
+            "columnName": "lastRMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "family",
+            "key"
+          ]
+        }
+      },
+      {
+        "tableName": "radio_list",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`seedRid` INTEGER NOT NULL, `kind` INTEGER NOT NULL, `chip` TEXT NOT NULL, `fetchedAt` INTEGER NOT NULL, `lastUsedAt` INTEGER NOT NULL, `healthy` INTEGER NOT NULL, `rowsBlob` BLOB NOT NULL, `chipsBlob` BLOB NOT NULL, PRIMARY KEY(`seedRid`, `kind`, `chip`))",
+        "fields": [
+          {
+            "fieldPath": "seedRid",
+            "columnName": "seedRid",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "kind",
+            "columnName": "kind",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "chip",
+            "columnName": "chip",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "fetchedAt",
+            "columnName": "fetchedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastUsedAt",
+            "columnName": "lastUsedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "healthy",
+            "columnName": "healthy",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "rowsBlob",
+            "columnName": "rowsBlob",
+            "affinity": "BLOB",
+            "notNull": true
+          },
+          {
+            "fieldPath": "chipsBlob",
+            "columnName": "chipsBlob",
+            "affinity": "BLOB",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "seedRid",
+            "kind",
+            "chip"
+          ]
+        }
+      },
+      {
+        "tableName": "playable",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`synthId` TEXT NOT NULL, `songId` INTEGER NOT NULL, `rid` INTEGER NOT NULL, `videoId` TEXT NOT NULL, `title` TEXT NOT NULL, `artistDisplay` TEXT NOT NULL, `album` TEXT, `durationMs` INTEGER NOT NULL, `artUrl` TEXT, `lastUsedAt` INTEGER NOT NULL, PRIMARY KEY(`synthId`))",
+        "fields": [
+          {
+            "fieldPath": "synthId",
+            "columnName": "synthId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "songId",
+            "columnName": "songId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "rid",
+            "columnName": "rid",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "videoId",
+            "columnName": "videoId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "artistDisplay",
+            "columnName": "artistDisplay",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "album",
+            "columnName": "album",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "durationMs",
+            "columnName": "durationMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "artUrl",
+            "columnName": "artUrl",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "lastUsedAt",
+            "columnName": "lastUsedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "synthId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_playable_lastUsedAt",
+            "unique": false,
+            "columnNames": [
+              "lastUsedAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_playable_lastUsedAt` ON `${TABLE_NAME}` (`lastUsedAt`)"
+          },
+          {
+            "name": "index_playable_songId",
+            "unique": false,
+            "columnNames": [
+              "songId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_playable_songId` ON `${TABLE_NAME}` (`songId`)"
+          }
+        ]
+      },
+      {
+        "tableName": "brain_state",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`key` TEXT NOT NULL, `blob` BLOB NOT NULL, PRIMARY KEY(`key`))",
+        "fields": [
+          {
+            "fieldPath": "key",
+            "columnName": "key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "blob",
+            "columnName": "blob",
+            "affinity": "BLOB",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "key"
+          ]
+        }
+      },
+      {
+        "tableName": "graph_edge",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`src` INTEGER NOT NULL, `dst` INTEGER NOT NULL, `type` INTEGER NOT NULL, `wQ16` INTEGER NOT NULL, `rank` INTEGER NOT NULL, `fetchedAt` INTEGER NOT NULL, PRIMARY KEY(`src`, `dst`, `type`))",
+        "fields": [
+          {
+            "fieldPath": "src",
+            "columnName": "src",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "dst",
+            "columnName": "dst",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "type",
+            "columnName": "type",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "wQ16",
+            "columnName": "wQ16",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "rank",
+            "columnName": "rank",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "fetchedAt",
+            "columnName": "fetchedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "src",
+            "dst",
+            "type"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_graph_edge_dst",
+            "unique": false,
+            "columnNames": [
+              "dst"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_graph_edge_dst` ON `${TABLE_NAME}` (`dst`)"
+          },
+          {
+            "name": "index_graph_edge_fetchedAt",
+            "unique": false,
+            "columnNames": [
+              "fetchedAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_graph_edge_fetchedAt` ON `${TABLE_NAME}` (`fetchedAt`)"
+          }
+        ]
+      },
+      {
+        "tableName": "served_list",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`recId` INTEGER NOT NULL, `surface` INTEGER NOT NULL, `surfaceId` TEXT NOT NULL, `builtAt` INTEGER NOT NULL, `seed` INTEGER NOT NULL, `modelVersion` INTEGER NOT NULL, `nuQ` INTEGER NOT NULL, `itemsBlob` BLOB NOT NULL, PRIMARY KEY(`recId`))",
+        "fields": [
+          {
+            "fieldPath": "recId",
+            "columnName": "recId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "surface",
+            "columnName": "surface",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "surfaceId",
+            "columnName": "surfaceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "builtAt",
+            "columnName": "builtAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "seed",
+            "columnName": "seed",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "modelVersion",
+            "columnName": "modelVersion",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "nuQ",
+            "columnName": "nuQ",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "itemsBlob",
+            "columnName": "itemsBlob",
+            "affinity": "BLOB",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "recId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_served_list_builtAt",
+            "unique": false,
+            "columnNames": [
+              "builtAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_served_list_builtAt` ON `${TABLE_NAME}` (`builtAt`)"
+          }
+        ]
+      },
+      {
+        "tableName": "feedback",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER NOT NULL, `kind` INTEGER NOT NULL, `targetKind` INTEGER NOT NULL, `targetId` INTEGER NOT NULL, `createdAtMs` INTEGER NOT NULL, `undoneAtMs` INTEGER, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "kind",
+            "columnName": "kind",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "targetKind",
+            "columnName": "targetKind",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "targetId",
+            "columnName": "targetId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAtMs",
+            "columnName": "createdAtMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "undoneAtMs",
+            "columnName": "undoneAtMs",
+            "affinity": "INTEGER"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_feedback_targetKind_targetId",
+            "unique": false,
+            "columnNames": [
+              "targetKind",
+              "targetId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_feedback_targetKind_targetId` ON `${TABLE_NAME}` (`targetKind`, `targetId`)"
+          }
+        ]
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '7eeb2c2f5c5847f27a9d6ea24eaebf3c')"
+    ]
+  }
+}

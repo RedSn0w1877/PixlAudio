@@ -14,7 +14,12 @@ import com.theveloper.pixelplay.data.brain.source.YouTubeRadioSource
 import com.theveloper.pixelplay.data.brain.store.AffinityDao
 import com.theveloper.pixelplay.data.brain.store.AliasDao
 import com.theveloper.pixelplay.data.brain.store.BrainStateDao
+import com.theveloper.pixelplay.data.brain.store.FeedbackDao
+import com.theveloper.pixelplay.data.brain.store.GraphEdgeDao
 import com.theveloper.pixelplay.data.brain.store.MusicBrainDatabase
+import com.theveloper.pixelplay.data.brain.store.MusicBrainMigrations
+import com.theveloper.pixelplay.data.brain.store.SeedDao
+import com.theveloper.pixelplay.data.brain.store.ServedListDao
 import com.theveloper.pixelplay.data.brain.store.PlayEventDao
 import com.theveloper.pixelplay.data.brain.store.PlayableDao
 import com.theveloper.pixelplay.data.brain.store.RadioListDao
@@ -41,6 +46,7 @@ object BrainModule {
     @Singleton
     fun provideMusicBrainDatabase(@ApplicationContext context: Context): MusicBrainDatabase =
         Room.databaseBuilder(context.applicationContext, MusicBrainDatabase::class.java, MusicBrainDatabase.FILE_NAME)
+            .addMigrations(*MusicBrainMigrations.ALL)
             .setJournalMode(RoomDatabase.JournalMode.WRITE_AHEAD_LOGGING)
             .build()
 
@@ -50,6 +56,15 @@ object BrainModule {
     @Provides fun providePlayEventDao(db: MusicBrainDatabase): PlayEventDao = db.playEventDao()
     @Provides fun provideAffinityDao(db: MusicBrainDatabase): AffinityDao = db.affinityDao()
     @Provides fun provideBrainStateDao(db: MusicBrainDatabase): BrainStateDao = db.brainStateDao()
+    @Provides fun provideGraphEdgeDao(db: MusicBrainDatabase): GraphEdgeDao = db.graphEdgeDao()
+    @Provides fun provideServedListDao(db: MusicBrainDatabase): ServedListDao = db.servedListDao()
+    @Provides fun provideFeedbackDao(db: MusicBrainDatabase): FeedbackDao = db.feedbackDao()
+    @Provides fun provideSeedDao(db: MusicBrainDatabase): SeedDao = db.seedDao()
+
+    /** Every stored radio also becomes edges of the persisted graph (3.6). */
+    @Provides
+    @Singleton
+    fun provideRadioEdges(store: com.theveloper.pixelplay.data.brain.GraphEdgeStore): com.theveloper.pixelplay.data.brain.RadioEdges = store
 
     @Provides
     @Singleton
