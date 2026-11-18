@@ -202,6 +202,7 @@ class AutoplayController @Inject constructor(
     private var noveltyFactor = 1.0
     private var tasteJob: Job? = null
     private var pendingTasteFilter = false
+    private var tasteDirty = false
 
     /** Batches appended for the current [station]: its first one is the long one (6.2). */
     private var stationBatches = 0
@@ -1446,42 +1447,54 @@ class AutoplayController @Inject constructor(
     private fun onTasteChanged() {
         val host = host ?: return
         if (tasteJob?.isActive == true) {
-            pendingTasteFilter = true
+            tasteDirty = true
             return
         }
         tasteJob = host.scope.launch {
             try {
-                val adjustments = tasteAdjustments.snapshot(clock.nowMs())
+                // Which tracks the engine holds are now excluded is worked out off the main thread
+                // (it folds every artist name); the main thread only drops them by id.
+                val held = ArrayList<PoolEntry>(pool.size + served.size)
+                held.addAll(pool)
+                held.addAll(served.values)
                 val blocked = blockedArtists.current
-                val gone: (Song) -> Boolean = { song ->
-                    blocked.isBlocked(song) || adjustments.excludes(song) || adjustments.blocks(song)
+                val goneIds: Set<String> = withContext(Dispatchers.Default) {
+                    val adjustments = tasteAdjustments.snapshot(clock.nowMs())
+                    val out = HashSet<String>()
+                    for (entry in held) {
+                        val song = entry.song
+                        if (blocked.isBlocked(song) || adjustments.excludes(song) || adjustments.blocks(song)) {
+                            out.add(entry.candidate.mediaId)
+                        }
+                    }
+                    out
                 }
-                pool.removeAll { gone(it.song) }
                 if (this@AutoplayController.host == null) return@launch
-                if (AutoplayPolicy.mustDeferQueueEdit(engine.isTransitionRunning())) {
-                    pendingTasteFilter = true
-                    return@launch
-                }
-                val queue = engine.getFullQueue()
-                val current = engine.getCurrentAbsoluteIndex()
-                // Only the unbroken run of engine items at the end of the queue is the engine's to edit.
-                var runStart = queue.size
-                while (runStart - 1 > current && BrainExtras.isEngineOwned(queue[runStart - 1].mediaMetadata.extras)) runStart--
-                var firstGone = -1
-                for (i in runStart until queue.size) {
-                    val entry = served[queue[i].mediaId] ?: continue
-                    if (gone(entry.song)) {
-                        firstGone = i
-                        break
+                if (goneIds.isNotEmpty()) {
+                    pool.removeAll { it.candidate.mediaId in goneIds }
+                    if (AutoplayPolicy.mustDeferQueueEdit(engine.isTransitionRunning())) {
+                        pendingTasteFilter = true
+                        return@launch
                     }
-                }
-                if (firstGone > current) {
-                    val keep = ArrayList<MediaItem>(queue.size - firstGone)
-                    for (i in firstGone until queue.size) {
-                        val entry = served[queue[i].mediaId]
-                        if (entry != null && gone(entry.song)) served.remove(queue[i].mediaId) else keep.add(queue[i])
+                    val queue = engine.getFullQueue()
+                    val current = engine.getCurrentAbsoluteIndex()
+                    // Only the unbroken run of engine items at the end of the queue is the engine's to edit.
+                    var runStart = queue.size
+                    while (runStart - 1 > current && BrainExtras.isEngineOwned(queue[runStart - 1].mediaMetadata.extras)) runStart--
+                    var firstGone = -1
+                    for (i in runStart until queue.size) {
+                        if (queue[i].mediaId in goneIds) {
+                            firstGone = i
+                            break
+                        }
                     }
-                    engine.replaceQueueTail(firstGone, keep)
+                    if (firstGone > current) {
+                        val keep = ArrayList<MediaItem>(queue.size - firstGone)
+                        for (i in firstGone until queue.size) {
+                            if (queue[i].mediaId in goneIds) served.remove(queue[i].mediaId) else keep.add(queue[i])
+                        }
+                        engine.replaceQueueTail(firstGone, keep)
+                    }
                 }
                 rescoreTail()
                 evaluate(settle = true)
@@ -1489,6 +1502,13 @@ class AutoplayController @Inject constructor(
                 throw e
             } catch (e: Exception) {
                 Timber.w(e, "autoplay: applying a taste change failed")
+            } finally {
+                // A second change arrived while this one was applied: look once more.
+                if (tasteDirty) {
+                    tasteDirty = false
+                    tasteJob = null
+                    onTasteChanged()
+                }
             }
         }.also { job ->
             job.invokeOnCompletion {
