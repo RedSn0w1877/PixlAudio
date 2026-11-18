@@ -1,16 +1,21 @@
 package com.theveloper.pixelplay.presentation.viewmodel
 
+import androidx.compose.runtime.Immutable
 import androidx.media3.common.MediaItem
 import com.theveloper.pixelplay.data.brain.BrainExtras
 import com.theveloper.pixelplay.data.brain.BrainSwitch
 import com.theveloper.pixelplay.data.brain.EngineTrackSaver
 import com.theveloper.pixelplay.data.brain.PlayableStore
+import com.theveloper.pixelplay.data.brain.StationStore
 import com.theveloper.pixelplay.data.model.Song
 import com.theveloper.pixelplay.data.service.player.AutoplayController
 import com.theveloper.pixelplay.data.service.player.AutoplayUiState
 import com.theveloper.pixelplay.di.AppScope
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.collections.immutable.ImmutableMap
+import kotlinx.collections.immutable.persistentMapOf
+import kotlinx.collections.immutable.toImmutableMap
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -21,6 +26,10 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import timber.log.Timber
+
+/** The reason an engine pick is in the queue (8.8): a `WhyLine` key name and the name it is about. */
+@Immutable
+data class QueueWhy(val key: String, val arg: String)
 
 /**
  * What the UI needs to know about the music brain's part of the current session
@@ -35,12 +44,17 @@ class BrainSessionStateHolder @Inject constructor(
     private val brainSwitch: BrainSwitch,
     private val playableStore: PlayableStore,
     private val engineTrackSaver: EngineTrackSaver,
+    private val stationStore: StationStore,
+    /** "Start station": the seed and the hand-over to the player. */
+    val stations: StationStateHolder,
+    /** "Not for me", its bar, and the two sheets that explain picks. */
+    val actions: BrainActionsStateHolder,
     @AppScope private val appScope: CoroutineScope,
 ) {
     /** The Autoplay line of the queue. The switch comes from the setting, so it is right before the service runs. */
     val autoplayUiState: StateFlow<AutoplayUiState> =
-        combine(brainSwitch.autoplayEnabledFlow, autoplayController.uiState) { enabled, state ->
-            state.copy(enabled = enabled)
+        combine(brainSwitch.autoplayEnabledFlow, autoplayController.uiState, stationStore.novelty) { enabled, state, novelty ->
+            state.copy(enabled = enabled, novelty = novelty)
         }.stateIn(appScope, SharingStarted.WhileSubscribed(5_000L), AutoplayUiState())
 
     private val _engineQueueIds = MutableStateFlow<Set<String>>(emptySet())
@@ -48,17 +62,34 @@ class BrainSessionStateHolder @Inject constructor(
     /** Media ids of the queue items the engine put there. */
     val engineQueueIds: StateFlow<Set<String>> = _engineQueueIds.asStateFlow()
 
+    private val _queueWhy = MutableStateFlow<ImmutableMap<String, QueueWhy>>(persistentMapOf())
+
+    /** The reason line of every queue item that has one, by media id (8.8). */
+    val queueWhy: StateFlow<ImmutableMap<String, QueueWhy>> = _queueWhy.asStateFlow()
+
     /** Called when the queue's timeline changed, with its items; safe off the main thread. */
     fun onQueueItems(mediaItems: List<MediaItem>) {
         var ids: HashSet<String>? = null
+        var why: HashMap<String, QueueWhy>? = null
         for (item in mediaItems) {
-            if (BrainExtras.isEngineOwned(item.mediaMetadata.extras)) {
+            val extras = item.mediaMetadata.extras ?: continue
+            if (BrainExtras.isEngineOwned(extras)) {
                 (ids ?: HashSet<String>().also { ids = it }).add(item.mediaId)
+            }
+            val key = extras.getString(BrainExtras.WHY_KEY)
+            if (!key.isNullOrEmpty()) {
+                (why ?: HashMap<String, QueueWhy>().also { why = it })[item.mediaId] =
+                    QueueWhy(key, extras.getString(BrainExtras.WHY_ARG).orEmpty())
             }
         }
         val next: Set<String> = ids ?: emptySet()
         if (next != _engineQueueIds.value) _engineQueueIds.value = next
+        val nextWhy: Map<String, QueueWhy> = why ?: emptyMap()
+        if (nextWhy != _queueWhy.value) _queueWhy.value = nextWhy.toImmutableMap()
     }
+
+    /** The Familiar / Blend / Discover switch (`Novelty.*`). */
+    fun setNovelty(level: Int) = stationStore.setNovelty(level)
 
     fun setAutoplayEnabled(enabled: Boolean) {
         appScope.launch { brainSwitch.setAutoplayEnabled(enabled) }

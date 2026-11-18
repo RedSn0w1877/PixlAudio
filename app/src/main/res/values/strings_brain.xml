@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Music brain, stage 1 (docs/brain-spec.md, section 8). English only for now; other locales fall back. -->
+<resources>
+    <!-- Stations (8.3) -->
+    <string name="brain_start_station">Start station</string>
+    <string name="brain_start_station_song_supporting">Keeps playing music like this song</string>
+    <string name="brain_start_station_artist_supporting">Keeps playing music like this artist</string>
+    <string name="brain_station_queue_name">Station · %1$s</string>
+    <string name="brain_station_title">Station · %1$s</string>
+    <string name="brain_station_subtitle_song">Music like this song, picked as you listen</string>
+    <string name="brain_station_subtitle_artist">This artist and music close to them</string>
+    <string name="brain_station_nothing_to_start">Nothing to start from yet. Add a song by %1$s first.</string>
+
+    <!-- Familiar / Blend / Discover (8.3) -->
+    <string name="brain_novelty_familiar">Familiar</string>
+    <string name="brain_novelty_blend">Blend</string>
+    <string name="brain_novelty_discover">Discover</string>
+    <string name="brain_novelty_cd">How much new music the picks hold</string>
+
+    <!-- Why this song (8.8) -->
+    <string name="brain_why_radio_fans">Fans of %1$s also play this</string>
+    <string name="brain_why_because_liked">Because you liked %1$s</string>
+    <string name="brain_why_because_listened">Because you listened to %1$s</string>
+    <string name="brain_why_artist_more">More from %1$s</string>
+    <string name="brain_why_on_repeat">On repeat this month</string>
+    <string name="brain_why_sheet_title">Why this song</string>
+    <string name="brain_why_sheet_basis">Picks are based on what you play.</string>
+    <string name="brain_why_cd">Why this song was picked</string>
+
+    <!-- Feedback (8.5) -->
+    <string name="brain_not_for_me">Not for me</string>
+    <string name="brain_not_for_me_supporting">Skips it and keeps it out of your mixes</string>
+    <string name="brain_not_for_me_done">Got it. You won\'t hear this in mixes again.</string>
+    <string name="brain_not_for_me_failed">Couldn\'t save that. Remove a few taste changes first.</string>
+    <string name="brain_less_from">Less from %1$s</string>
+    <string name="brain_less_from_done">You\'ll hear less from %1$s.</string>
+    <string name="brain_undo">Undo</string>
+    <string name="brain_undone">Undone</string>
+    <string name="brain_like">Like</string>
+    <string name="brain_liked">Liked</string>
+
+    <!-- Home (8.1) -->
+    <string name="brain_home_because_listened">Because you listened to %1$s</string>
+    <string name="brain_home_because_listened_subtitle">Music you don\'t have yet</string>
+
+    <!-- How picks work (8.9) -->
+    <string name="brain_how_picks_work">How picks work</string>
+    <string name="brain_how_intro">Picks are based on what you play: what you finish, what you skip and what you save.</string>
+    <string name="brain_promise_paid_title">Nobody can pay to be in your picks</string>
+    <string name="brain_promise_repeat_title">Less repetition</string>
+    <string name="brain_promise_repeat_body">A new song you skipped three times stays away for 60 days.</string>
+    <string name="brain_promise_why_title">You can see why, and change it</string>
+    <string name="brain_promise_why_body">Every pick says why it is there. Changes apply from the next track and can be undone.</string>
+    <string name="brain_promise_playlists_title">Nothing is slipped into your playlists</string>
+    <string name="brain_promise_playlists_body">Picks live only under the Autoplay line, which has an off switch.</string>
+    <string name="brain_promise_phone_title">It stays on your phone</string>
+    <string name="brain_promise_phone_body">Looking up songs and facts contacts public music catalogues without an account; they see an IP address and the artist or song looked up. The assistant\'s cloud mode sends the conversation.</string>
+    <string name="brain_how_autoplay_title">Autoplay</string>
+    <string name="brain_how_autoplay_body">Keeps playing when your queue ends</string>
+    <string name="brain_how_taste_changes">Taste changes</string>
+    <string name="brain_how_taste_changes_body">Everything you told the picks, with undo</string>
+</resources>

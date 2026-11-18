@@ -540,6 +540,9 @@ fun SongInfoBottomSheet(
                                             onAddNextToQueue = onAddNextToQueue
                                         )
 
+                                        // Music brain (8.3, 8.5): a station from this song, and "Not for me".
+                                        BrainSongActions(song = song, onDone = onDismiss)
+
                                         Row3Actions(
                                             onAddToPlaylist = onAddToPlayList,
                                             onDelete = {

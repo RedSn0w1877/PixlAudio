@@ -2205,6 +2205,39 @@ class PlayerViewModel @Inject constructor(
     fun playArtist(artist: Artist) =
         queueStateHolder.playArtist(artist, playbackSourceCallbacks())
 
+    // ── Music brain (docs/brain-spec.md, 8.3, 8.5): facade only; the state lives in the holders ──
+
+    private val stationPlayer = object : StationStateHolder.Player {
+        override val scope: kotlinx.coroutines.CoroutineScope get() = viewModelScope
+
+        override fun currentSongId(): String? = mediaController?.currentMediaItem?.mediaId
+
+        override fun clearUpcoming() {
+            val controller = mediaController ?: return
+            val next = controller.currentMediaItemIndex + 1
+            if (next in 1 until controller.mediaItemCount) controller.removeMediaItems(next, controller.mediaItemCount)
+        }
+
+        override fun playSeed(song: Song, queueName: String) {
+            playSongs(listOf(song), song, queueName)
+        }
+
+        override fun toast(message: String) = sendToast(message)
+    }
+
+    /** "Start station" from a song: it plays first (or keeps playing), then music like it. */
+    fun startSongStation(song: Song) = brainSession.stations.startSongStation(song, stationPlayer)
+
+    /** "Start station" from an artist. [songs] are the artist's library songs when the caller has them. */
+    fun startArtistStation(artistName: String, songs: List<Song> = emptyList()) =
+        brainSession.stations.startArtistStation(artistName, songs, stationPlayer)
+
+    /** "Not for me": mutes the song in everything the app picks by itself; skips it when it is playing. */
+    fun notForMe(song: Song) {
+        val isCurrent = mediaController?.currentMediaItem?.mediaId == song.id
+        brainSession.actions.notForMe(song, isPlaying = isCurrent) { nextSong() }
+    }
+
     fun removeSongFromQueue(songId: String) {
         queueUndoStateHolder.removeSongFromQueue(
             scope = viewModelScope,

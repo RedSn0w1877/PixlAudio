@@ -304,6 +304,14 @@ fun QueueBottomSheet(
     val onToggleAutoplay: (Boolean) -> Unit = remember(viewModel) {
         { enabled -> viewModel.brainSession.setAutoplayEnabled(enabled) }
     }
+    // The reason line of each engine pick (8.8), the Familiar / Blend / Discover switch and the way
+    // to "How picks work".
+    val queueWhy by viewModel.brainSession.queueWhy.collectAsStateWithLifecycle()
+    val brainUi = com.theveloper.pixelplay.presentation.utils.LocalBrainUi.current
+    val onNoveltyChange: (Int) -> Unit = remember(viewModel) {
+        { level -> viewModel.brainSession.setNovelty(level) }
+    }
+    val onHowPicksWork: (() -> Unit)? = brainUi?.showHowPicksWork
     val hasUpcomingEngineItems = remember(queue, engineQueueIds, currentSongIndex) {
         if (engineQueueIds.isEmpty()) {
             false
@@ -931,8 +939,15 @@ fun QueueBottomSheet(
 
                                     Column {
                                     if (showAutoplayLine) {
-                                        AutoplayDivider(state = autoplayState, onToggle = onToggleAutoplay)
+                                        AutoplayDivider(
+                                            state = autoplayState,
+                                            onToggle = onToggleAutoplay,
+                                            onNoveltyChange = onNoveltyChange,
+                                            onHowPicksWork = onHowPicksWork
+                                        )
                                     }
+                                    val why = queueWhy[song.id]
+                                    val whyText = if (why != null) whyLineText(why.key, why.arg) else null
                                     QueuePlaylistSongItem(
                                         modifier = Modifier
                                             .fillMaxWidth()
@@ -955,6 +970,10 @@ fun QueueBottomSheet(
                                         onDismissSong = { onRemoveSong(song.id) },
                                         isFromPlaylist = true,
                                         onMoreOptionsClick = { onSongInfoClick(song) },
+                                        whyLine = whyText,
+                                        onWhyClick = if (why != null && brainUi != null) {
+                                            { brainUi.showWhy(song, why.key, why.arg) }
+                                        } else null,
                                         dragHandle = {
                                             IconButton(
                                                 onClick = {},
@@ -996,7 +1015,12 @@ fun QueueBottomSheet(
                             // always reachable. A trailing item: the song items keep their indices.
                             if (!hasUpcomingEngineItems) {
                                 item(key = "queue_autoplay_footer", contentType = "queue_autoplay") {
-                                    AutoplayDivider(state = autoplayState, onToggle = onToggleAutoplay)
+                                    AutoplayDivider(
+                                        state = autoplayState,
+                                        onToggle = onToggleAutoplay,
+                                        onNoveltyChange = onNoveltyChange,
+                                        onHowPicksWork = onHowPicksWork
+                                    )
                                 }
                             }
                         }
@@ -2009,7 +2033,10 @@ fun QueuePlaylistSongItem(
     enableSwipeToDismiss: Boolean = false,
     swipeStateIdentity: Long = 0L,
     onDismissSong: () -> Unit = {},
-    isFromPlaylist: Boolean
+    isFromPlaylist: Boolean,
+    /** Why the engine picked this track (8.8); null for a track the listener chose. */
+    whyLine: String? = null,
+    onWhyClick: (() -> Unit)? = null
 ) {
     val colors = MaterialTheme.colorScheme
     // Blocked artist: dimmed with a badge; a tap offers "Play anyway".
@@ -2218,6 +2245,9 @@ fun QueuePlaylistSongItem(
                             style = MaterialTheme.typography.bodyMedium,
                             color = if (isCurrentSong) colors.primary.copy(alpha = 0.8f) else colors.onSurfaceVariant
                         )
+                        if (whyLine != null) {
+                            WhyLineLabel(text = whyLine, onClick = onWhyClick)
+                        }
                         if (isBlockedSong) {
                             BlockedBadge(modifier = Modifier.padding(top = 2.dp))
                         }

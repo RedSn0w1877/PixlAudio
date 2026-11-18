@@ -343,6 +343,17 @@ class MainActivity : ComponentActivity() {
                     showToast = { playerViewModel.sendToast(it) }
                 )
             }
+            // The music brain's actions (stations, "Not for me", the sheets that explain picks),
+            // provided once for every song menu, queue row and artist page (see BrainUiLocals).
+            val brainUi = remember {
+                com.theveloper.pixelplay.presentation.utils.BrainUi(
+                    startSongStation = { song -> playerViewModel.startSongStation(song) },
+                    startArtistStation = { name, songs -> playerViewModel.startArtistStation(name, songs) },
+                    notForMe = { song -> playerViewModel.notForMe(song) },
+                    showWhy = { song, key, arg -> playerViewModel.brainSession.actions.showWhy(song, key, arg) },
+                    showHowPicksWork = { playerViewModel.brainSession.actions.showHowPicksWork() }
+                )
+            }
             val useDarkTheme = when (appThemeMode) {
                 AppThemeMode.DARK -> true
                 AppThemeMode.LIGHT -> false
@@ -391,7 +402,8 @@ class MainActivity : ComponentActivity() {
                 LocalShowScrollbar provides showScrollbar,
                 com.theveloper.pixelplay.presentation.utils.LocalBlockedArtistsUi provides blockedUi,
                 com.theveloper.pixelplay.presentation.utils.LocalPlayerGestures provides playerGestures,
-                com.theveloper.pixelplay.presentation.utils.LocalPlayerGestureHost provides gestureHost
+                com.theveloper.pixelplay.presentation.utils.LocalPlayerGestureHost provides gestureHost,
+                com.theveloper.pixelplay.presentation.utils.LocalBrainUi provides brainUi
             ) {
                 PixelPlayTheme(
                     darkTheme = useDarkTheme,
@@ -1167,6 +1179,22 @@ class MainActivity : ComponentActivity() {
                             )
                         }
 
+                        // Music brain: the bar that follows "Not for me" (Undo, "Less from ..."), and the
+                        // two sheets that explain picks. All three read their own state flows, so
+                        // nothing here recomposes the screen behind them.
+                        val brainActions = playerViewModel.brainSession.actions
+                        val brainNotice by brainActions.notice.collectAsStateWithLifecycle()
+                        com.theveloper.pixelplay.presentation.components.BrainNoticeBar(
+                            notice = brainNotice,
+                            onUndo = remember(brainActions) { { brainActions.undo() } },
+                            onLessFromArtist = remember(brainActions) { { brainActions.lessFromArtist() } },
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .padding(bottom = innerPadding.calculateBottomPadding() + MiniPlayerBottomSpacer + MiniPlayerHeight + 12.dp)
+                                .padding(horizontal = horizontalPadding + 14.dp)
+                        )
+                        BrainSheets(playerViewModel = playerViewModel, navController = navController)
+
                         if (showPlayStoreAnnouncement) {
                             PlayStoreAnnouncementDialog(
                                 announcement = playStoreAnnouncement,
@@ -1184,6 +1212,42 @@ class MainActivity : ComponentActivity() {
         }
 
         Trace.endSection()
+    }
+
+    /** "Why this song" and "How picks work" (docs/brain-spec.md, 8.8, 8.9), opened from anywhere. */
+    @Composable
+    private fun BrainSheets(playerViewModel: PlayerViewModel, navController: NavHostController) {
+        val actions = playerViewModel.brainSession.actions
+        val whySheet by actions.whySheet.collectAsStateWithLifecycle()
+        val howPicksWorkVisible by actions.howPicksWorkVisible.collectAsStateWithLifecycle()
+        whySheet?.let { state ->
+            val favoriteIds by playerViewModel.favoriteSongIds.collectAsStateWithLifecycle()
+            com.theveloper.pixelplay.presentation.components.WhyThisSongSheet(
+                state = state,
+                isFavorite = state.song.id in favoriteIds,
+                onToggleFavorite = { playerViewModel.toggleFavoriteSpecificSong(state.song) },
+                onNotForMe = { playerViewModel.notForMe(state.song) },
+                onLessFromArtist = { artist -> actions.lessFrom(artist) },
+                onHowPicksWork = {
+                    actions.dismissWhy()
+                    actions.showHowPicksWork()
+                },
+                onDismiss = { actions.dismissWhy() }
+            )
+        }
+        if (howPicksWorkVisible) {
+            val autoplay by playerViewModel.brainSession.autoplayUiState.collectAsStateWithLifecycle()
+            com.theveloper.pixelplay.presentation.components.HowPicksWorkSheet(
+                autoplayEnabled = autoplay.enabled,
+                onAutoplayChange = { playerViewModel.brainSession.setAutoplayEnabled(it) },
+                onOpenTasteChanges = {
+                    actions.dismissHowPicksWork()
+                    playerViewModel.collapsePlayerSheet()
+                    navController.navigateSafely(Screen.TasteChanges.route)
+                },
+                onDismiss = { actions.dismissHowPicksWork() }
+            )
+        }
     }
 
     @OptIn(ExperimentalMaterial3ExpressiveApi::class)
