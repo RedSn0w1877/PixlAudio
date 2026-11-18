@@ -28,3 +28,15 @@ dependencies {
 tasks.withType<Test> {
     useJUnitPlatform()
 }
+
+// The golden vectors of docs/brain-spec.md, 10.4: `./gradlew :brain:generateGolden` rewrites
+// brain/src/test/resources/brain-golden/ from the Kotlin in this module. JVM only: no Android build.
+// BrainGoldenTest fails when the files that are checked in differ from a fresh run; the iOS repo
+// copies the folder and must match it byte for byte.
+tasks.register<JavaExec>("generateGolden") {
+    group = "verification"
+    description = "Regenerates the brain's golden vectors (brain/src/test/resources/brain-golden)."
+    classpath = sourceSets["test"].runtimeClasspath
+    mainClass.set("com.theveloper.pixelplay.brain.GoldenGenerator")
+    args(layout.projectDirectory.asFile.absolutePath)
+}

@@ -6,3 +6,9 @@
 # (handoff/, app assets, unit-test resources). Always LF, on every platform: with autocrlf a
 # Windows checkout would otherwise append a CR and the copy in the APK would differ.
 spatial_preview*.json text eol=lf
+
+# The brain's golden vectors and their text corpus are compared byte for byte, here and in the iOS
+# repo (docs/brain-spec.md, 10.4). Always LF: with autocrlf a Windows checkout would add a CR and
+# every hash in MANIFEST.sha256 would be wrong.
+brain/src/test/resources/brain-golden/* text eol=lf
+brain/src/test/resources/brain-corpus/* text eol=lf
