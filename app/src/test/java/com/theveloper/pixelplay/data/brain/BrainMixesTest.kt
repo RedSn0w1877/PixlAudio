@@ -70,10 +70,10 @@ class BrainMixesTest {
     private val graphEdges = GraphEdgeStore(edgeDao, seedDao, states)
     private val repository = BrainRepository(radioLists, resolver, FakeRadioSource(), clock, graphEdges)
 
-    private val library: List<Song> = (0 until 48).map { mixSong("s$it", "Lib Song $it", "Lib Artist ${it % 8}") }
+    private val library: List<Song> = (0 until 120).map { mixSong("s$it", "Lib Song $it", "Lib Artist ${it % 40}", album = "Lib Album $it") }
     private val music = mockk<MusicRepository> {
         coEvery { getAllSongsOnce() } returns library
-        coEvery { getFavoriteSongIdsOnce() } returns emptySet()
+        coEvery { getFavoriteSongIdsOnce() } returns (0 until 30).map { "s$it" }.toSet()
         every { getSongsByIds(any()) } answers { flowOf(library.filter { it.id in firstArg<List<String>>() }) }
     }
     private val dailyMixManager = mockk<DailyMixManager> {
@@ -204,6 +204,7 @@ class BrainMixesTest {
         val m = mixes()
         val daily = m.today(MixPlanner.KIND_DAILY)!!
         val first = m.today(MixPlanner.KIND_YOUR)!!
+        now += 60_000L
         val second = m.today(MixPlanner.KIND_YOUR, regenerate = true)!!
         assertEquals(3, servedDao.rows.size)
         assertTrue(first.songs.map { it.id } != second.songs.map { it.id }, "another draw")
@@ -218,8 +219,10 @@ class BrainMixesTest {
         cacheRadios(6)
         val m = mixes()
         novelty.value = Novelty.FAMILIAR
+        now += 60_000L
         val familiar = novelCount(m.today(MixPlanner.KIND_DAILY, regenerate = true)!!)
         novelty.value = Novelty.DISCOVER
+        now += 60_000L
         val discover = novelCount(m.today(MixPlanner.KIND_DAILY, regenerate = true)!!)
         assertTrue(familiar < discover, "familiar $familiar, discover $discover")
     }
@@ -249,7 +252,7 @@ class BrainMixesTest {
         val m = mixes()
         val built = m.today(MixPlanner.KIND_DAILY)!!
         val victim = built.songs.first { it.id !in built.novelIds }
-        blockedIndex = BlockedArtistIndex(listOf(BlockedArtist(1L, LibraryIndex.primaryArtistName(victim))))
+        blockedIndex = BlockedArtistIndex(listOf(BlockedArtist(999_999L, LibraryIndex.primaryArtistName(victim))))
         val back = m.saved(MixPlanner.KIND_DAILY)!!
         assertTrue(back.songs.none { LibraryIndex.primaryArtistName(it) == LibraryIndex.primaryArtistName(victim) })
         assertTrue(back.songs.size < built.songs.size)

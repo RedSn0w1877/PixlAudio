@@ -238,3 +238,21 @@ tracks plus autoplay feel endless. The 04:00 rollover and a time-zone change are
 3. Kill the app, reopen: the same Daily Mix, and Settings > Developer mode > Music engine off + Regenerate gives the old mixes back.
 4. `adb shell dumpsys jobscheduler | grep brain_refresh`: one job, a day period, unmetered.
 5. Developer mode > Export play events, then `adb pull`, then the command above.
+
+## What was run, and what it said (milestone 1 of 2a)
+
+All on this machine, one Gradle build at a time, `ANDROID_HOME="C:\Users\Hoa\AppData\Local\Android\Sdk"`:
+
+    ./gradlew :brain:generateGolden :brain:test
+    ./gradlew --continue :brain:test :app:testDebugUnitTest \
+        --tests "com.theveloper.pixelplay.data.brain.*" --tests "com.theveloper.pixelplay.presentation.components.BrainCopyTest" \
+        --tests "com.theveloper.pixelplay.presentation.viewmodel.*" --tests "com.theveloper.pixelplay.data.service.player.AutoplayPolicyTest" \
+        --tests "com.theveloper.pixelplay.data.recommendation.*" :app:assembleDebug
+
+Result: `:brain:test` 109 tests, 0 failures; `:app:testDebugUnitTest` (those filters) 457 tests, 1 skipped (the real-export test, which
+needs `PIXLAUDIO_EVAL_EXPORT`), 0 failures; `:app:assembleDebug` built both split APKs. The whole `data/recommendation` suite
+(including `RecommendationGoldenEqualityTest`) is in that run and untouched. The full `:app:testDebugUnitTest` (every test of
+the app) was NOT run in one go; only the filters above.
+
+Known nuisance seen four times: `Unable to delete directory ... app\build\kotlin\compileDebugUnitTestKotlin` or `hiltJavaCompileDebug`
+(a Windows lock). Deleting the named folder and running again was enough.
