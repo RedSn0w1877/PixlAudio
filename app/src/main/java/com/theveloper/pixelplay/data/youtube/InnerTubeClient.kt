@@ -312,7 +312,80 @@ class InnerTubeClient @Inject constructor(
         shelves
     }
 
+    // ─── YouTube Music radios and pages (docs/brain-spec.md, 3.3) ───────
+
+    /**
+     * `next` for a radio. Song radio: [playlistId] = `"RDAMVM" + videoId`. Artist radio: the three
+     * values of the artist page's radio button, sent as they came. Returns the response body, or null
+     * on a transport or HTTP error; parse it with [InnerTubeMusicParsers.parseRadio].
+     *
+     * Always anonymous (no cookie): nothing about the listener is sent, only the seed.
+     */
+    suspend fun nextRadio(videoId: String?, playlistId: String, params: String? = null): String? =
+        withContext(Dispatchers.IO) {
+            val body = musicBody().apply {
+                if (!videoId.isNullOrBlank()) put("videoId", videoId)
+                put("playlistId", playlistId)
+                if (!params.isNullOrBlank()) put("params", params)
+            }
+            postText(InnerTubeContexts.endpoint(InnerTubeContexts.WEB_REMIX, "next"), body, InnerTubeContexts.WEB_REMIX)
+        }
+
+    /** The next page of a radio. The token goes in the body; no query parameter is needed. */
+    suspend fun nextRadioContinuation(continuation: String): String? = withContext(Dispatchers.IO) {
+        val body = musicBody().apply { put("continuation", continuation) }
+        postText(InnerTubeContexts.endpoint(InnerTubeContexts.WEB_REMIX, "next"), body, InnerTubeContexts.WEB_REMIX)
+    }
+
+    /**
+     * `browse` for a YouTube Music page: a track's Related tab (`MPTRt_...`), an artist (`UC...`).
+     * Parse with [InnerTubeMusicParsers.parseRelated] or [InnerTubeMusicParsers.parseArtistPage].
+     */
+    suspend fun browseMusic(browseId: String, params: String? = null): String? = withContext(Dispatchers.IO) {
+        val body = musicBody().apply {
+            put("browseId", browseId)
+            if (!params.isNullOrBlank()) put("params", params)
+        }
+        postText(InnerTubeContexts.endpoint(InnerTubeContexts.WEB_REMIX, "browse"), body, InnerTubeContexts.WEB_REMIX)
+    }
+
+    /** The WEB_REMIX context with the process-wide anonymous visitorData (hl=en, gl=US stay pinned). */
+    private fun musicBody(): JSONObject =
+        InnerTubeContexts.buildContext(InnerTubeContexts.WEB_REMIX, poTokenProvider.anonymousVisitorData())
+
     // ─── Internos ──────────────────────────────────────────────────────
+
+    /**
+     * Sibling of [post] that returns the body text, so the new parsers can read it as
+     * kotlinx.serialization JSON (and run in plain JVM tests). Anonymous only.
+     */
+    private suspend fun postText(
+        url: String,
+        body: JSONObject,
+        profile: InnerTubeContexts.ClientProfile
+    ): String? {
+        return try {
+            val request = Request.Builder()
+                .url(url)
+                .post(body.toString().toRequestBody(JSON_MEDIA_TYPE))
+                .apply { InnerTubeContexts.headers(profile).forEach { (k, v) -> header(k, v) } }
+                .build()
+            okHttpClient.newCall(request).awaitYouTubeResponse().use { response ->
+                if (!response.isSuccessful) {
+                    lastFailureReason = "${profile.name} HTTP ${response.code}"
+                    Timber.w("InnerTube %s HTTP %d", profile.name, response.code)
+                    return null
+                }
+                response.body.string().takeIf { it.isNotBlank() }
+            }
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            lastFailureReason = "${profile.name}: ${e.javaClass.simpleName} ${e.message.orEmpty()}".trim()
+            Timber.w(e, "InnerTube request failed (%s)", profile.name)
+            null
+        }
+    }
+
 
     private suspend fun post(
         url: String,
