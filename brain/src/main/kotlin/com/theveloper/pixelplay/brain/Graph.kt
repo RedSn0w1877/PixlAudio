@@ -84,6 +84,15 @@ class Graph private constructor(
             return this
         }
 
+        /**
+         * One stored edge (the `graph_edge` table of 3.8, read back): the pair gets [weight], the largest
+         * when it already has one. Used for the lists the radios of earlier days left behind.
+         */
+        fun addEdge(a: Long, b: Long, weight: Double): Builder {
+            put(a, b, weight)
+            return this
+        }
+
         /** A track and its primary artist: an edge of weight [TRACK_ARTIST], and what "same artist" reads. */
         fun addTrack(rid: Long, primaryAid: Long): Builder {
             if (rid == 0L || primaryAid == 0L) return this

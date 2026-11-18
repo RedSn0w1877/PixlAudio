@@ -246,8 +246,16 @@ class MusicService : MediaLibraryService() {
     private val autoplayHost by lazy {
         object : com.theveloper.pixelplay.data.service.player.AutoplayController.Host {
             override val scope: CoroutineScope get() = serviceScope
-            override fun isRemoteSession(): Boolean =
-                connectSessionPlayer != null || castSyncCoordinator.currentRemoteMediaClient() != null
+            override fun remoteOutput(): com.theveloper.pixelplay.data.service.player.AutoplayPolicy.RemoteOutput = when {
+                castSyncCoordinator.currentRemoteMediaClient() != null ->
+                    com.theveloper.pixelplay.data.service.player.AutoplayPolicy.RemoteOutput.CAST
+                connectSessionPlayer != null ->
+                    com.theveloper.pixelplay.data.service.player.AutoplayPolicy.RemoteOutput.CONNECT
+                else -> com.theveloper.pixelplay.data.service.player.AutoplayPolicy.RemoteOutput.NONE
+            }
+
+            override suspend fun playableOnRemote(items: List<MediaItem>): BooleanArray =
+                spotifyConnectController.canPlay(items)
             override fun isRestoringQueue(): Boolean = isRestoringPlaybackSnapshot
         }
     }

@@ -5,8 +5,8 @@ package com.theveloper.pixelplay.brain
  * novel, or a special first slot), and within the kind the candidate with the best value that breaks
  * no hard rule takes it.
  *
- * Stage 1 has the hard constraints of 6.4, the slot plan and `lambda`; no calibration, flow cost or
- * served penalty yet. Ordering is by a quantised key with a total tie-break, so sort stability and
+ * Stage 1 has the hard constraints of 6.4, the slot plan and `lambda`; stage 2a adds the served-log
+ * penalty ([Scored.servedPen]); no calibration or flow cost yet. Ordering is by a quantised key with a total tie-break, so sort stability and
  * floating-point noise below 2^-20 cannot change a list.
  */
 object ListBuilder {
@@ -50,6 +50,10 @@ object ListBuilder {
         val lastMs: Long,
         /** Retrieval percentile x 1000. */
         val retrQ: Int,
+        /** The served-log penalty of 6.5 (0 for lists that make no repetition promise). */
+        val servedPen: Double = 0.0,
+        /** A per-list jitter in the value (a mix draws one per list so "Regenerate" gives another list); 0 for none. */
+        val noise: Double = 0.0,
     )
 
     /** A slot already in the list (the engine's own tail of the queue), oldest first. */
@@ -180,7 +184,7 @@ object ListBuilder {
                 for (s in scored) {
                     if (s.novel || s.c.rid in used || !fits(list, s.c, request.thinAid)) continue
                     if (s.lastMs != 0L && BrainMath.localDay(s.lastMs, request.tzOffsetMin) == today) continue
-                    val key = BrainMath.orderKey(s.p)
+                    val key = BrainMath.orderKey(s.p - s.servedPen + s.noise)
                     if (chosen == null || better(key, s.c.rid, chosenKey, chosen.c.rid, request.tieSeed)) {
                         chosen = s
                         chosenKey = key
@@ -192,7 +196,7 @@ object ListBuilder {
             if (chosen == null && kind == SLOT_CLOSER) {
                 for (s in scored) {
                     if (s.novel || s.c.rid in used || !fits(list, s.c, request.thinAid)) continue
-                    val key = BrainMath.orderKey(s.p)
+                    val key = BrainMath.orderKey(s.p - s.servedPen + s.noise)
                     if (chosen == null || better(key, s.c.rid, chosenKey, chosen.c.rid, request.tieSeed)) {
                         chosen = s
                         chosenKey = key
@@ -240,7 +244,7 @@ object ListBuilder {
             if (sim > maxSim) maxSim = sim
             back++
         }
-        return lambda * s.z - (1.0 - lambda) * maxSim
+        return lambda * s.z - (1.0 - lambda) * maxSim - s.servedPen + s.noise
     }
 
     /** Order: the key descending, then `splitmix64(rid xor seed)` ascending (unsigned), then rid ascending. */

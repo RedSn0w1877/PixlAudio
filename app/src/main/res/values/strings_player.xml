@@ -105,6 +105,7 @@
     <string name="queue_autoplay_finding">Finding more like this</string>
     <string name="queue_autoplay_changed_direction">Skipped three. Changing direction.</string>
     <string name="queue_autoplay_off">Off. The queue ends after the last song</string>
+    <string name="queue_autoplay_off_casting">Off while casting. Cast plays only the songs you queued</string>
     <string name="queue_cd_reorder_song">Reorder song</string>
     <string name="queue_cd_toggle_shuffle_action">Toggle shuffle</string>
     <string name="queue_cd_toggle_repeat_action">Toggle repeat</string>

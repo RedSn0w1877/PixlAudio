@@ -53,6 +53,8 @@ fun AutoplayDivider(
     }
     val subtitle = stringResource(
         when {
+            // A Cast device plays only what was sent when casting started: no picks reach it.
+            state.offWhileCasting -> R.string.queue_autoplay_off_casting
             !isStation && !state.enabled -> R.string.queue_autoplay_off
             state.finding -> R.string.queue_autoplay_finding
             state.changedDirection -> R.string.queue_autoplay_changed_direction
@@ -95,7 +97,7 @@ fun AutoplayDivider(
                     )
                 }
             }
-            if (!isStation) {
+            if (!isStation && !state.offWhileCasting) {
                 // A station is something the listener asked for by hand: it has no off switch here.
                 Spacer(modifier = Modifier.width(4.dp))
                 Switch(
@@ -105,7 +107,7 @@ fun AutoplayDivider(
                 )
             }
         }
-        if (onNoveltyChange != null && (isStation || state.enabled) && !state.fromLibrary) {
+        if (onNoveltyChange != null && (isStation || state.enabled) && !state.fromLibrary && !state.offWhileCasting) {
             Spacer(modifier = Modifier.height(8.dp))
             NoveltySwitch(
                 level = state.novelty,

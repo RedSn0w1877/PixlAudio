@@ -87,6 +87,11 @@ data class AutoplayUiState(
     val stationIsArtist: Boolean = false,
     /** The Familiar / Blend / Discover switch: `Novelty.FAMILIAR`, `BLEND` or `DISCOVER`. */
     val novelty: Int = Novelty.BLEND,
+    /**
+     * The queue sounds on a Cast device, which cannot take picks ([AutoplayPolicy.remoteRule]): the
+     * line says so instead of promising more music.
+     */
+    val offWhileCasting: Boolean = false,
 )
 
 /**
@@ -153,8 +158,14 @@ class AutoplayController @Inject constructor(
         /** A main-thread scope that dies with the service. */
         val scope: CoroutineScope
 
-        /** Cast or Spotify Connect is playing. */
-        fun isRemoteSession(): Boolean
+        /** Where the queue is sounding: this phone, a Cast device or a Spotify Connect device. */
+        fun remoteOutput(): AutoplayPolicy.RemoteOutput
+
+        /**
+         * Which of [items] the remote output can play, in order. Only asked on an output that plays
+         * some tracks and not others (Spotify Connect); it may look each one up, off the main thread.
+         */
+        suspend fun playableOnRemote(items: List<MediaItem>): BooleanArray
 
         fun isRestoringQueue(): Boolean
     }
@@ -432,10 +443,14 @@ class AutoplayController @Inject constructor(
         return now - at in 0 until FAILED_MEMORY_MS
     }
 
+    /** What the engine may do on the output the queue is sounding on (see [AutoplayPolicy.remoteRule]). */
+    private fun remoteRule(host: Host): AutoplayPolicy.RemoteRule =
+        AutoplayPolicy.remoteRule(host.remoteOutput(), BrainSwitch.AUTOPLAY_ON_CONNECT)
+
     private fun decisionFor(host: Host, queue: List<MediaItem>): AutoplayPolicy.Decision = AutoplayPolicy.decide(
         autoplayEnabled = active,
         repeatMode = engine.masterPlayer.repeatMode,
-        isRemoteSession = host.isRemoteSession(),
+        isRemoteSession = !remoteRule(host).picks,
         isRestoring = host.isRestoringQueue(),
         fullQueueSize = queue.size,
         currentAbsoluteIndex = engine.getCurrentAbsoluteIndex(),
@@ -542,7 +557,7 @@ class AutoplayController @Inject constructor(
         // blocks), they do not turn the station into another one.
         if (reaction.changedDirection && station == null) showDirectionNote()
         if (host == null || !active) return
-        if (reaction.changedDirection && station == null && !host.isRemoteSession() && !host.isRestoringQueue() &&
+        if (reaction.changedDirection && station == null && remoteRule(host).rescore && !host.isRestoringQueue() &&
             !queueAttach.isAttaching
         ) {
             // Turning is not waiting for the queue to run low: the pool of the new direction is built
@@ -582,7 +597,7 @@ class AutoplayController @Inject constructor(
     @MainThread
     private fun rescoreTail(): Boolean {
         val host = host ?: return false
-        if (!active || poolFromLibrary || poolSeeds.isEmpty() || host.isRemoteSession() || host.isRestoringQueue()) return false
+        if (!active || poolFromLibrary || poolSeeds.isEmpty() || !remoteRule(host).rescore || host.isRestoringQueue()) return false
         if (queueAttach.isAttaching) return false
         if (rescoreJob?.isActive == true || appendJob?.isActive == true) {
             pendingRescore = true
@@ -687,7 +702,7 @@ class AutoplayController @Inject constructor(
      */
     private fun dropArtistFromTail(artistKey: String) {
         val host = host ?: return
-        if (artistKey.isEmpty() || !active || station != null || host.isRemoteSession() || host.isRestoringQueue()) return
+        if (artistKey.isEmpty() || !active || station != null || !remoteRule(host).rescore || host.isRestoringQueue()) return
         if (queueAttach.isAttaching || AutoplayPolicy.mustDeferQueueEdit(engine.isTransitionRunning())) return
         val queue = engine.getFullQueue()
         val start = rescoreStartOf(queue)
@@ -905,20 +920,33 @@ class AutoplayController @Inject constructor(
                 }
                 return@launch
             }
-            val plan = try {
-                planOnBrain(
-                    inputs,
-                    // A station opens with a long first batch (6.2); its seed is what was just heard, so
-                    // it needs no bridge.
-                    count = if (inputs.firstStationBatch) STATION_FIRST_BATCH else AutoplayPolicy.BATCH_SIZE,
-                    bridge = inputs.station == null && inputs.prior.isEmpty(),
-                    tail = null,
-                )
+            val count = if (inputs.firstStationBatch) STATION_FIRST_BATCH else AutoplayPolicy.BATCH_SIZE
+            var used = inputs
+            var checked: StationPlanner.Plan? = null
+            try {
+                // A station opens with a long first batch (6.2); its seed is what was just heard, so
+                // it needs no bridge.
+                val plan = planOnBrain(used, count, bridge = used.station == null && used.prior.isEmpty(), tail = null)
+                // On an output that plays only some tracks (Spotify Connect) the picks are looked up
+                // first, and the ones it does not have never reach the queue.
+                checked = plan?.let { keepWhatTheOutputPlays(it, used) }
+                if (plan != null && plan.picks.isNotEmpty() && checked != null && checked.picks.isEmpty() &&
+                    key == poolKey && pool.isNotEmpty()
+                ) {
+                    // The output had none of them. They left the pool, so one more plan is made from
+                    // what is left; after that the usual path (a deeper pool, then the library) takes over.
+                    val again = planInputs(queue, queue.size, emptyList())
+                    if (again.candidates.isNotEmpty()) {
+                        used = again
+                        checked = planOnBrain(again, count, bridge = again.station == null && again.prior.isEmpty(), tail = null)
+                            ?.let { keepWhatTheOutputPlays(it, again) }
+                    }
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 Timber.w(e, "autoplay: planning a batch failed")
-                null
+                checked = null
             }
             appendJob = null
             if (key != poolKey || this@AutoplayController.host == null || !active) return@launch
@@ -927,11 +955,39 @@ class AutoplayController @Inject constructor(
                 evaluate(settle = true)
                 return@launch
             }
-            val committed = plan != null && commit(plan, inputs)
-            if (committed && plan != null) consumed(plan)
+            val plan = checked
+            val committed = plan != null && commit(plan, used)
+            if (committed) consumed(plan!!)
             onDone(committed)
             runPendingRescore()
         }
+    }
+
+    /**
+     * [plan] without the picks the remote output cannot play (Spotify Connect: a pick Spotify does not
+     * have). Those leave the pool and are not offered again for a while. On this phone, and on an
+     * output that takes everything it is given, the plan comes back as it is.
+     */
+    private suspend fun keepWhatTheOutputPlays(plan: StationPlanner.Plan, inputs: PlanInputs): StationPlanner.Plan {
+        val host = host ?: return plan
+        if (!remoteRule(host).onlyWhatTheOutputPlays || plan.picks.isEmpty()) return plan
+        val mediaIds = ArrayList<String>(plan.picks.size)
+        val items = ArrayList<MediaItem>(plan.picks.size)
+        for (pick in plan.picks) {
+            val entry = inputs.entriesByRid[pick.rid] ?: continue
+            mediaIds.add(entry.candidate.mediaId)
+            items.add(MediaItemBuilder.build(entry.song))
+        }
+        val kept = AutoplayPolicy.keepPlayable(mediaIds, host.playableOnRemote(items))
+        if (kept.size == mediaIds.size) return plan
+        val now = clock.nowMs()
+        for (id in mediaIds) if (id !in kept) {
+            if (failedAtMs.size > FAILED_LIMIT) failedAtMs.clear()
+            failedAtMs[id] = now
+        }
+        pool.removeAll { it.candidate.mediaId in mediaIds && it.candidate.mediaId !in kept }
+        val picks = plan.picks.filter { pick -> inputs.entriesByRid[pick.rid]?.candidate?.mediaId in kept }
+        return StationPlanner.Plan(picks, plan.usedLiked && picks.isNotEmpty(), plan.usedFamiliarNext && picks.isNotEmpty(), plan.poolSize)
     }
 
     /** A re-score that had to wait for a plan in flight runs once that plan is done. */
@@ -1122,8 +1178,11 @@ class AutoplayController @Inject constructor(
         for (entry in listeningStatsTracker.playbackHistory.value) {
             if (entry.timestamp >= since) excludedMediaIds.add(entry.songId)
         }
+        // On Spotify Connect a library pick goes in only when it carries an id Spotify gave out: this
+        // path has no room for a lookup, and a track saved from YouTube Music may not be on Spotify.
+        val onlySpotifyIds = host?.let { remoteRule(it).onlyWhatTheOutputPlays } == true
         val picked = AutoplayPolicy.pickBatch(
-            pool = pool.map { it.candidate },
+            pool = pool.filter { !onlySpotifyIds || AutoplayPolicy.isSpotifyTrackId(it.song.spotifyId) }.map { it.candidate },
             engineTail = if (tail.size > 50) tail.subList(tail.size - 50, tail.size) else tail,
             excludedMediaIds = excludedMediaIds,
             excludedRids = emptySet(),
@@ -1287,6 +1346,14 @@ class AutoplayController @Inject constructor(
      * stayed paused: [onPlayingChanged] and the backstop pick that case up, without a polling loop.
      */
     private suspend fun waitUntilSettled(mediaId: String?): Boolean {
+        val host = host ?: return false
+        if (!remoteRule(host).settleOnLocalPlayer) {
+            // The queue sounds on another device: this phone streams nothing and its own player sits
+            // paused at the start of the track, so there is no position to read. A plain wait keeps
+            // the request off the moment of the track change.
+            delay(AutoplayPolicy.SETTLE_MS)
+            return engine.masterPlayer.currentMediaItem?.mediaId == mediaId
+        }
         repeat(SETTLE_POLLS) {
             val player = engine.masterPlayer
             if (player.currentMediaItem?.mediaId != mediaId) return false

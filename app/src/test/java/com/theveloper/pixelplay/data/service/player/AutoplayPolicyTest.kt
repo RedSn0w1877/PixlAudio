@@ -94,6 +94,74 @@ class AutoplayPolicyTest {
         assertEquals(Decision.OFF, decide(enabled = false, remote = true, repeatMode = repeatAll, size = 1, index = 0))
     }
 
+    // ── Remote outputs (14.6) ────────────────────────────────────────────────
+
+    @Test
+    fun `on this phone everything runs`() {
+        val rule = AutoplayPolicy.remoteRule(AutoplayPolicy.RemoteOutput.NONE)
+        assertTrue(rule.picks)
+        assertFalse(rule.onlyWhatTheOutputPlays)
+        assertTrue(rule.rescore)
+        assertTrue(rule.settleOnLocalPlayer)
+    }
+
+    @Test
+    fun `no picks and no station while casting - a cast queue is loaded once and serves library files only`() {
+        val rule = AutoplayPolicy.remoteRule(AutoplayPolicy.RemoteOutput.CAST)
+        assertFalse(rule.picks)
+        assertFalse(rule.rescore)
+        // The trigger reads the rule: a cast session is the one output that reports REMOTE.
+        assertEquals(Decision.REMOTE, decide(remote = !rule.picks, size = 1, index = 0))
+        // The switch for Spotify Connect does not open Cast.
+        assertFalse(AutoplayPolicy.remoteRule(AutoplayPolicy.RemoteOutput.CAST, connectAllowed = true).picks)
+    }
+
+    @Test
+    fun `picks run on spotify connect, limited to what spotify has, and the tail is never replaced there`() {
+        val rule = AutoplayPolicy.remoteRule(AutoplayPolicy.RemoteOutput.CONNECT)
+        assertTrue(rule.picks)
+        assertTrue(rule.onlyWhatTheOutputPlays)
+        // Replacing what the device was told to play means sending the list again, which is audible.
+        assertFalse(rule.rescore)
+        // The phone's own player sits paused at 0 during a session: there is no position to wait for.
+        assertFalse(rule.settleOnLocalPlayer)
+        assertEquals(Decision.TOP_UP, decide(remote = !rule.picks, size = 3, index = 1))
+    }
+
+    @Test
+    fun `one switch turns picks on spotify connect off again`() {
+        val rule = AutoplayPolicy.remoteRule(AutoplayPolicy.RemoteOutput.CONNECT, connectAllowed = false)
+        assertFalse(rule.picks)
+        assertEquals(Decision.REMOTE, decide(remote = !rule.picks, size = 1, index = 0))
+    }
+
+    @Test
+    fun `only the picks the output answered yes for go into the queue, in the planned order`() {
+        val ids = listOf("a", "b", "c", "d")
+        assertEquals(listOf("a", "c"), AutoplayPolicy.keepPlayable(ids, booleanArrayOf(true, false, true, false)).toList())
+        assertTrue(AutoplayPolicy.keepPlayable(ids, booleanArrayOf(false, false, false, false)).isEmpty())
+        // A short answer (the lookup was cut off) keeps nothing it did not answer for.
+        assertEquals(listOf("a"), AutoplayPolicy.keepPlayable(ids, booleanArrayOf(true)).toList())
+    }
+
+    @Test
+    fun `an id spotify gave out plays on connect with no lookup - the app's own ids do not`() {
+        assertTrue(AutoplayPolicy.isSpotifyTrackId("4iV5W9uYEdYUVa79Axb7Rh"))
+        // 22 lower-case hex characters: the id the app gives a track saved from YouTube Music.
+        assertFalse(AutoplayPolicy.isSpotifyTrackId("0123456789abcdef012345"))
+        assertFalse(AutoplayPolicy.isSpotifyTrackId(null))
+        assertFalse(AutoplayPolicy.isSpotifyTrackId("too-short"))
+        assertFalse(AutoplayPolicy.isSpotifyTrackId("4iV5W9uYEdYUVa79Axb7R!"))
+        // The rule is the one the Connect code itself uses.
+        for (id in listOf("4iV5W9uYEdYUVa79Axb7Rh", "0123456789abcdef012345", "", "ABCDEFGHIJKLMNOPQRSTUV")) {
+            assertEquals(
+                com.theveloper.pixelplay.data.spotify.connect.SpotifyConnect.isTrackId(id),
+                AutoplayPolicy.isSpotifyTrackId(id),
+                id,
+            )
+        }
+    }
+
     @Test
     fun `nothing is decided while the rest of a tapped song's queue is being attached`() {
         // A song tapped in a playlist is a one-item queue for a moment. That is not a single-song play.

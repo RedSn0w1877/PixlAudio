@@ -49,6 +49,11 @@ object GoldenGenerator {
         files["retrieval.jsonl"] = retrieval()
         files["session.jsonl"] = session()
         files["lists.jsonl"] = lists()
+        files["mixes.jsonl"] = mixes()
+        files["snapshot.jsonl"] = snapshots()
+        files["repetition.jsonl"] = repetition()
+        files["eval.jsonl"] = evals()
+        files["why.jsonl"] = whyLines()
         files["README.md"] = README
         val manifest = StringBuilder()
         for ((name, content) in files) {
@@ -663,11 +668,11 @@ object GoldenGenerator {
         val byRid: Map<Long, Track> = tracks.associateBy { it.rid }
 
         /** Everything in a seed's list or by a seed's artist, as candidates. */
-        fun candidates(): List<Candidate> {
+        fun candidates(all: Boolean = false): List<Candidate> {
             val seedAids = seeds.map { it.seedAid }.toSet()
             val inLists = HashSet<Long>()
             for (s in seeds) for (r in s.rids) inLists.add(r)
-            return tracks.filter { it.rid in inLists || (it.inLibrary && it.aid in seedAids) }.mapIndexed { i, t ->
+            return tracks.filter { all || it.rid in inLists || (it.inLibrary && it.aid in seedAids) }.mapIndexed { i, t ->
                 Candidate(
                     rid = t.rid,
                     aid = t.aid,
@@ -725,8 +730,8 @@ object GoldenGenerator {
         endArray()
     }
 
-    private fun BrainJson.Writer.candidates(list: List<Candidate>) {
-        beginArray("candidates")
+    private fun BrainJson.Writer.candidates(list: List<Candidate>, name: String = "candidates") {
+        beginArray(name)
         for (c in list) {
             beginObject(); long("rid", c.rid); long("aid", c.aid); long("albumKey", c.albumKey)
             bool("inLibrary", c.inLibrary); bool("liked", c.liked); bool("fromArtistRadio", c.fromArtistRadio)
@@ -972,8 +977,222 @@ object GoldenGenerator {
         return sb.toString()
     }
 
+    // ── mixes.jsonl, snapshot.jsonl, repetition.jsonl, eval.jsonl (stage 2a) ─────────────────────────
+
+    private fun BrainJson.Writer.edges(list: List<MixPlanner.Edge>) {
+        beginArray("edges")
+        for (e in list) beginArray().longItem(e.a).longItem(e.b).doubleItem(e.weight).endArray()
+        endArray()
+    }
+
+    private fun BrainJson.Writer.served(name: String, list: List<Repetition.Served>) {
+        beginArray(name)
+        for (s in list) {
+            beginObject(); int("surface", s.surface); long("builtAtMs", s.builtAtMs); longs("rids", s.rids); endObject()
+        }
+        endArray()
+    }
+
+    private fun BrainJson.Writer.mixRequest(r: MixPlanner.Request) {
+        beginObject("request")
+        int("kind", r.kind); long("nowMs", r.nowMs); int("tzOffsetMin", r.tzOffsetMin); double("nuMultiplier", r.nuMultiplier)
+        long("salt", r.salt); int("regenerate", r.regenerate); int("count", r.count)
+        longs("excludedRids", r.excludedRids.toLongArray().also { it.sort() })
+        beginArray("servedTimes")
+        for (k in r.servedTimes.keys.sorted()) beginArray().longItem(k).intItem(r.servedTimes[k]!!).endArray()
+        endArray()
+        edges(r.edges)
+        endObject()
+    }
+
+    private fun mixes(): String {
+        val sb = StringBuilder()
+        for (c in 0 until 30) {
+            val world = World(BrainHash.fnv1a64("golden:mixes:$c"), historySize = if (c < 3) 0 else 40, withFacts = c >= 3, seedCount = 1 + c % 3)
+            val rng = BrainHash.Rng(BrainHash.fnv1a64("golden:mixes:req:$c"))
+            val affinity = Replay.rebuild(world.history.iterator(), world.facts, world.nowMs)
+            val candidates = world.candidates(all = true)
+            val kind = c % 2
+            val excluded = HashSet<Long>()
+            val served = HashMap<Long, Int>()
+            for (t in world.tracks) {
+                if (rng.chance(0.08)) excluded.add(t.rid)
+                if (rng.chance(0.2)) served[t.rid] = 1 + rng.int(5)
+            }
+            val edges = ArrayList<MixPlanner.Edge>()
+            if (c % 3 == 2) for (k in 0 until 12) {
+                val a = world.tracks[rng.int(world.tracks.size)]
+                val b = world.tracks[rng.int(world.tracks.size)]
+                edges.add(MixPlanner.Edge(a.rid, b.rid, 0.2 + 0.1 * rng.int(6)))
+            }
+            val request = MixPlanner.Request(
+                kind = kind,
+                candidates = candidates,
+                seeds = world.seeds,
+                nowMs = world.nowMs,
+                tzOffsetMin = world.tz,
+                nuMultiplier = when (c % 4) { 0 -> 1.0; 1 -> 0.4; 2 -> 2.0; else -> 1.0 },
+                salt = BrainHash.fnv1a64("salt $c"),
+                regenerate = if (c % 7 == 6) 1 else 0,
+                excludedRids = excluded,
+                servedTimes = served,
+                edges = edges,
+                count = if (c % 5 == 4) 12 else 0,
+            )
+            val plan = MixPlanner.plan(request, affinity)
+            sb.append(
+                line("mix", {
+                    events("history", world.history); facts(world.facts); long("nowMs", world.nowMs)
+                    seeds(world.seeds); candidates(candidates); mixRequest(request)
+                }, { plan("plan", plan); double("nu", MixPlanner.nuOf(kind, request.nuMultiplier)); long("tieSeed", MixPlanner.tieSeedOf(request)) })
+            )
+        }
+        return sb.toString()
+    }
+
+    private fun snapshots(): String {
+        val sb = StringBuilder()
+        for (c in 0 until 8) {
+            val world = World(BrainHash.fnv1a64("golden:snapshot:$c"), historySize = if (c == 0) 0 else 10 + c * 15, withFacts = c % 2 == 1)
+            val state = Replay.rebuild(world.history.iterator(), world.facts, world.nowMs)
+            sb.append(line("snapshot", { events("events", world.history); facts(world.facts); long("nowMs", world.nowMs) }, { string("text", Snapshot.encode(state)) }))
+        }
+        return sb.toString()
+    }
+
+    private fun repetition(): String {
+        val sb = StringBuilder()
+        for (n in 0..6) sb.append(line("servedPenalty", { int("times", n) }, { double("penalty", Repetition.servedPenalty(n)) }))
+        val rng = BrainHash.Rng(BrainHash.fnv1a64("golden:repetition"))
+        for (i in 0 until 40) {
+            val ms = T0 + (rng.int(100_000) - 50_000) * 3_600_000L
+            val tz = (rng.int(57) - 28) * 30
+            sb.append(line("mixDay", { long("ms", ms); int("tzOffsetMin", tz) }, { long("day", Repetition.mixDay(ms, tz)) }))
+        }
+        for (c in 0 until 12) {
+            val now = T0 + rng.int(1000) * 3_600_000L
+            val tz = if (c % 2 == 0) 420 else -300
+            val lists = ArrayList<Repetition.Served>()
+            for (k in 0 until 6 + rng.int(8)) {
+                val age = rng.int(70 * 24) * 3_600_000L - (if (c == 5 && k == 0) 3_600_000L * 5 else 0L)
+                val rids = LongArray(3 + rng.int(8)) { (1 + rng.int(25)).toLong() }
+                lists.add(Repetition.Served(rng.int(15), now - age, rids))
+            }
+            val times = Repetition.timesServed(lists, now)
+            val taken = Repetition.takenOnDay(lists, now, tz, if (c % 3 == 0) Surface.DAILY_MIX else -1)
+            sb.append(
+                line("served", { served("lists", lists); long("nowMs", now); int("tzOffsetMin", tz); int("exceptSurface", if (c % 3 == 0) Surface.DAILY_MIX else -1) }, {
+                    beginArray("timesServed")
+                    for (k in times.keys.sorted()) beginArray().longItem(k).intItem(times[k]!!).endArray()
+                    endArray()
+                    longs("taken", taken.toLongArray().also { it.sort() })
+                })
+            )
+        }
+        return sb.toString()
+    }
+
+    private fun BrainJson.Writer.skipReport(r: Eval.SkipReport) {
+        beginObject("report")
+        int("trainEvents", r.trainEvents); int("heldOutEvents", r.heldOutEvents); int("finished", r.finished); int("skipped", r.skipped)
+        double("brainAuc", r.brainAuc)
+        beginArray("baselines")
+        for (i in r.baselineNames.indices) {
+            beginObject(); string("name", r.baselineNames[i]); double("auc", r.baselineAuc[i]); double("delta", r.delta[i])
+            double("low", r.deltaLow[i]); double("high", r.deltaHigh[i]); endObject()
+        }
+        endArray()
+        double("calibrationError", r.calibrationError)
+        endObject()
+    }
+
+    private fun evals(): String {
+        val sb = StringBuilder()
+        val rng = BrainHash.Rng(BrainHash.fnv1a64("golden:eval:auc"))
+        for (c in 0 until 12) {
+            val n = 5 + rng.int(60)
+            val keys = LongArray(n) { (rng.int(9) - 4).toLong() }
+            val labels = BooleanArray(n) { rng.chance(0.45) }
+            sb.append(
+                line("auc", {
+                    longs("keys", keys); beginArray("finished"); for (l in labels) intItem(if (l) 1 else 0); endArray()
+                }, { double("auc", Eval.auc(keys, labels)) })
+            )
+        }
+        for (c in 0 until 3) {
+            val world = World(BrainHash.fnv1a64("golden:eval:world:$c"), historySize = 220 + c * 40, withFacts = c != 1)
+            val config = Eval.Config(resamples = 60, seed = 5L + c)
+            val report = Eval.skipPrediction(world.history, world.facts, config)
+            sb.append(
+                line("skipPrediction", {
+                    events("events", world.history); facts(world.facts)
+                    int("resamples", config.resamples); long("seed", config.seed)
+                }, { skipReport(report) })
+            )
+        }
+        for (c in 0 until 2) {
+            val world = World(BrainHash.fnv1a64("golden:eval:health:$c"), historySize = 20, withFacts = c == 1, seedCount = 2)
+            val library = world.tracks.filter { it.inLibrary }.map { Candidate(it.rid, it.aid, it.albumKey, true, it.liked) }
+            val novel = world.tracks.filter { !it.inLibrary }.map { Candidate(it.rid, it.aid, it.albumKey, false) }
+            val finish = LinkedHashMap<Long, Double>()
+            for ((i, t) in world.tracks.withIndex()) finish[t.rid] = 0.35 + 0.1 * (i % 6)
+            val healthWorld = Eval.HealthWorld(library, novel, world.seeds, finish)
+            val start = Replay.rebuild(world.history.iterator(), world.facts, world.nowMs)
+            val before = Snapshot.encode(start)
+            val report = Eval.listHealth(healthWorld, start, days = 6, nowMs = world.nowMs, tzOffsetMin = world.tz, salt = 11L + c)
+            sb.append(
+                line("listHealth", {
+                    string("snapshot", before); seeds(world.seeds)
+                    candidates(library, "library"); candidates(novel, "novel")
+                    beginArray("finishRates"); for ((k, v) in finish) beginArray().longItem(k).doubleItem(v).endArray(); endArray()
+                    int("days", 6); long("nowMs", world.nowMs); int("tzOffsetMin", world.tz); long("salt", 11L + c)
+                }, {
+                    int("days", report.days); double("distinctRatio", report.distinctRatio); double("maxArtistShare", report.maxArtistShare)
+                    double("maxNoveltyGap", report.maxNoveltyGap); int("maxSameDayOverlap", report.maxSameDayOverlap); int("shortestList", report.shortestList)
+                })
+            )
+        }
+        return sb.toString()
+    }
+
+    private fun whyLines(): String {
+        val sb = StringBuilder()
+        val affs = doubleArrayOf(0.0, 0.9, 1.0, 1.0000001, 1.5, 2.9)
+        val masses = doubleArrayOf(0.0, 1.0, 2.4999, 2.5, 3.0, 8.0)
+        for (arm in 0..9) for (slotKind in intArrayOf(ListBuilder.SLOT_FAMILIAR, ListBuilder.SLOT_NOVEL, ListBuilder.SLOT_LIKED)) {
+            for (flags in 0 until 4) {
+                val homeRow = flags and 1 != 0
+                val mix = flags and 2 != 0
+                val aff = affs[(arm + slotKind + flags) % affs.size]
+                val mass = masses[(arm * 3 + slotKind + flags) % masses.size]
+                val bestRank = if (arm % 3 == 0) 0 else 4
+                val why = WhyLine.pick(arm, slotKind, homeRow, 11L, if (arm % 2 == 0) 0L else 22L, bestRank, if (slotKind == ListBuilder.SLOT_LIKED) 33L else 0L, if (homeRow) 44L else 0L, aff, mass, mix)
+                sb.append(
+                    line("why", {
+                        int("arm", arm); int("slotKind", slotKind); bool("homeRow", homeRow); bool("mix", mix)
+                        long("candidateAid", 11L); long("seedAid", if (arm % 2 == 0) 0L else 22L); int("bestRank", bestRank)
+                        long("likedRid", if (slotKind == ListBuilder.SLOT_LIKED) 33L else 0L); long("homeSeedRid", if (homeRow) 44L else 0L)
+                        double("trackAffRecent", aff); double("trackPosRecent", mass)
+                    }, { string("key", WhyLine.nameOf(why.key)); long("arg", why.arg) })
+                )
+            }
+        }
+        // The edge of "on repeat": a favourite with a high recent rate and exactly the mass it needs.
+        for (mass in masses) for (aff in affs) {
+            val why = WhyLine.pick(Arm.FAV, ListBuilder.SLOT_FAMILIAR, false, 11L, 0L, 0, 0L, 0L, aff, mass, false)
+            sb.append(
+                line("why", {
+                    int("arm", Arm.FAV); int("slotKind", ListBuilder.SLOT_FAMILIAR); bool("homeRow", false); bool("mix", false)
+                    long("candidateAid", 11L); long("seedAid", 0L); int("bestRank", 0); long("likedRid", 0L); long("homeSeedRid", 0L)
+                    double("trackAffRecent", aff); double("trackPosRecent", mass)
+                }, { string("key", WhyLine.nameOf(why.key)); long("arg", why.arg) })
+            )
+        }
+        return sb.toString()
+    }
+
     private val README = """
-        # Brain golden vectors (stage 1)
+        # Brain golden vectors (stages 1 and 2a)
 
         GENERATED by `./gradlew :brain:generateGolden` from the Kotlin in `:brain`. Never edit by hand.
         `BrainGoldenTest` fails when a fresh run differs from these files. The Swift port copies this
@@ -1018,5 +1237,19 @@ object GoldenGenerator {
         - `lists.jsonl`: rebuild from `history` and `facts`; replay `session` (`Session.begin` with
           start reason `tap`, then `Brain.onEvent`, for each event); build the graph;
           `StationPlanner.plan(request)`.
+        - `mixes.jsonl` (stage 2a): rebuild from `history` and `facts`; `MixPlanner.plan(request)` with the
+          candidates, seeds and request as given (`edges` are `[a, b, weight]`, `servedTimes` are
+          `[rid, times]`); `nu` is `MixPlanner.nuOf(kind, nuMultiplier)` and `tieSeed` is
+          `MixPlanner.tieSeedOf(request)`.
+        - `why.jsonl` (stage 2a): `WhyLine.pick` with the fields of `in` (`trackAffRecent`, `trackPosRecent` and
+          `mix` are the stage 2a additions; "on repeat" needs both thresholds).
+        - `snapshot.jsonl` (stage 2a): `Snapshot.encode(Replay.rebuild(events, facts, nowMs))` is `text`.
+        - `repetition.jsonl` (stage 2a): `servedPenalty`, `mixDay`, and `served`: `timesServed(lists, nowMs)`
+          and `takenOnDay(lists, nowMs, tzOffsetMin, exceptSurface)`.
+        - `eval.jsonl` (stage 2a): `auc(keys, finished)`; `skipPrediction` is `Eval.skipPrediction(events,
+          facts, Config(resamples, seed))` with the two built-in baselines (artist rate, track
+          completions); `listHealth` is `Eval.listHealth(world, Snapshot.decode(snapshot), days, nowMs,
+          tzOffsetMin, salt)` with `HealthWorld(library, novel, seeds, finishRates)`; `finishRates` are
+          `[rid, rate]`.
     """.trimIndent() + "\n"
 }

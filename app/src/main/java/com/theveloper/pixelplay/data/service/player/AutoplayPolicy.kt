@@ -56,7 +56,7 @@ object AutoplayPolicy {
         /** Repeat-one or repeat-all is on: the queue already never ends. */
         REPEATING,
 
-        /** Cast or Spotify Connect plays: autoplay is off during remote sessions in stage 1. */
+        /** The output cannot take the engine's picks (Cast): see [remoteRule]. */
         REMOTE,
 
         /** A saved queue is being restored; its own engine items come back with it. */
@@ -97,6 +97,92 @@ object AutoplayPolicy {
         fullQueueSize <= 0 || currentAbsoluteIndex < 0 -> Decision.NO_QUEUE
         remainingAfterCurrent(fullQueueSize, currentAbsoluteIndex) > TRIGGER_REMAINING -> Decision.ENOUGH_QUEUED
         else -> Decision.TOP_UP
+    }
+
+    // ── Remote outputs (14.6: how Cast and Spotify Connect take a track with no Spotify URI) ──
+
+    /** Where the queue is sounding. */
+    enum class RemoteOutput {
+        /** This phone. */
+        NONE,
+
+        /** A Cast device: it plays a queue of files this phone serves, loaded once when the session starts. */
+        CAST,
+
+        /** A Spotify Connect device: it streams from Spotify, told what to play by this phone's queue. */
+        CONNECT,
+    }
+
+    /** What the engine may do while the queue sounds on a remote output. */
+    data class RemoteRule(
+        /** Autoplay may append picks, and a station may run. */
+        val picks: Boolean,
+        /**
+         * Only picks the output can play go in: on Spotify Connect a pick needs a Spotify track (its own
+         * id, or a strict search match), so it is looked up before it is queued and left out when
+         * Spotify does not have it.
+         */
+        val onlyWhatTheOutputPlays: Boolean,
+        /**
+         * The engine's tail may be re-scored (replaced in one edit). Not on a remote output: replacing
+         * what the device was already told to play means sending it the list again, which is audible.
+         */
+        val rescore: Boolean,
+        /**
+         * The 1.5 s settle rule reads this phone's player. On a remote output the phone streams nothing
+         * and its player stays paused at the start of the track, so the wait is a plain delay there.
+         */
+        val settleOnLocalPlayer: Boolean,
+    )
+
+    /**
+     * The trace behind this is in handoff/2026-11-18-music-brain-stage2a.md. In short:
+     *
+     * - **Cast** loads its queue once (`CastPlayer.loadQueue`) as urls of this phone's file server,
+     *   which serves only the song ids named at load time and resolves each through the library's
+     *   `songs` table and then MediaStore. A pick from outside the library has no row there (404), and
+     *   nothing appends to a loaded Cast queue. So no picks and no station while casting; the queue
+     *   says so.
+     * - **Spotify Connect** plays the phone's own queue, entry by entry, as Spotify track URIs. An
+     *   entry without a Spotify id is looked up by title, artist and length and skipped when Spotify
+     *   has no strict match. So picks can run there, limited to what Spotify has; [connectAllowed] is
+     *   the one switch that turns it off.
+     */
+    fun remoteRule(output: RemoteOutput, connectAllowed: Boolean = true): RemoteRule = when (output) {
+        RemoteOutput.NONE -> RemoteRule(picks = true, onlyWhatTheOutputPlays = false, rescore = true, settleOnLocalPlayer = true)
+        RemoteOutput.CAST -> RemoteRule(picks = false, onlyWhatTheOutputPlays = false, rescore = false, settleOnLocalPlayer = false)
+        RemoteOutput.CONNECT -> RemoteRule(
+            picks = connectAllowed,
+            onlyWhatTheOutputPlays = true,
+            rescore = false,
+            settleOnLocalPlayer = false,
+        )
+    }
+
+    /**
+     * True for an id Spotify itself gave out: 22 base62 characters that are not all lower-case hex
+     * (the app's own ids for tracks saved from YouTube Music are 22 hex characters). Such a track plays
+     * on Spotify Connect with no lookup. The same rule as `SpotifyConnect.isTrackId`.
+     */
+    fun isSpotifyTrackId(id: String?): Boolean {
+        if (id == null || id.length != 22) return false
+        var allLowerHex = true
+        for (c in id) {
+            val digit = c in '0'..'9'
+            if (!digit && c !in 'A'..'Z' && c !in 'a'..'z') return false
+            if (!(digit || c in 'a'..'f')) allLowerHex = false
+        }
+        return !allLowerHex
+    }
+
+    /**
+     * Which of a planned batch go into the queue on an output that plays only some tracks: the ones the
+     * output answered yes for, in the planned order. [playable] is parallel to [mediaIds].
+     */
+    fun keepPlayable(mediaIds: List<String>, playable: BooleanArray): Set<String> {
+        val kept = LinkedHashSet<String>()
+        for (i in mediaIds.indices) if (i < playable.size && playable[i]) kept.add(mediaIds[i])
+        return kept
     }
 
     /**

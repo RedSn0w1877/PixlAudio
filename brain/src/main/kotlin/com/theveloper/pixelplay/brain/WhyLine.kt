@@ -15,7 +15,7 @@ object WhyLine {
     const val BECAUSE_LISTENED = 3
     /** "More from X"; the argument is the pick's own artist (aid). */
     const val ARTIST_MORE = 4
-    /** "On repeat this month"; no argument. */
+    /** "On repeat lately"; no argument. Decided by [ON_REPEAT_AFF] and [ON_REPEAT_MASS]. */
     const val ON_REPEAT = 5
     const val SIMILAR_ARTIST = 6
     const val NEW_RELEASE = 7
@@ -38,12 +38,22 @@ object WhyLine {
 
     class Why(val key: Int, val arg: Long)
 
-    /** A track's 21-day affinity above this reads as "on repeat". */
+    /** A track's 21-day affinity must be above this to read as "on repeat". */
     const val ON_REPEAT_AFF = 1.0
 
     /**
+     * And its 21-day positive mass at least this much: about three finished plays of the listener's
+     * own choosing in the last three weeks (one finished play is worth 1.0, and the mass halves every
+     * 21 days). The rate alone is not enough: for a listener who rarely finishes a song, one finished
+     * play already lifts the rate above [ON_REPEAT_AFF], and "on repeat" would be untrue.
+     */
+    const val ON_REPEAT_MASS = 2.5
+
+    /**
      * [seedAid] is the primary artist of the seed whose radio ranked the pick best (0 when it came from
-     * no radio); [trackAffRecent] is the pick's own 21-day affinity.
+     * no radio); [trackAffRecent] is the pick's own 21-day affinity and [trackPosRecent] its 21-day
+     * positive mass (0 for a track the listener has not played). In a [mix] the library tracks carry
+     * a line only when they are on repeat.
      */
     fun pick(
         arm: Int,
@@ -55,6 +65,8 @@ object WhyLine {
         likedRid: Long,
         homeSeedRid: Long,
         trackAffRecent: Double,
+        trackPosRecent: Double = 0.0,
+        mix: Boolean = false,
     ): Why {
         if (slotKind == ListBuilder.SLOT_LIKED && likedRid != 0L) return Why(BECAUSE_LIKED, likedRid)
         if (homeRow && homeSeedRid != 0L) return Why(BECAUSE_LISTENED, homeSeedRid)
@@ -62,7 +74,9 @@ object WhyLine {
             Arm.RADIO -> if (seedAid != 0L) Why(RADIO_FANS, seedAid) else Why(NONE, 0L)
             Arm.ARTIST -> if (candidateAid != 0L) Why(ARTIST_MORE, candidateAid) else Why(NONE, 0L)
             Arm.FAV, Arm.DEEP -> when {
-                arm == Arm.FAV && trackAffRecent > ON_REPEAT_AFF -> Why(ON_REPEAT, 0L)
+                arm == Arm.FAV && trackAffRecent > ON_REPEAT_AFF && trackPosRecent >= ON_REPEAT_MASS -> Why(ON_REPEAT, 0L)
+                // A mix holds the listener's own music by the dozen: a line under each of them would be noise.
+                mix -> Why(NONE, 0L)
                 bestRank > 0 && seedAid != 0L -> Why(RADIO_FANS, seedAid)
                 candidateAid != 0L -> Why(ARTIST_MORE, candidateAid)
                 else -> Why(NONE, 0L)

@@ -43,6 +43,9 @@ object BrainHash {
     /** One SplitMix64 step from [state]: advance by the gamma, then mix. Stateless form. */
     fun splitmix64(state: Long): Long = mix(state + SPLITMIX_GAMMA)
 
+    /** The top 53 bits of [h] as a number in [0, 1): `(h >>> 11) * 2^-53`. */
+    fun unit(h: Long): Double = (h ushr 11).toDouble() * TWO_POW_MINUS_53
+
     /** A SplitMix64 stream. [uniform] advances the state once; [gaussian12] twelve times. */
     class Rng(seed: Long) {
         var state: Long = seed

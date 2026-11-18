@@ -30,5 +30,12 @@ class BrainSwitch @Inject constructor(
          * them back on if the brain's row has to be pulled.
          */
         const val LEGACY_EAGER_DISCOVERY = false
+
+        /**
+         * Autoplay and stations on a Spotify Connect device (14.6, owner question 7). On: the phone's
+         * queue is what the device plays, and a pick is queued only when Spotify has it. The one place
+         * to turn it off if a speaker misbehaves; Cast is always off (see `AutoplayPolicy.remoteRule`).
+         */
+        const val AUTOPLAY_ON_CONNECT = true
     }
 }

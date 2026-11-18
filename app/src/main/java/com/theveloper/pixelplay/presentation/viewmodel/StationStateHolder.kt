@@ -37,6 +37,7 @@ class StationStateHolder @Inject constructor(
     private val musicRepository: MusicRepository,
     private val engagementDao: EngagementDao,
     private val clock: BrainClock,
+    private val castStateHolder: CastStateHolder,
 ) {
     /** What the player does for a station; implemented by the ViewModel that owns the controller. */
     interface Player {
@@ -87,6 +88,12 @@ class StationStateHolder @Inject constructor(
     }
 
     private fun start(station: Station, seed: Song, player: Player) {
+        // A Cast device plays a queue loaded once, of files this phone serves: the picks a station
+        // lives on cannot reach it (docs/brain-spec.md, 14.6). Say so instead of starting one song.
+        if (castStateHolder.castSession.value != null) {
+            player.toast(context.getString(R.string.brain_station_off_while_casting))
+            return
+        }
         stations.start(station)
         if (player.currentSongId() == seed.id) {
             // The seed is already sounding: it keeps playing, and what was queued behind it goes.

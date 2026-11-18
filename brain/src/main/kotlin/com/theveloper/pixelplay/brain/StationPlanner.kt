@@ -12,6 +12,13 @@ object StationPlanner {
     const val MODE_STATION = 1
     const val MODE_HOME_ROW = 2
 
+    /**
+     * Daily Mix and Your Mix (6.2, stage 2a): the pool is the library plus the cached radios of the
+     * listener's own tracks, no library track has to be close to a seed, and nothing the session did
+     * applies (a mix is built from a fresh session). [MixPlanner] is the way in.
+     */
+    const val MODE_MIX = 3
+
     const val FOUR_HOURS_MS = 4L * 60 * 60 * 1000
 
     /** Autoplay: a library track must be this close to an anchor (same artist, or the first 8 radio rows). */
@@ -43,6 +50,14 @@ object StationPlanner {
         /** The first slot is the bridge of 7.1 (the first track autoplay appends to a queue). */
         val bridge: Boolean = false,
         val finite: Boolean = false,
+        /** At least 0: the novelty share to use as it is (a mix has its own, 8.2); negative: the session's. */
+        val nu: Double = -1.0,
+        /** How often each recording was served in a generated list in the last 30 days (6.5 `servedPen`). */
+        val servedTimes: Map<Long, Int> = emptyMap(),
+        /** The width of the per-list jitter of a mix (see [MixPlanner.JITTER]); 0 for none. */
+        val jitter: Double = 0.0,
+        /** The penalty at three serves or more (see [Repetition.MAX_PENALTY]). */
+        val servedMax: Double = Repetition.MAX_PENALTY,
     )
 
     class Pick(
@@ -81,6 +96,7 @@ object StationPlanner {
         val cooc = Retrieval.cooc(request.seeds, affinity, nowMs, p0)
         val homeRow = request.mode == MODE_HOME_ROW
         val station = request.mode == MODE_STATION
+        val mix = request.mode == MODE_MIX
         val stationSeed = if ((station || homeRow) && request.seeds.isNotEmpty()) request.seeds[0] else null
         val newest = if (request.seeds.isNotEmpty()) request.seeds[0] else null
         val newestRank = HashMap<Long, Int>()
@@ -104,7 +120,7 @@ object StationPlanner {
             if (stationSeed != null && station) {
                 val s = Similarity.sim(graph, c.rid, c.aid, stationSeed.seedRid, stationSeed.seedAid)
                 if (s < (if (c.inLibrary) FAMILIAR_FLOOR else STATION_FLOOR)) continue
-            } else if (c.inLibrary) {
+            } else if (c.inLibrary && !mix) {
                 var close = 0.0
                 for (seed in request.seeds) {
                     val s = Similarity.sim(graph, c.rid, c.aid, seed.seedRid, seed.seedAid)
@@ -153,6 +169,10 @@ object StationPlanner {
                     newestSeedRank = newestRank[c.rid] ?: 0,
                     lastMs = Affinity.lastMs(affinity, Family.TRACK, c.rid),
                     retrQ = BrainMath.floorToLong(pct[i] * 1000.0 + 0.5).toInt(),
+                    servedPen = if (mix) Repetition.servedPenalty(request.servedTimes[c.rid] ?: 0, request.servedMax) else 0.0,
+                    noise = if (mix && request.jitter > 0.0) {
+                        request.jitter * (BrainHash.unit(BrainHash.splitmix64(c.rid xor request.tieSeed)) - 0.5)
+                    } else 0.0,
                 )
             )
         }
@@ -174,7 +194,9 @@ object StationPlanner {
             firstSlotAids = aids.toLongArray()
         }
         val liked = session.likedWithin > 0 && !homeRow
-        val nu = if (homeRow) 1.0 else BrainMath.clip(session.nuSession * request.nuMultiplier, 0.0, 1.0)
+        val nu = if (homeRow) 1.0
+        else if (request.nu >= 0.0) BrainMath.clip(request.nu, 0.0, 1.0)
+        else BrainMath.clip(session.nuSession * request.nuMultiplier, 0.0, 1.0)
         val built = ListBuilder.build(
             ListBuilder.Request(
                 count = request.count,
@@ -210,6 +232,8 @@ object StationPlanner {
                 likedRid = session.likedRid,
                 homeSeedRid = stationSeed?.seedRid ?: 0L,
                 trackAffRecent = Affinity.affRecent(affinity, Family.TRACK, s.c.rid, nowMs, p0),
+                trackPosRecent = affinity.counter(Family.TRACK, s.c.rid)?.let { Affinity.posRecent(it, nowMs) } ?: 0.0,
+                mix = mix,
             )
             picks.add(
                 Pick(

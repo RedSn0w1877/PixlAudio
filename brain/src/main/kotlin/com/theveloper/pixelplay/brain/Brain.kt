@@ -7,7 +7,7 @@ package com.theveloper.pixelplay.brain
  */
 object Brain {
     /** Bumped whenever the pure logic changes its output: new golden files, and a rebuild on first use. */
-    const val SPEC_VERSION = 1
+    const val SPEC_VERSION = 2
 
     fun onEvent(affinity: Affinity.State, tracker: GradeTracker, session: SessionState, e: PlayEvent): Reward.Graded {
         val novel = !Affinity.isHeard(affinity, Family.TRACK, e.rid)

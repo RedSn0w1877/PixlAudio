@@ -9,6 +9,7 @@
     <string name="brain_station_title">Station · %1$s</string>
     <string name="brain_station_subtitle_song">Music like this song, picked as you listen</string>
     <string name="brain_station_subtitle_artist">This artist and music close to them</string>
+    <string name="brain_station_off_while_casting">Stations don\'t work while casting. Stop casting to start one.</string>
     <string name="brain_station_nothing_to_start">Nothing to start from yet. Add a song by %1$s first.</string>
 
     <!-- Familiar / Blend / Discover (8.3) -->

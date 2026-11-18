@@ -407,6 +407,33 @@ class SpotifyConnectController @Inject constructor(
         }
     }
 
+    /**
+     * Which of [items] a Connect device can play, in order: a real Spotify id, or a strict search match
+     * (the same lookup a queue entry gets when its window is sent, and the same cache, so that later
+     * lookup is answered from it). An entry whose lookup failed counts as "not now" and nothing is
+     * remembered about it. Autoplay asks this before it queues a pick during a session, so a pick
+     * Spotify does not have never reaches the queue. At most [AUTOPLAY_LOOKUP_LIMIT] searches a call.
+     */
+    suspend fun canPlay(items: List<MediaItem>): BooleanArray {
+        val out = BooleanArray(items.size)
+        if (items.isEmpty()) return out
+        withContext(Dispatchers.IO) {
+            var lookups = 0
+            for (i in items.indices) {
+                val track = ConnectTrack.from(items[i])
+                var slot = resolver.cached(track)
+                if (slot == SpotifyConnectSlot.Pending) {
+                    if (lookups >= AUTOPLAY_LOOKUP_LIMIT) continue
+                    lookups++
+                    slot = resolver.resolve(track)
+                }
+                out[i] = slot is SpotifyConnectSlot.Uri
+            }
+            if (lookups > 0) resolver.flush()
+        }
+        return out
+    }
+
     // ─── Starting a session ───────────────────────────────────────────────────────────────
 
     /** Plays PixlAudio's queue on [device], from the current entry and position. */
@@ -1107,6 +1134,8 @@ class SpotifyConnectController @Inject constructor(
         /** Consecutive failed polls (no network, 5xx) before the session is given up. */
         const val MAX_NETWORK_FAILURES = 15
         const val RESYNC_DEBOUNCE_MS = 350L
+        /** Searches one [canPlay] call may spend (a station's first batch is 20 picks). */
+        const val AUTOPLAY_LOOKUP_LIMIT = 24
         /** Volume key step, in percent (one unit of the session's 0…20 remote volume). */
         const val VOLUME_STEP = SpotifyConnectVolume.STEP_PERCENT
     }

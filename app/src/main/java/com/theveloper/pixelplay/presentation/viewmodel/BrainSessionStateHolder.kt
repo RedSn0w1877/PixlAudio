@@ -50,12 +50,21 @@ class BrainSessionStateHolder @Inject constructor(
     val stations: StationStateHolder,
     /** "Not for me", its bar, and the two sheets that explain picks. */
     val actions: BrainActionsStateHolder,
+    castStateHolder: CastStateHolder,
     @AppScope private val appScope: CoroutineScope,
 ) {
-    /** The Autoplay line of the queue. The switch comes from the setting, so it is right before the service runs. */
+    /**
+     * The Autoplay line of the queue. The switch comes from the setting, so it is right before the
+     * service runs. While a Cast session is up the line says picks are off there (14.6).
+     */
     val autoplayUiState: StateFlow<AutoplayUiState> =
-        combine(brainSwitch.autoplayEnabledFlow, autoplayController.uiState, stationStore.novelty) { enabled, state, novelty ->
-            state.copy(enabled = enabled, novelty = novelty)
+        combine(
+            brainSwitch.autoplayEnabledFlow,
+            autoplayController.uiState,
+            stationStore.novelty,
+            castStateHolder.castSession,
+        ) { enabled, state, novelty, cast ->
+            state.copy(enabled = enabled, novelty = novelty, offWhileCasting = cast != null)
         }.stateIn(appScope, SharingStarted.WhileSubscribed(5_000L), AutoplayUiState())
 
     private val _engineQueueIds = MutableStateFlow<Set<String>>(emptySet())
