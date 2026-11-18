@@ -154,7 +154,10 @@ class AppStateRebuilder @Inject constructor(
 
         // Step 2: the app's own older plays, once.
         if (store.getState(BrainStore.KEY_HISTORY_MIGRATED) == null) {
-            val cutoff = store.getState(BrainStore.KEY_FIRST_USE_MS)?.toLongOrNull() ?: nowMs
+            val cutoff = LegacyMigration.cutoff(
+                firstUseMs = store.getState(BrainStore.KEY_FIRST_USE_MS)?.toLongOrNull() ?: nowMs,
+                firstLiveStartMs = store.eventsAfter(0L, 1).firstOrNull()?.takeIf { it.origin == Origin.LIVE }?.startedAtMs,
+            )
             val rows = playbackStatsRepository.get().exportEventsForBackup().map {
                 LegacyMigration.HistoryRow(it.songId, it.endTimestamp ?: it.timestamp, it.durationMs)
             }

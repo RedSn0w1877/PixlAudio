@@ -500,6 +500,10 @@ class MusicService : MediaLibraryService() {
     }
 
     private val transitionDisplayPlayerListener: (Player) -> Unit = { displayPlayer ->
+        // The track the hand-over is leaving. If the hand-over is cancelled, the engine publishes its
+        // player again, and that must not read as "the incoming track played out" (see below).
+        val leavingId = (mediaSession?.player ?: engine.masterPlayer).currentMediaItem?.mediaId
+        brainHandOverFromId = leavingId?.takeIf { it != displayPlayer.currentMediaItem?.mediaId }
         publishMediaSessionPlayer(
             displayPlayer,
             "Published incoming crossfade player to MediaSession."
@@ -521,6 +525,7 @@ class MusicService : MediaLibraryService() {
             realSpatialPlayback.onItemChanged(item?.mediaId, spotifyIdOf(item), item?.localConfiguration?.uri?.toString())
         }
         replayGainProcessor.onTransitionFinished()
+        brainHandOverFromId = null
         // An Autoplay top-up held back during the hand-over goes in now.
         autoplayController.onTransitionFinished()
     }
@@ -542,12 +547,30 @@ class MusicService : MediaLibraryService() {
         updateNextStreamPrefetch()
         Timber.tag("MusicService").d(logMessage)
         // A published player on another song is the crossfade hand-over: the old track played out.
+        // Unless it is the track the hand-over was leaving: then the hand-over was cancelled (a queue
+        // edit or a repeat toggle during the fade, a new play). The incoming track was heard for a
+        // second or two and did not "finish"; it ends with no reason, which counts for nothing. The
+        // old track's play was already closed as finished when the fade began, so the rest of it is
+        // marked not to be counted a second time.
+        val publishedId = player.currentMediaItem?.mediaId
+        val cancelledHandOver = com.theveloper.pixelplay.data.brain.PlayReasons.isCancelledHandOver(
+            leavingMediaId = brainHandOverFromId,
+            publishedMediaId = publishedId,
+        )
+        if (cancelledHandOver) brainHandOverFromId = null
         syncLocalListeningStatsFromPlayer(
             player,
-            reasons = com.theveloper.pixelplay.data.brain.PlayReasons.forHandOver(
-                com.theveloper.pixelplay.data.brain.BrainExtras.isEngineOwned(player.currentMediaItem?.mediaMetadata?.extras)
-            ),
+            reasons = if (cancelledHandOver) {
+                com.theveloper.pixelplay.data.brain.PlayReasons.forCancelledHandOver()
+            } else {
+                com.theveloper.pixelplay.data.brain.PlayReasons.forHandOver(
+                    com.theveloper.pixelplay.data.brain.BrainExtras.isEngineOwned(player.currentMediaItem?.mediaMetadata?.extras)
+                )
+            },
         )
+        if (cancelledHandOver && publishedId != null) {
+            listeningStatsTracker.markFlag(publishedId, com.theveloper.pixelplay.brain.EventFlags.LEARN_EXCLUDED)
+        }
         widgetUpdateManager.requestFullUpdate(true)
         refreshMediaSessionUi(session)
     }
@@ -598,6 +621,13 @@ class MusicService : MediaLibraryService() {
     private var brainLastAbsoluteIndex = -1
     private var brainLastQueueSize = 0
     private var brainPendingErrorEnd = false
+    // The track a running crossfade hand-over is leaving; null when none runs.
+    private var brainHandOverFromId: String? = null
+    // The last jump the player reported, read by the transition that follows it in the same breath:
+    // a queue rebuilt around the track that is playing keeps the track and its position.
+    private var brainJumpFromId: String? = null
+    private var brainJumpFromPositionMs = 0L
+    private var brainJumpToPositionMs = 0L
 
     /** `EndReason.ERROR` once after a player error, else [reason]. */
     private fun brainEndReason(reason: Int): Int {
@@ -658,7 +688,8 @@ class MusicService : MediaLibraryService() {
             tag = com.theveloper.pixelplay.data.brain.BrainExtras.read(extras),
             retrQ = extras?.getInt(com.theveloper.pixelplay.data.brain.BrainExtras.RETR_Q, -1) ?: -1,
             radioRank = extras?.getInt(com.theveloper.pixelplay.data.brain.BrainExtras.RADIO_RANK, -1) ?: -1,
-            shuffle = player.shuffleModeEnabled,
+            // The app shuffles the queue itself and leaves the player's own shuffle off.
+            shuffle = isManualShuffleEnabled || player.shuffleModeEnabled,
             repeatOne = player.repeatMode == Player.REPEAT_MODE_ONE,
             route = brainRoute(),
         )
@@ -1980,6 +2011,9 @@ class MusicService : MediaLibraryService() {
             newPosition: Player.PositionInfo,
             reason: Int
         ) {
+            brainJumpFromId = oldPosition.mediaItem?.mediaId
+            brainJumpFromPositionMs = oldPosition.positionMs
+            brainJumpToPositionMs = newPosition.positionMs
             if (reason == Player.DISCONTINUITY_REASON_SEEK) {
                 // A seek inside one track: back to the start is a replay, back by ten seconds a seek-back.
                 if (oldPosition.mediaItemIndex == newPosition.mediaItemIndex &&
@@ -2055,10 +2089,21 @@ class MusicService : MediaLibraryService() {
                 newItemIsEnginePick = com.theveloper.pixelplay.data.brain.BrainExtras.isEngineOwned(mediaItem?.mediaMetadata?.extras),
                 isRestoring = isRestoringPlaybackSnapshot,
             )
+            // The queue was rebuilt around the track that is playing (shuffle switched off, a queue
+            // replaced in one go): the same track at the same position is the same play going on, not
+            // a skip followed by a new play.
+            val samePlayGoesOn = com.theveloper.pixelplay.data.brain.PlayReasons.continuesSamePlay(
+                reason = reason,
+                oldMediaId = brainJumpFromId,
+                newMediaId = mediaItem?.mediaId,
+                oldPositionMs = brainJumpFromPositionMs,
+                newPositionMs = brainJumpToPositionMs,
+            )
+            brainJumpFromId = null
             syncLocalListeningStatsFromPlayer(
                 mediaSession?.player ?: engine.masterPlayer,
-                forceNewSession = true,
-                reasons = brainReasons,
+                forceNewSession = !samePlayGoesOn,
+                reasons = if (samePlayGoesOn) null else brainReasons,
             )
 
             val eotTargetSongId = endOfTrackTimerSongId
@@ -2129,6 +2174,10 @@ class MusicService : MediaLibraryService() {
             brainPendingErrorEnd = true
             // The failed song, read before the recovery moves the index to the next one.
             val currentMediaItem = mediaSession?.player?.currentMediaItem
+            // A pick of the engine that fails is not offered again for a while (docs/brain-spec.md, 12.3).
+            val failedEnginePick =
+                com.theveloper.pixelplay.data.brain.BrainExtras.isEngineOwned(currentMediaItem?.mediaMetadata?.extras)
+            if (failedEnginePick) currentMediaItem?.mediaId?.let(autoplayController::onItemFailed)
             // A failed stream used to leave a silent IDLE player behind (and a mini player with
             // dead buttons). Move on to the next song, or stop in a state the play button restarts.
             val skippedToNext = recoverFromPlaybackError()
@@ -2150,6 +2199,9 @@ class MusicService : MediaLibraryService() {
                     )
                 )
 
+                // The listener did not ask for this track: when the engine's pick fails and the next one
+                // plays, nothing is said. A player that stopped still says why.
+                if (failedEnginePick && skippedToNext) return@launch
                 val errorMessage = error.localizedMessage ?: error.message ?: "Unknown error"
                 val toastMessage = if (skippedToNext) {
                     getString(R.string.player_playback_error_skipping, trackTitle)

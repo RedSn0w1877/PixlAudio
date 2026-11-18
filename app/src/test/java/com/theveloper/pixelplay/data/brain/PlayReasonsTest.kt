@@ -90,4 +90,28 @@ class PlayReasonsTest {
         assertNull(BrainSurfaces.forQueue(null, null))
         assertEquals(Surface.nameOf(Surface.MANUAL_QUEUE), BrainSurfaces.manualQueue.surface)
     }
+
+    @Test
+    fun `a cancelled hand-over is not a finished play`() {
+        // The engine publishes the player of the track the fade was leaving: the fade was cancelled.
+        org.junit.jupiter.api.Assertions.assertTrue(PlayReasons.isCancelledHandOver(leavingMediaId = "old", publishedMediaId = "old"))
+        // The normal end of a fade publishes the incoming track; no fade running publishes anything.
+        org.junit.jupiter.api.Assertions.assertFalse(PlayReasons.isCancelledHandOver(leavingMediaId = "old", publishedMediaId = "new"))
+        org.junit.jupiter.api.Assertions.assertFalse(PlayReasons.isCancelledHandOver(leavingMediaId = null, publishedMediaId = "old"))
+        // The second or two of the incoming track ends with no reason, which weighs nothing (4.3).
+        assertEquals(EndReason.UNKNOWN to StartReason.UNKNOWN, pair(PlayReasons.forCancelledHandOver()))
+    }
+
+    @Test
+    fun `a queue rebuilt around the playing track is the same play going on`() {
+        val changed = PlayReasons.TRANSITION_PLAYLIST_CHANGED
+        // Shuffle switched off: the same track, the same position.
+        org.junit.jupiter.api.Assertions.assertTrue(PlayReasons.continuesSamePlay(changed, "a", "a", 61_000L, 61_050L))
+        // The same song tapped again starts from the top: a new play.
+        org.junit.jupiter.api.Assertions.assertFalse(PlayReasons.continuesSamePlay(changed, "a", "a", 61_000L, 0L))
+        // Another song, an unknown one, or another kind of transition.
+        org.junit.jupiter.api.Assertions.assertFalse(PlayReasons.continuesSamePlay(changed, "a", "b", 61_000L, 61_000L))
+        org.junit.jupiter.api.Assertions.assertFalse(PlayReasons.continuesSamePlay(changed, null, "a", 0L, 0L))
+        org.junit.jupiter.api.Assertions.assertFalse(PlayReasons.continuesSamePlay(PlayReasons.TRANSITION_SEEK, "a", "a", 61_000L, 61_000L))
+    }
 }

@@ -65,6 +65,19 @@ class LegacyMigration(
         return withContext(Dispatchers.IO) { store.transaction { store.insertEvents(events) } }
     }
 
+    companion object {
+        /**
+         * Where the live log begins: legacy rows that ended at or after this are not copied.
+         *
+         * First use is written down when the brain's state is first loaded, which for most listeners
+         * is while the first finished play is being recorded, a moment AFTER that play ended. Its
+         * legacy row would then be copied although the same listen is already in the log as a live
+         * event. So the log is live from the START of its first live play, when that is earlier.
+         */
+        fun cutoff(firstUseMs: Long, firstLiveStartMs: Long?): Long =
+            if (firstLiveStartMs != null && firstLiveStartMs in 1 until firstUseMs) firstLiveStartMs else firstUseMs
+    }
+
     private suspend fun resolve(facts: TrackFacts?): Resolved? {
         facts ?: return null
         val durationMs = facts.durationMs.coerceIn(0L, Int.MAX_VALUE.toLong()).toInt()

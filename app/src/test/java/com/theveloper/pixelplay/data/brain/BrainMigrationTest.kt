@@ -104,6 +104,24 @@ class BrainMigrationTest {
     }
 
     @Test
+    fun `the play that first woke the brain is not copied a second time`() = runTest {
+        // First use is written while the first finished play is recorded, after that play ended. The
+        // log is live from the START of that play: its legacy row is not history to migrate.
+        val firstUse = now
+        val firstLiveStart = now - 200_000L
+        assertEquals(firstLiveStart, LegacyMigration.cutoff(firstUse, firstLiveStart))
+        // A row that ended inside that first live play is left alone; older ones are copied.
+        val rows = listOf(
+            LegacyMigration.HistoryRow("s1", now - 1_000L, 199_000L),
+            LegacyMigration.HistoryRow("s1", now - 3 * day, 250_000L),
+        )
+        assertEquals(1, LegacyMigration(store, resolver).copy(rows, LegacyMigration.cutoff(firstUse, firstLiveStart), factsFor))
+        // No live play yet, or a live play that started after first use: first use is the line.
+        assertEquals(firstUse, LegacyMigration.cutoff(firstUse, null))
+        assertEquals(firstUse, LegacyMigration.cutoff(firstUse, firstUse + 5_000L))
+    }
+
+    @Test
     fun `two plays of one song in the same millisecond keep both`() = runTest {
         val rows = listOf(
             LegacyMigration.HistoryRow("s1", now - day, 10_000L),

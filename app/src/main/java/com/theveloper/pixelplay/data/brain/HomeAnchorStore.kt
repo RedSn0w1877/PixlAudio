@@ -72,6 +72,8 @@ class HomeAnchorStore @Inject constructor(
         fun qualifies(event: PlayEvent, graded: Reward.Graded): Boolean {
             if (event.origin != Origin.LIVE || event.rid == 0L) return false
             if (event.has(EventFlags.NOT_FOR_ME) || event.has(EventFlags.NEVER_AUDIBLE)) return false
+            // The rest of a track whose play was already counted (a cancelled crossfade) is not a second listen.
+            if (event.has(EventFlags.LEARN_EXCLUDED)) return false
             return if (event.arm == Arm.NONE) graded.r >= Reward.COMPLETION_R else event.flags and ACTED_ON != 0
         }
 

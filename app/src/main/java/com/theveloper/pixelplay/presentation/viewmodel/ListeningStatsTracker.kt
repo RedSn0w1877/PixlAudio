@@ -235,6 +235,7 @@ class ListeningStatsTracker @Inject constructor(
         updateBrainPlay(SystemClock.elapsedRealtime(), play.isPlaying, 0L)
         if (play.playedMs < SEEK_SIGNAL_MIN_PLAYED_MS) return
         if (toPositionMs <= REPLAY_POSITION_MS && fromPositionMs >= SEEK_SIGNAL_MIN_PLAYED_MS) {
+            if (play.flags and EventFlags.REPLAYED == 0) play.replayFlaggedAtRealtimeMs = SystemClock.elapsedRealtime()
             play.flags = play.flags or EventFlags.REPLAYED
         } else if (fromPositionMs - toPositionMs >= SEEK_BACK_MIN_MS) {
             play.flags = play.flags or EventFlags.SEEK_BACK
@@ -462,6 +463,14 @@ class ListeningStatsTracker @Inject constructor(
         val play = brainPlay ?: return
         brainPlay = null
         play.update(nowRealtime, play.isPlaying, 0L)
+        // Previous pressed twice goes back a track: the first press seeks to the start (which looks
+        // like a replay), the second leaves. A "replay" that is left by Previous within moments was
+        // the way out, not a wish to hear the track again.
+        if (endReason == EndReason.PREV && play.replayFlaggedAtRealtimeMs != 0L &&
+            nowRealtime - play.replayFlaggedAtRealtimeMs < REPLAY_CONFIRM_MS
+        ) {
+            play.flags = play.flags and EventFlags.REPLAYED.inv()
+        }
         // An item that never played and was not ended by the listener or an error is not a play
         // attempt (a restored, paused queue; a queue that was cleared).
         val ended = endReason == EndReason.NEXT || endReason == EndReason.PREV ||
@@ -496,6 +505,7 @@ class ListeningStatsTracker @Inject constructor(
         private const val SEEK_SIGNAL_MIN_PLAYED_MS = 30_000L
         private const val SEEK_BACK_MIN_MS = 10_000L
         private const val REPLAY_POSITION_MS = 3_000L
+        private const val REPLAY_CONFIRM_MS = 5_000L
     }
 }
 
@@ -516,6 +526,8 @@ private class BrainPlay(
     var playedMs: Long = 0L
     var flags: Int = 0
     var everPlayed: Boolean = isPlaying
+    /** When a seek to the start first flagged this play as replayed; 0 when it never did. */
+    var replayFlaggedAtRealtimeMs: Long = 0L
 
     fun update(nowRealtime: Long, playing: Boolean, duration: Long) {
         if (isPlaying) playedMs += (nowRealtime - lastRealtimeMs).coerceAtLeast(0L)

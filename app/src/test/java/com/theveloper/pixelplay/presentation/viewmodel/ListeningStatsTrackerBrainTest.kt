@@ -229,6 +229,45 @@ class ListeningStatsTrackerBrainTest {
     }
 
     @Test
+    fun `previous pressed twice to go back a track is not a replay of the track being left`() {
+        val sink = RecordingSink()
+        val tracker = tracker(sink)
+        tracker.start("a")
+        clock += 60_000L
+        // First press: back to the start. Second press, a moment later: the track before.
+        tracker.onSeek(fromPositionMs = 60_000L, toPositionMs = 0L)
+        clock += 800L
+        tracker.start("b", context(StartReason.PREV), endReason = EndReason.PREV)
+        assertEquals(0, sink.finished.single().flags and EventFlags.REPLAYED)
+
+        // Back to the start and then listening on IS a replay, however the play ends later.
+        tracker.start("c", endReason = EndReason.NEXT)
+        clock += 60_000L
+        tracker.onSeek(fromPositionMs = 60_000L, toPositionMs = 0L)
+        clock += 45_000L
+        tracker.start("d", context(StartReason.PREV), endReason = EndReason.PREV)
+        val replayed = sink.finished.first { it.songId == "c" }
+        assertTrue(replayed.flags and EventFlags.REPLAYED != 0)
+    }
+
+    @Test
+    fun `a queue rebuilt around the playing track does not cut the play in two`() {
+        val sink = RecordingSink()
+        val tracker = tracker(sink)
+        tracker.start("a")
+        clock += 40_000L
+        // What the service does for a PLAYLIST_CHANGED onto the same track at the same position
+        // (shuffle switched off): it keeps the session instead of forcing a new one.
+        tracker.ensureSession("a", 40_000L, 200_000L, 0L, true, context(), EndReason.UNKNOWN)
+        clock += 150_000L
+        tracker.start("b", context(StartReason.AUTO_ADVANCE), endReason = EndReason.TRACK_DONE)
+        val play = sink.finished.single()
+        assertEquals("a", play.songId)
+        assertEquals(190_000L, play.playedMs)
+        assertEquals(EndReason.TRACK_DONE, play.endReason)
+    }
+
+    @Test
     fun `a caller without context, like cast, records nothing for the brain and everything as before`() {
         val sink = RecordingSink()
         val tracker = tracker(sink)

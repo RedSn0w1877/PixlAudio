@@ -133,6 +133,35 @@ object PlayReasons {
     /** A crossfade hand-over publishes the next player: the old track played out, the new one follows on its own. */
     fun forHandOver(newItemIsEnginePick: Boolean): Reasons =
         Reasons(EndReason.TRACK_DONE, if (newItemIsEnginePick) StartReason.AUTOPLAY else StartReason.AUTO_ADVANCE)
+
+    /**
+     * True when the player that is published holds the very track a running hand-over was leaving:
+     * the hand-over was cancelled and the old track is back. [leavingMediaId] is null when no
+     * hand-over runs.
+     */
+    fun isCancelledHandOver(leavingMediaId: String?, publishedMediaId: String?): Boolean =
+        leavingMediaId != null && leavingMediaId == publishedMediaId
+
+    /**
+     * A cancelled hand-over: the incoming track was heard for a moment and then the old one came back.
+     * That is not a finished play and not a skip. `unknown` with under 30 s heard weighs nothing (4.3).
+     */
+    fun forCancelledHandOver(): Reasons = Reasons(EndReason.UNKNOWN, StartReason.UNKNOWN)
+
+    /**
+     * True when a `PLAYLIST_CHANGED` transition is the same play going on: the queue was rebuilt
+     * around the track that is playing (shuffle switched off, a queue replaced in one go), so the
+     * track and its position are what they were. Tapping the same song again starts it from the top,
+     * which is a new play, unless the old one had barely begun.
+     */
+    fun continuesSamePlay(reason: Int, oldMediaId: String?, newMediaId: String?, oldPositionMs: Long, newPositionMs: Long): Boolean {
+        if (reason != TRANSITION_PLAYLIST_CHANGED) return false
+        if (oldMediaId == null || oldMediaId != newMediaId) return false
+        val moved = newPositionMs - oldPositionMs
+        return moved > -SAME_PLAY_TOLERANCE_MS && moved < SAME_PLAY_TOLERANCE_MS
+    }
+
+    private const val SAME_PLAY_TOLERANCE_MS = 3_000L
 }
 
 /**
