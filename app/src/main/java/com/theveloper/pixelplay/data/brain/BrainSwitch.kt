@@ -21,4 +21,14 @@ class BrainSwitch @Inject constructor(
     suspend fun setAutoplayEnabled(enabled: Boolean) = preferences.setBrainAutoplayEnabled(enabled)
 
     suspend fun setYouTubeSourceEnabled(enabled: Boolean) = preferences.setBrainYouTubeSourceEnabled(enabled)
+
+    companion object {
+        /**
+         * The legacy discovery paths the brain replaces in stage 1 (section 13, "Retire"): the eager
+         * import of `MusicDiscoveryRepository.augment` into the mixes, and Home's "Beyond your library"
+         * text search. Off. The code stays until stage 2 deletes it, so this is the one place to turn
+         * them back on if the brain's row has to be pulled.
+         */
+        const val LEGACY_EAGER_DISCOVERY = false
+    }
 }

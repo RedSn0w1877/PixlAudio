@@ -1,6 +1,7 @@
 package com.theveloper.pixelplay.presentation.viewmodel
 
 import android.content.Context
+import com.theveloper.pixelplay.R
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.theveloper.pixelplay.data.database.EngagementDao
@@ -25,6 +26,8 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
+import kotlinx.collections.immutable.toImmutableList
+import kotlinx.collections.immutable.toImmutableMap
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -60,7 +63,10 @@ class HomeDiscoveryStateHolder @Inject constructor(
     private val taste: MusicTasteRepository,
     private val catalog: HomeCatalogRepository,
     private val blockedArtists: com.theveloper.pixelplay.data.blocking.BlockedArtistsRepository,
-    private val tasteAdjustments: TasteAdjustmentRepository
+    private val tasteAdjustments: TasteAdjustmentRepository,
+    /** The music brain's "Because you listened to" rows (docs/brain-spec.md, 8.1). */
+    private val brainHomeRows: com.theveloper.pixelplay.data.brain.BrainHomeRows,
+    private val brainPlayTags: com.theveloper.pixelplay.data.brain.BrainPlayTags
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     // The ranking/planning passes are pure CPU over the whole library: run them on one Default
@@ -74,6 +80,8 @@ class HomeDiscoveryStateHolder @Inject constructor(
     // Written on IO when a refresh finishes, read on Main.
     @Volatile private var lastRefreshFinishedAt = 0L
     @Volatile private var lastRefreshHadLibrary = false
+    // The brain rows on screen, by section id: what a tap on one of their cards plays.
+    @Volatile private var brainRowsById: Map<String, com.theveloper.pixelplay.data.brain.BrainHomeRow> = emptyMap()
 
     init {
         // A taste change (boost, mute, block...) makes the snapshot stale: the next visit to Home re-plans
@@ -97,6 +105,28 @@ class HomeDiscoveryStateHolder @Inject constructor(
         refreshJob = scope.launch {
             mutableState.update { it.copy(isRefreshing = true) }
             try {
+                val enabled = taste.state.first().discoveryEnabled
+                // The brain's rows come from their saved file, before anything is planned: Home shows
+                // them at once and they do not change under the thumb. A rebuild (below) is what
+                // the NEXT visit shows; only a Home with no row yet takes a new one right away.
+                var brainRows = if (enabled) {
+                    try {
+                        brainHomeRows.cached()
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        emptyList()
+                    }
+                } else emptyList()
+                var legacyShelves: ImmutableList<HomeMusicSection> = mutableState.value.shelves
+                    .filterNot { it.id.startsWith(com.theveloper.pixelplay.data.brain.BrainHomeRow.ID_PREFIX) }
+                    .toImmutableList()
+                fun publishShelves() {
+                    brainRowsById = brainRows.associateBy { it.id }
+                    val sections = brainRows.map(::brainSection)
+                    mutableState.update { it.copy(shelves = (sections + legacyShelves).toImmutableList()) }
+                }
+                if (brainRows.isNotEmpty() || brainRowsById.isNotEmpty()) publishShelves()
                 // Blocked artists never reach Home recommendations.
                 val library = blockedArtists.current.filterAllowed(music.getAllSongsOnce())
                 lastRefreshHadLibrary = library.isNotEmpty()
@@ -118,7 +148,6 @@ class HomeDiscoveryStateHolder @Inject constructor(
                     }
                     signals to history
                 }
-                val enabled = taste.state.first().discoveryEnabled
                 val cache = if (enabled) catalog.cached() else HomeCatalogSnapshot()
                 suspend fun publish(snapshot: HomeCatalogSnapshot) {
                     val variant = if (PlusLicenseManager(context).activeEntitlement().isActive(now)) {
@@ -127,13 +156,17 @@ class HomeDiscoveryStateHolder @Inject constructor(
                     val planned = withContext(planningDispatcher) {
                         HomeRecommendationPlanner.plan(
                             library, favorites, signals, history,
-                            discoveries = blockedArtists.current.filterAllowed(snapshot.discoveries.map { it.song }),
+                            // No `discoveries`: the legacy "Beyond your library" shelf is replaced by the
+                            // brain's rows, which keep their own order and reasons (decision D10).
+                            discoveries = emptyList(),
                             releases = blockedArtists.current.filterAllowed(snapshot.releases.filter { HomeRecommendationPlanner.isRecentRelease(it.releaseDate, LocalDate.now()) }.map { it.song }),
                             nowMs = now, seed = LocalDate.now().toEpochDay(), variant = variant,
                             artistPriors = artistPriors, adjustments = adjustments
                         )
                     }
-                    mutableState.update { it.copy(mixes = planned.mixes, shelves = planned.shelves, discoveryEnabled = enabled) }
+                    legacyShelves = planned.shelves
+                    mutableState.update { it.copy(mixes = planned.mixes, discoveryEnabled = enabled) }
+                    publishShelves()
                 }
                 // Local shelves and cached metadata render before any network request begins.
                 publish(cache)
@@ -149,6 +182,15 @@ class HomeDiscoveryStateHolder @Inject constructor(
                     val refreshed = catalog.refresh(seeds, library, force)
                     // An unchanged snapshot plans to exactly what is already published.
                     if (refreshed != cache) publish(refreshed)
+                }
+                if (enabled) {
+                    // Never at app start: this returns at once until the brain is in memory, which
+                    // takes music having played in this process.
+                    val rebuilt = brainHomeRows.refreshIfDue()
+                    if (rebuilt != null && brainRows.isEmpty() && rebuilt.isNotEmpty()) {
+                        brainRows = rebuilt
+                        publishShelves()
+                    }
                 }
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) {
@@ -172,6 +214,15 @@ class HomeDiscoveryStateHolder @Inject constructor(
         if (state.value.preparingSection != null) return
         mutableState.update { it.copy(preparingSection = section.id) }
         try {
+            val brainRow = brainRowsById[section.id]
+            if (brainRow != null) {
+                // Tracks from outside the library: they go into `playable` first, so they can play, and
+                // the play carries the row and each card's reason into the queue and the event log.
+                withContext(Dispatchers.IO) { brainHomeRows.prepareForPlayback(brainRow) }
+                brainPlayTags.expect(queueName = section.title, bySongId = brainRow.tags())
+                onReady(section.songs, start)
+                return
+            }
             val songs = withContext(Dispatchers.IO) { catalog.playableSongs(section.songs) }
             val selected = songs.firstOrNull { it.id == start.id }
             if (selected == null) mutableState.update { it.copy(message = "This song isn't available right now. Connect to the internet and try again.") }
@@ -186,6 +237,30 @@ class HomeDiscoveryStateHolder @Inject constructor(
     }
 
     fun clearMessage() { mutableState.update { it.copy(message = null) } }
+
+    /** A brain row as the shelf component draws it: the title names the anchor, each card says why. */
+    private fun brainSection(row: com.theveloper.pixelplay.data.brain.BrainHomeRow): HomeMusicSection {
+        val reasons = HashMap<String, String>(row.items.size * 2)
+        for (item in row.items) {
+            // On the card: what the pick's arm says (8.8). The row's own "because you listened to" is
+            // its title, and is the line the track carries into the queue.
+            val reason = if (item.arm == com.theveloper.pixelplay.brain.Arm.ARTIST) {
+                item.track.artists.firstOrNull()?.name?.takeIf { it.isNotBlank() }
+                    ?.let { context.getString(R.string.brain_why_artist_more, it) }
+            } else {
+                row.anchor.primaryArtist.takeIf { it.isNotBlank() }
+                    ?.let { context.getString(R.string.brain_why_radio_fans, it) }
+            }
+            if (reason != null) reasons[item.song.id] = reason
+        }
+        return HomeMusicSection(
+            id = row.id,
+            title = context.getString(R.string.brain_home_because_listened, row.anchor.title),
+            subtitle = context.getString(R.string.brain_home_because_listened_subtitle),
+            songs = row.items.map { it.song }.toImmutableList(),
+            reasons = reasons.toImmutableMap()
+        )
+    }
 
     private companion object {
         const val AUTO_REFRESH_MIN_INTERVAL_MS = 60_000L

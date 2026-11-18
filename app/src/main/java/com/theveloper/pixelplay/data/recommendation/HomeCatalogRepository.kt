@@ -89,6 +89,9 @@ class HomeCatalogRepository @Inject constructor(
         val result = withTimeoutOrNull(35_000) {
             coroutineScope {
                 val discoveries = async {
+                    // The "Beyond your library" text search is no longer run (docs/brain-spec.md, section
+                    // 13 "Retire", stage 1): Home's "Because you listened to" row replaces that shelf.
+                    if (!com.theveloper.pixelplay.data.brain.BrainSwitch.LEGACY_EAGER_DISCOVERY) return@async emptyList<HomeCatalogEntry>()
                     coroutineScope {
                         queries.map { query -> async {
                             request { youtube.searchMusic(query, 14, includeVideos = true) }.orEmpty()
@@ -108,7 +111,9 @@ class HomeCatalogRepository @Inject constructor(
 
         // A provider failure must never blank a previously useful shelf.
         val merged = result.copy(
-            discoveries = result.discoveries.ifEmpty { old.discoveries },
+            // With the text search off the saved finds are dropped too, not carried forward for good.
+            discoveries = if (!com.theveloper.pixelplay.data.brain.BrainSwitch.LEGACY_EAGER_DISCOVERY) emptyList()
+                else result.discoveries.ifEmpty { old.discoveries },
             releases = result.releases.ifEmpty { old.releases }
         )
         // Empty responses are retried after a short backoff instead of cached for six hours.

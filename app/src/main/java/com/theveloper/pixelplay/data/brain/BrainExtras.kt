@@ -23,10 +23,27 @@ data class BrainItemTag(
     val slot: Int = -1,
     /** `Arm` name: "RADIO", "FAV", ...; null for a track the listener chose. */
     val arm: String? = null,
+    /** The reason key of the pick (`WhyLine.nameOf`), for the line under the row. */
+    val whyKey: String? = null,
+    /** The name the reason is about ("Fans of X also play this"); display only. */
+    val whyArg: String? = null,
+    /** ONE artist name: the item's primary artist. */
+    val primaryArtist: String? = null,
+    /**
+     * The listener put this pick in the queue themselves (they played a Home row): it has an [arm],
+     * because it was a recommendation, but it is theirs like a playlist's track, not the engine's tail.
+     */
+    val chosen: Boolean = false,
+    /** Retrieval percentile x 1000; -1 unknown. */
+    val retrQ: Int = -1,
+    /** Best radio rank; -1 for none. */
+    val radioRank: Int = -1,
 ) {
-    val isEngineOwned: Boolean get() = arm != null && Arm.codeOf(arm) != Arm.NONE
+    val isEngineOwned: Boolean get() = !chosen && arm != null && Arm.codeOf(arm) != Arm.NONE
 
-    val isEmpty: Boolean get() = surface == null && surfaceId == null && recId == 0L && slot < 0 && arm == null
+    val isEmpty: Boolean
+        get() = surface == null && surfaceId == null && recId == 0L && slot < 0 && arm == null &&
+            whyKey == null && whyArg == null && primaryArtist == null && !chosen && retrQ < 0 && radioRank < 0
 }
 
 object BrainExtras {
@@ -47,6 +64,9 @@ object BrainExtras {
     /** The reason key of the pick (`WhyLine.nameOf`), for the line under an engine row. */
     const val WHY_KEY = "brain.whyKey"
 
+    /** True on a pick the listener queued themselves (a Home row's card): see [BrainItemTag.chosen]. */
+    const val CHOSEN = "brain.chosen"
+
     const val MAX_SURFACE_ID_LENGTH = 40
 
     fun read(extras: Bundle?): BrainItemTag? {
@@ -57,6 +77,12 @@ object BrainExtras {
             recId = extras.getLong(REC_ID, 0L),
             slot = extras.getInt(SLOT, -1),
             arm = extras.getString(ARM),
+            whyKey = extras.getString(WHY_KEY),
+            whyArg = extras.getString(WHY_ARG),
+            primaryArtist = extras.getString(PRIMARY_ARTIST),
+            chosen = extras.getBoolean(CHOSEN, false),
+            retrQ = extras.getInt(RETR_Q, -1),
+            radioRank = extras.getInt(RADIO_RANK, -1),
         )
         return tag.takeUnless { it.isEmpty }
     }
@@ -68,11 +94,20 @@ object BrainExtras {
         if (tag.recId != 0L) extras.putLong(REC_ID, tag.recId)
         if (tag.slot >= 0) extras.putInt(SLOT, tag.slot)
         tag.arm?.let { extras.putString(ARM, it) }
+        tag.whyKey?.takeIf { it.isNotEmpty() }?.let { extras.putString(WHY_KEY, it) }
+        tag.whyArg?.takeIf { it.isNotEmpty() }?.let { extras.putString(WHY_ARG, it) }
+        tag.primaryArtist?.takeIf { it.isNotEmpty() }?.let { extras.putString(PRIMARY_ARTIST, it) }
+        if (tag.chosen) extras.putBoolean(CHOSEN, true)
+        if (tag.retrQ >= 0) extras.putInt(RETR_Q, tag.retrQ)
+        if (tag.radioRank >= 0) extras.putInt(RADIO_RANK, tag.radioRank)
     }
 
-    /** True when the item was put in the queue by the engine (it sits under the Autoplay line). */
+    /**
+     * True when the item was put in the queue by the engine (it sits under the Autoplay line, and the
+     * engine may reorder or replace it). A pick the listener queued themselves is not.
+     */
     fun isEngineOwned(extras: Bundle?): Boolean {
         val arm = extras?.getString(ARM) ?: return false
-        return Arm.codeOf(arm) != Arm.NONE
+        return Arm.codeOf(arm) != Arm.NONE && !extras.getBoolean(CHOSEN, false)
     }
 }

@@ -111,6 +111,42 @@ class PlaybackQueueSnapshotBrainFieldsTest {
     }
 
     @Test
+    fun `the reason line and the rest of a pick's context survive a restart`() {
+        // Stage 1c: "kill the app mid-autoplay and reopen: the reasons are still there".
+        val tag = engineTag.copy(
+            whyKey = "radio_fans", whyArg = "d4vd", primaryArtist = "Clovis Reyes", retrQ = 640, radioRank = 7,
+        )
+        val restored = json.decodeFromString<PlaybackQueueItemSnapshot>(
+            json.encodeToString(PlaybackQueueItemSnapshot.serializer(), item("engine").withBrainTag(tag))
+        )
+        assertEquals(tag, restored.brainTag())
+        assertEquals("radio_fans", restored.brainWhyKey)
+        assertEquals("d4vd", restored.brainWhyArg)
+        assertEquals("Clovis Reyes", restored.brainPrimaryArtist)
+        assertEquals(640, restored.brainRetrQ)
+        assertEquals(7, restored.brainRadioRank)
+        assertNull(restored.brainChosen, "false is not written")
+        assertTrue(restored.brainTag()!!.isEngineOwned)
+    }
+
+    @Test
+    fun `a Home row's card the listener played is a pick, but theirs`() {
+        // It carries an arm (it was a recommendation, and is logged as one) yet it does not sit under
+        // the Autoplay line and the engine may not reorder it: the listener chose to play the row.
+        val tag = BrainItemTag(
+            surface = Surface.nameOf(Surface.HOME_SHELF), surfaceId = "because_1f", recId = 12L, slot = 0,
+            arm = Arm.nameOf(Arm.RADIO), whyKey = "because_listened", whyArg = "Espresso", chosen = true,
+        )
+        assertFalse(tag.isEngineOwned)
+        val restored = json.decodeFromString<PlaybackQueueItemSnapshot>(
+            json.encodeToString(PlaybackQueueItemSnapshot.serializer(), item("card").withBrainTag(tag))
+        )
+        assertEquals(true, restored.brainChosen)
+        assertEquals(tag, restored.brainTag())
+        assertFalse(restored.brainTag()!!.isEngineOwned)
+    }
+
+    @Test
     fun `an arm of NONE is not engine-owned`() {
         assertFalse(BrainItemTag(arm = Arm.nameOf(Arm.NONE)).isEngineOwned)
         assertFalse(BrainItemTag(arm = "nonsense").isEngineOwned)

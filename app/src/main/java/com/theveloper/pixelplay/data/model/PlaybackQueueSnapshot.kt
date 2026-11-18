@@ -19,6 +19,13 @@ data class PlaybackQueueItemSnapshot(
     val brainRecId: Long? = null,
     val brainSlot: Int? = null,
     val brainArm: String? = null,
+    // The reason line and the rest of an engine pick's context (8.8), so a restored queue still says why.
+    val brainWhyKey: String? = null,
+    val brainWhyArg: String? = null,
+    val brainPrimaryArtist: String? = null,
+    val brainChosen: Boolean? = null,
+    val brainRetrQ: Int? = null,
+    val brainRadioRank: Int? = null,
 ) {
     /** The item's brain context, or null when it has none (a track the listener chose, an old snapshot). */
     fun brainTag(): BrainItemTag? {
@@ -28,6 +35,12 @@ data class PlaybackQueueItemSnapshot(
             recId = brainRecId ?: 0L,
             slot = brainSlot ?: -1,
             arm = brainArm,
+            whyKey = brainWhyKey,
+            whyArg = brainWhyArg,
+            primaryArtist = brainPrimaryArtist,
+            chosen = brainChosen == true,
+            retrQ = brainRetrQ ?: -1,
+            radioRank = brainRadioRank ?: -1,
         )
         return tag.takeUnless { it.isEmpty }
     }
@@ -39,6 +52,12 @@ data class PlaybackQueueItemSnapshot(
             brainRecId = tag.recId.takeIf { it != 0L },
             brainSlot = tag.slot.takeIf { it >= 0 },
             brainArm = tag.arm,
+            brainWhyKey = tag.whyKey,
+            brainWhyArg = tag.whyArg,
+            brainPrimaryArtist = tag.primaryArtist,
+            brainChosen = if (tag.chosen) true else null,
+            brainRetrQ = tag.retrQ.takeIf { it >= 0 },
+            brainRadioRank = tag.radioRank.takeIf { it >= 0 },
         )
 }
 

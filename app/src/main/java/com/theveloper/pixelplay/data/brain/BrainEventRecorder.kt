@@ -63,6 +63,8 @@ class BrainEventRecorder @Inject constructor(
     private val identity: TrackResolver,
     private val catalog: TrackCatalog,
     private val store: BrainStore,
+    /** The newest tracks a "Because you listened to" row may be built around (8.1). */
+    private val homeAnchors: HomeAnchorStore = HomeAnchorStore(store),
 ) : PlaySink {
 
     private sealed interface Message
@@ -176,6 +178,8 @@ class BrainEventRecorder @Inject constructor(
             )
             val directionBefore = state.session.reseedCount
             val graded = engine.applyLocked(state, event) ?: return@withState null
+            // A play the listener chose and heard out, or a pick they acted on, may head a Home row.
+            runCatching { homeAnchors.onEvent(event, graded, facts, play.songId) }
             // Keep what a radio request needs for the tracks the session now anchors on.
             val anchors = state.session.anchors
             var isAnchor = false

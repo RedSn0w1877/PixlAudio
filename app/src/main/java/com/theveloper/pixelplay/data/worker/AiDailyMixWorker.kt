@@ -52,8 +52,13 @@ class AiDailyMixWorker @AssistedInject constructor(
             val favoriteIds = musicRepository.getFavoriteSongIdsFlow().first()
             val picks = dailyMixManager.personalizedPicks(allSongs, favoriteIds, TARGET_MAX)
             val adjustments = tasteAdjustments.snapshot()
-            val daily = discoveryRepository.augment(picks.map { it.song }, allSongs, adjustments = adjustments)
-            val yourMix = discoveryRepository.augment(dailyMixManager.generateYourMix(allSongs, favoriteIds), allSongs, adjustments = adjustments)
+            // The eager catalog import is switched off (docs/brain-spec.md, section 13 "Retire", stage 1):
+            // the mixes are the library's own songs until stage 2 rebuilds them.
+            val eager = com.theveloper.pixelplay.data.brain.BrainSwitch.LEGACY_EAGER_DISCOVERY
+            val dailyBase = picks.map { it.song }
+            val yourMixBase = dailyMixManager.generateYourMix(allSongs, favoriteIds)
+            val daily = if (eager) discoveryRepository.augment(dailyBase, allSongs, adjustments = adjustments) else dailyBase
+            val yourMix = if (eager) discoveryRepository.augment(yourMixBase, allSongs, adjustments = adjustments) else yourMixBase
             dailyMixStateHolder.publishBackgroundMix(daily, yourMix)
             val known = allSongs.mapTo(hashSetOf()) { it.id }
             tasteRepository.saveReport(

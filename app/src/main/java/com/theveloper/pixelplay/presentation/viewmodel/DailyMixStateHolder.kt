@@ -159,6 +159,11 @@ class DailyMixStateHolder @Inject constructor(
         baseMix: List<Song>,
         maxOnlineSongs: Int = 6
     ): List<Song> {
+        // Switched off with the music brain (docs/brain-spec.md, section 13 "Retire", stage 1): the
+        // augment imported every track it found into the library before anyone asked for it. New
+        // music now comes through autoplay, stations and the "Because you listened to" row, none of
+        // which adds a library row until the listener saves the track.
+        if (!com.theveloper.pixelplay.data.brain.BrainSwitch.LEGACY_EAGER_DISCOVERY) return baseMix
         val adjustments = runCatching { dailyMixManager.tasteAdjustmentSnapshot() }
             .getOrDefault(com.theveloper.pixelplay.data.recommendation.TasteAdjustments.NONE)
         return musicDiscoveryRepository.augment(baseMix, musicRepository.getAllSongsOnce(), maxOnlineSongs, adjustments)
