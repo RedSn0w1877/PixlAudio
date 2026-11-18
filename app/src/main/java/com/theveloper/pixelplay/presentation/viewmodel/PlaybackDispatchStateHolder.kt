@@ -736,7 +736,8 @@ class PlaybackDispatchStateHolder @Inject constructor(
     private suspend fun preparePlaybackQueueSegments(
         songsToPlay: List<Song>,
         startSongId: String,
-        playlistId: String?
+        playlistId: String?,
+        brainTag: com.theveloper.pixelplay.data.brain.BrainItemTag? = null
     ): PreparedPlaybackQueueSegments = withContext(Dispatchers.Default) {
         val currentIndex = songsToPlay
             .indexOfFirst { it.id == startSongId }
@@ -744,11 +745,11 @@ class PlaybackDispatchStateHolder @Inject constructor(
             ?: 0
 
         val beforeCurrent = List(currentIndex) { index ->
-            buildPlaybackMediaItem(songsToPlay[index], playlistId)
+            buildPlaybackMediaItem(songsToPlay[index], playlistId, brainTag)
         }
         val afterStartIndex = currentIndex + 1
         val afterCurrent = List((songsToPlay.size - afterStartIndex).coerceAtLeast(0)) { offset ->
-            buildPlaybackMediaItem(songsToPlay[afterStartIndex + offset], playlistId)
+            buildPlaybackMediaItem(songsToPlay[afterStartIndex + offset], playlistId, brainTag)
         }
 
         PreparedPlaybackQueueSegments(
@@ -850,7 +851,10 @@ class PlaybackDispatchStateHolder @Inject constructor(
             }
             cb.showSheet()
 
-            val startMediaItem = buildResolvedPlaybackMediaItem(effectiveStartSong)
+            // Where this queue was started from travels with every item, so the event log can say
+            // "from a playlist" or "from Liked Songs" (docs/brain-spec.md, 4.2).
+            val brainTag = com.theveloper.pixelplay.data.brain.BrainSurfaces.forQueue(queueName, playlistId)
+            val startMediaItem = withBrainTag(buildResolvedPlaybackMediaItem(effectiveStartSong), playlistId, brainTag)
 
             val playSongsAction = {
                 // Use Direct Engine Access to avoid TransactionTooLargeException on Binder
@@ -874,7 +878,8 @@ class PlaybackDispatchStateHolder @Inject constructor(
                             val preparedSegments = preparePlaybackQueueSegments(
                                 songsToPlay = songsToPlay,
                                 startSongId = effectiveStartSong.id,
-                                playlistId = playlistId
+                                playlistId = playlistId,
+                                brainTag = brainTag
                             )
                             attached = withContext(Dispatchers.Main.immediate) {
                                 attachPreparedQueueSegmentsIfCurrent(
@@ -978,7 +983,7 @@ class PlaybackDispatchStateHolder @Inject constructor(
 
     fun addSongToQueue(song: Song) {
         cb.getController()?.let { controller ->
-            val mediaItem = buildPlaybackMediaItem(song)
+            val mediaItem = buildPlaybackMediaItem(song, brainTag = com.theveloper.pixelplay.data.brain.BrainSurfaces.manualQueue)
             // What the listener queues goes above the Autoplay line: the engine's picks stay last
             // (docs/brain-spec.md, 7.1 "Ownership").
             val firstEngineIndex = firstUpcomingEngineIndex(controller)
@@ -1005,7 +1010,7 @@ class PlaybackDispatchStateHolder @Inject constructor(
 
     fun addSongNextToQueue(song: Song) {
         cb.getController()?.let { controller ->
-            val mediaItem = buildPlaybackMediaItem(song)
+            val mediaItem = buildPlaybackMediaItem(song, brainTag = com.theveloper.pixelplay.data.brain.BrainSurfaces.manualQueue)
 
             val insertionIndex = if (controller.currentMediaItemIndex != C.INDEX_UNSET) {
                 (controller.currentMediaItemIndex + 1).coerceAtMost(controller.mediaItemCount)
@@ -1018,14 +1023,25 @@ class PlaybackDispatchStateHolder @Inject constructor(
         }
     }
 
-    private fun buildPlaybackMediaItem(song: Song, playlistId: String? = null): MediaItem {
-        val baseItem = MediaItemBuilder.build(song)
-        if (playlistId == null) {
+    private fun buildPlaybackMediaItem(
+        song: Song,
+        playlistId: String? = null,
+        brainTag: com.theveloper.pixelplay.data.brain.BrainItemTag? = null
+    ): MediaItem = withBrainTag(MediaItemBuilder.build(song), playlistId, brainTag)
+
+    /** [baseItem] with the playlist it was started from and the brain's surface tag in its extras. */
+    private fun withBrainTag(
+        baseItem: MediaItem,
+        playlistId: String?,
+        brainTag: com.theveloper.pixelplay.data.brain.BrainItemTag?
+    ): MediaItem {
+        if (playlistId == null && brainTag == null) {
             return baseItem
         }
 
         val mergedExtras = Bundle(baseItem.mediaMetadata.extras ?: Bundle()).apply {
-            putString("playlistId", playlistId)
+            if (playlistId != null) putString("playlistId", playlistId)
+            com.theveloper.pixelplay.data.brain.BrainExtras.write(this, brainTag)
         }
 
         return baseItem.buildUpon()

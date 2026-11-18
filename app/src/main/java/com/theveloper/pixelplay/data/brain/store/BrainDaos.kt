@@ -55,6 +55,9 @@ interface AliasDao {
     @Query("SELECT `into` FROM track_merge WHERE rid = :rid")
     fun mergedInto(rid: Long): Long?
 
+    @Query("SELECT * FROM track_merge")
+    fun allMerges(): List<TrackMergeEntity>
+
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     fun insertTrackAliases(rows: List<TrackAliasEntity>)
 
@@ -127,6 +130,24 @@ interface PlayEventDao {
     )
     suspend fun ignoredThreeTimes(sinceMs: Long): List<Long>
 
+    /** The synchronous insert the recorder uses inside its own transaction. -1 when the id already exists. */
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    fun insertBlocking(event: PlayEventEntity): Long
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    fun insertAllBlocking(events: List<PlayEventEntity>): List<Long>
+
+    /** What makes the row under [eventId] the play it is; null when the id is free. */
+    @Query("SELECT origin, keyAtWrite FROM play_event WHERE eventId = :eventId")
+    fun identityAt(eventId: Long): EventIdentity?
+
+    /** Keyset paging in replay order. */
+    @Query("SELECT * FROM play_event WHERE eventId > :afterEventId ORDER BY eventId LIMIT :limit")
+    fun pageBlocking(afterEventId: Long, limit: Int): List<PlayEventEntity>
+
+    @Query("SELECT COUNT(*) FROM play_event WHERE origin = :origin")
+    fun countByOrigin(origin: Int): Int
+
     /** Recordings with any play since [sinceMs] (the 4-hour rule of 6.4). */
     @Query("SELECT DISTINCT rid FROM play_event WHERE startedAtMs >= :sinceMs")
     suspend fun playedSince(sinceMs: Long): List<Long>
@@ -142,7 +163,20 @@ interface AffinityDao {
 
     @Query("DELETE FROM affinity")
     suspend fun clear()
+
+    /** Every row: the brain's whole affinity state, read once per process, off the main thread. */
+    @Query("SELECT * FROM affinity")
+    fun allBlocking(): List<AffinityEntity>
+
+    @Upsert
+    fun upsertBlocking(rows: List<AffinityEntity>)
+
+    @Query("DELETE FROM affinity")
+    fun clearBlocking()
 }
+
+/** `origin` and `keyAtWrite` of one stored event. */
+data class EventIdentity(val origin: Int, val keyAtWrite: String)
 
 @Dao
 interface BrainStateDao {
@@ -151,4 +185,13 @@ interface BrainStateDao {
 
     @Upsert
     suspend fun put(row: BrainStateEntity)
+
+    @Query("SELECT blob FROM brain_state WHERE `key` = :key")
+    fun getBlocking(key: String): ByteArray?
+
+    @Upsert
+    fun putBlocking(row: BrainStateEntity)
+
+    @Query("DELETE FROM brain_state WHERE `key` = :key")
+    fun deleteBlocking(key: String)
 }

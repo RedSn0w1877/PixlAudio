@@ -816,7 +816,10 @@ class MusicRepositoryImpl @Inject constructor(
             // Every Like goes through here (player, notification, widget, watch, multi-select): a
             // track the engine played becomes a library track before it becomes a favourite, or the
             // favourite would point at nothing.
-            engineTrackSaver?.get()?.saveIfEngineTrack(songId)
+            engineTrackSaver?.get()?.let { saver ->
+                saver.onLiked(songId)
+                saver.saveIfEngineTrack(songId)
+            }
             favoritesDao.setFavorite(
                 com.theveloper.pixelplay.data.database.FavoritesEntity(
                     songId = id,

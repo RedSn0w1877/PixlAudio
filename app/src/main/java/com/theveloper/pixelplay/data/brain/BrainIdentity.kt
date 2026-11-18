@@ -23,6 +23,21 @@ interface TrackResolver {
 
     /** The other YouTube audio ids known for [rid] (never [exceptVideoId]). */
     suspend fun otherVideoIds(rid: Long, exceptVideoId: String?): List<String>
+
+    /**
+     * Aids for artist [names] (ONE artist each), in order; 0 for a name that folds to nothing. Stage 1
+     * joins artists by folded name (3.1). The default mints straight from the name key, which is what
+     * the alias table does for a name it has not seen.
+     */
+    suspend fun resolveArtistNames(names: List<String>): LongArray = LongArray(names.size) { i ->
+        Ids.ArtistKeys(name = names[i]).na?.let { Ids.mint(it) { false } } ?: 0L
+    }
+
+    /** The recording [rid] was merged into, or [rid] itself. */
+    suspend fun survivorOf(rid: Long): Long = rid
+
+    /** Every merge, `from` to `into`: a rebuild folds a merged recording's plays into its survivor. */
+    suspend fun merges(): Map<Long, Long> = emptyMap()
 }
 
 /**
@@ -75,6 +90,15 @@ class BrainIdentity @Inject constructor(
             }
         }
         out
+    }
+
+    override suspend fun resolveArtistNames(names: List<String>): LongArray =
+        resolveArtists(names.map { Ids.ArtistKeys(name = it) })
+
+    override suspend fun survivorOf(rid: Long): Long = withContext(Dispatchers.IO) { dao.mergedInto(rid) ?: rid }
+
+    override suspend fun merges(): Map<Long, Long> = withContext(Dispatchers.IO) {
+        dao.allMerges().associate { it.rid to it.into }
     }
 
     override suspend fun otherVideoIds(rid: Long, exceptVideoId: String?): List<String> = withContext(Dispatchers.IO) {

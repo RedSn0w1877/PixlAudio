@@ -21,8 +21,23 @@ class EngineTrackSaver @Inject constructor(
     private val playableStore: PlayableStore,
     private val musicDao: MusicDao,
     private val spotifyRepository: SpotifyRepository,
+    // The play in flight learns that it was liked or saved (docs/brain-spec.md, 4.1 flags). Lazy: the
+    // tracker is only needed at that moment.
+    private val tracker: dagger.Lazy<com.theveloper.pixelplay.presentation.viewmodel.ListeningStatsTracker>,
 ) {
     private val lock = Mutex()
+
+    /** The listener liked [songId]: the play in flight, if it is that song, is flagged. */
+    fun onLiked(songId: String) {
+        runCatching { tracker.get().markFlag(songId, com.theveloper.pixelplay.brain.EventFlags.LIKED_DURING) }
+    }
+
+    /** The listener added [songIds] to a playlist. */
+    fun onAddedToPlaylist(songIds: Collection<String>) {
+        runCatching {
+            for (songId in songIds) tracker.get().markFlag(songId, com.theveloper.pixelplay.brain.EventFlags.ADDED_TO_PLAYLIST)
+        }
+    }
 
     /**
      * Imports [songId] when it is an engine track that has no library row yet. Returns true when a row
@@ -53,6 +68,9 @@ class EngineTrackSaver @Inject constructor(
                 }
                 if (results.isEmpty()) 0 else {
                     spotifyRepository.importYouTubeMusicTracks(results)
+                    runCatching {
+                        for (songId in songIds) tracker.get().markFlag(songId, com.theveloper.pixelplay.brain.EventFlags.SAVED_DURING)
+                    }
                     results.size
                 }
             }

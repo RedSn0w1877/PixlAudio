@@ -541,7 +541,13 @@ class MusicService : MediaLibraryService() {
         automaticStudioManager.onSongChanged(player.currentMediaItem?.mediaId)
         updateNextStreamPrefetch()
         Timber.tag("MusicService").d(logMessage)
-        syncLocalListeningStatsFromPlayer(player)
+        // A published player on another song is the crossfade hand-over: the old track played out.
+        syncLocalListeningStatsFromPlayer(
+            player,
+            reasons = com.theveloper.pixelplay.data.brain.PlayReasons.forHandOver(
+                com.theveloper.pixelplay.data.brain.BrainExtras.isEngineOwned(player.currentMediaItem?.mediaMetadata?.extras)
+            ),
+        )
         widgetUpdateManager.requestFullUpdate(true)
         refreshMediaSessionUi(session)
     }
@@ -586,9 +592,87 @@ class MusicService : MediaLibraryService() {
         applySpotifyConnectPlayer(false)
     }
 
+    // What the music brain's event log needs and the tracker cannot know by itself (docs/brain-spec.md,
+    // 4.2): where in the FULL queue the last session was (the player's own index is an index into a
+    // window after a crossfade), how long that queue was, and whether the player just failed.
+    private var brainLastAbsoluteIndex = -1
+    private var brainLastQueueSize = 0
+    private var brainPendingErrorEnd = false
+
+    /** `EndReason.ERROR` once after a player error, else [reason]. */
+    private fun brainEndReason(reason: Int): Int {
+        if (!brainPendingErrorEnd) return reason
+        brainPendingErrorEnd = false
+        return com.theveloper.pixelplay.brain.EndReason.ERROR
+    }
+
+    /** Where this phone's audio goes, as a `Route` code. Remote sessions are named by their own code. */
+    private fun brainRoute(): Int {
+        if (connectSessionPlayer != null) return com.theveloper.pixelplay.brain.Route.CONNECT
+        // Asked on every player event; the system is asked at most twice a minute.
+        val now = SystemClock.elapsedRealtime()
+        if (brainRouteReadAtMs != 0L && now - brainRouteReadAtMs < 30_000L) return brainRouteCached
+        brainRouteReadAtMs = now
+        brainRouteCached = readBrainRoute()
+        return brainRouteCached
+    }
+
+    private var brainRouteCached = com.theveloper.pixelplay.brain.Route.UNKNOWN
+    private var brainRouteReadAtMs = 0L
+
+    private fun readBrainRoute(): Int {
+        return try {
+            var route = com.theveloper.pixelplay.brain.Route.SPEAKER
+            for (device in audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)) {
+                when (device.type) {
+                    android.media.AudioDeviceInfo.TYPE_BLUETOOTH_A2DP,
+                    android.media.AudioDeviceInfo.TYPE_BLE_HEADSET,
+                    android.media.AudioDeviceInfo.TYPE_BLE_SPEAKER,
+                    android.media.AudioDeviceInfo.TYPE_HEARING_AID -> return com.theveloper.pixelplay.brain.Route.BLUETOOTH
+                    android.media.AudioDeviceInfo.TYPE_WIRED_HEADPHONES,
+                    android.media.AudioDeviceInfo.TYPE_WIRED_HEADSET,
+                    android.media.AudioDeviceInfo.TYPE_USB_HEADSET,
+                    android.media.AudioDeviceInfo.TYPE_USB_DEVICE,
+                    android.media.AudioDeviceInfo.TYPE_LINE_ANALOG -> route = com.theveloper.pixelplay.brain.Route.WIRED
+                }
+            }
+            route
+        } catch (e: Exception) {
+            com.theveloper.pixelplay.brain.Route.UNKNOWN
+        }
+    }
+
+    /**
+     * What the event log records about [item] as a play starts. Null while a Spotify Connect device
+     * plays: that listening arrives later through the recently-played sync, not from this phone.
+     */
+    private fun brainPlayContext(item: MediaItem, player: Player, startReason: Int): com.theveloper.pixelplay.data.brain.PlayContext? {
+        if (connectSessionPlayer != null) return null
+        val extras = item.mediaMetadata.extras
+        return com.theveloper.pixelplay.data.brain.PlayContext(
+            title = item.mediaMetadata.title?.toString().orEmpty(),
+            artistDisplay = item.mediaMetadata.artist?.toString().orEmpty(),
+            primaryArtist = extras?.getString(com.theveloper.pixelplay.data.brain.BrainExtras.PRIMARY_ARTIST),
+            spotifyId = spotifyIdOf(item),
+            startReason = startReason,
+            tag = com.theveloper.pixelplay.data.brain.BrainExtras.read(extras),
+            retrQ = extras?.getInt(com.theveloper.pixelplay.data.brain.BrainExtras.RETR_Q, -1) ?: -1,
+            radioRank = extras?.getInt(com.theveloper.pixelplay.data.brain.BrainExtras.RADIO_RANK, -1) ?: -1,
+            shuffle = player.shuffleModeEnabled,
+            repeatOne = player.repeatMode == Player.REPEAT_MODE_ONE,
+            route = brainRoute(),
+        )
+    }
+
+    /**
+     * Keeps the listening tracker on the player's current item. [reasons] says why the last play ended
+     * and how this one started, when the caller knows (a transition, a crossfade hand-over); without
+     * it a change of song is recorded with unknown reasons, which is never counted as a skip.
+     */
     private fun syncLocalListeningStatsFromPlayer(
         player: Player = engine.masterPlayer,
-        forceNewSession: Boolean = false
+        forceNewSession: Boolean = false,
+        reasons: com.theveloper.pixelplay.data.brain.PlayReasons.Reasons? = null,
     ) {
         val mediaItem = player.currentMediaItem
         val songId = mediaItem?.mediaId?.takeIf { it.isNotBlank() }
@@ -598,10 +682,17 @@ class MusicService : MediaLibraryService() {
                 player.playbackState == Player.STATE_IDLE ||
                 player.playbackState == Player.STATE_ENDED
             ) {
-                listeningStatsTracker.onPlaybackStopped()
+                listeningStatsTracker.onPlaybackStopped(brainEndReason(com.theveloper.pixelplay.brain.EndReason.STOPPED))
             }
             return
         }
+        val endReason = brainEndReason(reasons?.end ?: com.theveloper.pixelplay.brain.EndReason.UNKNOWN)
+        val startReason = reasons?.start
+            ?: if (isRestoringPlaybackSnapshot) com.theveloper.pixelplay.brain.StartReason.RESTORE
+            else com.theveloper.pixelplay.brain.StartReason.UNKNOWN
+        val playContext = brainPlayContext(mediaItem, player, startReason)
+        brainLastAbsoluteIndex = engine.getCurrentAbsoluteIndex()
+        brainLastQueueSize = engine.getFullQueue().size
 
         val positionMs = player.currentPosition.coerceAtLeast(0L)
         val durationMs = player.duration
@@ -615,7 +706,9 @@ class MusicService : MediaLibraryService() {
                 positionMs = positionMs,
                 durationMs = durationMs,
                 fallbackDurationMs = fallbackDurationMs,
-                isPlaying = player.isPlaying
+                isPlaying = player.isPlaying,
+                context = playContext,
+                endReason = endReason,
             )
         } else {
             listeningStatsTracker.ensureSession(
@@ -623,7 +716,9 @@ class MusicService : MediaLibraryService() {
                 positionMs = positionMs,
                 durationMs = durationMs,
                 fallbackDurationMs = fallbackDurationMs,
-                isPlaying = player.isPlaying
+                isPlaying = player.isPlaying,
+                context = playContext,
+                endReason = endReason,
             )
         }
     }
@@ -1845,7 +1940,9 @@ class MusicService : MediaLibraryService() {
             updateNextStreamPrefetch()
             Timber.tag(TAG).d("Playback state changed: $playbackState")
             if (playbackState == Player.STATE_ENDED) {
-                listeningStatsTracker.finalizeCurrentSession()
+                listeningStatsTracker.finalizeCurrentSession(
+                    endReason = brainEndReason(com.theveloper.pixelplay.brain.EndReason.TRACK_DONE)
+                )
                 // "Stop after this track" was set for the track that just ended: the listener asked for
                 // silence, so Autoplay's backstop must not start anything.
                 val stopAfterThisTrack = endOfTrackTimerSongId != null
@@ -1884,6 +1981,12 @@ class MusicService : MediaLibraryService() {
             reason: Int
         ) {
             if (reason == Player.DISCONTINUITY_REASON_SEEK) {
+                // A seek inside one track: back to the start is a replay, back by ten seconds a seek-back.
+                if (oldPosition.mediaItemIndex == newPosition.mediaItemIndex &&
+                    oldPosition.mediaItem?.mediaId == newPosition.mediaItem?.mediaId
+                ) {
+                    listeningStatsTracker.onSeek(oldPosition.positionMs, newPosition.positionMs)
+                }
                 reviveIdlePlayerAfterNavigation()
                 musicHaptics.stopNow()
                 instrumentalCrossfadeController.onMainSeek(newPosition.positionMs)
@@ -1941,7 +2044,22 @@ class MusicService : MediaLibraryService() {
                 mediaItem?.localConfiguration?.uri?.toString()
             )
             spatialSwap.onSongChanged(mediaItem?.mediaId, engine.masterPlayer)
-            syncLocalListeningStatsFromPlayer(mediaSession?.player ?: engine.masterPlayer, forceNewSession = true)
+            // Why the last play ended and how this one starts (docs/brain-spec.md, 4.2), read against the
+            // FULL queue before the tracker's indices move on.
+            val brainReasons = com.theveloper.pixelplay.data.brain.PlayReasons.forTransition(
+                reason = reason,
+                oldIndex = brainLastAbsoluteIndex,
+                newIndex = engine.getCurrentAbsoluteIndex(),
+                oldQueueSize = brainLastQueueSize,
+                newQueueSize = engine.getFullQueue().size,
+                newItemIsEnginePick = com.theveloper.pixelplay.data.brain.BrainExtras.isEngineOwned(mediaItem?.mediaMetadata?.extras),
+                isRestoring = isRestoringPlaybackSnapshot,
+            )
+            syncLocalListeningStatsFromPlayer(
+                mediaSession?.player ?: engine.masterPlayer,
+                forceNewSession = true,
+                reasons = brainReasons,
+            )
 
             val eotTargetSongId = endOfTrackTimerSongId
             if (!eotTargetSongId.isNullOrBlank()) {
@@ -2007,6 +2125,8 @@ class MusicService : MediaLibraryService() {
 
         override fun onPlayerError(error: PlaybackException) {
             Timber.tag(TAG).e(error, "Error en el reproductor: ")
+            // The play that failed ends with "error" in the event log, whatever moves the queue on.
+            brainPendingErrorEnd = true
             // The failed song, read before the recovery moves the index to the next one.
             val currentMediaItem = mediaSession?.player?.currentMediaItem
             // A failed stream used to leave a silent IDLE player behind (and a mini player with
@@ -2092,7 +2212,10 @@ class MusicService : MediaLibraryService() {
         // a stale "PCM wanted" would keep audio offload off in the next service instance even
         // after haptics were switched off in between (attach() only reports changes).
         engine.setPcmAnalysisActive(false)
-        listeningStatsTracker.finalizeCurrentSession(forceSynchronousPersistence = true)
+        listeningStatsTracker.finalizeCurrentSession(
+            forceSynchronousPersistence = true,
+            endReason = com.theveloper.pixelplay.brain.EndReason.STOPPED,
+        )
         playbackSnapshotPersistJob?.cancel()
         mediaSessionButtonRefreshJob?.cancel()
         followUpMediaSessionUiRefreshJob?.cancel()
@@ -3261,7 +3384,10 @@ class MusicService : MediaLibraryService() {
             clearPlaybackSnapshotOnUnload()
         }
 
-        listeningStatsTracker.finalizeCurrentSession(forceSynchronousPersistence = true)
+        listeningStatsTracker.finalizeCurrentSession(
+            forceSynchronousPersistence = true,
+            endReason = com.theveloper.pixelplay.brain.EndReason.STOPPED,
+        )
 
         player.playWhenReady = false
         player.stop()

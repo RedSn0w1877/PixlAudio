@@ -85,5 +85,8 @@ class BrainSessionStateHolder @Inject constructor(
     }
 
     /** Like, "Add to playlist" and Save make a track from outside the library a library track for good. */
-    suspend fun ensureSaved(songIds: Collection<String>): Int = engineTrackSaver.saveAll(songIds)
+    suspend fun ensureSaved(songIds: Collection<String>): Int {
+        engineTrackSaver.onAddedToPlaylist(songIds)
+        return engineTrackSaver.saveAll(songIds)
+    }
 }

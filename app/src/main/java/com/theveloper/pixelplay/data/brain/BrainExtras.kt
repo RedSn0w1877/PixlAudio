@@ -41,6 +41,12 @@ object BrainExtras {
     /** The name of the artist the pick is explained by ("Fans of X also play this"); display only. */
     const val WHY_ARG = "brain.whyArg"
 
+    /** ONE artist name: the item's primary artist, so the recorder never has to split a display string. */
+    const val PRIMARY_ARTIST = "brain.primaryArtist"
+
+    /** The reason key of the pick (`WhyLine.nameOf`), for the line under an engine row. */
+    const val WHY_KEY = "brain.whyKey"
+
     const val MAX_SURFACE_ID_LENGTH = 40
 
     fun read(extras: Bundle?): BrainItemTag? {

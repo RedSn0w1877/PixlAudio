@@ -165,6 +165,10 @@ abstract class ListeningHistoryDao {
     @Query("SELECT COUNT(*) FROM imported_plays")
     abstract suspend fun count(): Int
 
+    /** The highest row id: the music brain remembers it to know whether the import changed. */
+    @Query("SELECT MAX(id) FROM imported_plays")
+    abstract suspend fun maxPlayId(): Long?
+
     @Query("SELECT COUNT(*) FROM imported_plays WHERE source IN (:sources)")
     abstract suspend fun countBySources(sources: List<String>): Int
 

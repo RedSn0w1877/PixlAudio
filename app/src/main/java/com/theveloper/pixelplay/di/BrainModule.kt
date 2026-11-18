@@ -63,6 +63,24 @@ object BrainModule {
     @Singleton
     fun provideTrackResolver(identity: BrainIdentity): TrackResolver = identity
 
+    @Provides
+    @Singleton
+    fun provideBrainStore(store: com.theveloper.pixelplay.data.brain.store.RoomBrainStore): com.theveloper.pixelplay.data.brain.store.BrainStore = store
+
+    @Provides
+    @Singleton
+    fun provideTrackCatalog(catalog: com.theveloper.pixelplay.data.brain.LibraryTrackCatalog): com.theveloper.pixelplay.data.brain.TrackCatalog = catalog
+
+    /** The one-shot migration and every later rebuild of the affinity rows (4.4). */
+    @Provides
+    @Singleton
+    fun provideStateRebuilder(rebuilder: com.theveloper.pixelplay.data.brain.AppStateRebuilder): com.theveloper.pixelplay.data.brain.StateRebuilder = rebuilder
+
+    /** Where the listening tracker sends every play: the brain's event recorder. */
+    @Provides
+    @Singleton
+    fun providePlaySink(recorder: com.theveloper.pixelplay.data.brain.BrainEventRecorder): com.theveloper.pixelplay.data.brain.PlaySink = recorder
+
     /** The YouTube Music bucket: the only host the brain talks to in stage 1. */
     @Provides
     @Singleton
