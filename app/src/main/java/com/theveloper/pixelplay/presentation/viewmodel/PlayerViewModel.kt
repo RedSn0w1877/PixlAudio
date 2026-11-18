@@ -108,6 +108,7 @@ import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.transformLatest
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -2689,7 +2690,18 @@ class PlayerViewModel @Inject constructor(
      * station) resolves through its `playable` table, so Recently Played can show and replay it.
      */
     fun observeSongs(songIds: List<String>): Flow<List<Song>> {
-        return musicRepository.getSongsByIds(songIds).map { found -> brainSession.withEngineSongs(songIds, found) }
+        return musicRepository.getSongsByIds(songIds).transformLatest { found ->
+            if (found.size < songIds.size) {
+                // Home asks for this as the app starts. The library's own songs show at once; the
+                // brain's database is opened only after the app's first moments.
+                val wait = brainSession.engineLookupWaitMs()
+                if (wait > 0L) {
+                    emit(found)
+                    delay(wait)
+                }
+            }
+            emit(brainSession.withEngineSongs(songIds, found))
+        }
     }
 
     fun searchSongs(query: String): Flow<List<Song>> {

@@ -210,6 +210,13 @@ object Ids {
     /**
      * An in-memory alias table: the reference behaviour for tests, golden vectors and any caller that
      * resolves a batch before writing it. Not thread-safe.
+     *
+     * Keys are compared as exact code units (equivalently, as their UTF-8 bytes): two strings that
+     * are canonically equivalent but spelled differently (one precomposed, one decomposed) are two
+     * keys. `fold` leaves Hangul, kana and CJK as they arrive, so this matters for real titles. A port
+     * to a language whose string equality is canonical equivalence (Swift's `String` as a dictionary
+     * key) must key its table by the UTF-8 bytes instead, or it merges recordings this table keeps
+     * apart. `ids.jsonl` has no such pair yet, so the golden test alone would not catch it.
      */
     class MemoryAliasTable : AliasLookup {
         private val ids = HashMap<String, Long>()

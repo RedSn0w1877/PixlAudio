@@ -120,13 +120,21 @@ interface PlayEventDao {
     suspend fun count(): Int
 
     /**
-     * Recordings the listener ignored three times (6.1): 3 or more engine-served plays under 30 s
-     * since [sinceMs] and none of 30 s or more. `arm` 9 is NONE.
+     * Recordings the listener ignored three times (6.1), the last time at or after [sinceMs]: so a
+     * song stays away for the 60 days that follow its third skip, not the 60 that follow its first.
+     *
+     * An ignore is an engine-served play (`arm` 9 is NONE) that sounded for under 30 s and that the
+     * listener ended: `endReason` 1 next, 3 pickedOther, 5 queueEdit. A play that never sounded (flag
+     * 8, an error, a blocked artist stepped over) is not one. A song they ever heard for 30 s or more,
+     * from anywhere, was not ignored.
      */
     @Query(
-        "SELECT rid FROM play_event WHERE arm != 9 AND startedAtMs >= :sinceMs AND playedMs >= 0 " +
-            "GROUP BY rid HAVING SUM(CASE WHEN playedMs < 30000 THEN 1 ELSE 0 END) >= 3 " +
-            "AND SUM(CASE WHEN playedMs >= 30000 THEN 1 ELSE 0 END) = 0"
+        "SELECT rid FROM play_event WHERE playedMs >= 0 GROUP BY rid HAVING " +
+            "SUM(CASE WHEN arm != 9 AND playedMs > 0 AND playedMs < 30000 AND (flags & 8) = 0 " +
+            "AND endReason IN (1, 3, 5) THEN 1 ELSE 0 END) >= 3 " +
+            "AND SUM(CASE WHEN playedMs >= 30000 THEN 1 ELSE 0 END) = 0 " +
+            "AND MAX(CASE WHEN arm != 9 AND playedMs > 0 AND playedMs < 30000 AND (flags & 8) = 0 " +
+            "AND endReason IN (1, 3, 5) THEN startedAtMs ELSE 0 END) >= :sinceMs"
     )
     suspend fun ignoredThreeTimes(sinceMs: Long): List<Long>
 

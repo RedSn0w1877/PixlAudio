@@ -25,6 +25,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import com.theveloper.pixelplay.data.diagnostics.PerformanceMetrics
 import timber.log.Timber
 
 /** The reason an engine pick is in the queue (8.8): a `WhyLine` key name and the name it is about. */
@@ -105,7 +106,9 @@ class BrainSessionStateHolder @Inject constructor(
         val missing = requestedIds.filter { it !in known }
         if (missing.isEmpty()) return found
         return try {
+            val startedNanos = System.nanoTime()
             val extra = playableStore.songsFor(missing)
+            PerformanceMetrics.recordTiming(TIMING_RECENT_LOOKUP, (System.nanoTime() - startedNanos) / 1_000_000)
             if (extra.isEmpty()) found else found + extra
         } catch (e: CancellationException) {
             throw e
@@ -115,9 +118,25 @@ class BrainSessionStateHolder @Inject constructor(
         }
     }
 
+    /**
+     * How long a lookup in `brain.db` still has to wait: Home asks for Recently Played as the app
+     * starts, and the brain's database is not opened in the app's first moments (principle 6, "nothing
+     * at app start"). 0 once the app has been up for [STARTUP_QUIET_MS].
+     */
+    fun engineLookupWaitMs(): Long =
+        (STARTUP_QUIET_MS - (System.nanoTime() - createdAtNanos) / 1_000_000).coerceAtLeast(0L)
+
+    private val createdAtNanos = System.nanoTime()
+
     /** Like, "Add to playlist" and Save make a track from outside the library a library track for good. */
     suspend fun ensureSaved(songIds: Collection<String>): Int {
         engineTrackSaver.onAddedToPlaylist(songIds)
         return engineTrackSaver.saveAll(songIds)
+    }
+
+    private companion object {
+        /** The first moments of the app, in which `brain.db` stays closed. */
+        const val STARTUP_QUIET_MS = 4_000L
+        const val TIMING_RECENT_LOOKUP = "brain_recent_lookup"
     }
 }

@@ -50,9 +50,9 @@
     <string name="brain_promise_repeat_title">Less repetition</string>
     <string name="brain_promise_repeat_body">A new song you skipped three times stays away for 60 days.</string>
     <string name="brain_promise_why_title">You can see why, and change it</string>
-    <string name="brain_promise_why_body">Every pick says why it is there. Changes apply from the next track and can be undone.</string>
+    <string name="brain_promise_why_body">A pick shows why it is there when there is a reason to give. Changes apply from the next track and can be undone.</string>
     <string name="brain_promise_playlists_title">Nothing is slipped into your playlists</string>
-    <string name="brain_promise_playlists_body">Picks live only under the Autoplay line, which has an off switch.</string>
+    <string name="brain_promise_playlists_body">Picks are never added to your playlists or your library. Autoplay has an off switch, and a station plays until you start something else.</string>
     <string name="brain_promise_phone_title">It stays on your phone</string>
     <string name="brain_promise_phone_body">Looking up songs and facts contacts public music catalogues without an account; they see an IP address and the artist or song looked up. The assistant\'s cloud mode sends the conversation.</string>
     <string name="brain_how_autoplay_title">Autoplay</string>

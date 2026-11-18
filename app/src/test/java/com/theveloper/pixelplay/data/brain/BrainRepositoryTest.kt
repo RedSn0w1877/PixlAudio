@@ -133,6 +133,29 @@ class BrainRepositoryTest {
     }
 
     @Test
+    fun `an answer with no radio in it is nothing learned - the stored list stays and the seed is not marked junk`() = runTest {
+        val seed = row(1, "Adele", title = "Hello")
+        source.songRadios[seed.videoId] = healthyRadio(seed)
+        val good = repository.radioFor(seedOf(seed), allowNetwork = true)!!
+        // Two weeks on the list is stale, and upstream answers with a valid page that holds no rows.
+        now += BrainRepository.CACHE_TTL_MS + 1
+        source.songRadios[seed.videoId] = FetchedRadio(rows = emptyList(), relatedBrowseId = null)
+        val stale = repository.radioFor(seedOf(seed), allowNetwork = true)!!
+        assertTrue(stale.fromCache)
+        assertEquals(good.rows, stale.rows)
+        assertTrue(dao.get(good.seedRid, RadioListEntity.KIND_SONG, "")!!.healthy, "the stored list was not overwritten")
+        // The seed is left alone for a while, not hammered ...
+        val calls = source.calls.size
+        repository.radioFor(seedOf(seed), allowNetwork = true)
+        assertEquals(calls, source.calls.size)
+        // ... and asked again long before a junk seed's day is over.
+        now += BrainRepository.EMPTY_ANSWER_RETRY_MS + 1
+        source.songRadios[seed.videoId] = healthyRadio(seed)
+        val fresh = repository.radioFor(seedOf(seed), allowNetwork = true)!!
+        assertFalse(fresh.fromCache)
+    }
+
+    @Test
     fun `the seed is one recording whether it is asked about by its spotify id or met as a radio row`() = runTest {
         val seed = row(1, "Adele", title = "Hello")
         source.songRadios[seed.videoId] = healthyRadio(seed)

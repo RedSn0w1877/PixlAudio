@@ -63,6 +63,9 @@ class BrainRepository @Inject constructor(
     // One seed is fetched once: a second caller for the same seed waits and then reads the cache.
     private val seedLocks = Array(8) { Mutex() }
 
+    // Seeds whose radio came back with no rows at all, by rid, with when. Memory only: see [radioForLocked].
+    private val emptyAnswerAtMs = java.util.concurrent.ConcurrentHashMap<Long, Long>()
+
     /**
      * Related music for [seed]. With [allowNetwork] false (offline, the YouTube source switched off) only
      * the cache answers, however old. Null means "nothing known": the caller falls back to the library.
@@ -133,12 +136,25 @@ class BrainRepository @Inject constructor(
             return staleOrNull()
         }
         if (radioLists.fetchedSince(now - HostBudget.DAY_MS) >= HostBudget.DAILY_LIMIT) return staleOrNull()
+        emptyAnswerAtMs[seedRid]?.let { at ->
+            if (now - at in 0 until EMPTY_ANSWER_RETRY_MS) return staleOrNull()
+        }
 
         val fetched = radioSource.songRadio(seed.videoId, continuations)
         if (fetched != null && !isJunk(fetched, seed)) {
             return store(seedRid, RadioListEntity.KIND_SONG, withoutSeed(fetched.rows, seed), fetched.chips, now, songChip)
         }
         if (fetched == null) return staleOrNull() // transport failure or no budget: nothing learned
+        if (fetched.rows.isEmpty() && fetched.relatedBrowseId == null) {
+            // An answer with nothing of a radio page in it (no rows, no Related tab): a glitch
+            // upstream or a bot wall, not a junk radio. Nothing was learned about the seed, so the
+            // list already stored stays and the seed is not marked as junk for a day. It is only left
+            // alone for a while, in memory. (A page that names its Related tab but has no rows is a
+            // real page: that one takes the junk path below.)
+            if (emptyAnswerAtMs.size > EMPTY_ANSWER_LIMIT) emptyAnswerAtMs.clear()
+            emptyAnswerAtMs[seedRid] = now
+            return staleOrNull()
+        }
 
         // Junk (3.3, rule 6): remember it, then the Related tab, another audio id, the artist radio.
         radioLists.upsert(
@@ -346,6 +362,10 @@ class BrainRepository @Inject constructor(
         /** A radio is good for two weeks: related music does not change faster than that. */
         const val CACHE_TTL_MS = 14L * 24 * 60 * 60 * 1000
         const val JUNK_RETRY_MS = 24L * 60 * 60 * 1000
+
+        /** A seed whose radio came back empty (no rows at all) is not asked again for this long. */
+        const val EMPTY_ANSWER_RETRY_MS = 30L * 60 * 1000
+        const val EMPTY_ANSWER_LIMIT = 256
         const val MIN_FALLBACK_ROWS = 5
 
         /** A song radio with fewer official-audio rows than this is treated as junk. */
