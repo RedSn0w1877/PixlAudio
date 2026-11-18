@@ -109,7 +109,8 @@ object StationPlanner {
         val arms = ArrayList<Int>(request.candidates.size)
         val seen = HashSet<Long>(request.candidates.size * 2)
         // A seed is what the listener is hearing: it is never its own recommendation.
-        for (seed in request.seeds) seen.add(seed.seedRid)
+        // (A mix is the listener's own music: its seeds are tracks they chose, and they may be in it.)
+        if (!mix) for (seed in request.seeds) seen.add(seed.seedRid)
         for (c in request.candidates) {
             if (c.rid == 0L || c.rid in request.excludedRids || !seen.add(c.rid)) continue
             if (session.isBlocked(c.aid)) continue
