@@ -296,6 +296,7 @@ class BrainHomeRows @Inject constructor(
                         tzOffsetMin = tzOffsetMin,
                         tieSeed = radio.seedRid xor BrainMath.localDay(now, tzOffsetMin),
                         excludedRids = usedRids,
+                        ranking = state.ranking(state.session.sessionId),
                     ),
                     state.affinity,
                     session,

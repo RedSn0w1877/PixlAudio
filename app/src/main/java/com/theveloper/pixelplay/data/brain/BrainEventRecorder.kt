@@ -7,6 +7,7 @@ import com.theveloper.pixelplay.brain.EndReason
 import com.theveloper.pixelplay.brain.EventFlags
 import com.theveloper.pixelplay.brain.Origin
 import com.theveloper.pixelplay.brain.PlayEvent
+import com.theveloper.pixelplay.brain.Ranker
 import com.theveloper.pixelplay.brain.Reward
 import com.theveloper.pixelplay.brain.Session
 import com.theveloper.pixelplay.brain.Surface
@@ -179,6 +180,12 @@ class BrainEventRecorder @Inject constructor(
         return engine.withState { state ->
             if (state.session.sessionId != 0L && Session.isExpired(state.session, play.startedAtMs)) state.newSession()
             val stamp = Session.begin(state.session, play.startedAtMs, context.startReason)
+            // One session in ten is ranked with the prior and flagged (5.12 point 8); a pick served while the learned weights
+            // were on says so in `modelVersion`, so Your sound can set the two completion rates side by side.
+            var eventFlags = flags
+            val control = context.isEngineOwned && Ranker.isControlSession(stamp.sessionId)
+            if (control) eventFlags = eventFlags or EventFlags.CONTROL_SESSION
+            val servedLearned = context.isEngineOwned && !control && state.learner.useLearned
             val event = PlayEvent(
                 eventId = PlayEvent.mintId(play.startedAtMs, Origin.LIVE, facts.keyAtWrite, store::eventIdentityAt),
                 origin = Origin.LIVE,
@@ -192,7 +199,7 @@ class BrainEventRecorder @Inject constructor(
                 durationMs = durationMs,
                 startReason = context.startReason,
                 endReason = play.endReason,
-                flags = flags,
+                flags = eventFlags,
                 surface = Surface.codeOf(tag?.surface),
                 surfaceId = tag?.surfaceId.orEmpty().take(PlayEvent.MAX_SURFACE_ID_LENGTH),
                 recId = tag?.recId ?: 0L,
@@ -204,6 +211,7 @@ class BrainEventRecorder @Inject constructor(
                 route = context.route,
                 retrQ = context.retrQ,
                 radioRank = context.radioRank,
+                modelVersion = if (servedLearned) MODEL_LEARNED else 0,
             )
             val graded = engine.applyLocked(state, event) ?: return@withState null
             // A play the listener chose and heard out, or a pick they acted on, may head a Home row.
@@ -245,6 +253,11 @@ class BrainEventRecorder @Inject constructor(
                 played = AnchorInfo(rid, play.songId, facts.title, facts.primaryArtist, facts.spotifyId, facts.durationMs),
             )
         }
+    }
+
+    companion object {
+        /** `play_event.modelVersion` of a pick that was ranked with the learned weights (0: the prior). */
+        const val MODEL_LEARNED = 1
     }
 
     private fun encodeOpenPlay(play: FinishedPlay): String {

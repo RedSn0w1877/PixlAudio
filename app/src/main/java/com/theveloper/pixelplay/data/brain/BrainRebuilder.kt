@@ -5,6 +5,7 @@ import com.theveloper.pixelplay.brain.Brain
 import com.theveloper.pixelplay.brain.EventFlags
 import com.theveloper.pixelplay.brain.Family
 import com.theveloper.pixelplay.brain.Ids
+import com.theveloper.pixelplay.brain.LearnReplay
 import com.theveloper.pixelplay.brain.LibraryFacts
 import com.theveloper.pixelplay.brain.Origin
 import com.theveloper.pixelplay.brain.PlayEvent
@@ -30,7 +31,14 @@ import kotlinx.coroutines.withContext
  */
 class ReplayMerger(private val store: BrainStore) {
 
-    class Result(val state: Affinity.State, val recentEventIds: Set<Long>, val importedUsed: Int, val importedDropped: Int)
+    class Result(
+        val state: Affinity.State,
+        val recentEventIds: Set<Long>,
+        val importedUsed: Int,
+        val importedDropped: Int,
+        /** Stage 3: the learner trained by the same pass; null when [rebuild] was not asked to train it. */
+        val learned: LearnReplay.Result? = null,
+    )
 
     /**
      * [imported] in any order. [survivorOf] maps a merged recording to the one it was merged into.
@@ -45,6 +53,11 @@ class ReplayMerger(private val store: BrainStore) {
         facts: LibraryFacts,
         nowMs: Long,
         excluded: Map<Long, Long> = emptyMap(),
+        /** Train the ranker in the same pass (5.9). [likedRids] are the favourites; plays at or below [learnAfterEventId] are not learned from. */
+        learn: Boolean = false,
+        likedRids: Set<Long> = emptySet(),
+        learnAfterEventId: Long = Long.MIN_VALUE,
+        tzNowMin: Int = 0,
         survivorOf: (Long) -> Long,
     ): Result {
         // Pass 1 over the log: when each recording's stored plays ended.
@@ -111,6 +124,10 @@ class ReplayMerger(private val store: BrainStore) {
                 return if (survivor == next.rid && flags == next.flags) next else next.withRid(survivor, flags)
             }
         }
+        if (learn) {
+            val learned = LearnReplay.run(merged, facts, nowMs, likedRids, tzNowMin, learnAfterEventId)
+            return Result(learned.state, recent, kept.size, dropped, learned)
+        }
         return Result(Replay.rebuild(merged, facts, nowMs), recent, kept.size, dropped)
     }
 
@@ -155,6 +172,8 @@ class AppStateRebuilder @Inject constructor(
         if (store.getState(BrainStore.KEY_SPEC_VERSION) != Brain.SPEC_VERSION.toString()) return@withContext true
         val importMax = runCatching { historyDao.get().maxPlayId() ?: 0L }.getOrDefault(0L)
         if (store.getState(BrainStore.KEY_IMPORT_MAX_ID) != importMax.toString()) return@withContext true
+        // The learner (stage 3) is missing, or was built by other logic: replay it.
+        if (store.getState(BrainEngine.KEY_LEARN_VERSION) != LearnReplay.VERSION.toString()) return@withContext true
         // "Use my Spotify music to shape picks" was flipped since the last rebuild: the tables change with it.
         if ((store.getState(KEY_SPOTIFY_SHAPES) ?: "true") != switch.spotifyShapesPicks().toString()) return@withContext true
         // The facts (likes, top lists, follows, taste changes) are folded in at a rebuild; a weekly one
@@ -226,7 +245,12 @@ class AppStateRebuilder @Inject constructor(
             val survivor = merges[row.targetId] ?: row.targetId
             excluded[survivor] = maxOf(excluded[survivor] ?: 0L, row.createdAtMs)
         }
-        val result = ReplayMerger(store).rebuild(imported, libraryFacts(library, ridBySongId, nowMs, shapes), nowMs, excluded) { merges[it] ?: it }
+        val libFacts = libraryFacts(library, ridBySongId, nowMs, shapes)
+        val liked = HashSet<Long>(libFacts.liked.size * 2)
+        for (f in libFacts.liked) liked.add(merges[f.rid] ?: f.rid)
+        val learnAfter = store.getState(BrainEngine.KEY_LEARN_AFTER)?.toLongOrNull() ?: Long.MIN_VALUE
+        val tzNowMin = java.util.TimeZone.getDefault().getOffset(nowMs) / 60_000
+        val result = ReplayMerger(store).rebuild(imported, libFacts, nowMs, excluded, true, liked, learnAfter, tzNowMin) { merges[it] ?: it }
         StateRebuilder.Rebuilt(
             state = result.state,
             recentEventIds = result.recentEventIds,
@@ -235,7 +259,10 @@ class AppStateRebuilder @Inject constructor(
                 BrainStore.KEY_IMPORT_MAX_ID to importMax.toString(),
                 KEY_REBUILT_AT_MS to nowMs.toString(),
                 KEY_SPOTIFY_SHAPES to shapes.toString(),
+                BrainEngine.KEY_LEARN_VERSION to LearnReplay.VERSION.toString(),
             ),
+            learned = result.learned,
+            likedRids = liked,
         )
     }
 

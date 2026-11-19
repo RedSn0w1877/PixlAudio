@@ -568,6 +568,21 @@ fun AppNavigation(
                 }
             }
             composable(
+                Screen.YourSound.route,
+            ) {
+                ScreenWrapper(navController = navController, playerViewModel = playerViewModel, animatedVisibilityScope = this) {
+                    com.theveloper.pixelplay.presentation.screens.YourSoundScreen(navController = navController)
+                }
+            }
+            composable(
+                Screen.GenrePage.route,
+                arguments = listOf(androidx.navigation.navArgument("atlasId") { type = androidx.navigation.NavType.StringType }),
+            ) {
+                ScreenWrapper(navController = navController, playerViewModel = playerViewModel, animatedVisibilityScope = this) {
+                    com.theveloper.pixelplay.presentation.screens.GenrePageScreen(navController = navController, playerViewModel = playerViewModel)
+                }
+            }
+            composable(
                 Screen.BrainData.route,
             ) {
                 ScreenWrapper(navController = navController, playerViewModel = playerViewModel, animatedVisibilityScope = this) {

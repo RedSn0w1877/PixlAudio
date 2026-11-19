@@ -54,6 +54,14 @@ sealed class Screen(val route: String) {
 
     object ArtistSettings : Screen("artist_settings")
     object BlockedArtists : Screen("blocked_artists")
+    /** Your sound (stage 3, docs/brain-spec.md 8.6). */
+    object YourSound : Screen("your_sound")
+
+    /** A genre page built from the atlas alone (stage 3, 8.7). */
+    object GenrePage : Screen("genre_page/{atlasId}") {
+        fun createRoute(atlasId: Int) = "genre_page/$atlasId"
+    }
+
     /** Settings > Developer mode > Brain data (stage 2b). */
     object BrainData : Screen("brain_data")
 

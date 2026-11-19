@@ -167,6 +167,14 @@ fun SettingsListeningHistorySection(
                 trailingIcon = { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, null) },
                 onClick = { navController.navigateSafely(Screen.TasteChanges.route) }
             )
+            // What the music brain makes of what was played, and the one place to start it over (docs/brain-spec.md, 8.6).
+            SettingsItem(
+                title = stringResource(R.string.brain_sound_title),
+                subtitle = stringResource(R.string.brain_sound_row_subtitle),
+                leadingIcon = { Icon(Icons.Rounded.AutoAwesome, null, tint = tint) },
+                trailingIcon = { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, null) },
+                onClick = { navController.navigateSafely(Screen.YourSound.route) }
+            )
             if (status.totalPlays > 0) {
                 SettingsItem(
                     title = stringResource(R.string.listening_history_clear_title),

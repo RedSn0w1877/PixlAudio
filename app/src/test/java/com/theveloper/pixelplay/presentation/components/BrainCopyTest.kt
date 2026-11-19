@@ -19,9 +19,13 @@ class BrainCopyTest {
 
     private val forbidden = listOf(
         "lossless", "hi-res", "hires", "dolby", "atmos", "360 reality", "claude", "anthropic", "binilyrics", "enhanced",
-        // Decision D15: stages 1 and 2 say "based on what you play".
-        "learn",
     )
+
+    /**
+     * Decision D15, as stage 3 relaxes it: "learn" may appear only in the strings the spec names for Your sound (8.6), each of which is shown
+     * only when it is true of the model at that moment (see ModelVoice). Every other string still fails on it.
+     */
+    private val learnAllowed = setOf("brain_sound_model_learning", "brain_sound_reset", "brain_sound_reset_title")
 
     /** `name -> text` of every string of a resource file, read as text (no Android runtime needed). */
     private fun strings(file: String): Map<String, String> {
@@ -43,7 +47,12 @@ class BrainCopyTest {
         for ((name, text) in brain + autoplay) {
             val lower = text.lowercase()
             for (word in forbidden) assertTrue(word !in lower, "$name says \"$word\": $text")
+            if (name !in learnAllowed) assertTrue("learn" !in lower, "$name says \"learn\": $text")
         }
+        // The allowed strings are really there, and the allowance is not a loophole for anything else.
+        assertEquals("Learning from %1\$d plays.", brain["brain_sound_model_learning"])
+        assertEquals("Reset what I\\'ve learned", brain["brain_sound_reset"])
+        for (name in learnAllowed) assertTrue(name in brain, "$name is a brain string")
     }
 
     @Test

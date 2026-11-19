@@ -298,7 +298,15 @@ class BrainMixes @Inject constructor(
             edges = edges,
         )
         val plan = brain.withState { st ->
-            if (kind != MixKinds.FIRST_LISTEN) return@withState MixPlanner.plan(request, st.affinity)
+            // Stage 3: the learned weights rank the list while the gate has them on (one posterior sample per list and day, 5.10).
+            val listSeed = com.theveloper.pixelplay.brain.Ranker.listSeed(
+                salt, "mix:$kind:$islandIdx:$regenerate", com.theveloper.pixelplay.brain.Repetition.mixDay(now, tz),
+            )
+            val ranking = st.ranking(st.session.sessionId, listSeed)
+            if (kind != MixKinds.FIRST_LISTEN) {
+                request.ranking = ranking
+                return@withState MixPlanner.plan(request, st.affinity)
+            }
             // First Listen: which tracks are adjacent-genre ones, and which artists the listener never played (6.2).
             val flagged = enriched.map { c ->
                 c.withFlags(edge = c.rid in edgeRids, artistNew = c.aid != 0L && !Affinity.isHeard(st.affinity, Family.ARTIST, c.aid))
@@ -308,7 +316,7 @@ class BrainMixes @Inject constructor(
                     kind = kind, candidates = flagged, seeds = request.seeds, nowMs = now, tzOffsetMin = tz, nuMultiplier = request.nuMultiplier,
                     salt = salt, regenerate = regenerate, excludedRids = request.excludedRids, servedTimes = times, edges = edges,
                     islands = request.islands, embeddings = known.embeddings, tagsByRid = known.tags,
-                ),
+                ).also { it.ranking = ranking },
                 st.affinity,
             )
         }

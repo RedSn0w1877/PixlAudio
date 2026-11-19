@@ -1196,6 +1196,8 @@ class AutoplayController @Inject constructor(
                     excludedRids = inputs.excludedRids,
                     bridge = bridge,
                     closestOfSeeds = inputs.closestOfSeeds,
+                    // Stage 3: the learned weights, unless the gate has the prior on or this is a control session (5.12 point 8).
+                    ranking = state.ranking(state.session.sessionId),
                 )
                 val plan = if (tail == null) {
                     StationPlanner.plan(request, state.affinity, state.session, graph)

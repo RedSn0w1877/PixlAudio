@@ -2,8 +2,14 @@ package com.theveloper.pixelplay.data.brain
 
 import com.theveloper.pixelplay.brain.Affinity
 import com.theveloper.pixelplay.brain.Brain
+import com.theveloper.pixelplay.brain.BrainMath
+import com.theveloper.pixelplay.brain.Gate
 import com.theveloper.pixelplay.brain.GradeTracker
+import com.theveloper.pixelplay.brain.LearnReplay
+import com.theveloper.pixelplay.brain.LearnerCodec
 import com.theveloper.pixelplay.brain.PlayEvent
+import com.theveloper.pixelplay.brain.Ranker
+import com.theveloper.pixelplay.brain.RankerModel
 import com.theveloper.pixelplay.brain.Reward
 import com.theveloper.pixelplay.brain.SessionState
 import com.theveloper.pixelplay.data.brain.store.AffinityEntity
@@ -45,6 +51,9 @@ interface StateRebuilder {
         val recentEventIds: Set<Long>,
         /** Written to `brain_state` together with the rows. */
         val stateValues: Map<String, String>,
+        /** Stage 3: the same replay's learner, its predictions and the favourites it used; null when the rebuild did not train it. */
+        val learned: LearnReplay.Result? = null,
+        val likedRids: Set<Long> = emptySet(),
     )
 }
 
@@ -74,6 +83,23 @@ class BrainEngine @Inject constructor(
         var session: SessionState = SessionState()
             internal set
 
+        /** The learner (stage 3, 5.9): the ranker's weights, the gate's state and the figures Your sound reads. */
+        var learner: Learner = Learner(Ranker.newModel(0L))
+            internal set
+
+        /** Bumped by "Reset what I've learned": a rebuild that started before it must not bring the old weights back. */
+        var learnEpoch: Int = 0
+            internal set
+
+        /**
+         * Which weights rank a list for the session [sessionId]: null (the prior `M0`) while the gate has the prior on, and for one
+         * session in ten (the control sessions, 5.12 point 8). With [seed] the list gets one posterior sample (5.10).
+         */
+        fun ranking(sessionId: Long, seed: Long? = null): Ranker.WeightSource? {
+            if (!learner.useLearned || Ranker.isControlSession(sessionId)) return null
+            return Ranker.WeightSource(learner.model, true, seed)
+        }
+
         /** What a radio request needs for each of the session's anchors, by rid. */
         val anchors: HashMap<Long, AnchorInfo> = HashMap()
 
@@ -87,6 +113,23 @@ class BrainEngine @Inject constructor(
             anchors.clear()
             direction = Direction()
         }
+    }
+
+    /** The learner's state, held under the engine's one lock (see [BrainEngine]). */
+    class Learner(
+        var model: RankerModel,
+        var gate: Gate.State = Gate.State(),
+        var summary: Gate.Summary? = null,
+        /** [LearnReplay.VERSION] the model was built under; 0 when there is none yet (a rebuild is due). */
+        var learnVersion: Int = 0,
+        var rebuiltAtMs: Long = 0L,
+        /** Favourites at the last rebuild (feature 8 of a live play). */
+        var liked: Set<Long> = emptySet(),
+    ) {
+        /** The learned weights rank, and the copy may say so: the gate has them on and the model is valid. */
+        val useLearned: Boolean get() = gate.useLearned && learnVersion == LearnReplay.VERSION && model.isValid()
+
+        fun saved(): LearnerCodec.Saved = LearnerCodec.Saved(model, gate, learnVersion, summary, rebuiltAtMs)
     }
 
     private val mutex = Mutex()
@@ -111,6 +154,9 @@ class BrainEngine @Inject constructor(
         val state = Affinity.State()
         store.loadAffinity(state)
         state.drainTouched { _, _ -> }
+        val storedLearner = loadLearner()
+        // A saved learner that cannot be read: the replay is due again.
+        if (storedLearner == null && store.getState(KEY_LEARN_VERSION) != null) store.putState(KEY_LEARN_VERSION, null)
         // How long the first use of the brain costs (never at app start: see the class comment).
         com.theveloper.pixelplay.data.diagnostics.PerformanceMetrics.recordTiming(
             "brain_state_load", (System.nanoTime() - startedNanos) / 1_000_000
@@ -119,6 +165,7 @@ class BrainEngine @Inject constructor(
             store.putState(BrainStore.KEY_FIRST_USE_MS, clock.nowMs().toString())
         }
         val fresh = Loaded(state)
+        if (storedLearner != null) fresh.learner = storedLearner
         loaded = fresh
         isLoaded = true
         requestRebuild(force = false)
@@ -132,7 +179,10 @@ class BrainEngine @Inject constructor(
      */
     fun applyLocked(state: Loaded, event: PlayEvent): Reward.Graded? {
         if (store.eventIdentityAt(event.eventId) != null) return null
-        val graded = Brain.onEvent(state.affinity, state.tracker, state.session, event)
+        var learnerReset = false
+        val graded = Brain.onEvent(state.affinity, state.tracker, state.session, event) { e, g ->
+            learnerReset = learnLive(state, e, g)
+        }
         val rows = ArrayList<AffinityEntity>(12)
         val seen = HashSet<Pair<Int, Long>>()
         state.affinity.drainTouched { family, key ->
@@ -141,10 +191,49 @@ class BrainEngine @Inject constructor(
         store.transaction {
             store.insertEvent(event)
             store.upsertAffinity(rows)
+            // The learner is saved with the play it learned from: no loss and no double apply after a process death.
+            if (state.learner.learnVersion == LearnReplay.VERSION) store.putState(KEY_LEARNER, LearnerCodec.encode(state.learner.saved()))
         }
         recordedDuringRebuild?.add(event)
-        if (Affinity.clockJumpedBack(state.affinity, clock.nowMs())) requestRebuild(force = true)
+        // A value that was not finite sent the model back to its prior: replay it from the log (5.12 point 2).
+        if (learnerReset || Affinity.clockJumpedBack(state.affinity, clock.nowMs())) requestRebuild(force = true)
         return graded
+    }
+
+    /** One play into the learner (5.9), before the tables change. True when the model was reset because a value was not finite. */
+    private fun learnLive(state: Loaded, e: PlayEvent, g: Reward.Graded): Boolean {
+        val learner = state.learner
+        if (learner.learnVersion != LearnReplay.VERSION) return false // the first replay builds it
+        val status = LearnReplay.applyLive(learner.model, e, g, e.rid in learner.liked, state.affinity, state.session, clock.nowMs())
+        return status == Ranker.UPDATE_RESET
+    }
+
+    private fun loadLearner(): Learner? {
+        val text = store.getState(KEY_LEARNER) ?: return null
+        val saved = LearnerCodec.decode(text) ?: return null
+        val liked = decodeLiked(store.getState(KEY_LEARNER_LIKED))
+        return Learner(saved.model, saved.gate, saved.summary, saved.learnVersion, saved.rebuiltAtMs, liked)
+    }
+
+    /**
+     * "Reset what I've learned" (8.6): the weights go back to the prior now, the gate goes off, and what the listener has played so
+     * far is not learned from again (only plays after this moment are). Events, exclusions and taste changes stay. A rebuild
+     * realigns the saved state; one that was already running cannot bring the old weights back.
+     */
+    suspend fun resetLearned() = withState { state ->
+        val nowMs = clock.nowMs()
+        // Event ids are (startedAtMs << 16) | sequence: this is above every play that has started so far.
+        val after = (nowMs shl 16) or 0xFFFFL
+        val model = Ranker.newModel(BrainMath.localDay(nowMs, 0))
+        model.lastEventId = after
+        val learner = Learner(model, Gate.State(), null, LearnReplay.VERSION, nowMs, state.learner.liked)
+        state.learner = learner
+        state.learnEpoch++
+        store.transaction {
+            store.putState(KEY_LEARN_AFTER, after.toString())
+            store.putState(KEY_LEARNER, LearnerCodec.encode(learner.saved()))
+        }
+        requestRebuild(force = true)
     }
 
     /** Asks for a rebuild in the background. Without [force] it only runs when [StateRebuilder.isNeeded]. */
@@ -155,25 +244,44 @@ class BrainEngine @Inject constructor(
             try {
                 val rebuilder = rebuilder.get()
                 if (!force && !rebuilder.isNeeded()) return@launch
-                mutex.withLock { recordedDuringRebuild = ArrayList() }
+                var epochAtStart = 0
+                mutex.withLock {
+                    recordedDuringRebuild = ArrayList()
+                    epochAtStart = loaded?.learnEpoch ?: 0
+                }
                 val rebuilt = rebuilder.rebuild(clock.nowMs())
                 mutex.withLock {
                     val live = recordedDuringRebuild.orEmpty()
                     recordedDuringRebuild = null
                     val state = loaded ?: return@withLock
+                    val nowMs = clock.nowMs()
+                    // The learner of this replay, unless the listener reset what was learned while it ran.
+                    val replayed = rebuilt.learned
+                    val adopt = replayed != null && state.learnEpoch == epochAtStart
+                    val learner = if (adopt) learnerOf(replayed!!, state.learner, rebuilt.likedRids, nowMs) else null
                     // Plays that ended while the rebuild ran and that it did not read from the log.
                     val tracker = GradeTracker(rebuilt.state.completions)
+                    val catchUpSession = SessionState()
                     for (event in live) {
                         if (event.eventId in rebuilt.recentEventIds) continue
-                        Affinity.applyEvent(rebuilt.state, event, tracker.grade(event), event.startedAtMs)
+                        val graded = tracker.grade(event)
+                        if (learner != null) {
+                            LearnReplay.applyLive(learner.model, event, graded, event.rid in learner.liked, rebuilt.state, catchUpSession, nowMs)
+                        }
+                        Affinity.applyEvent(rebuilt.state, event, graded, event.startedAtMs)
                     }
                     rebuilt.state.drainTouched { _, _ -> }
                     store.transaction {
                         store.replaceAffinity(BrainStore.allRows(rebuilt.state))
                         for ((key, value) in rebuilt.stateValues) store.putState(key, value)
+                        if (learner != null) {
+                            store.putState(KEY_LEARNER, LearnerCodec.encode(learner.saved()))
+                            store.putState(KEY_LEARNER_LIKED, encodeLiked(learner.liked))
+                        }
                     }
                     state.affinity = rebuilt.state
                     state.tracker = tracker
+                    if (learner != null) state.learner = learner
                 }
             } catch (e: CancellationException) {
                 throw e
@@ -184,8 +292,49 @@ class BrainEngine @Inject constructor(
         }
     }
 
+    /** The learner a finished replay gives: its model, the gate's new decision on its predictions, the figures Your sound shows. */
+    private fun learnerOf(result: LearnReplay.Result, previous: Learner, liked: Set<Long>, nowMs: Long): Learner {
+        val summary = Gate.summarize(result.predictions, nowMs)
+        val gate = Gate.decide(previous.gate, summary, nowMs)
+        return Learner(result.model, gate, summary, LearnReplay.VERSION, nowMs, liked)
+    }
+
     /** Waits for a rebuild that is running. For tests and for the debug screen; nothing in the app blocks on it. */
     suspend fun awaitRebuild() {
         rebuildJob?.join()
+    }
+
+    companion object {
+        /** The learner's saved state ([LearnerCodec]); a row of `brain_state`, no table changed. */
+        const val KEY_LEARNER = "learner_v1"
+
+        /** The favourites the last replay used, base 36, comma separated. */
+        /** [LearnReplay.VERSION] of the last replay; absent or different means the learner is rebuilt. */
+        const val KEY_LEARN_VERSION = "learn_version"
+
+        const val KEY_LEARNER_LIKED = "learner_liked_v1"
+
+        /** The event id at or below which plays are not learned from (set by "Reset what I've learned"). */
+        const val KEY_LEARN_AFTER = "learn_after_event_id"
+
+        private const val MAX_LIKED = 20_000
+
+        fun encodeLiked(liked: Set<Long>): String {
+            val sb = StringBuilder()
+            var n = 0
+            for (rid in liked.sorted()) {
+                if (n++ >= MAX_LIKED) break
+                if (sb.isNotEmpty()) sb.append(',')
+                sb.append(java.lang.Long.toString(rid, 36))
+            }
+            return sb.toString()
+        }
+
+        fun decodeLiked(text: String?): Set<Long> {
+            if (text.isNullOrEmpty()) return emptySet()
+            val out = HashSet<Long>()
+            for (part in text.split(',')) part.toLongOrNull(36)?.let(out::add)
+            return out
+        }
     }
 }
