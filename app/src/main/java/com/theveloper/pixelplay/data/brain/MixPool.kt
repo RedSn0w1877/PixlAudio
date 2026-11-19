@@ -21,6 +21,8 @@ class LibraryTrack(
     val liked: Boolean,
     /** `ln(product)` of the listener's boost / reduce (5.11); 0 for none. */
     val boostLn: Double = 0.0,
+    /** Feature 10, repeat activation (5.6): 0 for a track never played, or when its plays are not known. */
+    val actr: Double = 0.0,
 )
 
 /** One seed of a mix: a track the listener chose, and what the cache holds about its radio. */
@@ -91,7 +93,7 @@ object MixPoolBuilder {
             candidates.add(
                 Candidate(
                     rid = track.rid, aid = track.aid, albumKey = albumHash(track.song.album), inLibrary = true,
-                    liked = track.liked, boostLn = track.boostLn,
+                    liked = track.liked, boostLn = track.boostLn, actr = track.actr,
                 )
             )
             if (track.aid != 0L) artistNames.putIfAbsent(track.aid, LibraryIndex.primaryArtistName(track.song))

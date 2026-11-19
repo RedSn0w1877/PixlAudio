@@ -237,6 +237,124 @@ class BrainRepository @Inject constructor(
         }
     }
 
+    /** What an artist station needs to start with an artist the library has nothing of. */
+    class ArtistStationStart(
+        /** The artist page's own radio-button track: the station's first song. */
+        val seedRow: RadioRow,
+        val seedRid: Long,
+        val channelId: String,
+    )
+
+    /**
+     * Starts an artist station for an artist with no song in the library (8.3): the artist's channel (one
+     * songs search, unless a cached radio row names it), their page, and the radio their own button
+     * starts. The first song of that radio is the seed; the page's top songs and the radio are stored as
+     * the artist list under it, so the station's first pool is answered from the cache. Null when
+     * anything is missing or the budget is spent: the caller says so, and nothing starts.
+     */
+    suspend fun beginArtistStation(artistName: String): ArtistStationStart? {
+        val name = artistName.trim()
+        if (name.isEmpty()) return null
+        return try {
+            val now = clock.nowMs()
+            if (radioLists.fetchedSince(now - HostBudget.DAY_MS) >= HostBudget.DAILY_LIMIT) return null
+            val channelId = radioSource.channelIdFor(name) ?: return null
+            val page = radioSource.artistPage(channelId) ?: return null
+            val endpoint = page.radio ?: return null
+            val radio = radioSource.artistRadio(endpoint)
+            val radioRows = radio?.rows.orEmpty()
+            val usableRadio = radioRows.isNotEmpty() && !InnerTubeMusicParsers.isJunkRadio(radioRows, endpoint.videoId, setOf(channelId))
+            val seedRow = (if (usableRadio) radioRows.firstOrNull { it.videoId == endpoint.videoId && it.isOfficialAudio && it.artists.isNotEmpty() } else null)
+                ?: page.topSongs.firstOrNull { it.isOfficialAudio && it.artists.isNotEmpty() }
+                ?: radioRows.firstOrNull { it.isOfficialAudio && it.artists.any { a -> a.channelId == channelId } }
+                ?: return null
+            val seedRid = identity.resolveTrack(
+                Ids.TrackKeys(videoId = seedRow.videoId, nameKey = Ids.nameKey(seedRow.artists.first().name, seedRow.title)),
+                seedRow.durationSec * 1000,
+            )
+            if (seedRid == 0L) return null
+            val seen = HashSet<String>()
+            val rows = ArrayList<RadioRow>(page.topSongs.size + radioRows.size)
+            for (row in page.topSongs) if (seen.add(row.videoId)) rows.add(row)
+            if (usableRadio) for (row in radioRows) if (seen.add(row.videoId)) rows.add(row)
+            if (rows.size >= MIN_FALLBACK_ROWS) {
+                val seed = RadioSeed(
+                    mediaId = "", videoId = seedRow.videoId, title = seedRow.title,
+                    primaryArtist = seedRow.artists.first().name, durationMs = seedRow.durationSec * 1000L,
+                )
+                store(seedRid, RadioListEntity.KIND_ARTIST, withoutSeed(rows, seed), emptyList(), now, ARTIST_STATION_CHIP)
+            }
+            ArtistStationStart(seedRow, seedRid, channelId)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Timber.w(e, "brain: starting an artist station failed")
+            null
+        }
+    }
+
+    /**
+     * The top songs of up to three artists close to the seed's artist (6.2: "similar artists' top songs"
+     * in an artist station), from the artist page's "Fans might also like". Cached for two weeks; a
+     * fetch costs the artist page and at most three more. Empty when the network may not be asked, the
+     * budget is spent, or nothing is known.
+     */
+    suspend fun similarArtistSongs(seed: RadioSeed, allowNetwork: Boolean): List<StoredRadioRow> {
+        val seedRid = try {
+            identity.resolveTrack(
+                Ids.TrackKeys(spotifyId = seed.spotifyId, videoId = seed.videoId, nameKey = Ids.nameKey(seed.primaryArtist, seed.title)),
+                seed.durationMs.coerceIn(0L, Int.MAX_VALUE.toLong()).toInt(),
+            )
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            return emptyList()
+        }
+        if (seedRid == 0L) return emptyList()
+        val lock = seedLocks[java.lang.Long.remainderUnsigned(seedRid, seedLocks.size.toLong()).toInt()]
+        return lock.withLock {
+            try {
+                similarArtistSongsLocked(seed, seedRid, allowNetwork)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Timber.w(e, "brain: similar artists lookup failed")
+                emptyList()
+            }
+        }
+    }
+
+    private suspend fun similarArtistSongsLocked(seed: RadioSeed, seedRid: Long, allowNetwork: Boolean): List<StoredRadioRow> {
+        val now = clock.nowMs()
+        val cached = radioLists.get(seedRid, RadioListEntity.KIND_ARTIST, SIMILAR_STATION_CHIP)
+        fun cachedRows(): List<StoredRadioRow> = cached?.takeIf { it.healthy }?.let { RadioRowCodec.decodeRows(it.rowsBlob) }.orEmpty()
+        if (cached != null && now - cached.fetchedAt in 0 until CACHE_TTL_MS) return cachedRows()
+        if (!allowNetwork) return cachedRows()
+        if (radioLists.fetchedSince(now - HostBudget.DAY_MS) >= HostBudget.DAILY_LIMIT) return cachedRows()
+
+        val channelId = channelIdFor(seed, seedRid, allowNetwork) ?: return cachedRows()
+        val page = radioSource.artistPage(channelId) ?: return cachedRows()
+        val seen = HashSet<String>()
+        val rows = ArrayList<RadioRow>(SIMILAR_ARTISTS * 5)
+        for (artist in page.fansAlsoLike.filter { it.channelId != null && it.channelId != channelId }.take(SIMILAR_ARTISTS)) {
+            val similar = radioSource.artistPage(artist.channelId!!) ?: continue
+            for (row in similar.topSongs) {
+                if (row.isOfficialAudio && row.artists.isNotEmpty() && seen.add(row.videoId)) rows.add(row)
+            }
+        }
+        if (rows.size < MIN_FALLBACK_ROWS) {
+            // Nothing usable: not asked again for a day.
+            radioLists.upsert(
+                RadioListEntity(
+                    seedRid = seedRid, kind = RadioListEntity.KIND_ARTIST, chip = SIMILAR_STATION_CHIP, fetchedAt = now,
+                    lastUsedAt = now, healthy = false, rowsBlob = EMPTY, chipsBlob = EMPTY,
+                )
+            )
+            return emptyList()
+        }
+        return store(seedRid, RadioListEntity.KIND_ARTIST, withoutSeed(rows, seed), emptyList(), now, SIMILAR_STATION_CHIP).rows
+    }
+
     private suspend fun artistRadioForLocked(seed: RadioSeed, seedRid: Long, allowNetwork: Boolean): StoredRadio? {
         val now = clock.nowMs()
         val cached = radioLists.get(seedRid, RadioListEntity.KIND_ARTIST, ARTIST_STATION_CHIP)
@@ -274,10 +392,40 @@ class BrainRepository @Inject constructor(
     }
 
     /**
+     * The `UC...` channel id of [seed]'s primary artist, for the artist page and the discography: from a cached
+     * radio row by that artist; with [allowNetwork], else from one `next` for the seed. Null when unknown.
+     */
+    suspend fun artistChannelId(seed: RadioSeed, allowNetwork: Boolean): String? {
+        val seedRid = try {
+            identity.resolveTrack(
+                Ids.TrackKeys(
+                    spotifyId = seed.spotifyId,
+                    videoId = seed.videoId,
+                    nameKey = Ids.nameKey(seed.primaryArtist, seed.title),
+                ),
+                seed.durationMs.coerceIn(0L, Int.MAX_VALUE.toLong()).toInt(),
+            )
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            return null
+        }
+        if (seedRid == 0L) return null
+        return try {
+            channelIdFor(seed, seedRid, allowNetwork)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Timber.w(e, "brain: looking up the artist's channel failed")
+            null
+        }
+    }
+
+    /**
      * The `UC...` id of [seed]'s primary artist: from a cached radio row by that artist, else from the
      * seed's own row of its radio (one `next`).
      */
-    private suspend fun channelIdFor(seed: RadioSeed, seedRid: Long): String? {
+    private suspend fun channelIdFor(seed: RadioSeed, seedRid: Long, allowNetwork: Boolean = true): String? {
         val artistKey = BrainText.fold(seed.primaryArtist)
         if (artistKey.isEmpty()) return null
         fun channelIn(rows: List<RadioRow>): String? {
@@ -292,6 +440,7 @@ class BrainRepository @Inject constructor(
             if (!cached.healthy) continue
             channelIn(RadioRowCodec.decodeRows(cached.rowsBlob).map { it.row })?.let { return it }
         }
+        if (!allowNetwork) return null
         val fetched = radioSource.songRadio(seed.videoId, 0) ?: return null
         return channelIn(fetched.rows)
             ?: fetched.rows.firstOrNull { it.videoId == seed.videoId }?.artists?.firstOrNull { it.channelId != null }?.channelId
@@ -359,7 +508,7 @@ class BrainRepository @Inject constructor(
         if (radioLists.count() > MusicBrainDatabase.MAX_RADIO_LISTS) radioLists.trimTo(MusicBrainDatabase.MAX_RADIO_LISTS)
         // An artist station's list is the artist's top songs, not a ranking by closeness to the seed:
         // it is not an edge of the graph.
-        if (chip != ARTIST_STATION_CHIP) edges.record(seedRid, kind, LongArray(stored.size) { stored[it].rid }, now)
+        if (chip != ARTIST_STATION_CHIP && chip != SIMILAR_STATION_CHIP) edges.record(seedRid, kind, LongArray(stored.size) { stored[it].rid }, now)
         return StoredRadio(seedRid, kind, stored, fromCache = false)
     }
 
@@ -375,6 +524,28 @@ class BrainRepository @Inject constructor(
             if (rows.isNotEmpty()) return StoredRadio(seedRid, kind, rows, fromCache = true)
         }
         return null
+    }
+
+    /**
+     * The tuning chips of [seedRid]'s song radio that name a genre, a decade or a mood (3.4, tag source 4), for
+     * stage 2b to turn into atlas ids. Chips that only steer a radio ("Popular", "Deep cuts") and labels nobody
+     * has classified are left out: unknown stays unknown. Reads the cache, never the network.
+     */
+    suspend fun chipTagsOf(seedRid: Long): List<com.theveloper.pixelplay.brain.ChipLabels.Chip> {
+        val row = radioLists.get(seedRid, RadioListEntity.KIND_SONG, "")?.takeIf { it.healthy } ?: return emptyList()
+        val seen = HashSet<String>()
+        val out = ArrayList<com.theveloper.pixelplay.brain.ChipLabels.Chip>()
+        for (chip in RadioRowCodec.decodeChips(row.chipsBlob)) {
+            val classified = com.theveloper.pixelplay.brain.ChipLabels.classify(chip.label)
+            val tag = when (classified.kind) {
+                com.theveloper.pixelplay.brain.ChipLabels.Kind.GENRE,
+                com.theveloper.pixelplay.brain.ChipLabels.Kind.DECADE,
+                com.theveloper.pixelplay.brain.ChipLabels.Kind.MOOD -> true
+                else -> false
+            }
+            if (tag && seen.add(classified.kind.name + ":" + classified.key)) out.add(classified)
+        }
+        return out
     }
 
     /** The artist top songs and radio the artist station of [seedRid] cached, however old; empty when none. */
@@ -401,6 +572,12 @@ class BrainRepository @Inject constructor(
 
         /** The `radio_list.chip` value of an artist station's list (top songs, then the artist radio). */
         const val ARTIST_STATION_CHIP = "+artist"
+
+        /** The `radio_list.chip` value of the top songs of artists close to an artist station's artist. */
+        const val SIMILAR_STATION_CHIP = "+similar"
+
+        /** How many similar artists' top songs an artist station reads. */
+        const val SIMILAR_ARTISTS = 3
 
         private val KINDS = intArrayOf(RadioListEntity.KIND_SONG, RadioListEntity.KIND_RELATED, RadioListEntity.KIND_ARTIST)
         private val EMPTY = ByteArray(0)

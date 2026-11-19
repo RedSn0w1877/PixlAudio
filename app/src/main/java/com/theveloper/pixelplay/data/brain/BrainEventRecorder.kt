@@ -49,6 +49,8 @@ class Reaction(
     val artistKey: String = "",
     /** That artist is not to be queued for now (a hard skip): their picks leave the engine's tail. */
     val artistBlocked: Boolean = false,
+    /** The track that played, as a radio request needs it: what a station re-seeds from (6.2). */
+    val played: AnchorInfo? = null,
 ) {
     val liked: Boolean
         get() = event.flags and (EventFlags.LIKED_DURING or EventFlags.SAVED_DURING or EventFlags.ADDED_TO_PLAYLIST or EventFlags.REPLAYED) != 0 &&
@@ -76,6 +78,8 @@ class BrainEventRecorder @Inject constructor(
     private val store: BrainStore,
     /** The newest tracks a "Because you listened to" row may be built around (8.1). */
     private val homeAnchors: HomeAnchorStore = HomeAnchorStore(store),
+    /** While a private session is on, a play is logged as excluded from the picks (8.5). */
+    private val privateSession: PrivateSession? = null,
 ) : PlaySink {
 
     private sealed interface Message
@@ -157,6 +161,10 @@ class BrainEventRecorder @Inject constructor(
         if (context.shuffle) flags = flags or EventFlags.SHUFFLE
         if (context.repeatOne) flags = flags or EventFlags.REPEAT_ONE
         if (context.offline) flags = flags or EventFlags.OFFLINE
+        // A play that overlapped a private session counts for nothing in the picks; the log still has it.
+        if (privateSession?.overlaps(play.startedAtMs, play.startedAtMs + play.playedMs.coerceAtLeast(0L)) == true) {
+            flags = flags or EventFlags.LEARN_EXCLUDED
+        }
 
         return engine.withState { state ->
             if (state.session.sessionId != 0L && Session.isExpired(state.session, play.startedAtMs)) state.newSession()
@@ -224,6 +232,7 @@ class BrainEventRecorder @Inject constructor(
                     else state.direction.follow(sessionAnchors).toList().mapNotNull { state.anchors[it] },
                 artistKey = BrainText.fold(facts.primaryArtist),
                 artistBlocked = state.session.isBlocked(event.primaryAid),
+                played = AnchorInfo(rid, play.songId, facts.title, facts.primaryArtist, facts.spotifyId, facts.durationMs),
             )
         }
     }

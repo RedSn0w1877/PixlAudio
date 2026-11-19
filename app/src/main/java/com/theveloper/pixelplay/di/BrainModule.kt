@@ -60,6 +60,7 @@ object BrainModule {
     @Provides fun provideServedListDao(db: MusicBrainDatabase): ServedListDao = db.servedListDao()
     @Provides fun provideFeedbackDao(db: MusicBrainDatabase): FeedbackDao = db.feedbackDao()
     @Provides fun provideSeedDao(db: MusicBrainDatabase): SeedDao = db.seedDao()
+    @Provides fun provideSpotifyFactDao(db: MusicBrainDatabase): com.theveloper.pixelplay.data.brain.store.SpotifyFactDao = db.spotifyFactDao()
 
     /** Every stored radio also becomes edges of the persisted graph (3.6). */
     @Provides
@@ -100,6 +101,16 @@ object BrainModule {
     @Provides
     @Singleton
     fun provideYouTubeHostBudget(): HostBudget = HostBudget()
+
+    /** "New from artists you play": one small file, read by Home without the database. */
+    @Provides
+    @Singleton
+    fun provideReleaseFileStore(store: com.theveloper.pixelplay.data.brain.AtomicReleaseFileStore): com.theveloper.pixelplay.data.brain.ReleaseFileStore = store
+
+    /** What the Spotify sync returns beyond what it stores in the main database goes to `spotify_fact`. */
+    @Provides
+    @Singleton
+    fun provideBrainFactsSink(sink: com.theveloper.pixelplay.data.brain.RoomBrainFactsSink): com.theveloper.pixelplay.data.brain.BrainFactsSink = sink
 
     @Provides
     @Singleton

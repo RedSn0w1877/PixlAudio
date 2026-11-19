@@ -45,6 +45,12 @@ class BrainFeedbackTest {
         spotifyId = "56y1jOTK0XSvJzVv9vHQBK",
     )
 
+    /** The holder with the parts these tests do not look at as relaxed mocks. */
+    private fun actionsOf() = BrainActionsStateHolder(
+        feedback, mockk(relaxed = true), mockk(relaxed = true), mockk(relaxed = true), mockk(relaxed = true),
+        CoroutineScope(Dispatchers.Unconfined),
+    )
+
     private fun outcome(id: String?) =
         TasteOutcome(emptyList(), listOf(TasteChange(id, "done", changed = id != null)))
 
@@ -112,7 +118,7 @@ class BrainFeedbackTest {
             Unit
         }
         coEvery { taste.apply(any(), TasteSetBy.USER) } returns outcome("abc12345")
-        val actions = BrainActionsStateHolder(feedback, CoroutineScope(Dispatchers.Unconfined))
+        val actions = actionsOf()
 
         actions.notForMe(song, isPlaying = true) { order.add("skip") }
 
@@ -129,7 +135,7 @@ class BrainFeedbackTest {
     fun `a track that is not playing is muted without a skip, and a refused mute says so`() {
         var skipped = false
         coEvery { taste.apply(any(), TasteSetBy.USER) } returns outcome(null)
-        val actions = BrainActionsStateHolder(feedback, CoroutineScope(Dispatchers.Unconfined))
+        val actions = actionsOf()
 
         actions.notForMe(song, isPlaying = false) { skipped = true }
 
@@ -137,5 +143,76 @@ class BrainFeedbackTest {
         assertEquals(BrainNotice.Kind.NOT_SAVED, actions.notice.value?.kind)
         assertNull(actions.notice.value?.adjustmentId)
         actions.dismissNotice()
+    }
+
+    @Test
+    fun `more like this boosts the artist for two weeks, as the listener, and it can be undone like any change`() = runTest {
+        val requests = slot<List<TasteRequest>>()
+        coEvery { taste.apply(capture(requests), TasteSetBy.USER) } returns outcome("boost001")
+
+        val result = feedback.moreLike(song)
+
+        assertEquals("boost001", result.adjustmentId)
+        assertEquals("Doja Cat", result.artistName)
+        val request = requests.captured.single()
+        assertEquals(TasteAction.BOOST, request.action)
+        assertEquals(TasteTarget.ARTIST, request.target)
+        assertEquals(BrainFeedback.MORE_LIKE_DAYS, request.expiresDays)
+        assertEquals("More like this", request.reason)
+        // A track that names nobody has nothing to lean towards.
+        val nameless = Song.emptySong().copy(id = "u", title = "T", artist = EngineTrack.UNKNOWN_ARTIST)
+        assertNull(feedback.moreLike(nameless).adjustmentId)
+    }
+
+    @Test
+    fun `less from an artist already reduced offers to mute them instead of stacking another change`() {
+        coEvery { taste.list(any()) } returns listOf(
+            com.theveloper.pixelplay.data.recommendation.TasteAdjustment(
+                id = "r1", kind = com.theveloper.pixelplay.data.recommendation.TasteKind.REDUCE, target = TasteTarget.ARTIST,
+                key = com.theveloper.pixelplay.data.recommendation.TasteAdjustments.nameKey("Doja Cat"), label = "Doja Cat",
+            )
+        )
+        val actions = actionsOf()
+
+        actions.lessFrom("Doja Cat")
+
+        assertEquals(BrainNotice.Kind.OFFER_MUTE, actions.notice.value?.kind)
+        assertEquals("Doja Cat", actions.notice.value?.artistName)
+        coVerify(exactly = 0) { taste.apply(any(), any()) }
+        actions.dismissNotice()
+    }
+
+    @Test
+    fun `the first less from reduces, and the bar then offers mute`() {
+        coEvery { taste.list(any()) } returns emptyList()
+        val requests = slot<List<TasteRequest>>()
+        coEvery { taste.apply(capture(requests), TasteSetBy.USER) } returns outcome("less0001")
+        val actions = actionsOf()
+
+        actions.lessFrom("Doja Cat")
+
+        assertEquals(TasteAction.REDUCE, requests.captured.single().action)
+        assertEquals(BrainNotice.Kind.LESS_FROM, actions.notice.value?.kind)
+        // The bar's second step: mute them.
+        coEvery { taste.apply(capture(requests), TasteSetBy.USER) } returns outcome("mute0001")
+        actions.muteArtist()
+        assertEquals(TasteAction.MUTE, requests.captured.single().action)
+        assertEquals(TasteTarget.ARTIST, requests.captured.single().target)
+        assertEquals(BrainNotice.Kind.MUTED_ARTIST, actions.notice.value?.kind)
+        assertEquals("mute0001", actions.notice.value?.adjustmentId)
+        actions.dismissNotice()
+    }
+
+    @Test
+    fun `a swipe is only noted while the brain is in memory`() {
+        val engine = mockk<BrainEngine>(relaxed = true)
+        every { engine.isLoaded } returns false
+        val identity = mockk<TrackResolver>(relaxed = true)
+        val holder = BrainActionsStateHolder(
+            feedback, mockk(relaxed = true), engine, identity, mockk(relaxed = true),
+            CoroutineScope(Dispatchers.Unconfined),
+        )
+        holder.swiped(song)
+        coVerify(exactly = 0) { identity.resolveTrack(any(), any()) }
     }
 }

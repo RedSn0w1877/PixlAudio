@@ -395,11 +395,24 @@ class BrainMixes @Inject constructor(
         }
         val rids = identity.resolveTracks(requests)
         val aids = identity.resolveArtistNames(kept.map { LibraryIndex.primaryArtistName(it) })
+        // Repeat activation (5.6): how hot each track still is in the listener's memory (features 10 and 11).
+        val activation: Map<Long, Double> = runCatching {
+            val stamps = ArrayList<com.theveloper.pixelplay.data.brain.store.PlayStamp>()
+            for (chunk in rids.filter { it != 0L }.chunked(ACTIVATION_CHUNK)) {
+                stamps.addAll(playEventDao.stampsOf(chunk, now - ActivationFeatures.LOOK_BACK_MS))
+            }
+            ActivationFeatures.compute(stamps, now)
+        }.getOrDefault(emptyMap())
         val out = ArrayList<LibraryTrack>(kept.size)
         for (i in kept.indices) {
             if (rids[i] == 0L) continue
             val song = kept[i]
-            out.add(LibraryTrack(song, rids[i], aids[i], liked = song.isFavorite || song.id in favourites, boostLn = taste.boostLn(song)))
+            out.add(
+                LibraryTrack(
+                    song, rids[i], aids[i], liked = song.isFavorite || song.id in favourites,
+                    boostLn = taste.boostLn(song), actr = activation[rids[i]] ?: 0.0,
+                )
+            )
         }
         sliceKey = key
         slice = out
@@ -474,6 +487,8 @@ class BrainMixes @Inject constructor(
     }
 
     companion object {
+        /** SQLite allows 999 variables in one statement. */
+        const val ACTIVATION_CHUNK = 800
         const val KEY_SALT = "salt"
         const val PICKS = 300
         const val FAVOURITES = 150

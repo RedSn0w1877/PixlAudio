@@ -85,7 +85,10 @@ class BrainMixesTest {
         coEvery { snapshot(any()) } returns TasteAdjustments.NONE
         every { version } returns MutableStateFlow(0L)
     }
-    private val playEvents = mockk<PlayEventDao> { coEvery { ignoredThreeTimes(any()) } returns emptyList() }
+    private val playEvents = mockk<PlayEventDao> {
+        coEvery { ignoredThreeTimes(any()) } returns emptyList()
+        coEvery { stampsOf(any(), any()) } returns emptyList()
+    }
     private val playable = mockk<PlayableStore>(relaxed = true)
     private val novelty = MutableStateFlow(Novelty.BLEND)
     private val stations = mockk<StationStore> { every { this@mockk.novelty } returns this@BrainMixesTest.novelty }

@@ -29,6 +29,15 @@ interface RefreshWork {
     suspend fun radio(target: RefreshTarget): BrainRefreshRunner.Fetch
 
     suspend fun artist(target: RefreshTarget): BrainRefreshRunner.Fetch
+
+    /**
+     * Lane 2 (3.7, 6.3): the artists whose releases are looked at, the one checked longest ago first. The
+     * default is none, so a work that has no releases lane runs exactly as before.
+     */
+    suspend fun releaseTargets(): List<RefreshTarget> = emptyList()
+
+    /** One artist's releases: the artist page, the discography when a carousel was full, the tracks of what is new. */
+    suspend fun releases(target: RefreshTarget): BrainRefreshRunner.Fetch = BrainRefreshRunner.Fetch.NONE
 }
 
 /**
@@ -62,8 +71,10 @@ class BrainRefreshRunner(
         val artistsFetched: Int,
         val artistsCached: Int,
         val missed: Int,
+        val releasesFetched: Int = 0,
+        val releasesCached: Int = 0,
     ) {
-        val fetched: Int get() = radiosFetched + artistsFetched
+        val fetched: Int get() = radiosFetched + artistsFetched + releasesFetched
     }
 
     suspend fun run(): Report {
@@ -72,6 +83,8 @@ class BrainRefreshRunner(
         var radiosCached = 0
         var artistsFetched = 0
         var artistsCached = 0
+        var releasesFetched = 0
+        var releasesCached = 0
         var missed = 0
 
         suspend fun gate(): Stop {
@@ -96,6 +109,19 @@ class BrainRefreshRunner(
             }
         }
         if (stopped == Stop.NONE) {
+            // Lane 2 of the spec: what is new from the artists the listener plays. It goes before the artist
+            // lists below so the daily budget cannot be spent before it is reached; it has its own share.
+            for (target in work.releaseTargets()) {
+                val stop = gate()
+                if (stop != Stop.NONE) { stopped = stop; break }
+                when (work.releases(target)) {
+                    Fetch.NETWORK -> releasesFetched++
+                    Fetch.CACHED -> releasesCached++
+                    Fetch.NONE -> missed++
+                }
+            }
+        }
+        if (stopped == Stop.NONE) {
             for (target in work.artistSeeds()) {
                 val stop = gate()
                 if (stop != Stop.NONE) { stopped = stop; break }
@@ -106,7 +132,7 @@ class BrainRefreshRunner(
                 }
             }
         }
-        return Report(stopped, radiosFetched, radiosCached, artistsFetched, artistsCached, missed)
+        return Report(stopped, radiosFetched, radiosCached, artistsFetched, artistsCached, missed, releasesFetched, releasesCached)
     }
 }
 
@@ -120,6 +146,8 @@ class AppRefreshWork @Inject constructor(
     private val playableStore: PlayableStore,
     private val budget: HostBudget,
     private val clock: BrainClock,
+    private val newReleases: NewReleases,
+    private val musicRepository: com.theveloper.pixelplay.data.repository.MusicRepository,
 ) : RefreshWork {
 
     override suspend fun radioSeeds(): List<RefreshTarget> = targetsOf(mixes.seedsForRefresh())
@@ -127,10 +155,46 @@ class AppRefreshWork @Inject constructor(
     override suspend fun artistSeeds(): List<RefreshTarget> = targetsOf(mixes.topArtistSeeds())
 
     override suspend fun requestsLeft(): Int {
-        val today = seedDao.fetchedSince(clock.nowMs() - HostBudget.DAY_MS)
+        val since = clock.nowMs() - HostBudget.DAY_MS
+        val today = seedDao.fetchedSince(since) + newReleases.requestsSince(since)
         val byCeiling = WORKER_DAILY_CEILING - today
         val byBucket = budget.available() - FOREGROUND_RESERVE
         return minOf(byCeiling, byBucket)
+    }
+
+    override suspend fun releaseTargets(): List<RefreshTarget> {
+        // The lane's own share of the day: the rest of the worker's requests belong to the radios.
+        val since = clock.nowMs() - HostBudget.DAY_MS
+        if (newReleases.requestsSince(since) >= RELEASES_DAILY_CEILING) return emptyList()
+        val artists = artistSeeds()
+        val order = newReleases.checkOrder(artists.map { it.artistName to null })
+        val byKey = HashMap<String, RefreshTarget>(artists.size * 2)
+        for (a in artists) byKey.putIfAbsent(com.theveloper.pixelplay.brain.BrainText.fold(a.artistName), a)
+        return order.mapNotNull { byKey[com.theveloper.pixelplay.brain.BrainText.fold(it.first)] }.take(RELEASE_ARTISTS_PER_RUN)
+    }
+
+    override suspend fun releases(target: RefreshTarget): BrainRefreshRunner.Fetch {
+        val since = clock.nowMs() - HostBudget.DAY_MS
+        if (newReleases.requestsSince(since) >= RELEASES_DAILY_CEILING) return BrainRefreshRunner.Fetch.NONE
+        val channel = newReleases.channelOf(target.artistName)
+            ?: repository.artistChannelId(target.seed, allowNetwork = true)
+            ?: return BrainRefreshRunner.Fetch.NONE
+        if (newReleases.isFresh(channel)) return BrainRefreshRunner.Fetch.CACHED
+        val index = libraryIndex()
+        return newReleases.check(channel, target.artistName) { row -> index.match(row) != null }
+    }
+
+    // The library is read once per run: a release's tracks the listener already has are not news to them.
+    private var cachedIndex: LibraryIndex? = null
+    private var cachedIndexAtMs = 0L
+
+    private suspend fun libraryIndex(): LibraryIndex {
+        val now = clock.nowMs()
+        cachedIndex?.let { if (now - cachedIndexAtMs in 0 until INDEX_TTL_MS) return it }
+        return LibraryIndex(musicRepository.getAllSongsOnce()).also {
+            cachedIndex = it
+            cachedIndexAtMs = now
+        }
     }
 
     override suspend fun radio(target: RefreshTarget): BrainRefreshRunner.Fetch {
@@ -182,6 +246,14 @@ class AppRefreshWork @Inject constructor(
 
         /** Tokens of the burst bucket the worker never takes: what the listener is doing right now may need them. */
         const val FOREGROUND_RESERVE = 4
+
+        /** The releases lane's share of the worker's day (6.3, 3.7 lane 2): artist pages, discographies, album playlists. */
+        const val RELEASES_DAILY_CEILING = 14
+
+        /** Artists looked at per run: the top 20 are all covered within about four days, not daily (deviation 101). */
+        const val RELEASE_ARTISTS_PER_RUN = 6
+
+        private const val INDEX_TTL_MS = 10L * 60 * 1000
     }
 }
 
@@ -210,7 +282,7 @@ class BrainRefresh @Inject constructor(
         runCatching {
             val now = clock.nowMs()
             graphEdges.prune(now)
-            val note = "$now|r${report.radiosFetched}+${report.radiosCached}|a${report.artistsFetched}+${report.artistsCached}|m${report.missed}|${report.stopped}"
+            val note = "$now|r${report.radiosFetched}+${report.radiosCached}|a${report.artistsFetched}+${report.artistsCached}|n${report.releasesFetched}+${report.releasesCached}|m${report.missed}|${report.stopped}"
             states.put(BrainStateEntity(KEY_LAST, note.toByteArray(Charsets.UTF_8)))
         }.onFailure { if (it is CancellationException) throw it else Timber.d(it, "brain: refresh note not saved") }
         return report

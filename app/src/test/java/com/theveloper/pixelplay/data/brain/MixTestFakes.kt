@@ -115,6 +115,22 @@ class FakeRadioSource : RadioSource {
         calls.add("artistRadio:${endpoint.playlistId}")
         return artistRadios[endpoint.playlistId]
     }
+
+    val discographies = HashMap<String, List<com.theveloper.pixelplay.data.youtube.ReleaseRef>?>()
+    val releaseRows = HashMap<String, List<RadioRow>?>()
+    val channels = HashMap<String, String?>()
+    override suspend fun discography(channelId: String): List<com.theveloper.pixelplay.data.youtube.ReleaseRef>? {
+        calls.add("discography:$channelId")
+        return discographies[channelId]
+    }
+    override suspend fun releaseTracks(release: com.theveloper.pixelplay.data.youtube.ReleaseRef): List<RadioRow>? {
+        calls.add("release:${release.browseId}")
+        return releaseRows[release.browseId]
+    }
+    override suspend fun channelIdFor(artistName: String): String? {
+        calls.add("channel:$artistName")
+        return channels[artistName]
+    }
 }
 
 /** A library song with its split artist list, as the library has it. */

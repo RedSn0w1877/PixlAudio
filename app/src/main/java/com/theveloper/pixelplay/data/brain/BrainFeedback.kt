@@ -60,6 +60,62 @@ class BrainFeedback @Inject constructor(
         return NotForMe(outcome.changes.firstOrNull { it.changed }?.adjustmentId, artist)
     }
 
+    /**
+     * "More like this" (8.5): the track's primary artist is boosted for two weeks, so the next batch leans
+     * that way. It is a taste change like any other: it shows in Taste changes and is undone there.
+     */
+    suspend fun moreLike(song: Song): NotForMe {
+        val artist = artistOf(song)
+        if (artist.isEmpty()) return NotForMe(null, "")
+        val outcome = tasteAdjustments.apply(
+            listOf(
+                TasteRequest(
+                    action = TasteAction.BOOST,
+                    target = TasteTarget.ARTIST,
+                    key = TasteAdjustments.nameKey(artist),
+                    altKey = null,
+                    label = artist,
+                    strength = TasteAdjustmentMath.DEFAULT_STRENGTH,
+                    reason = REASON_MORE_LIKE,
+                    expiresDays = MORE_LIKE_DAYS,
+                )
+            ),
+            TasteSetBy.USER,
+        )
+        return NotForMe(outcome.changes.firstOrNull { it.changed }?.adjustmentId, artist)
+    }
+
+    /** True when [artistName] already has a "less from" on it: a second tap offers to mute them (8.5). */
+    suspend fun isReduced(artistName: String): Boolean {
+        val key = TasteAdjustments.nameKey(artistName)
+        if (key.isEmpty()) return false
+        return tasteAdjustments.list().any {
+            it.kind == com.theveloper.pixelplay.data.recommendation.TasteKind.REDUCE && it.target == TasteTarget.ARTIST && it.key == key
+        }
+    }
+
+    /** "Mute X": the artist leaves everything the app picks by itself. Returns the id of the change, or null. */
+    suspend fun muteArtist(artistName: String): String? {
+        val key = TasteAdjustments.nameKey(artistName)
+        if (key.isEmpty()) return null
+        val outcome = tasteAdjustments.apply(
+            listOf(
+                TasteRequest(
+                    action = TasteAction.MUTE,
+                    target = TasteTarget.ARTIST,
+                    key = key,
+                    altKey = null,
+                    label = artistName,
+                    strength = TasteAdjustmentMath.DEFAULT_STRENGTH,
+                    reason = REASON_MUTE_ARTIST,
+                    expiresDays = null,
+                )
+            ),
+            TasteSetBy.USER,
+        )
+        return outcome.changes.firstOrNull { it.changed }?.adjustmentId
+    }
+
     /** Takes one change back. False when it was already gone. */
     suspend fun undo(adjustmentId: String): Boolean = tasteAdjustments.remove(adjustmentId)
 
@@ -100,5 +156,10 @@ class BrainFeedback @Inject constructor(
         // Shown in the Taste changes screen as the reason of the change.
         const val REASON_NOT_FOR_ME = "Not for me"
         const val REASON_LESS_FROM = "Less from this artist"
+        const val REASON_MORE_LIKE = "More like this"
+        const val REASON_MUTE_ARTIST = "Muted from Less from this artist"
+
+        /** "More like this" leans the picks for this long. */
+        const val MORE_LIKE_DAYS = 14
     }
 }

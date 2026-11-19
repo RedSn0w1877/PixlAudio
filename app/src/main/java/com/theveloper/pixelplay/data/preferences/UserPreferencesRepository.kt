@@ -261,6 +261,7 @@ class UserPreferencesRepository @Inject constructor(
         val BRAIN_ENGINE = intPreferencesKey("brain_engine")
         // The one background job of the brain (BrainRefreshWorker); default on.
         val BRAIN_REFRESH_ENABLED = booleanPreferencesKey("brain_refresh_enabled")
+        val BRAIN_SPOTIFY_SHAPES_PICKS = booleanPreferencesKey("brain_spotify_shapes_picks")
         val RESUME_ON_HEADSET_RECONNECT = booleanPreferencesKey("resume_on_headset_reconnect")
         val SHOW_QUEUE_HISTORY = booleanPreferencesKey("show_queue_history")
         val PLAYBACK_QUEUE_SNAPSHOT = stringPreferencesKey("playback_queue_snapshot_v1")
@@ -646,6 +647,18 @@ class UserPreferencesRepository @Inject constructor(
 
     suspend fun setBrainRefreshEnabled(enabled: Boolean) {
         dataStore.edit { it[PreferencesKeys.BRAIN_REFRESH_ENABLED] = enabled }
+    }
+
+    /**
+     * "Use my Spotify music to shape picks" (docs/brain-spec.md, 15, owner question 1): the Spotify facts the
+     * brain keeps, and the likes, top lists, follows and imported Spotify plays it counts. Off removes them
+     * from the picks at the next rebuild. Default on.
+     */
+    val brainSpotifyShapesPicksFlow: Flow<Boolean> =
+        pref { it[PreferencesKeys.BRAIN_SPOTIFY_SHAPES_PICKS] ?: true }
+
+    suspend fun setBrainSpotifyShapesPicks(enabled: Boolean) {
+        dataStore.edit { it[PreferencesKeys.BRAIN_SPOTIFY_SHAPES_PICKS] = enabled }
     }
 
     val resumeOnHeadsetReconnectFlow: Flow<Boolean> =

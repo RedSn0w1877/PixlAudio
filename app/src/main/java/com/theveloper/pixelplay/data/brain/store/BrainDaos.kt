@@ -156,6 +156,39 @@ interface PlayEventDao {
     @Query("SELECT COUNT(*) FROM play_event WHERE origin = :origin")
     fun countByOrigin(origin: Int): Int
 
+    /** Every play of the recordings in [rids] (at most a few hundred): "Don't count this" on a song, album or playlist. */
+    @Query("SELECT * FROM play_event WHERE rid IN (:rids) ORDER BY eventId")
+    fun byRecordingsBlocking(rids: List<Long>): List<PlayEventEntity>
+
+    /** Live plays that started at or after [sinceMs]: "Don't count" the last hour. */
+    @Query("SELECT * FROM play_event WHERE origin = 0 AND startedAtMs >= :sinceMs ORDER BY eventId")
+    fun liveSinceBlocking(sinceMs: Long): List<PlayEventEntity>
+
+    @Query("UPDATE play_event SET flags = flags | :flag WHERE eventId IN (:ids)")
+    fun setFlagBlocking(ids: List<Long>, flag: Int)
+
+    /** [mask] is the flags to keep: `flag.inv()`. */
+    @Query("UPDATE play_event SET flags = flags & :mask WHERE eventId IN (:ids)")
+    fun maskFlagsBlocking(ids: List<Long>, mask: Int)
+
+    /** The last [limit] live plays by [aid], newest first, as what the "why" sheet needs: how each ended. */
+    @Query(
+        "SELECT CASE WHEN endReason = 0 OR (durationMs > 0 AND playedMs >= 0.8 * durationMs) THEN 1 ELSE 0 END AS finished " +
+            "FROM play_event WHERE origin = 0 AND primaryAid = :aid AND (flags & 8) = 0 AND (flags & 4096) = 0 " +
+            "ORDER BY startedAtMs DESC LIMIT :limit"
+    )
+    suspend fun recentFinishedByArtist(aid: Long, limit: Int): List<Int>
+
+    /**
+     * The plays of the recordings in [rids] since [sinceMs], oldest first, without the ones that never sounded or were
+     * excluded from the picks: what repeat activation (5.6) is computed from.
+     */
+    @Query(
+        "SELECT rid, startedAtMs, playedMs, durationMs, endReason, flags, origin, surface, arm FROM play_event " +
+            "WHERE rid IN (:rids) AND startedAtMs >= :sinceMs AND (flags & 4104) = 0 ORDER BY startedAtMs"
+    )
+    suspend fun stampsOf(rids: List<Long>, sinceMs: Long): List<PlayStamp>
+
     /** Recordings with any play since [sinceMs] (the 4-hour rule of 6.4). */
     @Query("SELECT DISTINCT rid FROM play_event WHERE startedAtMs >= :sinceMs")
     suspend fun playedSince(sinceMs: Long): List<Long>
@@ -182,6 +215,19 @@ interface AffinityDao {
     @Query("DELETE FROM affinity")
     fun clearBlocking()
 }
+
+/** What repeat activation needs of one past play. */
+data class PlayStamp(
+    val rid: Long,
+    val startedAtMs: Long,
+    val playedMs: Int,
+    val durationMs: Int,
+    val endReason: Int,
+    val flags: Int,
+    val origin: Int,
+    val surface: Int,
+    val arm: Int,
+)
 
 /** `origin` and `keyAtWrite` of one stored event. */
 data class EventIdentity(val origin: Int, val keyAtWrite: String)

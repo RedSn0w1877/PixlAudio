@@ -138,7 +138,8 @@ interface SpotifyApiService {
         @Path("artistId") artistId: String,
         // Sin esto llegan también recopilatorios y discos donde solo aparece invitado.
         @Query("include_groups") includeGroups: String = "album,single",
-        @Query("limit") limit: Int = 50,
+        // Spotify's documented maximum for this endpoint is 10; asking for 50 is answered with `400 Invalid limit`.
+        @Query("limit") limit: Int = 10,
         @Query("offset") offset: Int = 0
     ): Response<SpotifyAlbumsPage>
 
@@ -204,7 +205,7 @@ interface SpotifyApiService {
         // a deprecated alias that Spotify's `fields` filter no longer reliably honors —
         // asking for `track(...)` here silently came back null for every row.
         const val PLAYLIST_TRACK_FIELDS =
-            "total,next,items(added_at,item(id,name,duration_ms,is_local,type," +
-                "artists(id,name),album(id,name,images(url,width,height)),external_ids(isrc)))"
+            "total,next,items(added_at,item(id,name,duration_ms,is_local,type,explicit," +
+                "artists(id,name),album(id,name,release_date,release_date_precision,images(url,width,height)),external_ids(isrc)))"
     }
 }

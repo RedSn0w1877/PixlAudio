@@ -27,6 +27,13 @@ class BrainSwitch @Inject constructor(
 
     val refreshEnabledFlow: Flow<Boolean> get() = preferences.brainRefreshEnabledFlow
 
+    /** "Use my Spotify music to shape picks": the Spotify facts and history the picks may count (default on). */
+    val spotifyShapesPicksFlow: Flow<Boolean> get() = preferences.brainSpotifyShapesPicksFlow
+
+    suspend fun spotifyShapesPicks(): Boolean = spotifyShapesPicksFlow.first()
+
+    suspend fun setSpotifyShapesPicks(enabled: Boolean) = preferences.setBrainSpotifyShapesPicks(enabled)
+
     suspend fun setAutoplayEnabled(enabled: Boolean) = preferences.setBrainAutoplayEnabled(enabled)
 
     suspend fun setYouTubeSourceEnabled(enabled: Boolean) = preferences.setBrainYouTubeSourceEnabled(enabled)

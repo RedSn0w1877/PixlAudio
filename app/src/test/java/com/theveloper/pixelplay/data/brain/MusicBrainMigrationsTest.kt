@@ -70,8 +70,30 @@ class MusicBrainMigrationsTest {
 
     @Test
     fun `there is one migration for every version step and no destructive path`() {
-        assertEquals(1, MusicBrainMigrations.ALL.size)
+        assertEquals(2, MusicBrainMigrations.ALL.size)
         assertEquals(1, MusicBrainMigrations.ALL[0].startVersion)
         assertEquals(2, MusicBrainMigrations.ALL[0].endVersion)
+        assertEquals(2, MusicBrainMigrations.ALL[1].startVersion)
+        assertEquals(3, MusicBrainMigrations.ALL[1].endVersion)
+    }
+
+    @Test
+    fun `version 3 adds exactly spotify_fact and changes nothing that was there`() {
+        assertEquals(3, schema(3)["database"]!!.jsonObject["version"]!!.jsonPrimitive.int)
+        val v2 = entities(2).associateBy(::tableName)
+        val v3 = entities(3).associateBy(::tableName)
+        assertEquals(setOf("spotify_fact"), v3.keys - v2.keys)
+        assertTrue((v2.keys - v3.keys).isEmpty(), "no table is removed")
+        for ((name, old) in v2) {
+            assertEquals(createSql(old), createSql(v3[name]!!), "table $name is untouched")
+            assertEquals(indexSql(old, name), indexSql(v3[name]!!, name), "indices of $name are untouched")
+        }
+    }
+
+    @Test
+    fun `the version 3 statements are exactly what Room wrote for spotify_fact`() {
+        val added = entities(3).single { tableName(it) == "spotify_fact" }
+        val expected = listOf(createSql(added)) + indexSql(added, "spotify_fact")
+        assertEquals(expected, MusicBrainMigrations.V2_TO_V3)
     }
 }

@@ -78,13 +78,13 @@ class BrainHomeItem(
 /** A "Because you listened to X" row (docs/brain-spec.md, 8.1). */
 class BrainHomeRow(
     /** Also the `surfaceId` its plays are logged under. */
-    val id: String,
+    override val id: String,
     val anchor: HomeAnchor,
     val recId: Long,
-    val items: List<BrainHomeItem>,
-) {
+    override val items: List<BrainHomeItem>,
+) : PlayableBrainRow {
     /** What every item of the row carries into the queue when a card is played. */
-    fun tags(): Map<String, BrainItemTag> {
+    override fun tags(): Map<String, BrainItemTag> {
         val out = HashMap<String, BrainItemTag>(items.size * 2)
         for (item in items) {
             out[item.song.id] = BrainItemTag(
@@ -200,7 +200,7 @@ class BrainHomeRows @Inject constructor(
     }
 
     /** Every card of [row] must be in `playable` before its media item reaches the player (7.2). */
-    suspend fun prepareForPlayback(row: BrainHomeRow) {
+    suspend fun prepareForPlayback(row: PlayableBrainRow) {
         playableStore.register(row.items.map { it.track }, clock.nowMs())
     }
 

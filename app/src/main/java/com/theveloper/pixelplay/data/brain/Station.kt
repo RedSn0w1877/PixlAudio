@@ -32,14 +32,39 @@ data class Station(
     /** ONE artist name: the artist of an artist station, the seed's primary artist of a song station. */
     val artistName: String,
     val startedAtMs: Long,
+    /** What the listener started it from: one of the `SOURCE_*` of the companion. */
+    val source: Int = if (kind == Session.SEED_STATION_ARTIST) SOURCE_ARTIST else SOURCE_SONG,
+    /**
+     * The media ids of every seed, [seedMediaId] first: one for a song or artist station, up to five for an
+     * album or playlist station (6.2). They are library tracks; the radios of all of them are merged.
+     */
+    val seedMediaIds: List<String> = listOf(seedMediaId),
 ) {
     val isArtist: Boolean get() = kind == Session.SEED_STATION_ARTIST
 
     fun encode(): String =
-        listOf(kind.toString(), seedMediaId, clean(title), clean(artistName), startedAtMs.toString()).joinToString(SEPARATOR)
+        listOf(
+            kind.toString(), seedMediaId, clean(title), clean(artistName), startedAtMs.toString(), source.toString(),
+            seedMediaIds.joinToString(IDS_SEPARATOR) { clean(it) },
+        ).joinToString(SEPARATOR)
 
     companion object {
         private const val SEPARATOR = "\u001f"
+        private const val IDS_SEPARATOR = "\u001e"
+
+        const val SOURCE_SONG = 0
+        const val SOURCE_ARTIST = 1
+        const val SOURCE_ALBUM = 2
+        const val SOURCE_PLAYLIST = 3
+
+        /** A station from an album ([SOURCE_ALBUM]) or a playlist ([SOURCE_PLAYLIST]): [seedMediaIds] are its seeds, best first. */
+        fun fromSource(source: Int, seedMediaIds: List<String>, title: String, nowMs: Long): Station {
+            val first = seedMediaIds.first()
+            return Station(
+                id = idOf(Session.SEED_STATION_SONG, first, source), kind = Session.SEED_STATION_SONG, seedMediaId = first,
+                title = title, artistName = "", startedAtMs = nowMs, source = source, seedMediaIds = seedMediaIds,
+            )
+        }
 
         fun song(seedMediaId: String, title: String, primaryArtist: String, nowMs: Long): Station =
             Station(idOf(Session.SEED_STATION_SONG, seedMediaId), Session.SEED_STATION_SONG, seedMediaId, title, primaryArtist, nowMs)
@@ -47,17 +72,27 @@ data class Station(
         fun artist(seedMediaId: String, artistName: String, nowMs: Long): Station =
             Station(idOf(Session.SEED_STATION_ARTIST, seedMediaId), Session.SEED_STATION_ARTIST, seedMediaId, artistName, artistName, nowMs)
 
-        fun idOf(kind: Int, seedMediaId: String): String =
-            java.lang.Long.toHexString(BrainHash.fnv1a64("station|$kind|$seedMediaId"))
+        fun idOf(kind: Int, seedMediaId: String, source: Int = -1): String =
+            java.lang.Long.toHexString(
+                BrainHash.fnv1a64(
+                    // A song or artist station's id is what it always was; an album or playlist one adds where it came from.
+                    if (source == SOURCE_ALBUM || source == SOURCE_PLAYLIST) "station|$kind|$seedMediaId|$source" else "station|$kind|$seedMediaId"
+                )
+            )
 
         fun decode(text: String?): Station? {
             if (text.isNullOrEmpty()) return null
             val parts = text.split(SEPARATOR)
-            if (parts.size != 5) return null
+            // Five parts: a station saved before album and playlist stations existed.
+            if (parts.size != 5 && parts.size != 7) return null
             val kind = parts[0].toIntOrNull() ?: return null
             if (kind != Session.SEED_STATION_SONG && kind != Session.SEED_STATION_ARTIST) return null
             val seed = parts[1].takeIf { it.isNotEmpty() } ?: return null
-            return Station(idOf(kind, seed), kind, seed, parts[2], parts[3], parts[4].toLongOrNull() ?: return null)
+            val startedAt = parts[4].toLongOrNull() ?: return null
+            if (parts.size == 5) return Station(idOf(kind, seed), kind, seed, parts[2], parts[3], startedAt)
+            val source = parts[5].toIntOrNull()?.takeIf { it in SOURCE_SONG..SOURCE_PLAYLIST } ?: return null
+            val ids = parts[6].split(IDS_SEPARATOR).filter { it.isNotEmpty() }.ifEmpty { listOf(seed) }
+            return Station(idOf(kind, seed, source), kind, seed, parts[2], parts[3], startedAt, source, ids)
         }
 
         private fun clean(text: String): String = text.replace(SEPARATOR, " ")
@@ -115,8 +150,17 @@ class StationStore @Inject constructor(
         }
     }
 
-    fun start(station: Station) {
+    /**
+     * The media ids of the source an album or playlist station came from, for the first batch (6.2: none of
+     * the source's own songs lead). Memory only: after a restart the first batch is long served.
+     */
+    @Volatile
+    var sourceIds: Set<String> = emptySet()
+        private set
+
+    fun start(station: Station, sourceIds: Set<String> = emptySet()) {
         stationTouched = true
+        this.sourceIds = sourceIds
         _current.value = station
         persistStation(station)
     }
@@ -125,6 +169,7 @@ class StationStore @Inject constructor(
     fun clear() {
         if (_current.value == null && stationTouched) return
         stationTouched = true
+        sourceIds = emptySet()
         _current.value = null
         persistStation(null)
     }

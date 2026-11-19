@@ -133,6 +133,8 @@ class AppStateRebuilder @Inject constructor(
     private val historyDao: dagger.Lazy<ListeningHistoryDao>,
     private val tasteAdjustments: dagger.Lazy<TasteAdjustmentRepository>,
     private val clock: BrainClock,
+    private val switch: BrainSwitch,
+    private val spotifyFacts: dagger.Lazy<com.theveloper.pixelplay.data.brain.store.SpotifyFactDao>,
 ) : StateRebuilder {
 
     override suspend fun isNeeded(): Boolean = withContext(Dispatchers.IO) {
@@ -140,6 +142,8 @@ class AppStateRebuilder @Inject constructor(
         if (store.getState(BrainStore.KEY_SPEC_VERSION) != Brain.SPEC_VERSION.toString()) return@withContext true
         val importMax = runCatching { historyDao.get().maxPlayId() ?: 0L }.getOrDefault(0L)
         if (store.getState(BrainStore.KEY_IMPORT_MAX_ID) != importMax.toString()) return@withContext true
+        // "Use my Spotify music to shape picks" was flipped since the last rebuild: the tables change with it.
+        if ((store.getState(KEY_SPOTIFY_SHAPES) ?: "true") != switch.spotifyShapesPicks().toString()) return@withContext true
         // The facts (likes, top lists, follows, taste changes) are folded in at a rebuild; a weekly one
         // keeps them current without a background job.
         val rebuiltAt = store.getState(KEY_REBUILT_AT_MS)?.toLongOrNull() ?: 0L
@@ -194,10 +198,15 @@ class AppStateRebuilder @Inject constructor(
         // Step 1: imported history is read, not copied.
         val adapter = ImportedPlayAdapter(ImportedPlaySource.OfDao(historyDao.get()), identity)
         val importMax = runCatching { adapter.maxId() }.getOrDefault(0L)
+        // Off: Spotify's own history and lists are left out of the picks (owner question 1); the app's own plays stay.
+        val shapes = switch.spotifyShapesPicks()
+        // Off: what the Spotify sync left in `spotify_fact` goes too (it is read again if the switch is turned back on).
+        if (!shapes) runCatching { spotifyFacts.get().clear() }
         val imported = runCatching { adapter.events { durationByRid[it] ?: 0 } }.getOrDefault(emptyList())
+            .let { all -> if (shapes) all else all.filter { it.origin != Origin.IMPORT_SPOTIFY } }
 
         val merges = identity.merges()
-        val result = ReplayMerger(store).rebuild(imported, libraryFacts(library, ridBySongId, nowMs), nowMs) { merges[it] ?: it }
+        val result = ReplayMerger(store).rebuild(imported, libraryFacts(library, ridBySongId, nowMs, shapes), nowMs) { merges[it] ?: it }
         StateRebuilder.Rebuilt(
             state = result.state,
             recentEventIds = result.recentEventIds,
@@ -205,12 +214,13 @@ class AppStateRebuilder @Inject constructor(
                 BrainStore.KEY_SPEC_VERSION to Brain.SPEC_VERSION.toString(),
                 BrainStore.KEY_IMPORT_MAX_ID to importMax.toString(),
                 KEY_REBUILT_AT_MS to nowMs.toString(),
+                KEY_SPOTIFY_SHAPES to shapes.toString(),
             ),
         )
     }
 
     /** Step 4: facts that are not events, by id. */
-    private suspend fun libraryFacts(library: List<Song>, ridBySongId: Map<String, Long>, nowMs: Long): LibraryFacts {
+    private suspend fun libraryFacts(library: List<Song>, ridBySongId: Map<String, Long>, nowMs: Long, shapes: Boolean = true): LibraryFacts {
         // In-app favourites. (Spotify's Liked Songs arrive as library tracks; the ones the listener
         // also hearts in the app are these.)
         val favourites = runCatching { musicRepository.get().getFavoriteSongIdsOnce() }.getOrDefault(emptySet())
@@ -225,7 +235,8 @@ class AppStateRebuilder @Inject constructor(
         val topArtists = ArrayList<LibraryFacts.TopArtist>()
         val topTracks = ArrayList<LibraryFacts.TopTrack>()
         val followed = ArrayList<Long>()
-        val seeds = runCatching { historyDao.get().allSeeds() }.getOrDefault(emptyList())
+        // The top lists and follows are Spotify's: with the switch off they are not counted.
+        val seeds = if (shapes) runCatching { historyDao.get().allSeeds() }.getOrDefault(emptyList()) else emptyList()
         for (seed in seeds) {
             val kind = SeedKind.fromKey(seed.kind) ?: continue
             val range = when (seed.timeRange) {
@@ -273,6 +284,7 @@ class AppStateRebuilder @Inject constructor(
 
     private companion object {
         const val KEY_REBUILT_AT_MS = "affinity_rebuilt_at_ms"
+        const val KEY_SPOTIFY_SHAPES = "spotify_shapes_picks"
         const val FACTS_REFRESH_MS = 7L * 24 * 60 * 60 * 1000
         const val RESOLVE_BATCH = 400
     }

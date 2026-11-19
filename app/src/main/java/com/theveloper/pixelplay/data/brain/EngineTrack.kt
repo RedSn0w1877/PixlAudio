@@ -75,6 +75,13 @@ data class EngineTrack(
         const val UNKNOWN_ARTIST = "Unknown Artist"
         const val UNKNOWN_ALBUM = "Unknown Album"
 
+        /**
+         * True for a song rebuilt from a `playable` row ([songOf]): it has no artist or album id of its own,
+         * which every library row has. Recently Played offers "Save" for exactly these.
+         */
+        fun isEngineOnly(song: Song): Boolean =
+            song.artistId == -1L && song.albumId == -1L && song.contentUriString.startsWith(CONTENT_URI_PREFIX)
+
         /** The synthetic id of a YouTube video: the id the normal importer gives the same track. */
         fun synthIdOf(videoId: String): String = SpotifyRepository.syntheticIdForVideo(videoId)
 

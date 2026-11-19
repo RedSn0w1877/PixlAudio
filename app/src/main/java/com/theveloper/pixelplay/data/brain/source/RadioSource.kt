@@ -5,6 +5,7 @@ import com.theveloper.pixelplay.data.youtube.RadioChip
 import com.theveloper.pixelplay.data.youtube.RadioEndpoint
 import com.theveloper.pixelplay.data.youtube.RadioRow
 import com.theveloper.pixelplay.data.youtube.RelatedPage
+import com.theveloper.pixelplay.data.youtube.ReleaseRef
 
 /**
  * A radio as fetched: merged, deduplicated rows and what the first page said about itself. [rows] can be
@@ -36,4 +37,25 @@ interface RadioSource {
 
     /** An artist radio, from the endpoint an artist page carried. */
     suspend fun artistRadio(endpoint: RadioEndpoint): FetchedRadio?
+
+    /**
+     * The whole discography of an artist (`MPAD<channelId>`), newest first. Null when the source is
+     * unavailable or over budget; an empty list when the answer had no releases.
+     */
+    suspend fun discography(channelId: String): List<ReleaseRef>? = null
+
+    /**
+     * The tracks of one release, read through its audio playlist (3.3, "Album tracks"): the playlist id
+     * the card carried, else one album-page request to read it. Null when nothing could be read.
+     */
+    suspend fun releaseTracks(release: ReleaseRef): List<RadioRow>? = null
+
+    /** Up to [maxPages] pages of a playlist (`VL<playlistId>`), rows deduplicated by video id. */
+    suspend fun playlistRows(playlistId: String, maxPages: Int = 1): List<RadioRow>? = null
+
+    /** `music/get_queue`: full rows for video ids. An id the source does not know is left out. */
+    suspend fun hydrate(videoIds: List<String>): List<RadioRow>? = null
+
+    /** The `UC...` channel id of the artist called [artistName], from a songs search; null when none matches. */
+    suspend fun channelIdFor(artistName: String): String? = null
 }

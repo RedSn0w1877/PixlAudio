@@ -30,6 +30,22 @@ object MusicBrainMigrations {
         "CREATE INDEX IF NOT EXISTS `index_feedback_targetKind_targetId` ON `feedback` (`targetKind`, `targetId`)",
     )
 
+    /**
+     * Version 2 to 3 (stage 2a, milestone 2): `spotify_fact`, the facts the Spotify sync already returns
+     * (artist ids, release date, explicit). Nothing existing is touched.
+     */
+    val V2_TO_V3: List<String> = listOf(
+        "CREATE TABLE IF NOT EXISTS `spotify_fact` (`spotifyId` TEXT NOT NULL, `isrc` TEXT, `artistIds` TEXT NOT NULL, " +
+            "`albumId` TEXT, `releaseDate` TEXT, `releasePrecision` TEXT, `explicit` INTEGER, `seenAtMs` INTEGER NOT NULL, " +
+            "PRIMARY KEY(`spotifyId`))",
+    )
+
+    val MIGRATION_2_3: Migration = object : Migration(2, 3) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            for (statement in V2_TO_V3) db.execSQL(statement)
+        }
+    }
+
     val MIGRATION_1_2: Migration = object : Migration(1, 2) {
         override fun migrate(db: SupportSQLiteDatabase) {
             for (statement in V1_TO_V2) db.execSQL(statement)
@@ -37,5 +53,5 @@ object MusicBrainMigrations {
     }
 
     /** Every migration, in order. A new version adds its step here and its schema file next to the others. */
-    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2)
+    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3)
 }

@@ -52,7 +52,8 @@ data class SpotifyAlbumRef(
     @SerializedName("id") val id: String?,
     @SerializedName("name") val name: String?,
     @SerializedName("images") val images: List<SpotifyImage>? = null,
-    @SerializedName("release_date") val releaseDate: String? = null
+    @SerializedName("release_date") val releaseDate: String? = null,
+    @SerializedName("release_date_precision") val releaseDatePrecision: String? = null
 )
 
 data class SpotifyExternalIds(
@@ -67,7 +68,8 @@ data class SpotifyTrack(
     @SerializedName("album") val album: SpotifyAlbumRef? = null,
     @SerializedName("external_ids") val externalIds: SpotifyExternalIds? = null,
     @SerializedName("is_local") val isLocal: Boolean? = null,
-    @SerializedName("type") val type: String? = null
+    @SerializedName("type") val type: String? = null,
+    @SerializedName("explicit") val explicit: Boolean? = null
 )
 
 /**

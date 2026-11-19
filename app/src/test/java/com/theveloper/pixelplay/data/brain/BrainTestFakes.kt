@@ -32,6 +32,25 @@ class MemoryBrainStore : BrainStore {
 
     override fun countEvents(origin: Int): Int = events.values.count { it.origin == origin }
 
+    override fun eventsOfRecordings(rids: Collection<Long>): List<PlayEvent> = events.values.filter { it.rid in rids }
+
+    override fun eventsStartedSince(sinceMs: Long): List<PlayEvent> =
+        events.values.filter { it.origin == com.theveloper.pixelplay.brain.Origin.LIVE && it.startedAtMs >= sinceMs }
+
+    override fun setEventFlag(eventIds: List<Long>, flag: Int, on: Boolean): Int {
+        for (id in eventIds) {
+            val e = events[id] ?: continue
+            val next = if (on) e.flags or flag else e.flags and flag.inv()
+            events[id] = PlayEvent(
+                e.eventId, e.origin, e.rid, e.primaryAid, e.otherAids, e.keyAtWrite, e.startedAtMs, e.tzOffsetMin,
+                e.playedMs, e.durationMs, e.startReason, e.endReason, next, e.surface, e.surfaceId, e.recId, e.slot,
+                e.arm, e.sessionId, e.posInSession, e.passiveRun, e.route, e.retrQ, e.radioRank, e.pServedQ,
+                e.modelVersion, e.schema,
+            )
+        }
+        return eventIds.size
+    }
+
     override fun loadAffinity(into: Affinity.State) {
         for (row in affinity.values) into.load(row.family, row.key, row.posQ, row.negQ, row.lastMs, row.posRQ, row.negRQ, row.lastRMs)
     }

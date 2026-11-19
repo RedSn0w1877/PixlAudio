@@ -13,7 +13,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 /**
- * `brain.db` 1 to 2 on a device: a version 1 file with a listener's real rows in the tables that must
+ * `brain.db` 1 to 2, and 2 to 3, on a device: a version 1 file with a listener's real rows in the tables that must
  * survive is migrated, validated against the exported schema 2, and still holds every row; the three new
  * tables are there and empty. (The same statements are held against the schema JSON on the JVM by
  * `MusicBrainMigrationsTest`; this is the part only a device can do.)
@@ -60,7 +60,37 @@ class MusicBrainMigrationInstrumentedTest {
         db.close()
     }
 
+    @Test
+    fun migrates2To3KeepingEverythingAndAddingSpotifyFacts() {
+        helper.createDatabase(DB_V2, 2).apply {
+            execSQL(
+                "INSERT INTO play_event (eventId, schema, origin, rid, primaryAid, otherAids, keyAtWrite, startedAtMs, tzOffsetMin, " +
+                    "playedMs, durationMs, startReason, endReason, flags, surface, surfaceId, recId, slot, arm, sessionId, posInSession, " +
+                    "passiveRun, route, retrQ, radioRank, pServedQ, modelVersion) VALUES (1, 1, 0, 42, 7, '', 'n:x', 1000, 0, " +
+                    "190000, 200000, 0, 0, 0, 7, '', 0, -1, 9, 1, 0, 0, 0, -1, -1, 0, 0)"
+            )
+            execSQL("INSERT INTO feedback (id, kind, targetKind, targetId, createdAtMs, undoneAtMs) VALUES (9, 2, 1, 42, 5, NULL)")
+            execSQL("INSERT INTO graph_edge (src, dst, type, wQ16, rank, fetchedAt) VALUES (1, 2, 0, 100, 1, 5)")
+            close()
+        }
+
+        val db = helper.runMigrationsAndValidate(DB_V2, 3, true, *MusicBrainMigrations.ALL)
+
+        fun count(table: String): Int = db.query("SELECT COUNT(*) FROM $table").use { it.moveToFirst(); it.getInt(0) }
+        assertEquals(1, count("play_event"))
+        assertEquals(1, count("feedback"))
+        assertEquals(1, count("graph_edge"))
+        assertEquals(0, count("spotify_fact"))
+        db.execSQL(
+            "INSERT INTO spotify_fact (spotifyId, isrc, artistIds, albumId, releaseDate, releasePrecision, explicit, seenAtMs) " +
+                "VALUES ('t', NULL, 'a,b', 'alb', '2024-05', 'month', 1, 7)"
+        )
+        assertEquals(1, count("spotify_fact"))
+        db.close()
+    }
+
     private companion object {
         const val DB = "brain-migration-test.db"
+        const val DB_V2 = "brain-migration-test-v2.db"
     }
 }

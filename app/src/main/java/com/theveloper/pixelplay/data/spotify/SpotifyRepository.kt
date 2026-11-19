@@ -73,7 +73,9 @@ class SpotifyRepository @Inject constructor(
     private val spotifyDao: SpotifyDao,
     private val musicDao: MusicDao,
     private val playlistPreferencesRepository: PlaylistPreferencesRepository,
-    private val importStore: SpotifyImportStore
+    private val importStore: SpotifyImportStore,
+    /** What the sync returns beyond the library row (artist ids, release date, explicit): kept for the music brain. */
+    private val factsSink: com.theveloper.pixelplay.data.brain.BrainFactsSink = com.theveloper.pixelplay.data.brain.BrainFactsSink.None
 ) {
 
     // Vive todo el proceso, igual que SpotifyMatchStateCache: rellena el indicador por
@@ -864,10 +866,18 @@ class SpotifyRepository @Inject constructor(
     @Volatile
     private var batchArtistLookupUnavailable = false
 
-    suspend fun getArtistTopTracks(artistId: String): List<SpotifyTrack> = withContext(Dispatchers.IO) {
-        apiCall { auth -> api.getArtistTopTracks(auth, artistId) }
-            ?.tracks.orEmpty()
-            .filter { !it.id.isNullOrBlank() }
+    /**
+     * An artist's best-known tracks for the browse screen. Spotify removed `/artists/{id}/top-tracks`
+     * for new apps, so it is not called any more: the closest thing the API still serves is a catalogue
+     * search for the artist, in Spotify's own relevance order, keeping the tracks the artist is credited on.
+     */
+    suspend fun getArtistTopTracks(artistId: String, artistName: String? = null): List<SpotifyTrack> = withContext(Dispatchers.IO) {
+        val name = artistName?.takeIf { it.isNotBlank() } ?: return@withContext emptyList()
+        val found = searchCatalog("artist:\"$name\"")
+        found.tracks
+            .filter { track -> !track.id.isNullOrBlank() && track.artists.orEmpty().any { it.id == artistId } }
+            .distinctBy { it.id }
+            .take(ARTIST_TRACKS_SHOWN)
     }
 
     suspend fun getArtistAlbums(artistId: String): List<SpotifyAlbumFull> = withContext(Dispatchers.IO) {
@@ -1278,6 +1288,7 @@ class SpotifyRepository @Inject constructor(
         val id = track?.id ?: return null
         if (track.isLocal == true) return null // Ficheros locales del usuario: no hay nada que emparejar.
         if (track.type != null && track.type != "track") return null // Episodios de podcast.
+        factsSink.record(track)
 
         val artistNames = track.artists.orEmpty().mapNotNull { it.name?.ifBlank { null } }
         // First artist with a known genre wins — usually the primary artist, but a featured
@@ -1306,6 +1317,9 @@ class SpotifyRepository @Inject constructor(
     }
 
     companion object {
+        /** How many of an artist's tracks the browse screen lists. */
+        const val ARTIST_TRACKS_SHOWN = 10
+
         const val SPOTIFY_PLAYLIST_SOURCE = "SPOTIFY"
 
         // Bandas de ids negativas reservadas a Spotify. Cada una es disjunta de las

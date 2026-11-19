@@ -85,6 +85,8 @@ data class AutoplayUiState(
     /** The queue is a station (8.3): what it is named after, a song's title or an artist's name. */
     val stationTitle: String? = null,
     val stationIsArtist: Boolean = false,
+    /** What the station was started from: one of `Station.SOURCE_*`. */
+    val stationSource: Int = Station.SOURCE_SONG,
     /** The Familiar / Blend / Discover switch: `Novelty.FAMILIAR`, `BLEND` or `DISCOVER`. */
     val novelty: Int = Novelty.BLEND,
     /**
@@ -218,6 +220,10 @@ class AutoplayController @Inject constructor(
         val station: Station?,
         /** The station has not been given a batch yet. */
         val firstStationBatch: Boolean,
+        /** The plan replaces a whole tail by other picks ([refreshPicks]): a plan with none must not empty the tail. */
+        val replaceAll: Boolean = false,
+        /** An album or playlist station, or one that was re-seeded: a track must be near the closest of its seeds. */
+        val closestOfSeeds: Boolean = false,
     )
 
     private val _uiState = MutableStateFlow(AutoplayUiState())
@@ -238,6 +244,16 @@ class AutoplayController @Inject constructor(
 
     /** Batches appended for the current [station]: its first one is the long one (6.2). */
     private var stationBatches = 0
+
+    /**
+     * The station's best-received track so far (one the listener finished or liked), and the tracks the
+     * station was re-seeded from when its pool ran low (6.2): their radios join the seeds.
+     */
+    private var stationBest: AnchorInfo? = null
+    private val stationReseeds = ArrayList<AnchorInfo>()
+
+    /** The next re-score replaces the whole engine tail with the next best picks ("Refresh picks", 8.4). */
+    private var refreshNext = false
 
     /** Autoplay is switched on, or the queue is a station (which the listener asked for by hand). */
     private val active: Boolean get() = enabled || station != null
@@ -538,6 +554,25 @@ class AutoplayController @Inject constructor(
         }
     }
 
+    /**
+     * "Refresh picks" (8.4): the engine's upcoming picks are replaced by the next best ones, in one queue
+     * edit, never touching the track that is starting or one the prefetcher has warmed. With too little
+     * left in memory to choose from, a deeper pool is built first and the swap happens when it is ready.
+     */
+    @MainThread
+    fun refreshPicks() {
+        val host = host ?: return
+        if (!active || !remoteRule(host).rescore || host.isRestoringQueue() || queueAttach.isAttaching) return
+        val queue = engine.getFullQueue()
+        val seeding = seedingOf(queue, engine.getCurrentAbsoluteIndex())
+        if (seeding.anchors.isEmpty()) return
+        adoptPoolFor(seeding)
+        refreshNext = true
+        if (pool.size >= REFRESH_MIN_POOL && !poolFromLibrary && rescoreTail()) return
+        poolDeepened = false
+        startFill(seeding, settle = false, deepen = true, purpose = FILL_TURN)
+    }
+
     // ── Reactions (7.3) ──────────────────────────────────────────────────────
 
     /** A play ended and the session changed. Decides whether the engine's tail must be re-scored. */
@@ -550,6 +585,15 @@ class AutoplayController @Inject constructor(
         if (reaction.liked) {
             if (likedTitles.size > 32) likedTitles.clear()
             likedTitles[reaction.event.rid] = reaction.title
+        }
+        // The station's best-received track: what its radio is asked for when the pool runs low (6.2).
+        val inStation = station
+        val played = reaction.played
+        if (inStation != null && played != null && reaction.event.surface == Surface.STATION &&
+            reaction.event.surfaceId == inStation.id && played.mediaId != inStation.seedMediaId &&
+            ((reaction.graded.isCompletion && reaction.graded.c > 0.0) || reaction.liked)
+        ) {
+            stationBest = played
         }
         val host = host
         if (host != null) refreshStation(engine.getFullQueue())
@@ -619,7 +663,9 @@ class AutoplayController @Inject constructor(
         if (tailEntries.any { it.brain == null }) return false
         val tailRids = LongArray(tailEntries.size) { tailEntries[it].brain!!.rid }
         val tailIds = queue.subList(start, queue.size).map { it.mediaId }
-        val inputs = planInputs(queue, start, tailEntries)
+        val refreshing = refreshNext
+        refreshNext = false
+        val inputs = planInputs(queue, start, tailEntries, refreshing)
         val key = poolKey
         rescoreJob = host.scope.launch {
             applyRescore(inputs, key, start, tailEntries, tailRids, tailIds)
@@ -662,6 +708,7 @@ class AutoplayController @Inject constructor(
             Timber.w(e, "autoplay: re-scoring the tail failed")
             null
         } ?: return
+        if (inputs.replaceAll && plan.picks.isEmpty()) return
         if (key != poolKey || host == null || !active || queueAttach.isAttaching) return
         // The queue may have moved on while the plan was made: only an unchanged tail is replaced,
         // and never during a hand-over.
@@ -757,6 +804,13 @@ class AutoplayController @Inject constructor(
         expireOfflinePool()
         appendFromPool(queue) { appended ->
             if (appended) {
+                if (maybeReseedStation()) {
+                    // The station's pool ran low: the radio of the track it did best with joins its seeds.
+                    val next = seedingOf(queue, index)
+                    adoptPoolFor(next)
+                    startFill(next, settle = true, deepen = false, purpose = FILL_REFILL)
+                    return@appendFromPool
+                }
                 if (pool.size < AutoplayPolicy.POOL_REFILL_BELOW && !poolFromLibrary && !poolDeepened) {
                     startFill(seeding, settle = true, deepen = true, purpose = FILL_REFILL)
                 }
@@ -767,6 +821,19 @@ class AutoplayController @Inject constructor(
             if (pool.isNotEmpty() && poolDeepened) return@appendFromPool
             startFill(seeding, settle, deepen = pool.isNotEmpty(), purpose = FILL_TOP_UP)
         }
+    }
+
+    /**
+     * 6.2: when a station's pool runs under 15 it is re-seeded from the best-received station track's radio. True
+     * when a seed was added (at most [MAX_STATION_RESEEDS] per station): the pool is built again from the new seeds.
+     */
+    private fun maybeReseedStation(): Boolean {
+        val current = station ?: return false
+        if (poolFromLibrary || pool.size >= STATION_RESEED_BELOW || stationReseeds.size >= MAX_STATION_RESEEDS) return false
+        val best = stationBest ?: return false
+        if (best.mediaId in current.seedMediaIds || stationReseeds.any { it.mediaId == best.mediaId }) return false
+        stationReseeds.add(best)
+        return true
     }
 
     /** A pool that is being built only because the queue ran low is not needed once it no longer is. */
@@ -819,12 +886,27 @@ class AutoplayController @Inject constructor(
     private fun seedingOf(queue: List<MediaItem>, index: Int): Seeding {
         // A station has one anchor for as long as it lasts: its seed (8.3).
         station?.let { current ->
+            var primary: Anchor? = null
             for (item in queue) {
                 if (item.mediaId == current.seedMediaId) {
-                    return Seeding(listOf(Anchor(item.mediaId, item.mediaMetadata.title?.toString().orEmpty(), item, null)), 0, false)
+                    primary = Anchor(item.mediaId, item.mediaMetadata.title?.toString().orEmpty(), item, null)
+                    break
                 }
             }
-            return Seeding(emptyList(), 0, false)
+            if (primary == null) return Seeding(emptyList(), 0, false)
+            // An album or playlist station has up to five seeds (6.2), and a station whose pool ran low was
+            // re-seeded from tracks the listener took to: all their radios are merged.
+            val anchors = ArrayList<Anchor>(MAX_STATION_SEEDS)
+            anchors.add(primary)
+            for (id in current.seedMediaIds) {
+                if (anchors.size >= MAX_STATION_SEEDS) break
+                if (anchors.none { it.mediaId == id }) anchors.add(Anchor(id, "", null, null))
+            }
+            for (info in stationReseeds) {
+                if (anchors.size >= MAX_STATION_SEEDS) break
+                if (anchors.none { it.mediaId == info.mediaId }) anchors.add(Anchor(info.mediaId, info.title, null, info))
+            }
+            return Seeding(anchors, 0, false)
         }
         val current = queue.getOrNull(index)
         val currentIsListeners = current != null && !BrainExtras.isEngineOwned(current.mediaMetadata.extras)
@@ -998,7 +1080,12 @@ class AutoplayController @Inject constructor(
     }
 
     /** Everything a plan reads, taken from the queue and the pool on the main thread. */
-    private fun planInputs(queue: List<MediaItem>, tailStart: Int, tailEntries: List<PoolEntry>): PlanInputs {
+    private fun planInputs(
+        queue: List<MediaItem>,
+        tailStart: Int,
+        tailEntries: List<PoolEntry>,
+        refreshing: Boolean = false,
+    ): PlanInputs {
         val now = clock.nowMs()
         val queuedIds = HashSet<String>(queue.size * 2 + 64)
         val prior = ArrayList<ListBuilder.Prior>()
@@ -1040,6 +1127,15 @@ class AutoplayController @Inject constructor(
             }
             if (entriesByRid.putIfAbsent(candidate.rid, entry) == null) candidates.add(candidate)
         }
+        // A station from an album or a playlist does not open with the album's or playlist's own songs (6.2).
+        if (station != null && stationBatches == 0) {
+            val source = stations.sourceIds
+            if (source.isNotEmpty()) {
+                for (entry in pool) if (entry.candidate.mediaId in source) entry.brain?.let { excludedRids.add(it.rid) }
+            }
+        }
+        // "Refresh picks": what the tail holds now is not offered again by this plan.
+        if (refreshing) for (entry in tailEntries) entry.brain?.let { excludedRids.add(it.rid) }
         batchSeq = (batchSeq + 1) and 0xff
         return PlanInputs(
             candidates = candidates,
@@ -1060,6 +1156,8 @@ class AutoplayController @Inject constructor(
             batch = batchSeq,
             station = station,
             firstStationBatch = station != null && stationBatches == 0,
+            replaceAll = refreshing,
+            closestOfSeeds = station?.let { it.seedMediaIds.size > 1 || stationReseeds.isNotEmpty() } == true,
         )
     }
 
@@ -1097,6 +1195,7 @@ class AutoplayController @Inject constructor(
                     },
                     excludedRids = inputs.excludedRids,
                     bridge = bridge,
+                    closestOfSeeds = inputs.closestOfSeeds,
                 )
                 val plan = if (tail == null) {
                     StationPlanner.plan(request, state.affinity, state.session, graph)
@@ -1246,7 +1345,7 @@ class AutoplayController @Inject constructor(
         // The reason line (8.8): a key from the pure core and the name its argument stands for.
         val whyName = when (pick?.whyKey) {
             null -> entry.whyArtist
-            WhyLine.RADIO_FANS, WhyLine.ARTIST_MORE -> poolArtistNames[pick.whyArg] ?: entry.whyArtist
+            WhyLine.RADIO_FANS, WhyLine.ARTIST_MORE, WhyLine.SIMILAR_ARTIST -> poolArtistNames[pick.whyArg] ?: entry.whyArtist
             WhyLine.BECAUSE_LIKED -> likedTitles[pick.whyArg].orEmpty()
             else -> ""
         }
@@ -1484,13 +1583,21 @@ class AutoplayController @Inject constructor(
             // tracks count as "more from" them; the rest are what their listeners also play.
             val (seed, whyArtist) = seeds[0]
             val artistKey = BrainText.fold(whyArtist)
-            brainRepository.artistRadioFor(seed, allowNetwork)?.let { radio ->
-                val list = ArrayList<PoolEntry>(radio.rows.size)
+            val artistList = brainRepository.artistRadioFor(seed, allowNetwork)
+            // Songs of artists close to this one (6.2): the top songs of three of the page's "Fans might also like".
+            val similarRows = if (artistList != null) brainRepository.similarArtistSongs(seed, allowNetwork) else emptyList()
+            artistList?.let { radio ->
+                val list = ArrayList<PoolEntry>(radio.rows.size + similarRows.size)
                 for (rank in radio.rows.indices) {
                     val own = artistKey.isNotEmpty() && BrainRepository.artistKeyOf(radio.rows[rank].row) == artistKey
                     entryFor(radio.rows[rank], rank + 1, index, everPlayed, favourites, adjustments, whyArtist, own)?.let(list::add)
                 }
-                fetched = listOf(Fetched(list, radio.seedRid, LongArray(radio.rows.size) { radio.rows[it].rid }, false, whyArtist)) + fetched
+                for (i in similarRows.indices) {
+                    entryFor(similarRows[i], radio.rows.size + i + 1, index, everPlayed, favourites, adjustments, whyArtist, artistRadio = false, fromSimilar = true)
+                        ?.let(list::add)
+                }
+                val rids = LongArray(radio.rows.size + similarRows.size) { if (it < radio.rows.size) radio.rows[it].rid else similarRows[it - radio.rows.size].rid }
+                fetched = listOf(Fetched(list, radio.seedRid, rids, false, whyArtist)) + fetched
             }
         }
 
@@ -1553,6 +1660,7 @@ class AutoplayController @Inject constructor(
                         rid = candidate.rid, aid = aidByName[entry.primaryArtist] ?: 0L, albumKey = candidate.albumKey,
                         inLibrary = candidate.inLibrary, liked = candidate.liked,
                         fromArtistRadio = candidate.fromArtistRadio, boostLn = candidate.boostLn,
+                        fromSimilarArtist = candidate.fromSimilarArtist, actr = candidate.actr,
                     ),
                 )
             }
@@ -1593,6 +1701,7 @@ class AutoplayController @Inject constructor(
         adjustments: com.theveloper.pixelplay.data.recommendation.TasteAdjustments,
         anchorArtist: String,
         artistRadio: Boolean,
+        fromSimilar: Boolean = false,
     ): PoolEntry? {
         val row = stored.row
         val librarySong = index.match(row)
@@ -1611,7 +1720,7 @@ class AutoplayController @Inject constructor(
                 versionFlags = BrainText.cleanTitle(row.title).versionFlags,
                 officialAudio = row.isOfficialAudio,
                 inLibrary = false,
-                arm = if (artistRadio) Arm.ARTIST else Arm.RADIO,
+                arm = if (fromSimilar) Arm.SIM else if (artistRadio) Arm.ARTIST else Arm.RADIO,
                 radioRank = rank,
             ),
             song = song,
@@ -1620,7 +1729,8 @@ class AutoplayController @Inject constructor(
             primaryArtist = row.artists.first().name,
             brain = Candidate(
                 rid = stored.rid, aid = 0L, albumKey = albumHash(albumKey), inLibrary = false,
-                fromArtistRadio = artistRadio, boostLn = boostLn(adjustments, song),
+                fromArtistRadio = artistRadio && !fromSimilar, boostLn = boostLn(adjustments, song),
+                fromSimilarArtist = fromSimilar,
             ),
         )
     }
@@ -1861,7 +1971,13 @@ class AutoplayController @Inject constructor(
         if (next != station) {
             station = next
             stationBatches = 0
-            _uiState.value = _uiState.value.copy(stationTitle = next?.title, stationIsArtist = next?.isArtist == true)
+            stationBest = null
+            stationReseeds.clear()
+            _uiState.value = _uiState.value.copy(
+                stationTitle = next?.title,
+                stationIsArtist = next?.isArtist == true,
+                stationSource = next?.source ?: Station.SOURCE_SONG,
+            )
         }
     }
 
@@ -1870,6 +1986,18 @@ class AutoplayController @Inject constructor(
      * and the engine's upcoming picks that match leave the queue in one edit (never the listener's own
      * items, never during a hand-over). A reduce changes scores, so the tail is planned again.
      */
+    private fun withBoost(entry: PoolEntry, boosts: Map<String, Double>): PoolEntry {
+        val boost = boosts[entry.candidate.mediaId] ?: return entry
+        val c = entry.brain ?: return entry
+        return PoolEntry(
+            entry.candidate, entry.song, entry.engineTrack, entry.whyArtist, entry.primaryArtist,
+            Candidate(
+                rid = c.rid, aid = c.aid, albumKey = c.albumKey, inLibrary = c.inLibrary, liked = c.liked,
+                fromArtistRadio = c.fromArtistRadio, boostLn = boost, fromSimilarArtist = c.fromSimilarArtist, actr = c.actr,
+            ),
+        )
+    }
+
     @MainThread
     private fun onTasteChanged() {
         val host = host ?: return
@@ -1885,6 +2013,7 @@ class AutoplayController @Inject constructor(
                 held.addAll(pool)
                 held.addAll(served.values)
                 val blocked = blockedArtists.current
+                val boosts = HashMap<String, Double>()
                 val goneIds: Set<String> = withContext(Dispatchers.Default) {
                     val adjustments = tasteAdjustments.snapshot(clock.nowMs())
                     val out = HashSet<String>()
@@ -1892,11 +2021,22 @@ class AutoplayController @Inject constructor(
                         val song = entry.song
                         if (blocked.isBlocked(song) || adjustments.excludes(song) || adjustments.blocks(song)) {
                             out.add(entry.candidate.mediaId)
+                        } else {
+                            // A boost or a reduce changes what the entry scores: "More like this" leans the next batch.
+                            val candidate = entry.brain
+                            if (candidate != null) {
+                                val now = boostLn(adjustments, song)
+                                if (BrainMath.abs(now - candidate.boostLn) > 1e-9) boosts[entry.candidate.mediaId] = now
+                            }
                         }
                     }
                     out
                 }
                 if (this@AutoplayController.host == null) return@launch
+                if (boosts.isNotEmpty()) {
+                    for (i in pool.indices) pool[i] = withBoost(pool[i], boosts)
+                    for (id in boosts.keys) served[id]?.let { served[id] = withBoost(it, boosts) }
+                }
                 if (goneIds.isNotEmpty()) {
                     pool.removeAll { it.candidate.mediaId in goneIds }
                     if (AutoplayPolicy.mustDeferQueueEdit(engine.isTransitionRunning())) {
@@ -1991,6 +2131,16 @@ class AutoplayController @Inject constructor(
 
         /** 6.2: a station's first batch, and its novelty share against autoplay's. */
         const val STATION_FIRST_BATCH = 20
+
+        /** 6.2: a station whose pool runs under this is re-seeded from its best-received track, at most twice. */
+        const val STATION_RESEED_BELOW = 15
+        const val MAX_STATION_RESEEDS = 2
+
+        /** An album or playlist station has up to five seeds, and two re-seeds may join them. */
+        const val MAX_STATION_SEEDS = 7
+
+        /** "Refresh picks" needs this many other tracks in the pool to choose from. */
+        const val REFRESH_MIN_POOL = 10
         const val STATION_NU = 1.2
         const val STATION_START_RECHECK_MS = 750L
 

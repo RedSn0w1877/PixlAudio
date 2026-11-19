@@ -28,6 +28,15 @@ interface BrainStore {
 
     fun countEvents(origin: Int): Int
 
+    /** Every stored play of the recordings in [rids], in replay order. */
+    fun eventsOfRecordings(rids: Collection<Long>): List<PlayEvent>
+
+    /** Live plays that started at or after [sinceMs], in replay order. */
+    fun eventsStartedSince(sinceMs: Long): List<PlayEvent>
+
+    /** Sets (or clears) [flag] on the events under [eventIds]; returns how many ids were given. */
+    fun setEventFlag(eventIds: List<Long>, flag: Int, on: Boolean): Int
+
     /** Reads every affinity row into [into]. */
     fun loadAffinity(into: Affinity.State)
 
@@ -174,6 +183,23 @@ class RoomBrainStore @Inject constructor(
         events.pageBlocking(afterEventId, limit).map(BrainStore::eventOf)
 
     override fun countEvents(origin: Int): Int = events.countByOrigin(origin)
+
+    override fun eventsOfRecordings(rids: Collection<Long>): List<PlayEvent> {
+        val out = ArrayList<PlayEvent>()
+        for (chunk in rids.distinct().chunked(CHUNK)) out.addAll(events.byRecordingsBlocking(chunk).map(BrainStore::eventOf))
+        out.sortBy { it.eventId }
+        return out
+    }
+
+    override fun eventsStartedSince(sinceMs: Long): List<PlayEvent> =
+        events.liveSinceBlocking(sinceMs).map(BrainStore::eventOf)
+
+    override fun setEventFlag(eventIds: List<Long>, flag: Int, on: Boolean): Int {
+        for (chunk in eventIds.chunked(CHUNK)) {
+            if (on) events.setFlagBlocking(chunk, flag) else events.maskFlagsBlocking(chunk, flag.inv())
+        }
+        return eventIds.size
+    }
 
     override fun loadAffinity(into: Affinity.State) {
         for (row in affinity.allBlocking()) {
