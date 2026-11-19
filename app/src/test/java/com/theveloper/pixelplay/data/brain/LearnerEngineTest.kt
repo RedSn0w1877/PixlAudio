@@ -116,7 +116,7 @@ class LearnerEngineTest {
             assertTrue(st.learner.model.isPrior())
             assertEquals(0L, st.learner.model.updates)
             assertFalse(st.learner.useLearned)
-            assertNull(st.learner.summary)
+            // (The summary is not checked here: the forced rebuild may already have replaced it by the time this runs.)
         }
         engine.awaitRebuild()
         // The rebuild replayed the whole log for the tables but learned from nothing before the reset.

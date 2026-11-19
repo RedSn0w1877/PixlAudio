@@ -38,12 +38,22 @@ data class BrainItemTag(
     val retrQ: Int = -1,
     /** Best radio rank; -1 for none. */
     val radioRank: Int = -1,
+    /**
+     * The list this pick came from was ranked with the prior because its session is a control session (5.12 point 8). Decided when
+     * the list was built and carried with the queue entry, never worked out when the play ends.
+     */
+    val control: Boolean = false,
+    /** `play_event.modelVersion` the list was ranked with (1: the learned weights, 0: the prior); -1 when not recorded (an old queue entry). */
+    val modelVersion: Int = -1,
+    /** The pick filled a novel slot the arm bandit drew (5.10): an exploration slot, logged with `EventFlags.EXPLORE_SLOT` (5.12 point 3). */
+    val explore: Boolean = false,
 ) {
     val isEngineOwned: Boolean get() = !chosen && arm != null && Arm.codeOf(arm) != Arm.NONE
 
     val isEmpty: Boolean
         get() = surface == null && surfaceId == null && recId == 0L && slot < 0 && arm == null &&
-            whyKey == null && whyArg == null && primaryArtist == null && !chosen && retrQ < 0 && radioRank < 0
+            whyKey == null && whyArg == null && primaryArtist == null && !chosen && retrQ < 0 && radioRank < 0 &&
+            !control && modelVersion < 0 && !explore
 }
 
 object BrainExtras {
@@ -54,6 +64,15 @@ object BrainExtras {
     const val ARM = "brain.arm"
     const val RETR_Q = "brain.retrQ"
     const val RADIO_RANK = "brain.radioRank"
+
+    /** True when the list was ranked with the prior as a control (5.12 point 8): decided at build time. */
+    const val CONTROL = "brain.ctrl"
+
+    /** The model version the list was ranked with (1: learned weights, 0: the prior): decided at build time. */
+    const val MODEL = "brain.model"
+
+    /** True on a pick that filled a novel slot the arm bandit drew (5.10). */
+    const val EXPLORE = "brain.explore"
 
     /** The name of the artist the pick is explained by ("Fans of X also play this"); display only. */
     const val WHY_ARG = "brain.whyArg"
@@ -83,6 +102,9 @@ object BrainExtras {
             chosen = extras.getBoolean(CHOSEN, false),
             retrQ = extras.getInt(RETR_Q, -1),
             radioRank = extras.getInt(RADIO_RANK, -1),
+            control = extras.getBoolean(CONTROL, false),
+            modelVersion = extras.getInt(MODEL, -1),
+            explore = extras.getBoolean(EXPLORE, false),
         )
         return tag.takeUnless { it.isEmpty }
     }
@@ -100,6 +122,9 @@ object BrainExtras {
         if (tag.chosen) extras.putBoolean(CHOSEN, true)
         if (tag.retrQ >= 0) extras.putInt(RETR_Q, tag.retrQ)
         if (tag.radioRank >= 0) extras.putInt(RADIO_RANK, tag.radioRank)
+        if (tag.control) extras.putBoolean(CONTROL, true)
+        if (tag.modelVersion >= 0) extras.putInt(MODEL, tag.modelVersion)
+        if (tag.explore) extras.putBoolean(EXPLORE, true)
     }
 
     /**

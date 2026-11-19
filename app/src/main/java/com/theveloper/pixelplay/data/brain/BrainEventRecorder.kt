@@ -7,7 +7,6 @@ import com.theveloper.pixelplay.brain.EndReason
 import com.theveloper.pixelplay.brain.EventFlags
 import com.theveloper.pixelplay.brain.Origin
 import com.theveloper.pixelplay.brain.PlayEvent
-import com.theveloper.pixelplay.brain.Ranker
 import com.theveloper.pixelplay.brain.Reward
 import com.theveloper.pixelplay.brain.Session
 import com.theveloper.pixelplay.brain.Surface
@@ -178,14 +177,19 @@ class BrainEventRecorder @Inject constructor(
         }
 
         return engine.withState { state ->
-            if (state.session.sessionId != 0L && Session.isExpired(state.session, play.startedAtMs)) state.newSession()
+            val firstSession = state.session.sessionId == 0L
+            if (state.session.sessionId != 0L && Session.isExpired(state.session, play.startedAtMs)) state.newSession(play.startedAtMs)
             val stamp = Session.begin(state.session, play.startedAtMs, context.startReason)
-            // One session in ten is ranked with the prior and flagged (5.12 point 8); a pick served while the learned weights
-            // were on says so in `modelVersion`, so Your sound can set the two completion rates side by side.
+            // A session starts at the novelty share of the moment (5.5): the learned appetite while the gate has the learned weights on.
+            if (firstSession) state.session.nuSession = state.sessionNu(play.startedAtMs)
+            // One session in ten is ranked with the prior and flagged (5.12 point 8). Which weights ranked a list, and whether it was a
+            // control, was decided when the list was BUILT and travels with the queue entry (`brain.ctrl`, `brain.model`): it is read
+            // here, never worked out at the end of the play. An entry that carries nothing (a track the listener chose, a queue saved by
+            // an older build) is the prior and not a control.
             var eventFlags = flags
-            val control = context.isEngineOwned && Ranker.isControlSession(stamp.sessionId)
-            if (control) eventFlags = eventFlags or EventFlags.CONTROL_SESSION
-            val servedLearned = context.isEngineOwned && !control && state.learner.useLearned
+            if (tag?.control == true) eventFlags = eventFlags or EventFlags.CONTROL_SESSION
+            // A novel slot the arm bandit drew is an exploration slot: logged, and weighted 1.5 by the grade (5.12 point 3).
+            if (tag?.explore == true) eventFlags = eventFlags or EventFlags.EXPLORE_SLOT
             val event = PlayEvent(
                 eventId = PlayEvent.mintId(play.startedAtMs, Origin.LIVE, facts.keyAtWrite, store::eventIdentityAt),
                 origin = Origin.LIVE,
@@ -211,7 +215,7 @@ class BrainEventRecorder @Inject constructor(
                 route = context.route,
                 retrQ = context.retrQ,
                 radioRank = context.radioRank,
-                modelVersion = if (servedLearned) MODEL_LEARNED else 0,
+                modelVersion = if (tag != null && tag.modelVersion >= 0) tag.modelVersion else 0,
             )
             val graded = engine.applyLocked(state, event) ?: return@withState null
             // A play the listener chose and heard out, or a pick they acted on, may head a Home row.

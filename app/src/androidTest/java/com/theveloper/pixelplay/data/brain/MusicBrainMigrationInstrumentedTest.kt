@@ -139,8 +139,26 @@ class MusicBrainMigrationInstrumentedTest {
         db.close()
     }
 
+    @Test
+    fun migrates5To6KeepingEverythingAndAddingImpressions() {
+        helper.createDatabase(DB_V5, 5).apply {
+            execSQL("INSERT INTO island_member (rid, islandId) VALUES (42, 1)")
+            close()
+        }
+
+        val db = helper.runMigrationsAndValidate(DB_V5, 6, true, *MusicBrainMigrations.ALL)
+
+        fun count(table: String): Int = db.query("SELECT COUNT(*) FROM $table").use { it.moveToFirst(); it.getInt(0) }
+        assertEquals(1, count("island_member"))
+        assertEquals(0, count("impression"))
+        db.execSQL("INSERT INTO impression (visitId, position, shelf, daypart, shownAtMs, seen, activatedAtMs, settled) VALUES (1, 0, 0, 1, 1, 0, 0, 0)")
+        assertEquals(1, count("impression"))
+        db.close()
+    }
+
     private companion object {
         const val DB_V4 = "brain-migration-test-v4.db"
+        const val DB_V5 = "brain-migration-test-v5.db"
         const val DB = "brain-migration-test.db"
         const val DB_V3 = "brain-migration-test-v3.db"
         const val DB_V2 = "brain-migration-test-v2.db"

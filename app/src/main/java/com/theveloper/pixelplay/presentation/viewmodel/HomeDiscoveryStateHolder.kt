@@ -347,6 +347,10 @@ class HomeDiscoveryViewModel @Inject constructor(
     /** The brain's Home plan (docs/brain-spec.md, 8.1, stage 2); `planState.owned` false means the legacy Home above is the page. */
     val planState = planHolder.state
     fun onHomeShown() = planHolder.onHomeShown()
+
+    /** A shelf was on screen for a second; something was started from a shelf (the shelf bandit, 5.10). */
+    fun onShelfSeen(shelfId: String) = planHolder.onShelfSeen(shelfId)
+    fun onShelfActivated(shelfId: String) = planHolder.onShelfActivated(shelfId)
     fun onArtistsPicked() = planHolder.onArtistsPicked()
     fun clearPlanMessage() = planHolder.clearMessage()
     fun playPlanShelf(section: com.theveloper.pixelplay.data.recommendation.HomeMusicSection, start: Song, onReady: (List<Song>, Song) -> Unit) {

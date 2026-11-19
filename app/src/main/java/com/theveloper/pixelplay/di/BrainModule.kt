@@ -16,6 +16,7 @@ import com.theveloper.pixelplay.data.brain.store.AliasDao
 import com.theveloper.pixelplay.data.brain.store.BrainStateDao
 import com.theveloper.pixelplay.data.brain.store.FeedbackDao
 import com.theveloper.pixelplay.data.brain.store.GraphEdgeDao
+import com.theveloper.pixelplay.data.brain.store.ImpressionDao
 import com.theveloper.pixelplay.data.brain.store.MusicBrainDatabase
 import com.theveloper.pixelplay.data.brain.store.MusicBrainMigrations
 import com.theveloper.pixelplay.data.brain.store.SeedDao
@@ -51,6 +52,7 @@ object BrainModule {
             .build()
 
     @Provides fun providePlayableDao(db: MusicBrainDatabase): PlayableDao = db.playableDao()
+    @Provides fun provideImpressionDao(db: MusicBrainDatabase): ImpressionDao = db.impressionDao()
     @Provides fun provideAliasDao(db: MusicBrainDatabase): AliasDao = db.aliasDao()
     @Provides fun provideRadioListDao(db: MusicBrainDatabase): RadioListDao = db.radioListDao()
     @Provides fun providePlayEventDao(db: MusicBrainDatabase): PlayEventDao = db.playEventDao()

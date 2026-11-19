@@ -65,6 +65,9 @@ interface RefreshWork {
      * DNA once, so nothing derived from them stays. Reads and writes the database only. A no-op by default.
      */
     suspend fun purgeSpotify() {}
+
+    /** Gives the finished Home visits to the shelf bandit (stage 3, 5.10). Reads and writes the database only. A no-op by default. */
+    suspend fun settleShelves() {}
 }
 
 /**
@@ -204,6 +207,7 @@ class BrainRefreshRunner(
             try {
                 work.purgeSpotify()
                 work.fitIslands()
+                work.settleShelves()
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -241,6 +245,7 @@ class AppRefreshWork @Inject constructor(
     private val dnaTargets: DnaTargets,
     private val dnaEnricher: DnaEnricher,
     private val spotifyPurge: SpotifyDnaPurge,
+    private val shelfStore: ShelfStore,
 ) : RefreshWork {
 
     override suspend fun dnaTargets(lane: Int, limit: Int): List<DnaTarget> = when (lane) {
@@ -258,6 +263,10 @@ class AppRefreshWork @Inject constructor(
 
     override suspend fun purgeSpotify() {
         spotifyPurge.run()
+    }
+
+    override suspend fun settleShelves() {
+        shelfStore.settle()
     }
 
 

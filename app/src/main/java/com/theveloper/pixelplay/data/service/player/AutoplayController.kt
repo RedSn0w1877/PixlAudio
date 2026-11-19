@@ -5,6 +5,7 @@ import androidx.annotation.MainThread
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import com.theveloper.pixelplay.brain.Arm
+import com.theveloper.pixelplay.brain.ArmBandit
 import com.theveloper.pixelplay.brain.BrainHash
 import com.theveloper.pixelplay.brain.BrainMath
 import com.theveloper.pixelplay.brain.BrainText
@@ -28,6 +29,7 @@ import com.theveloper.pixelplay.data.brain.BrainRepository
 import com.theveloper.pixelplay.data.brain.BrainSwitch
 import com.theveloper.pixelplay.data.brain.EngineTrack
 import com.theveloper.pixelplay.data.brain.LibraryIndex
+import com.theveloper.pixelplay.data.brain.RankingChoice
 import com.theveloper.pixelplay.data.brain.LibraryTrackCatalog
 import com.theveloper.pixelplay.data.brain.Novelty
 import com.theveloper.pixelplay.data.brain.PlayableStore
@@ -224,7 +226,11 @@ class AutoplayController @Inject constructor(
         val replaceAll: Boolean = false,
         /** An album or playlist station, or one that was re-seeded: a track must be near the closest of its seeds. */
         val closestOfSeeds: Boolean = false,
-    )
+    ) {
+        /** How the list planned from these inputs was ranked (set by [planOnBrain], read when its picks become queue items): 5.12 point 8. */
+        @Volatile
+        var choice: RankingChoice? = null
+    }
 
     private val _uiState = MutableStateFlow(AutoplayUiState())
     val uiState: StateFlow<AutoplayUiState> = _uiState.asStateFlow()
@@ -725,7 +731,7 @@ class AutoplayController @Inject constructor(
         val kept = HashSet<String>()
         for (pick in plan.picks) {
             val entry = inputs.entriesByRid[pick.rid] ?: continue
-            items.add(mediaItemFor(entry, recId, pick.slot, inputs.station, pick))
+            items.add(mediaItemFor(entry, recId, pick.slot, inputs.station, pick, inputs.choice))
             kept.add(entry.candidate.mediaId)
         }
         if (!engine.replaceQueueTail(start, items)) return
@@ -1177,6 +1183,9 @@ class AutoplayController @Inject constructor(
                     state.session.seedAid = 0L
                     state.session.seedKind = Session.SEED_NONE
                 }
+                // Decided once, here, when the list is built; each queue entry carries it (5.12 point 8).
+                val choice = state.rankingChoice(state.session.sessionId)
+                inputs.choice = choice
                 val graph = StationPlanner.buildGraph(inputs.seeds, inputs.candidates, state.session)
                 val request = StationPlanner.Request(
                     mode = if (inputs.station != null) StationPlanner.MODE_STATION else StationPlanner.MODE_AUTOPLAY,
@@ -1197,7 +1206,12 @@ class AutoplayController @Inject constructor(
                     bridge = bridge,
                     closestOfSeeds = inputs.closestOfSeeds,
                     // Stage 3: the learned weights, unless the gate has the prior on or this is a control session (5.12 point 8).
-                    ranking = state.ranking(state.session.sessionId),
+                    ranking = choice.source,
+                    // 5.10: a novel slot goes to the arm the bandit draws, while the learned weights are on (null: stage 2's choice, exactly).
+                    armPicker = state.armPicker(
+                        state.session.sessionId, ArmBandit.STATION,
+                        BrainHash.splitmix64(state.session.sessionId xor (inputs.batch.toLong() shl 8) xor ARM_SEED_TAG),
+                    ),
                 )
                 val plan = if (tail == null) {
                     StationPlanner.plan(request, state.affinity, state.session, graph)
@@ -1243,7 +1257,7 @@ class AutoplayController @Inject constructor(
                 pickedIds.add(entry.candidate.mediaId)
                 continue
             }
-            items.add(mediaItemFor(entry, recId, pick.slot, inputs.station, pick))
+            items.add(mediaItemFor(entry, recId, pick.slot, inputs.station, pick, inputs.choice))
             pickedIds.add(entry.candidate.mediaId)
             remember(entry)
         }
@@ -1329,7 +1343,7 @@ class AutoplayController @Inject constructor(
         }
     }
 
-    private fun mediaItemFor(entry: PoolEntry, recId: Long, slot: Int, station: Station?, pick: StationPlanner.Pick?): MediaItem {
+    private fun mediaItemFor(entry: PoolEntry, recId: Long, slot: Int, station: Station?, pick: StationPlanner.Pick?, choice: RankingChoice? = null): MediaItem {
         val base = MediaItemBuilder.build(entry.song)
         val extras = Bundle(base.mediaMetadata.extras ?: Bundle.EMPTY)
         BrainExtras.write(
@@ -1340,6 +1354,10 @@ class AutoplayController @Inject constructor(
                 recId = recId,
                 slot = slot,
                 arm = Arm.nameOf(pick?.arm ?: entry.candidate.arm),
+                // A list the planner ranked says how (5.12 point 8); a pick taken in pool order was ranked by nothing: the prior, no control.
+                control = choice?.control == true,
+                modelVersion = choice?.modelVersion ?: 0,
+                explore = pick?.explore == true,
             )
         )
         extras.putInt(BrainExtras.RETR_Q, pick?.retrQ ?: -1)
@@ -2117,6 +2135,9 @@ class AutoplayController @Inject constructor(
         /** Folded primary artist and album of an engine-owned queue item, for the spacing rules. */
         const val EXTRA_ARTIST_KEY = "brain.artistKey"
         const val EXTRA_ALBUM_KEY = "brain.albumKey"
+
+        /** Mixed into the seed of a batch's arm draws, so they do not repeat the tie-break's random stream. */
+        const val ARM_SEED_TAG = 0x41524D53L
 
         const val FOUR_HOURS_MS = 4L * 60 * 60 * 1000
         const val ONE_DAY_MS = 24L * 60 * 60 * 1000

@@ -26,6 +26,10 @@ data class PlaybackQueueItemSnapshot(
     val brainChosen: Boolean? = null,
     val brainRetrQ: Int? = null,
     val brainRadioRank: Int? = null,
+    // How the list was ranked, fixed when it was built (5.12 point 8): the control flag and the model version.
+    val brainControl: Boolean? = null,
+    val brainModel: Int? = null,
+    val brainExplore: Boolean? = null,
 ) {
     /** The item's brain context, or null when it has none (a track the listener chose, an old snapshot). */
     fun brainTag(): BrainItemTag? {
@@ -41,6 +45,9 @@ data class PlaybackQueueItemSnapshot(
             chosen = brainChosen == true,
             retrQ = brainRetrQ ?: -1,
             radioRank = brainRadioRank ?: -1,
+            control = brainControl == true,
+            modelVersion = brainModel ?: -1,
+            explore = brainExplore == true,
         )
         return tag.takeUnless { it.isEmpty }
     }
@@ -58,6 +65,9 @@ data class PlaybackQueueItemSnapshot(
             brainChosen = if (tag.chosen) true else null,
             brainRetrQ = tag.retrQ.takeIf { it >= 0 },
             brainRadioRank = tag.radioRank.takeIf { it >= 0 },
+            brainControl = if (tag.control) true else null,
+            brainModel = tag.modelVersion.takeIf { it >= 0 },
+            brainExplore = if (tag.explore) true else null,
         )
 }
 

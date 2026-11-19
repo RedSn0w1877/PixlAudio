@@ -48,6 +48,7 @@ data class StoredHomeItem(
     val slot: Int,
     val retrQ: Int = -1,
     val radioRank: Int = -1,
+    val explore: Boolean = false,
 )
 
 @Serializable
@@ -55,6 +56,10 @@ data class StoredHomeRow(
     val anchor: HomeAnchor,
     val recId: Long,
     val items: List<StoredHomeItem>,
+    /** The row was ranked with the prior as a control (5.12 point 8), decided when it was built. */
+    val control: Boolean = false,
+    /** 1 when the learned weights ranked the row, 0 for the prior. */
+    val model: Int = 0,
 )
 
 @Serializable
@@ -73,6 +78,7 @@ class BrainHomeItem(
     val slot: Int,
     val retrQ: Int,
     val radioRank: Int,
+    val explore: Boolean = false,
 )
 
 /** A "Because you listened to X" row (docs/brain-spec.md, 8.1). */
@@ -82,6 +88,9 @@ class BrainHomeRow(
     val anchor: HomeAnchor,
     val recId: Long,
     override val items: List<BrainHomeItem>,
+    /** How the row was ranked, decided when it was built and carried by every card played from it (5.12 point 8). */
+    val control: Boolean = false,
+    val model: Int = 0,
 ) : PlayableBrainRow {
     /** What every item of the row carries into the queue when a card is played. */
     override fun tags(): Map<String, BrainItemTag> {
@@ -100,6 +109,9 @@ class BrainHomeRow(
                 chosen = true,
                 retrQ = item.retrQ,
                 radioRank = item.radioRank,
+                control = control,
+                modelVersion = model,
+                explore = item.explore,
             )
         }
         return out
@@ -281,7 +293,9 @@ class BrainHomeRows @Inject constructor(
                 rids = LongArray(radio.rows.size) { radio.rows[it].rid },
                 edgeFactor = if (radio.kind == RadioListEntity.KIND_RELATED) Graph.RELATED else Graph.RADIO,
             )
+            var choice = RankingChoice(null, false, 0)
             val plan = brain.withState { state ->
+                choice = state.rankingChoice(state.session.sessionId)
                 // Home is not part of the listening session: a fresh one, so a skip a minute ago does
                 // not reshuffle the page.
                 val session = SessionState()
@@ -296,7 +310,8 @@ class BrainHomeRows @Inject constructor(
                         tzOffsetMin = tzOffsetMin,
                         tieSeed = radio.seedRid xor BrainMath.localDay(now, tzOffsetMin),
                         excludedRids = usedRids,
-                        ranking = state.ranking(state.session.sessionId),
+                        ranking = choice.source,
+                        armPicker = state.armPicker(state.session.sessionId, com.theveloper.pixelplay.brain.ArmBandit.HOME, radio.seedRid xor BrainMath.localDay(now, tzOffsetMin) xor 0x41524D53L),
                     ),
                     state.affinity,
                     session,
@@ -309,10 +324,10 @@ class BrainHomeRows @Inject constructor(
             val items = ArrayList<StoredHomeItem>(plan.picks.size)
             for (pick in plan.picks) {
                 val i = byRid[pick.rid] ?: continue
-                items.add(StoredHomeItem(rows[i], pick.arm, items.size, pick.retrQ, ranks[i]))
+                items.add(StoredHomeItem(rows[i], pick.arm, items.size, pick.retrQ, ranks[i], pick.explore))
                 usedRids.add(pick.rid)
             }
-            out.add(StoredHomeRow(anchor, recId = (now shl 8) or (HOME_REC_TAG + rowIndex).toLong(), items = items))
+            out.add(StoredHomeRow(anchor, recId = (now shl 8) or (HOME_REC_TAG + rowIndex).toLong(), items = items, control = choice.control, model = choice.modelVersion))
         }
         return out
     }
@@ -339,9 +354,9 @@ class BrainHomeRows @Inject constructor(
             if (now - row.anchor.heardAtMs !in 0 until HomeAnchorStore.MAX_AGE_MS) continue
             val items = row.items.map { item ->
                 val track = EngineTrack.from(item.stored.row, item.stored.rid)
-                BrainHomeItem(track, track.toSong(), item.arm, item.slot, item.retrQ, item.radioRank)
+                BrainHomeItem(track, track.toSong(), item.arm, item.slot, item.retrQ, item.radioRank, item.explore)
             }
-            if (items.size >= MIN_CARDS) out.add(BrainHomeRow(BrainHomeRow.idOf(row.anchor.rid), row.anchor, row.recId, items))
+            if (items.size >= MIN_CARDS) out.add(BrainHomeRow(BrainHomeRow.idOf(row.anchor.rid), row.anchor, row.recId, items, row.control, row.model))
         }
         return out
     }

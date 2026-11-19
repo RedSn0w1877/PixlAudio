@@ -168,6 +168,7 @@ class HomePlanStateHolder @Inject constructor(
     private val coldStart: com.theveloper.pixelplay.data.brain.ColdStart,
     private val pickedArtists: com.theveloper.pixelplay.data.brain.PickedArtists,
     private val clock: BrainClock,
+    private val shelfStore: com.theveloper.pixelplay.data.brain.ShelfStore,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val mutableState = MutableStateFlow(HomePlanUi())
@@ -336,6 +337,13 @@ class HomePlanStateHolder @Inject constructor(
             scope.launch { scheduleBuild(force = true) }
         }
         mutableState.update { it.copy(owned = ui.owned, resolved = true, dateLine = ui.dateLine, hero = ui.hero, shelves = ui.shelves, tiles = ui.tiles, allMixes = ui.allMixes, newShelves = ui.newShelves) }
+        // The page was shown: its shelves are one visit for the shelf bandit (5.10). Off the main thread, never waited for.
+        if (ui.owned && ui.shelves.isNotEmpty()) {
+            val typeOf = plan.shelves.associate { it.id to it.type }
+            val ids = ui.shelves.map { it.id }.filter { it in typeOf }
+            val types = IntArray(ids.size) { typeOf[ids[it]]!! }
+            scope.launch { shelfStore.onPlanShown(ids, types, plan.daypart) }
+        }
     }
 
     private suspend fun tiles(): ImmutableList<TileUi> {
@@ -515,7 +523,20 @@ class HomePlanStateHolder @Inject constructor(
         "step_sideways_subtitle" -> context.getString(R.string.brain_home_step_sideways_subtitle, arg)
         "more_like_album" -> context.getString(R.string.brain_home_more_like_album, arg)
         "more_like_album_subtitle" -> context.getString(R.string.brain_home_more_like_album_subtitle)
+        "your_daypart" -> context.getString(daypartTitle(arg.toIntOrNull() ?: 0))
+        "your_daypart_subtitle" -> context.getString(R.string.brain_home_daypart_subtitle)
         else -> ""
+    }
+
+    private fun daypartTitle(bucket: Int): Int = when (bucket) {
+        0 -> R.string.brain_home_daypart_weekday_morning
+        1 -> R.string.brain_home_daypart_weekday_day
+        2 -> R.string.brain_home_daypart_weekday_evening
+        3 -> R.string.brain_home_daypart_weekday_night
+        4 -> R.string.brain_home_daypart_weekend_morning
+        5 -> R.string.brain_home_daypart_weekend_day
+        6 -> R.string.brain_home_daypart_weekend_evening
+        else -> R.string.brain_home_daypart_weekend_night
     }
 
     private fun reason(item: PlanItem): String? {
@@ -540,6 +561,9 @@ class HomePlanStateHolder @Inject constructor(
         primaryArtist = item.row?.row?.artists?.firstOrNull()?.name,
         // The listener chose to play the shelf: its tracks are theirs, like a playlist's.
         chosen = true,
+        control = shelf.control,
+        modelVersion = shelf.model,
+        explore = item.explore,
     )
 
     // ---- playing a shelf ----------------------------------------------------------------------
@@ -555,6 +579,7 @@ class HomePlanStateHolder @Inject constructor(
             }
             if (outside.isNotEmpty()) withContext(Dispatchers.IO) { playableStore.register(outside, clock.nowMs()) }
             brainPlayTags.expect(queueName = section.title, bySongId = tagsByShelf[section.id].orEmpty())
+            scope.launch { shelfStore.onShelfActivated(section.id) }
             onReady(section.songs, start)
         } catch (e: CancellationException) {
             throw e
@@ -576,6 +601,16 @@ class HomePlanStateHolder @Inject constructor(
     }
 
     fun clearMessage() = mutableState.update { it.copy(message = null) }
+
+    /** A shelf was on screen for a second (5.10). */
+    fun onShelfSeen(shelfId: String) {
+        scope.launch { shelfStore.onShelfSeen(shelfId) }
+    }
+
+    /** Something was started from a shelf: a card of Made for you or Stations, or a song of a shelf (5.10). */
+    fun onShelfActivated(shelfId: String) {
+        scope.launch { shelfStore.onShelfActivated(shelfId) }
+    }
 
     private companion object {
         /** 12.1: no brain work before the first seconds have passed. */

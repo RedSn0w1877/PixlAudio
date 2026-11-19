@@ -33,6 +33,8 @@ data class StoredMixItem(
     val whyName: String = "",
     val retrQ: Int = -1,
     val radioRank: Int = -1,
+    /** The slot was an exploration slot: the arm bandit drew its arm (5.10). */
+    val explore: Boolean = false,
 ) {
     val isOutsideLibrary: Boolean get() = songId == null
 }
@@ -61,6 +63,10 @@ data class StoredMix(
     val number: Int = 0,
     /** "Soft pop & R&B · Sabrina Carpenter, Chappell Roan": real genres and artists, never invented; empty when nothing is known. */
     val subtitle: String = "",
+    /** The list was ranked with the prior as a control (5.12 point 8), decided when it was built. */
+    val control: Boolean = false,
+    /** 1 when the learned weights ranked the list, 0 for the prior (decided when it was built). */
+    val model: Int = 0,
 ) {
     val novelCount: Int get() = items.count { it.isOutsideLibrary }
 }
@@ -94,18 +100,22 @@ object MixKinds {
     const val ON_REPEAT = 4
     const val REDISCOVER = 5
 
+    /** "Your Friday nights" (stage 3, 6.2): the island that fits this bucket of the week, 25 tracks, 15% new. Planned like a Daily Mix of an island. */
+    const val DAYPART = 6
+
     /** Planned by [com.theveloper.pixelplay.brain.StationPlanner]; the others are [com.theveloper.pixelplay.brain.ListMixes]. */
-    fun usesPlanner(kind: Int): Boolean = kind == DAILY || kind == YOUR || kind == FIRST_LISTEN
+    fun usesPlanner(kind: Int): Boolean = kind == DAILY || kind == YOUR || kind == FIRST_LISTEN || kind == DAYPART
 }
 
 /** One list to build or read: its kind and, for a Daily Mix of an island, which island. */
-data class MixSpec(val kind: Int, val islandId: Int = 0) {
+data class MixSpec(val kind: Int, val islandId: Int = 0, /** For [MixKinds.DAYPART]: the bucket of the week (0..7, [com.theveloper.pixelplay.brain.ContextLift.bucket]). */ val part: Int = 0) {
     /** The `served_list.surfaceId`; "daily" and "your" are what stage 2a wrote. */
     val surfaceId: String
         get() = when (kind) {
             MixKinds.DAILY -> if (islandId > 0) "daily:$islandId" else "daily"
             MixKinds.YOUR -> "your"
             MixKinds.FIRST_LISTEN -> "first"
+            MixKinds.DAYPART -> "daypart:$part:$islandId"
             MixKinds.JUST_DROPPED -> "dropped"
             MixKinds.ON_REPEAT -> "repeat"
             else -> "rediscover"
@@ -126,6 +136,11 @@ data class MixSpec(val kind: Int, val islandId: Int = 0) {
             surfaceId.startsWith("daily:") -> surfaceId.substring(6).toIntOrNull()?.let { MixSpec(MixKinds.DAILY, it) }
             surfaceId == "your" -> MixSpec(MixKinds.YOUR)
             surfaceId == "first" -> MixSpec(MixKinds.FIRST_LISTEN)
+            surfaceId.startsWith("daypart:") -> surfaceId.split(':').let { p ->
+                val part = p.getOrNull(1)?.toIntOrNull()
+                val island = p.getOrNull(2)?.toIntOrNull()
+                if (p.size == 3 && part != null && island != null) MixSpec(MixKinds.DAYPART, island, part) else null
+            }
             surfaceId == "dropped" -> MixSpec(MixKinds.JUST_DROPPED)
             surfaceId == "repeat" -> MixSpec(MixKinds.ON_REPEAT)
             surfaceId == "rediscover" -> MixSpec(MixKinds.REDISCOVER)

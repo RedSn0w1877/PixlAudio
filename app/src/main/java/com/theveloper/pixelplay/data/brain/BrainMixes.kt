@@ -49,6 +49,11 @@ class MixView(
     val subtitle: String = "",
     /** By song id: the recording id of each row (the Home page rules and the plan read it). */
     val rids: Map<String, Long> = emptyMap(),
+    /** The list as it was saved (its rows outside the library are what a shelf of it needs to play them). */
+    val storedItems: List<StoredMixItem> = emptyList(),
+    /** How the list was ranked, decided when it was built (5.12 point 8). */
+    val control: Boolean = false,
+    val model: Int = 0,
 ) {
     val isEmpty: Boolean get() = songs.isEmpty()
 }
@@ -168,6 +173,7 @@ class BrainMixes @Inject constructor(
     private fun nuOfSpec(spec: MixSpec, multiplier: Double): Double = when {
         spec.kind == MixKinds.DAILY && spec.islandId > 0 -> MixPlanner.nuOfIsland(multiplier)
         spec.kind == MixKinds.DAILY || spec.kind == MixKinds.YOUR -> MixPlanner.nuOf(spec.kind, multiplier)
+        spec.kind == MixKinds.DAYPART -> DAYPART_NU
         spec.kind == MixKinds.ON_REPEAT || spec.kind == MixKinds.REDISCOVER -> 0.0
         else -> 1.0
     }
@@ -277,11 +283,15 @@ class BrainMixes @Inject constructor(
         val edges = graphEdges.edgesFor(seeds.map { it.rid } + pool.novel.keys)
         val (enriched, known) = candidateDna.enrich(pool.candidates)
         val context = islands?.let { IslandContext(it.islands) }
-        val islandIdx = if (kind == MixKinds.DAILY && spec.islandId > 0 && islands != null) islands.indexOfId(spec.islandId) else -1
+        val daypartMix = kind == MixKinds.DAYPART
+        val ofIsland = kind == MixKinds.DAILY || daypartMix
+        val islandIdx = if (ofIsland && spec.islandId > 0 && islands != null) islands.indexOfId(spec.islandId) else -1
         // A Daily Mix of an island that is gone is the plain Daily Mix: no island to be close to.
-        val useIslands = context != null && !(kind == MixKinds.DAILY && spec.islandId > 0 && islandIdx < 0)
+        val useIslands = context != null && !(ofIsland && spec.islandId > 0 && islandIdx < 0)
         val request = MixPlanner.Request(
-            kind = kind,
+            // A daypart mix is planned like a Daily Mix of one island, with its own size and share of new music.
+            kind = if (daypartMix) MixKinds.DAILY else kind,
+            count = if (daypartMix) DAYPART_COUNT else 0,
             candidates = enriched,
             islands = if (useIslands) context else null,
             islandIdx = islandIdx,
@@ -292,19 +302,30 @@ class BrainMixes @Inject constructor(
             tzOffsetMin = tz,
             nuMultiplier = Novelty.factor(level),
             salt = salt,
-            regenerate = regenerate,
+            // The seed of a daypart mix differs from its island's Daily Mix by the bucket it is for.
+            regenerate = if (daypartMix) 1 + spec.part else regenerate,
             excludedRids = taken + ignored,
             servedTimes = times,
             edges = edges,
-        )
+        ).also { if (daypartMix) it.nuOverride = DAYPART_NU }
+        var choice = RankingChoice(null, false, 0)
         val plan = brain.withState { st ->
             // Stage 3: the learned weights rank the list while the gate has them on (one posterior sample per list and day, 5.10).
             val listSeed = com.theveloper.pixelplay.brain.Ranker.listSeed(
                 salt, "mix:$kind:$islandIdx:$regenerate", com.theveloper.pixelplay.brain.Repetition.mixDay(now, tz),
             )
-            val ranking = st.ranking(st.session.sessionId, listSeed)
+            // How it was ranked is decided here, once, and saved with the list: its plays carry it (5.12 point 8).
+            choice = st.rankingChoice(st.session.sessionId, listSeed)
+            val ranking = choice.source
+            // 5.10: the arm bandit and the learned appetite, while the learned weights rank this list; stage 2's values otherwise.
+            val picker = st.armPicker(st.session.sessionId, com.theveloper.pixelplay.brain.ArmBandit.MIX, listSeed xor 0x41524D53L)
+            val appetite = if (choice.modelVersion == BrainEventRecorder.MODEL_LEARNED) {
+                com.theveloper.pixelplay.brain.NoveltyAppetite.nu(st.learner.posteriors.appetite, now)
+            } else MixPlanner.NU0
             if (kind != MixKinds.FIRST_LISTEN) {
                 request.ranking = ranking
+                request.armPicker = picker
+                request.nuBase = appetite
                 return@withState MixPlanner.plan(request, st.affinity)
             }
             // First Listen: which tracks are adjacent-genre ones, and which artists the listener never played (6.2).
@@ -316,7 +337,7 @@ class BrainMixes @Inject constructor(
                     kind = kind, candidates = flagged, seeds = request.seeds, nowMs = now, tzOffsetMin = tz, nuMultiplier = request.nuMultiplier,
                     salt = salt, regenerate = regenerate, excludedRids = request.excludedRids, servedTimes = times, edges = edges,
                     islands = request.islands, embeddings = known.embeddings, tagsByRid = known.tags,
-                ).also { it.ranking = ranking },
+                ).also { it.ranking = ranking; it.armPicker = picker },
                 st.affinity,
             )
         }
@@ -331,7 +352,7 @@ class BrainMixes @Inject constructor(
                 items.add(
                     StoredMixItem(
                         rid = pick.rid, row = novel.stored, arm = pick.arm, slot = items.size, whyKey = whyKey,
-                        whyArg = pick.whyArg, whyName = whyName, retrQ = pick.retrQ, radioRank = novel.radioRank.takeIf { it > 0 } ?: -1,
+                        whyArg = pick.whyArg, whyName = whyName, retrQ = pick.retrQ, radioRank = novel.radioRank.takeIf { it > 0 } ?: -1, explore = pick.explore,
                     )
                 )
             } else {
@@ -339,7 +360,7 @@ class BrainMixes @Inject constructor(
                 items.add(
                     StoredMixItem(
                         rid = pick.rid, songId = track.song.id, arm = pick.arm, slot = items.size, whyKey = whyKey,
-                        whyArg = pick.whyArg, whyName = whyName, retrQ = pick.retrQ, radioRank = pick.radioRank,
+                        whyArg = pick.whyArg, whyName = whyName, retrQ = pick.retrQ, radioRank = pick.radioRank, explore = pick.explore,
                     )
                 )
             }
@@ -358,6 +379,8 @@ class BrainMixes @Inject constructor(
             islandId = if (useIslands && islandIdx >= 0) spec.islandId else 0,
             number = if (useIslands && islandIdx >= 0) (islands?.dailyIslands()?.indexOfFirst { it.id == spec.islandId } ?: -1) + 1 else 0,
             subtitle = if (useIslands && islandIdx >= 0 && islands != null) islandSubtitle(islands.islands[islandIdx], now) else "",
+            control = choice.control,
+            model = choice.modelVersion,
         )
     }
 
@@ -610,12 +633,18 @@ class BrainMixes @Inject constructor(
                 chosen = true,
                 retrQ = item.retrQ,
                 radioRank = item.radioRank,
+                control = stored.control,
+                modelVersion = stored.model,
+                explore = item.explore,
             )
         }
         // A mix is the same all day: what is left of it is shown, a new list is drawn only when almost nothing is.
         if (songs.size < MIN_SAVED_SONGS) return null
         if (tracks.isNotEmpty()) playableStore.register(tracks, now)
-        return MixView(stored.kind, stored.builtAtMs, recId, songs, reasons, tags, novel, stored.seedLists, spec, liveNumberOf(spec) ?: stored.number, stored.subtitle, ridBySong)
+        return MixView(
+            stored.kind, stored.builtAtMs, recId, songs, reasons, tags, novel, stored.seedLists, spec, liveNumberOf(spec) ?: stored.number, stored.subtitle, ridBySong,
+            storedItems = stored.items, control = stored.control, model = stored.model,
+        )
     }
 
     companion object {
@@ -626,6 +655,10 @@ class BrainMixes @Inject constructor(
         const val FAVOURITES = 150
         const val DEEP = 100
         const val MIN_SONGS = 10
+
+        /** The share of new music in a daypart mix (6.2). */
+        const val DAYPART_NU = 0.15
+        const val DAYPART_COUNT = 25
 
         /** A saved mix that has fewer songs than this left (songs left the library, taste changed) is replaced; more is kept. */
         const val MIN_SAVED_SONGS = 3

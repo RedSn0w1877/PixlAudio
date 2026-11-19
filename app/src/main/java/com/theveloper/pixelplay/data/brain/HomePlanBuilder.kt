@@ -40,6 +40,8 @@ class HomePlanBuilder @Inject constructor(
     private val seedDao: SeedDao,
     private val musicRepository: MusicRepository,
     private val clock: BrainClock,
+    private val contextStore: ContextStore,
+    private val shelfStore: ShelfStore,
 ) {
     private val lock = Mutex()
 
@@ -122,11 +124,13 @@ class HomePlanBuilder @Inject constructor(
                 PlanItem(
                     rid = item.track.rid, aid = nameHash(artist), row = StoredRadioRow(item.track.toRadioRow(), item.track.rid),
                     arm = item.arm, whyKey = if (artistMore) WhyLine.ARTIST_MORE else WhyLine.RADIO_FANS,
-                    whyName = if (artistMore) artist.orEmpty() else row.anchor.primaryArtist, slot = slot,
+                    whyName = if (artistMore) artist.orEmpty() else row.anchor.primaryArtist, slot = slot, explore = item.explore,
                 )
             }
-            addShelf(PlanShelf(HomePlanner.BECAUSE_LISTENED, row.id, "because_listened", row.anchor.title, "because_listened_subtitle", items, recId = row.recId))
+            addShelf(PlanShelf(HomePlanner.BECAUSE_LISTENED, row.id, "because_listened", row.anchor.title, "because_listened_subtitle", items, recId = row.recId, control = row.control, model = row.model))
         }
+        // Your weekday nights (stage 3): the island that fits this time of the week, only once the bucket has 50 plays (5.10).
+        daypartShelf(now, tz, islands)?.let { addShelf(it) }
         // New from artists you love: the saved releases.
         val allSongs = musicRepository.getAllSongsOnce()
         val releaseCards = mixes.newReleases.cards(mixes.blockedArtists.current, mixes.tasteAdjustments.snapshot(now), LibraryIndex(allSongs))
@@ -155,8 +159,13 @@ class HomePlanBuilder @Inject constructor(
         stepSideways(now, adjacent)?.let { addShelf(it) }
         moreLikeAlbum(now, allSongs)?.let { addShelf(it) }
 
+        // The shelf bandit's order (5.10), drawn once per daypart; with no data, or while the gate has the prior on, stage 2's fixed order stays.
+        val fixedTypes = inputs.map { it.type }.distinct().toIntArray()
+        val drawn = shelfStore.order(fixedTypes, HomePlanner.planKey(now, tz), HomePlanner.daypart(now, tz), mixes.salt(), now)
+        val ordered = if (drawn != null) HomePlanner.reorder(inputs, drawn) else inputs
+
         // The page rules.
-        val chosen = HomePlanner.plan(inputs)
+        val chosen = HomePlanner.plan(ordered)
         val out = ArrayList<PlanShelf>(chosen.size)
         for (s in chosen) {
             val index = s.id.substringBefore(':').toInt()
@@ -189,6 +198,39 @@ class HomePlanBuilder @Inject constructor(
             generatedAtMs = now, planKey = HomePlanner.planKey(now, tz), taste = taste,
             daypart = HomePlanner.daypart(now, tz), weekday = HomePlanner.weekday(now, tz),
             hero = planHero, mixes = cards, shelves = out,
+        )
+    }
+
+    /**
+     * "Your weekday nights": the daypart mix of the island that leads this bucket of the week. Absent until the bucket has [ContextLift.MIN_PLAYS]
+     * plays with an island, and while the listener has one island only (nothing leads).
+     */
+    private suspend fun daypartShelf(now: Long, tz: Int, islands: IslandSet?): PlanShelf? {
+        if (islands == null || !islands.hasMany) return null
+        val table = contextStore.table(now) ?: return null
+        val bucket = com.theveloper.pixelplay.brain.ContextLift.bucket(now, tz)
+        if (!table.hasLift(bucket)) return null
+        val leader = table.leader(bucket, islands.dailyIslands().map { it.id to it.weight })
+        if (leader < 0) return null
+        val view = mixes.todayOf(MixSpec(MixKinds.DAYPART, leader, bucket)) ?: return null
+        val byRid = HashMap<Long, StoredMixItem>(view.storedItems.size * 2)
+        for (item in view.storedItems) byRid[item.rid] = item
+        val items = ArrayList<PlanItem>(view.songs.size)
+        for (song in view.songs) {
+            val rid = view.rids[song.id] ?: continue
+            val stored = byRid[rid] ?: continue
+            val row = stored.row.takeIf { song.id in view.novelIds }
+            items.add(
+                PlanItem(
+                    rid = rid, aid = nameHash(if (row != null) row.row.artists.firstOrNull()?.name else LibraryIndex.primaryArtistName(song)),
+                    songId = if (row == null) song.id else null, row = row, arm = stored.arm, slot = items.size, explore = stored.explore,
+                )
+            )
+        }
+        if (items.size < HomePlanner.MIN_TRACKS) return null
+        return PlanShelf(
+            HomePlanner.DAYPART_MIX, "daypart:$bucket", "your_daypart", bucket.toString(), "your_daypart_subtitle", items,
+            recId = view.recId, control = view.control, model = view.model,
         )
     }
 

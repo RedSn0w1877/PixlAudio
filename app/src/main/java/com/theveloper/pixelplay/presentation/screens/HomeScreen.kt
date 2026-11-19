@@ -517,8 +517,15 @@ fun HomeScreen(
                         planUi = planUi,
                         chip = shownChip,
                         currentSongId = currentSong?.id,
-                        onOpenMix = { card -> openMix(navController, card) },
-                        onStartStation = { card -> playerViewModel.startGenreStation(card.kind, card.atlasId, card.name) },
+                        onOpenMix = { card ->
+                            discoveryViewModel.onShelfActivated("made_for_you")
+                            openMix(navController, card)
+                        },
+                        onStartStation = { card ->
+                            discoveryViewModel.onShelfActivated("stations")
+                            playerViewModel.startGenreStation(card.kind, card.atlasId, card.name)
+                        },
+                        onShelfSeen = { id -> discoveryViewModel.onShelfSeen(id) },
                         onPlayShelf = { section, song ->
                             discoveryViewModel.playPlanShelf(section, song) { songs, start -> playerViewModel.showAndPlaySong(start, songs, section.title) }
                         },
@@ -991,6 +998,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.homePlanItems(
     onPlayShelf: (com.theveloper.pixelplay.data.recommendation.HomeMusicSection, Song) -> Unit,
     onHero: (com.theveloper.pixelplay.presentation.viewmodel.HeroUi) -> Unit,
     onTile: (com.theveloper.pixelplay.presentation.viewmodel.TileUi) -> Unit,
+    onShelfSeen: (String) -> Unit = {},
 ) {
     fun shelves(list: List<com.theveloper.pixelplay.presentation.viewmodel.HomeShelfUi>) {
         for (shelf in list) {
@@ -999,6 +1007,11 @@ private fun androidx.compose.foundation.lazy.LazyListScope.homePlanItems(
                 is com.theveloper.pixelplay.presentation.viewmodel.HomeShelfUi.Mixes -> "home_plan_mixes"
                 is com.theveloper.pixelplay.presentation.viewmodel.HomeShelfUi.Stations -> "home_plan_stations"
             }) {
+                // On screen for a second counts as seen (the shelf bandit, 5.10); the effect leaves with the item, so a shelf scrolled past does not.
+                androidx.compose.runtime.LaunchedEffect(shelf.id) {
+                    kotlinx.coroutines.delay(1_000L)
+                    onShelfSeen(shelf.id)
+                }
                 when (shelf) {
                     is com.theveloper.pixelplay.presentation.viewmodel.HomeShelfUi.Tracks ->
                         HomeDiscoveryShelf(section = shelf.section, currentSongId = currentSongId, preparingSection = null, onPlay = onPlayShelf)

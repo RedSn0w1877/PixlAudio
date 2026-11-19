@@ -38,6 +38,8 @@ data class PlanItem(
     val whyKey: Int = WhyLine.NONE,
     val whyName: String = "",
     val slot: Int = -1,
+    /** The slot was an exploration slot (5.10): carried into the play's tag. */
+    val explore: Boolean = false,
 )
 
 /** A made-for-you list as a card; the list itself is a `served_list` row, read by [MixSpec.of] with [mixId]. */
@@ -80,6 +82,10 @@ data class PlanShelf(
     val mixes: List<PlanMix> = emptyList(),
     val stations: List<PlanStation> = emptyList(),
     val recId: Long = 0L,
+    /** The shelf was ranked with the prior as a control (5.12 point 8), decided when its list was built. */
+    val control: Boolean = false,
+    /** 1 when the learned weights ranked it, 0 for the prior and for a shelf nothing ranked. */
+    val model: Int = 0,
 )
 
 @Serializable

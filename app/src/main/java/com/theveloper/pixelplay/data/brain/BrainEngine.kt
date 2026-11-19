@@ -1,16 +1,22 @@
 package com.theveloper.pixelplay.data.brain
 
 import com.theveloper.pixelplay.brain.Affinity
+import com.theveloper.pixelplay.brain.ArmBandit
+import com.theveloper.pixelplay.brain.ArmPicker
 import com.theveloper.pixelplay.brain.Brain
 import com.theveloper.pixelplay.brain.BrainMath
 import com.theveloper.pixelplay.brain.Gate
 import com.theveloper.pixelplay.brain.GradeTracker
 import com.theveloper.pixelplay.brain.LearnReplay
 import com.theveloper.pixelplay.brain.LearnerCodec
+import com.theveloper.pixelplay.brain.NoveltyAppetite
+import com.theveloper.pixelplay.brain.PosteriorCodec
+import com.theveloper.pixelplay.brain.Posteriors
 import com.theveloper.pixelplay.brain.PlayEvent
 import com.theveloper.pixelplay.brain.Ranker
 import com.theveloper.pixelplay.brain.RankerModel
 import com.theveloper.pixelplay.brain.Reward
+import com.theveloper.pixelplay.brain.Session
 import com.theveloper.pixelplay.brain.SessionState
 import com.theveloper.pixelplay.data.brain.store.AffinityEntity
 import com.theveloper.pixelplay.data.brain.store.BrainStore
@@ -37,6 +43,12 @@ data class AnchorInfo(
     val spotifyId: String?,
     val durationMs: Long,
 )
+
+/**
+ * How one list was ranked, fixed when it was built (5.12 point 8): [source] is null for the prior; [control] is true when the list was
+ * ranked with the prior because its session is one of the one in ten; [modelVersion] is 1 when the learned weights ranked it, else 0.
+ */
+class RankingChoice(val source: Ranker.WeightSource?, val control: Boolean, val modelVersion: Int)
 
 /** Rebuilds the affinity tables from the log, the imported history and the library facts (4.4). */
 interface StateRebuilder {
@@ -95,10 +107,33 @@ class BrainEngine @Inject constructor(
          * Which weights rank a list for the session [sessionId]: null (the prior `M0`) while the gate has the prior on, and for one
          * session in ten (the control sessions, 5.12 point 8). With [seed] the list gets one posterior sample (5.10).
          */
-        fun ranking(sessionId: Long, seed: Long? = null): Ranker.WeightSource? {
-            if (!learner.useLearned || Ranker.isControlSession(sessionId)) return null
-            return Ranker.WeightSource(learner.model, true, seed)
+        fun ranking(sessionId: Long, seed: Long? = null): Ranker.WeightSource? = rankingChoice(sessionId, seed).source
+
+        /**
+         * [ranking] together with what the plays of the list must say about it (5.12 point 8): decided ONCE, when the list is built,
+         * and carried with each queue entry, so the control completion rate is measured on what was really ranked with the prior.
+         */
+        fun rankingChoice(sessionId: Long, seed: Long? = null): RankingChoice {
+            val control = Ranker.isControlSession(sessionId)
+            if (!learner.useLearned || control) return RankingChoice(null, control, 0)
+            return RankingChoice(Ranker.WeightSource(learner.model, true, seed), false, BrainEventRecorder.MODEL_LEARNED)
         }
+
+        /**
+         * The arm bandit of a list (5.10), seeded by [seed]: null while the gate has the prior on and in a control session, so a listener on the
+         * standard recipe keeps stage 2's choice of the novel candidate exactly.
+         */
+        fun armPicker(sessionId: Long, family: Int, seed: Long): ArmPicker? {
+            if (!learner.useLearned || Ranker.isControlSession(sessionId)) return null
+            return ArmBandit.Sampler(learner.posteriors.arms, family, seed)
+        }
+
+        /**
+         * The novelty share a new session starts at (5.5, "nuSession starts at the surface's nu"): the learned appetite while the gate has the
+         * learned weights on, else stage 2's constant.
+         */
+        fun sessionNu(nowMs: Long): Double =
+            if (learner.useLearned) NoveltyAppetite.nu(learner.posteriors.appetite, nowMs) else Session.NU_DEFAULT
 
         /** What a radio request needs for each of the session's anchors, by rid. */
         val anchors: HashMap<Long, AnchorInfo> = HashMap()
@@ -108,8 +143,9 @@ class BrainEngine @Inject constructor(
             private set
 
         /** Starts a new session: the old one's lists, blocks, anchors and direction are gone. */
-        fun newSession() {
+        fun newSession(nowMs: Long = System.currentTimeMillis()) {
             session = SessionState()
+            session.nuSession = sessionNu(nowMs)
             anchors.clear()
             direction = Direction()
         }
@@ -125,6 +161,8 @@ class BrainEngine @Inject constructor(
         var rebuiltAtMs: Long = 0L,
         /** Favourites at the last rebuild (feature 8 of a live play). */
         var liked: Set<Long> = emptySet(),
+        /** The arm bandit and the novelty appetite (5.10), learned from the same plays as [model]. */
+        var posteriors: Posteriors = Posteriors.newState(0L),
     ) {
         /** The learned weights rank, and the copy may say so: the gate has them on and the model is valid. */
         val useLearned: Boolean get() = gate.useLearned && learnVersion == LearnReplay.VERSION && model.isValid()
@@ -192,7 +230,10 @@ class BrainEngine @Inject constructor(
             store.insertEvent(event)
             store.upsertAffinity(rows)
             // The learner is saved with the play it learned from: no loss and no double apply after a process death.
-            if (state.learner.learnVersion == LearnReplay.VERSION) store.putState(KEY_LEARNER, LearnerCodec.encode(state.learner.saved()))
+            if (state.learner.learnVersion == LearnReplay.VERSION) {
+                store.putState(KEY_LEARNER, LearnerCodec.encode(state.learner.saved()))
+                store.putState(KEY_POSTERIORS, PosteriorCodec.encode(state.learner.posteriors))
+            }
         }
         recordedDuringRebuild?.add(event)
         // A value that was not finite sent the model back to its prior: replay it from the log (5.12 point 2).
@@ -204,7 +245,7 @@ class BrainEngine @Inject constructor(
     private fun learnLive(state: Loaded, e: PlayEvent, g: Reward.Graded): Boolean {
         val learner = state.learner
         if (learner.learnVersion != LearnReplay.VERSION) return false // the first replay builds it
-        val status = LearnReplay.applyLive(learner.model, e, g, e.rid in learner.liked, state.affinity, state.session, clock.nowMs())
+        val status = LearnReplay.applyLive(learner.model, e, g, e.rid in learner.liked, state.affinity, state.session, clock.nowMs(), learner.posteriors)
         return status == Ranker.UPDATE_RESET
     }
 
@@ -212,7 +253,11 @@ class BrainEngine @Inject constructor(
         val text = store.getState(KEY_LEARNER) ?: return null
         val saved = LearnerCodec.decode(text) ?: return null
         val liked = decodeLiked(store.getState(KEY_LEARNER_LIKED))
-        return Learner(saved.model, saved.gate, saved.summary, saved.learnVersion, saved.rebuiltAtMs, liked)
+        val posteriors = store.getState(KEY_POSTERIORS)?.let(PosteriorCodec::decode)
+        // A learner saved before the arm bandit and the novelty appetite existed, or a posterior state that cannot be read: the replay is due
+        // again (it makes both from the log), and until then they start from their priors.
+        if (posteriors == null && store.getState(KEY_LEARN_VERSION) != null) store.putState(KEY_LEARN_VERSION, null)
+        return Learner(saved.model, saved.gate, saved.summary, saved.learnVersion, saved.rebuiltAtMs, liked, posteriors ?: Posteriors.newState(saved.model.anchorDay))
     }
 
     /**
@@ -226,12 +271,13 @@ class BrainEngine @Inject constructor(
         val after = (nowMs shl 16) or 0xFFFFL
         val model = Ranker.newModel(BrainMath.localDay(nowMs, 0))
         model.lastEventId = after
-        val learner = Learner(model, Gate.State(), null, LearnReplay.VERSION, nowMs, state.learner.liked)
+        val learner = Learner(model, Gate.State(), null, LearnReplay.VERSION, nowMs, state.learner.liked, Posteriors.newState(BrainMath.localDay(nowMs, 0)).also { it.lastEventId = after })
         state.learner = learner
         state.learnEpoch++
         store.transaction {
             store.putState(KEY_LEARN_AFTER, after.toString())
             store.putState(KEY_LEARNER, LearnerCodec.encode(learner.saved()))
+            store.putState(KEY_POSTERIORS, PosteriorCodec.encode(learner.posteriors))
         }
         requestRebuild(force = true)
     }
@@ -266,7 +312,7 @@ class BrainEngine @Inject constructor(
                         if (event.eventId in rebuilt.recentEventIds) continue
                         val graded = tracker.grade(event)
                         if (learner != null) {
-                            LearnReplay.applyLive(learner.model, event, graded, event.rid in learner.liked, rebuilt.state, catchUpSession, nowMs)
+                            LearnReplay.applyLive(learner.model, event, graded, event.rid in learner.liked, rebuilt.state, catchUpSession, nowMs, learner.posteriors)
                         }
                         Affinity.applyEvent(rebuilt.state, event, graded, event.startedAtMs)
                     }
@@ -276,6 +322,7 @@ class BrainEngine @Inject constructor(
                         for ((key, value) in rebuilt.stateValues) store.putState(key, value)
                         if (learner != null) {
                             store.putState(KEY_LEARNER, LearnerCodec.encode(learner.saved()))
+                            store.putState(KEY_POSTERIORS, PosteriorCodec.encode(learner.posteriors))
                             store.putState(KEY_LEARNER_LIKED, encodeLiked(learner.liked))
                         }
                     }
@@ -296,7 +343,7 @@ class BrainEngine @Inject constructor(
     private fun learnerOf(result: LearnReplay.Result, previous: Learner, liked: Set<Long>, nowMs: Long): Learner {
         val summary = Gate.summarize(result.predictions, nowMs)
         val gate = Gate.decide(previous.gate, summary, nowMs)
-        return Learner(result.model, gate, summary, LearnReplay.VERSION, nowMs, liked)
+        return Learner(result.model, gate, summary, LearnReplay.VERSION, nowMs, liked, result.posteriors)
     }
 
     /** Waits for a rebuild that is running. For tests and for the debug screen; nothing in the app blocks on it. */
@@ -307,6 +354,9 @@ class BrainEngine @Inject constructor(
     companion object {
         /** The learner's saved state ([LearnerCodec]); a row of `brain_state`, no table changed. */
         const val KEY_LEARNER = "learner_v1"
+
+        /** The arm bandit and the novelty appetite ([PosteriorCodec]); a row of `brain_state`, no table changed. */
+        const val KEY_POSTERIORS = "posteriors_v1"
 
         /** The favourites the last replay used, base 36, comma separated. */
         /** [LearnReplay.VERSION] of the last replay; absent or different means the learner is rebuilt. */

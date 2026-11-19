@@ -61,6 +61,22 @@ object MusicBrainMigrations {
         "CREATE INDEX IF NOT EXISTS `index_island_member_islandId` ON `island_member` (`islandId`)",
     )
 
+    /**
+     * Version 5 to 6 (stage 3): `impression`, the compact shelf impressions the Home shelf bandit learns from. Nothing existing is touched.
+     */
+    val V5_TO_V6: List<String> = listOf(
+        "CREATE TABLE IF NOT EXISTS `impression` (`visitId` INTEGER NOT NULL, `position` INTEGER NOT NULL, `shelf` INTEGER NOT NULL, " +
+            "`daypart` INTEGER NOT NULL, `shownAtMs` INTEGER NOT NULL, `seen` INTEGER NOT NULL, `activatedAtMs` INTEGER NOT NULL, " +
+            "`settled` INTEGER NOT NULL, PRIMARY KEY(`visitId`, `position`))",
+        "CREATE INDEX IF NOT EXISTS `index_impression_shownAtMs` ON `impression` (`shownAtMs`)",
+    )
+
+    val MIGRATION_5_6: Migration = object : Migration(5, 6) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            for (statement in V5_TO_V6) db.execSQL(statement)
+        }
+    }
+
     val MIGRATION_4_5: Migration = object : Migration(4, 5) {
         override fun migrate(db: SupportSQLiteDatabase) {
             for (statement in V4_TO_V5) db.execSQL(statement)
@@ -86,5 +102,5 @@ object MusicBrainMigrations {
     }
 
     /** Every migration, in order. A new version adds its step here and its schema file next to the others. */
-    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
 }
