@@ -51,7 +51,7 @@ interface TrackResolver {
 class BrainIdentity @Inject constructor(
     private val db: MusicBrainDatabase,
     private val dao: AliasDao,
-) : TrackResolver {
+) : TrackResolver, ArtistKeySink {
 
     private val trackLookup = object : Ids.AliasLookup {
         override fun idOf(key: String): Long? = dao.trackId(key)
@@ -90,6 +90,11 @@ class BrainIdentity @Inject constructor(
             }
         }
         out
+    }
+
+    /** Stores an artist's Spotify, Deezer and MusicBrainz ids next to its name key (3.1). */
+    override suspend fun register(keys: Ids.ArtistKeys) {
+        resolveArtists(listOf(keys))
     }
 
     override suspend fun resolveArtistNames(names: List<String>): LongArray =

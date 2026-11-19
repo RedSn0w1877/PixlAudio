@@ -28,6 +28,8 @@ class DnaEnricherTest {
     private val tracks = FakeTrackDnaDao()
     private val artists = FakeArtistDnaDao()
     private val misses = FakeSourceMissDao()
+    private val registered = ArrayList<com.theveloper.pixelplay.brain.Ids.ArtistKeys>()
+    private val sink = ArtistKeySink { registered.add(it) }
 
     private fun http(): FakeKnowledgeHttp = FakeKnowledgeHttp().apply {
         route(KnowledgeHost.DEEZER, "/track/isrc:USUG11904206", "deezer_track_blinding_lights.json")
@@ -41,7 +43,7 @@ class DnaEnricherTest {
 
     private fun enricher(h: FakeKnowledgeHttp) = DnaEnricher(
         DeezerSource(h), MusicBrainzSource(h), ListenBrainzSource(h), WikidataSource(h), ITunesSource(h),
-        tracks, artists, misses, FixtureAtlas(), clock,
+        tracks, artists, misses, FixtureAtlas(), clock, sink,
     )
 
     private fun target(rid: Long = 11L, isrc: String? = "USUG11904206") = DnaTarget(
@@ -76,6 +78,11 @@ class DnaEnricherTest {
         assertEquals("c8b03190-306c-4120-bb0b-6f2ebfc06ea9", artist.mbid)
         assertEquals("CA", artist.country)
         assertEquals(4050205L, artist.deezerId)
+        // The stronger keys are stored beside the name key, so the artist joins the same id when met under another spelling.
+        val keys = registered.single()
+        assertEquals("mb:c8b03190-306c-4120-bb0b-6f2ebfc06ea9", keys.mb)
+        assertEquals("da:4050205", keys.da)
+        assertEquals("na:the weeknd", keys.na)
     }
 
     @Test
@@ -118,7 +125,7 @@ class DnaEnricherTest {
         val fresh = FakeTrackDnaDao()
         val e = DnaEnricher(
             DeezerSource(off), MusicBrainzSource(off), ListenBrainzSource(off), WikidataSource(off), ITunesSource(off),
-            fresh, FakeArtistDnaDao(), FakeSourceMissDao(), FixtureAtlas(), clock,
+            fresh, FakeArtistDnaDao(), FakeSourceMissDao(), FixtureAtlas(), clock, sink,
         )
         val r = e.enrich(listOf(DnaTarget(5L, 0L, "sp5", "ISRC", "Nothing Known", "Nobody", durationMs = 100_000))) { true }
         assertEquals(0, r.tracks, "nothing was learned and nothing was known: no row")
@@ -129,7 +136,7 @@ class DnaEnricherTest {
         now += 9L * 24 * 60 * 60 * 1000
         DnaEnricher(
             DeezerSource(off), MusicBrainzSource(off), ListenBrainzSource(off), WikidataSource(off), ITunesSource(off),
-            tracks, artists, misses, FixtureAtlas(), clock,
+            tracks, artists, misses, FixtureAtlas(), clock, sink,
         ).enrich(listOf(target())) { true }
         assertEquals(now, tracks.rows[11L]!!.updatedAtMs, "it moved to the back of lane 5's order")
         assertEquals(early.firstYear, tracks.rows[11L]!!.firstYear, "nothing known was lost")
@@ -141,7 +148,7 @@ class DnaEnricherTest {
         val off = http().apply { KnowledgeHost.entries.forEach { down.add(it) } }
         val e = DnaEnricher(
             DeezerSource(off), MusicBrainzSource(off), ListenBrainzSource(off), WikidataSource(off), ITunesSource(off),
-            tracks, artists, misses, FixtureAtlas(), clock,
+            tracks, artists, misses, FixtureAtlas(), clock, sink,
         )
         val t = DnaTarget(
             rid = 9L, aid = 3L, spotifyId = "sp9", isrc = null, title = "Ditto", artist = "NewJeans", durationMs = 185_000,
@@ -161,7 +168,7 @@ class DnaEnricherTest {
         val off = http().apply { KnowledgeHost.entries.forEach { down.add(it) } }
         val e = DnaEnricher(
             DeezerSource(off), MusicBrainzSource(off), ListenBrainzSource(off), WikidataSource(off), ITunesSource(off),
-            tracks, artists, misses, FixtureAtlas(), clock,
+            tracks, artists, misses, FixtureAtlas(), clock, sink,
         )
         val t = DnaTarget(
             rid = 12L, aid = 4L, spotifyId = "sp12", isrc = null, title = "Song", artist = "Someone", durationMs = 1,

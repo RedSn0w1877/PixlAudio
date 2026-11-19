@@ -119,6 +119,10 @@ object BrainModule {
 
     @Provides
     @Singleton
+    fun provideArtistKeySink(identity: BrainIdentity): com.theveloper.pixelplay.data.brain.ArtistKeySink = identity
+
+    @Provides
+    @Singleton
     fun provideKnowledgeSwitch(switch: com.theveloper.pixelplay.data.brain.BrainSwitch): com.theveloper.pixelplay.data.brain.source.KnowledgeSwitch = switch
 
     /** The open-data hosts' one door (off switches, budgets, ledger, spacing, back-off). */

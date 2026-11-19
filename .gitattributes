@@ -12,3 +12,11 @@ spatial_preview*.json text eol=lf
 # every hash in MANIFEST.sha256 would be wrong.
 brain/src/test/resources/brain-golden/* text eol=lf
 brain/src/test/resources/brain-corpus/* text eol=lf
+
+# The genre atlas (stage 2b): the asset is binary and byte-identical in both apps; its sources, hand tables and pinned hash are LF
+# everywhere so a rebuild gives the same bytes on every machine.
+app/src/main/assets/genre-atlas-v1.json.gz binary
+brain/src/test/resources/atlas/*.sha256 text eol=lf
+tools/atlas/sources/* text eol=lf
+tools/atlas/hand/* text eol=lf
+app/src/test/resources/knowledge/* text eol=lf

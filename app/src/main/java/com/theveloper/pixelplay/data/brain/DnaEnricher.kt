@@ -1,6 +1,7 @@
 package com.theveloper.pixelplay.data.brain
 
 import com.theveloper.pixelplay.brain.GenreAtlas
+import com.theveloper.pixelplay.brain.Ids
 import com.theveloper.pixelplay.data.brain.source.DeezerAlbum
 import com.theveloper.pixelplay.data.brain.source.DeezerSource
 import com.theveloper.pixelplay.data.brain.source.DeezerTrack
@@ -28,6 +29,14 @@ import kotlin.coroutines.cancellation.CancellationException
 import timber.log.Timber
 
 /**
+ * Where an artist's stronger keys go once a source has told us them (docs/brain-spec.md, 3.1: "stage 2 brings ids"): `sa:`, `da:` and
+ * `mb:` are stored in `artist_alias` beside the name key, so the same artist met under another spelling joins the same id later.
+ */
+fun interface ArtistKeySink {
+    suspend fun register(keys: Ids.ArtistKeys)
+}
+
+/**
  * The enrichment lanes 3 to 5 of docs/brain-spec.md, 3.7: for each track, ask the open-data sources in the fallback order of 3.3,
  * keep what they say in `track_dna` and `artist_dna`, and never ask twice for what is fresh.
  *
@@ -53,6 +62,7 @@ class DnaEnricher @Inject constructor(
     private val misses: SourceMissDao,
     private val atlasProvider: AtlasProvider,
     private val clock: BrainClock,
+    private val artistKeys: ArtistKeySink,
 ) {
     class Report(val tracks: Int, val stopped: Boolean, val noAtlas: Boolean = false)
 
@@ -256,7 +266,12 @@ class DnaEnricher @Inject constructor(
             val now = clock.nowMs()
             val r = DnaAssembler.assemble(st.target, st.evidence(), st.prior, st.priorArtist, atlas, version, now, currentYear(now) + 1)
             tracks.upsert(r.track)
-            r.artist?.let { artists.upsert(it) }
+            r.artist?.let { a ->
+                artists.upsert(a)
+                if (a.spotifyId != null || a.deezerId != null || a.mbid != null) {
+                    artistKeys.register(Ids.ArtistKeys(spotifyId = a.spotifyId, deezerId = a.deezerId?.toString(), mbid = a.mbid, name = a.name))
+                }
+            }
             true
         } catch (e: CancellationException) {
             throw e
