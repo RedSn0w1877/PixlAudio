@@ -1779,6 +1779,13 @@ fun SettingsCategoryScreen(
                                     onCheckedChange = { settingsViewModel.setBrainRefreshEnabled(it) },
                                     leadingIcon = { Icon(Icons.Rounded.Science, null, tint = MaterialTheme.colorScheme.secondary) }
                                 )
+                                SettingsItem(
+                                    title = stringResource(R.string.brain_data_row_title),
+                                    subtitle = stringResource(R.string.brain_data_row_subtitle),
+                                    leadingIcon = { Icon(Icons.Rounded.Science, null, tint = MaterialTheme.colorScheme.secondary) },
+                                    trailingIcon = { Icon(Icons.Rounded.ChevronRight, stringResource(R.string.settings_cd_open), tint = MaterialTheme.colorScheme.onSurfaceVariant) },
+                                    onClick = { navController.navigateSafely(Screen.BrainData.route) }
+                                )
                                 val brainSpotifyShapes by settingsViewModel.brainSpotifyShapesPicks.collectAsStateWithLifecycle()
                                 SwitchSettingItem(
                                     title = stringResource(R.string.brain_spotify_shapes_title),

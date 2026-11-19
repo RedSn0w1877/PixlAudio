@@ -54,6 +54,8 @@ sealed class Screen(val route: String) {
 
     object ArtistSettings : Screen("artist_settings")
     object BlockedArtists : Screen("blocked_artists")
+    /** Settings > Developer mode > Brain data (stage 2b). */
+    object BrainData : Screen("brain_data")
     object ListeningHistory : Screen("listening_history")
     object TasteChanges : Screen("taste_changes")
     object DelimiterConfig : Screen("delimiter_config")

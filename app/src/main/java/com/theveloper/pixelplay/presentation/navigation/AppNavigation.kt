@@ -553,6 +553,13 @@ fun AppNavigation(
                 }
             }
             composable(
+                Screen.BrainData.route,
+            ) {
+                ScreenWrapper(navController = navController, playerViewModel = playerViewModel, animatedVisibilityScope = this) {
+                    com.theveloper.pixelplay.presentation.screens.BrainDataScreen(navController = navController)
+                }
+            }
+            composable(
                 Screen.ListeningHistory.route,
             ) {
                 ScreenWrapper(navController = navController, playerViewModel = playerViewModel, animatedVisibilityScope = this) {

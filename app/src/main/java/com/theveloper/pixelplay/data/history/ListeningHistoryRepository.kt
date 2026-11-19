@@ -324,6 +324,8 @@ class ListeningHistoryRepository @Inject constructor(
                 when (val result = spotify.fetchTopArtists(range)) {
                     is SpotifyResult.Ok -> {
                         val items = result.body.items.orEmpty().filter { !it.name.isNullOrBlank() }
+                        // docs/brain-spec.md 14.6: does Spotify still fill artist genres for this client id? One line per sync.
+                        timber.log.Timber.i("brain: Spotify top artists (%s) with genres: %d of %d", range, items.count { !it.genres.isNullOrEmpty() }, items.size)
                         dao.replaceSeeds(SeedKind.TOP_ARTIST.key, range, items.mapIndexed { index, artist ->
                             TasteSeedEntity(
                                 seedKey = "${SeedKind.TOP_ARTIST.key}|$range|${artist.id ?: index}",
@@ -384,6 +386,7 @@ class ListeningHistoryRepository @Inject constructor(
             }
             // A partial list must not replace a complete one from an earlier sync.
             if (complete || pages >= MAX_FOLLOWED_PAGES) {
+                timber.log.Timber.i("brain: Spotify followed artists with genres: %d of %d", followed.count { !it.genres.isNullOrEmpty() }, followed.size)
                 dao.replaceSeeds(SeedKind.FOLLOWED_ARTIST.key, "", followed.mapIndexed { index, artist ->
                     TasteSeedEntity(
                         seedKey = "${SeedKind.FOLLOWED_ARTIST.key}||${artist.id ?: index}",

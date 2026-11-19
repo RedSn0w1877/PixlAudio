@@ -111,4 +111,46 @@
     <string name="brain_how_autoplay_body">Keeps playing when your queue ends</string>
     <string name="brain_how_taste_changes">Taste changes</string>
     <string name="brain_how_taste_changes_body">Everything you told the picks, with undo</string>
+
+    <!-- Developer mode > Brain data (stage 2b). Developer-facing; plain words, sentence case. -->
+    <string name="brain_data_title">Brain data</string>
+    <string name="brain_data_row_title">Brain data</string>
+    <string name="brain_data_row_subtitle">The genre atlas, what is known about your tracks and what each source was asked today</string>
+    <string name="brain_data_atlas_section">Genre atlas</string>
+    <string name="brain_data_atlas_version">Version %1$d, %2$d genres in %3$d families</string>
+    <string name="brain_data_atlas_described">%1$d genres have a description of how they sound</string>
+    <string name="brain_data_atlas_missing">The atlas could not be read</string>
+    <string name="brain_data_known_section">What is known about your tracks</string>
+    <string name="brain_data_known_none">Nothing yet. The daily refresh fills this in while you are not playing music, on Wi-Fi.</string>
+    <string name="brain_data_known_tracks">%1$d tracks have facts stored</string>
+    <string name="brain_data_known_genre">%1$d with a genre (%2$d%%)</string>
+    <string name="brain_data_known_year">%1$d with a year (%2$d%%)</string>
+    <string name="brain_data_known_popularity">%1$d with a popularity (%2$d%%)</string>
+    <string name="brain_data_known_energy">%1$d with an energy and a mood (%2$d%%)</string>
+    <string name="brain_data_known_tempo">%1$d with a tempo (%2$d%%)</string>
+    <string name="brain_data_known_artists">%1$d artists known, %2$d with a genre</string>
+    <string name="brain_data_known_misses">%1$d lookups are waiting out a quiet period after finding nothing</string>
+    <string name="brain_data_sources_section">Sources</string>
+    <string name="brain_data_source_today">%1$d of %2$d requests today</string>
+    <string name="brain_data_source_answered">%1$d tracks answered</string>
+    <string name="brain_data_source_last">Last asked %1$s</string>
+    <string name="brain_data_source_never">Not asked yet</string>
+    <string name="brain_data_source_remote_off">Switched off for every phone</string>
+    <string name="brain_data_spotify_section">Spotify</string>
+    <string name="brain_data_spotify_genres">%1$d of %2$d top and followed artists came with genres</string>
+    <string name="brain_data_spotify_genres_none">None of %1$d top and followed artists came with genres. Spotify may no longer send them to this app.</string>
+    <string name="brain_data_spotify_off">Off: Spotify facts and genres are not used</string>
+    <string name="brain_data_spotify_empty">No top or followed artists synced yet</string>
+    <string name="brain_data_youtube_today">YouTube Music: %1$d of %2$d requests today</string>
+    <string name="brain_data_last_run">Last refresh %1$s: %2$d radios, %3$d artists, %4$d releases, %5$d tracks filled in. Ended: %6$s</string>
+    <string name="brain_data_stop_done">finished</string>
+    <string name="brain_data_stop_off">a switch was off</string>
+    <string name="brain_data_stop_playing">music was playing</string>
+    <string name="brain_data_stop_budget">every YouTube request for the day was used</string>
+    <string name="brain_data_stop_time">it ran out of time</string>
+    <string name="brain_data_last_run_none">The daily refresh has not run yet</string>
+    <string name="brain_data_ago_minutes">%1$d minutes ago</string>
+    <string name="brain_data_ago_hours">%1$d hours ago</string>
+    <string name="brain_data_ago_days">%1$d days ago</string>
+    <string name="brain_data_ago_now">just now</string>
 </resources>
