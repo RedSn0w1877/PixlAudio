@@ -270,9 +270,10 @@ class InnerTubeMusicParsersTest {
         assertEquals(5, page.topSongs.size)
         assertEquals(3_400_000_000L, page.topSongs[0].playCount)
         fun releases(key: String) = expected[key]!!.jsonArray.map { it.jsonObject }
-            .map { ReleaseRef(it.str("browseId")!!, it.str("title")!!, it.int("year")) }
-        assertEquals(releases("albums"), page.albums)
-        assertEquals(releases("singles"), page.singles)
+            .map { Triple(it.str("browseId")!!, it.str("title")!!, it.int("year")) }
+        fun List<ReleaseRef>.triples() = map { Triple(it.browseId, it.title, it.year) }
+        assertEquals(releases("albums"), page.albums.triples())
+        assertEquals(releases("singles"), page.singles.triples())
         assertEquals(10, page.albums.size)
         assertEquals(10, page.singles.size)
         val fans = expected["fansAlsoLike"]!!.jsonArray.map { it.jsonObject }.map { RadioArtistRef(it.str("name")!!, it.str("id")) }

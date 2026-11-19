@@ -267,6 +267,115 @@ def artist_expected(doc):
     }
 
 
+def release_item(item):
+    """One musicTwoRowItemRenderer of a discography grid or an artist carousel, read plainly."""
+    r = item.get("musicTwoRowItemRenderer")
+    if not r:
+        return None
+    run = {"navigationEndpoint": r.get("navigationEndpoint")}
+    if page_type(run) != "MUSIC_PAGE_TYPE_ALBUM":
+        return None
+    year, kind_name = 0, "UNKNOWN"
+    for sub in (r.get("subtitle") or {}).get("runs", []):
+        t = sub.get("text", "").strip()
+        if re.fullmatch(r"\d{4}", t):
+            year = int(t)
+        elif t.lower() in ("album", "single", "ep"):
+            kind_name = t.upper()
+    audio = None
+    for ep in find(r.get("menu") or {}, "watchPlaylistEndpoint", []):
+        pid = ep.get("playlistId", "")
+        if pid.startswith("OLAK5uy_") and audio is None:
+            audio = pid
+    thumbs = find(r.get("thumbnailRenderer") or {}, "thumbnails", [])
+    return {
+        "browseId": browse_id(run), "title": text_of(r.get("title")), "year": year, "kind": kind_name,
+        "audioPlaylistId": audio, "thumb": thumbs[0][-1]["url"] if thumbs and thumbs[0] else None,
+    }
+
+
+def discography_expected(doc):
+    grid = first(doc, "gridRenderer") or {}
+    return {"releases": [x for x in (release_item(i) for i in grid.get("items", [])) if x]}
+
+
+def album_audio_expected(doc):
+    canon = ((first(doc, "microformatDataRenderer") or {}).get("urlCanonical")) or ""
+    m = re.search(r"[?&]list=(OLAK5uy_[A-Za-z0-9_-]+)", canon)
+    return {"audioPlaylistId": m.group(1) if m else None}
+
+
+def playlist_expected(doc):
+    shelf = first(doc, "musicPlaylistShelfRenderer")
+    appended = first(doc, "appendContinuationItemsAction")
+    items = shelf.get("contents", []) if shelf else (appended.get("continuationItems", []) if appended else [])
+    rows, token = [], None
+    for item in items:
+        if "musicResponsiveListItemRenderer" in item:
+            row = list_item_row(item["musicResponsiveListItemRenderer"])
+            if row["videoId"]:
+                rows.append(row)
+        elif "continuationItemRenderer" in item:
+            cmd = first(item["continuationItemRenderer"], "continuationCommand") or {}
+            token = cmd.get("token") or token
+    return {"rows": rows, "continuation": token}
+
+
+def get_queue_expected(doc):
+    rows = []
+    for data in doc.get("queueDatas", []):
+        r = (data.get("content") or {}).get("playlistPanelVideoRenderer")
+        if r and r.get("videoId") and "unplayableText" not in r:
+            rows.append(panel_row(r))
+    return {"rows": rows}
+
+
+def search_expected(doc):
+    rows = []
+    for r in find(doc, "musicResponsiveListItemRenderer", []):
+        row = list_item_row(r)
+        if not row["videoId"]:
+            continue
+        if row["durationSec"] == 0:
+            for c in r.get("flexColumns", [])[1:]:
+                for run in c.get("musicResponsiveListItemFlexColumnRenderer", {}).get("text", {}).get("runs", []):
+                    clock = seconds(run.get("text", "").strip())
+                    if clock and row["durationSec"] == 0:
+                        row["durationSec"] = clock
+        rows.append(row)
+    return {"rows": rows}
+
+
+def trim_keep_menu(node):
+    """Like trim(), but keeps the first menu item (Shuffle play: the audio playlist id) of a release card."""
+    if isinstance(node, dict):
+        out = {}
+        for key, value in node.items():
+            if key == "menu":
+                items = (value.get("menuRenderer") or {}).get("items", [])
+                keep = [i for i in items if "watchPlaylistEndpoint" in json.dumps(i)][:1]
+                out[key] = {"menuRenderer": {"items": [trim(i) if False else strip_clicks(i) for i in keep]}}
+                continue
+            if key in DROP:
+                continue
+            if key == "thumbnails" and isinstance(value, list) and value:
+                out[key] = [value[-1]]
+                continue
+            out[key] = trim_keep_menu(value)
+        return out
+    if isinstance(node, list):
+        return [trim_keep_menu(v) for v in node]
+    return node
+
+
+def strip_clicks(node):
+    if isinstance(node, dict):
+        return {k: strip_clicks(v) for k, v in node.items() if k not in ("clickTrackingParams", "trackingParams", "accessibility", "accessibilityData")}
+    if isinstance(node, list):
+        return [strip_clicks(v) for v in node]
+    return node
+
+
 FIXTURES = [
     # (output name, raw file, kind, keep at most N panel rows or None)
     ("radio_song", "next_B_min.json", "radio", None),
@@ -280,12 +389,70 @@ FIXTURES = [
     ("artist_page", "artist_UClYV6hHlupm_S_ObS1W-DYw_vd.json", "artist", None),
 ]
 
+# Stage 2a. (output name, raw file, kind, keep at most N items of the main list or None)
+FIXTURES_2A = [
+    ("discography", "discog_noparams.json", "discography", 14),
+    ("album_audio", "album_afterhours.json", "album_audio", None),
+    ("playlist_album", "album_as_playlist.json", "playlist", None),
+    ("playlist_top_songs", "pl_topsongs.json", "playlist", 12),
+    ("playlist_cont", "pl_topsongs_cont1.json", "playlist", 12),
+    ("get_queue", "get_queue_5.json", "get_queue", None),
+    ("search_songs", "search_Blinding_Lights_The_Weeknd.json", "search", 8),
+]
+
+
+def cut_2a(raw):
+    for name, source, what, keep in FIXTURES_2A:
+        with open(os.path.join(raw, source), encoding="utf-8") as f:
+            doc = json.load(f)
+        if what == "discography":
+            doc = trim_keep_menu(doc)
+            grid = first(doc, "gridRenderer")
+            grid["items"] = grid["items"][:keep]
+            expected = discography_expected(doc)
+        elif what == "album_audio":
+            micro = first(doc, "microformatDataRenderer")
+            doc = {"microformat": {"microformatDataRenderer": {"urlCanonical": micro["urlCanonical"], "title": micro.get("title")}}}
+            expected = album_audio_expected(doc)
+        elif what == "playlist":
+            doc = trim(doc)
+            shelf = first(doc, "musicPlaylistShelfRenderer")
+            appended = first(doc, "appendContinuationItemsAction")
+            if keep is not None:
+                if shelf is not None:
+                    tail = [i for i in shelf["contents"] if "continuationItemRenderer" in i]
+                    shelf["contents"] = [i for i in shelf["contents"] if "continuationItemRenderer" not in i][:keep] + tail
+                elif appended is not None:
+                    tail = [i for i in appended["continuationItems"] if "continuationItemRenderer" in i]
+                    appended["continuationItems"] = [i for i in appended["continuationItems"] if "continuationItemRenderer" not in i][:keep] + tail
+            expected = playlist_expected(doc)
+        elif what == "get_queue":
+            doc = trim(doc)
+            expected = get_queue_expected(doc)
+        else:
+            doc = trim(doc)
+            shelf = first(doc, "musicShelfRenderer")
+            if keep is not None and shelf is not None:
+                shelf["contents"] = shelf["contents"][:keep]
+            expected = search_expected(doc)
+        with open(os.path.join(OUT, name + ".json"), "w", encoding="utf-8", newline="\n") as f:
+            json.dump(doc, f, ensure_ascii=False, separators=(",", ":"))
+        with open(os.path.join(OUT, name + ".expected.json"), "w", encoding="utf-8", newline="\n") as f:
+            json.dump(expected, f, ensure_ascii=False, indent=1)
+        size = os.path.getsize(os.path.join(OUT, name + ".json"))
+        print("%-22s %7d bytes" % (name, size))
+
 
 def main():
-    if len(sys.argv) < 2:
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    if not args:
         raise SystemExit(__doc__)
-    raw = sys.argv[1]
+    raw = args[0]
     os.makedirs(OUT, exist_ok=True)
+    if "--2a" in sys.argv:
+        # Only the stage 2a fixtures: the earlier ones are not rewritten.
+        cut_2a(raw)
+        return
     for name, source, what, keep in FIXTURES:
         with open(os.path.join(raw, source), encoding="utf-8") as f:
             doc = trim(json.load(f))

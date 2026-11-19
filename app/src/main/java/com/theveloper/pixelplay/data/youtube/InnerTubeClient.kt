@@ -349,6 +349,41 @@ class InnerTubeClient @Inject constructor(
         postText(InnerTubeContexts.endpoint(InnerTubeContexts.WEB_REMIX, "browse"), body, InnerTubeContexts.WEB_REMIX)
     }
 
+    /**
+     * The next page of a `browse` list (a playlist, a long top-songs list): the token goes in the body.
+     * Parse with [InnerTubeMusicParsers.parsePlaylistPage].
+     */
+    suspend fun browseContinuation(continuation: String): String? = withContext(Dispatchers.IO) {
+        val body = musicBody().apply { put("continuation", continuation) }
+        postText(InnerTubeContexts.endpoint(InnerTubeContexts.WEB_REMIX, "browse"), body, InnerTubeContexts.WEB_REMIX)
+    }
+
+    /**
+     * `music/get_queue`: turns up to 100 video ids into full rows (title, artists, length, kind). One
+     * invalid id makes the whole batch a 404, which comes back here as null: the caller bisects.
+     * Parse with [InnerTubeMusicParsers.parseGetQueue].
+     */
+    suspend fun getQueue(videoIds: List<String>): String? = withContext(Dispatchers.IO) {
+        if (videoIds.isEmpty()) return@withContext null
+        val body = musicBody().apply {
+            put("videoIds", org.json.JSONArray(videoIds.take(MAX_GET_QUEUE_IDS)))
+        }
+        postText(InnerTubeContexts.endpoint(InnerTubeContexts.WEB_REMIX, "music/get_queue"), body, InnerTubeContexts.WEB_REMIX)
+    }
+
+    /**
+     * A songs search as raw text, on the same anonymous WEB_REMIX context as the radios. The first hit's
+     * artist run carries the artist's `UC...` id. Parse with [InnerTubeMusicParsers.parseSongSearch].
+     */
+    suspend fun searchSongsRaw(query: String): String? = withContext(Dispatchers.IO) {
+        if (query.isBlank()) return@withContext null
+        val body = musicBody().apply {
+            put("query", query.trim())
+            put("params", InnerTubeContexts.SONGS_SEARCH_PARAMS)
+        }
+        postText(InnerTubeContexts.endpoint(InnerTubeContexts.WEB_REMIX, "search"), body, InnerTubeContexts.WEB_REMIX)
+    }
+
     /** The WEB_REMIX context with the process-wide anonymous visitorData (hl=en, gl=US stay pinned). */
     private fun musicBody(): JSONObject =
         InnerTubeContexts.buildContext(InnerTubeContexts.WEB_REMIX, poTokenProvider.anonymousVisitorData())
@@ -564,6 +599,7 @@ class InnerTubeClient @Inject constructor(
 
     private companion object {
         val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
+        const val MAX_GET_QUEUE_IDS = 100
 
         /** mp4 360p con audio+vídeo juntos; el único itag exento de PoToken en yt-dlp. */
         const val MUXED_FALLBACK_ITAG = 18

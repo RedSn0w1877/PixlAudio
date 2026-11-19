@@ -101,12 +101,34 @@ data class RadioEndpoint(
     val params: String? = null,
 )
 
-/** An album, single or EP on an artist page. */
+/** What a release is, from the subtitle ("Album", "Single", "EP") of its card. */
+enum class ReleaseKind { ALBUM, SINGLE, EP, UNKNOWN }
+
+/**
+ * An album, single or EP on an artist page or in the discography (`MPAD...`).
+ *
+ * [audioPlaylistId] is the `OLAK5uy_...` audio playlist the card's "Shuffle play" menu item names, when the
+ * response kept the menu: the tracks of a release are read through it (spec 3.3, "Album tracks"), never from
+ * the album page itself, whose ids are music videos when anonymous. Null means "read it from the album page".
+ */
 data class ReleaseRef(
     val browseId: String,
     val title: String,
     val year: Int = 0,
+    val kind: ReleaseKind = ReleaseKind.UNKNOWN,
+    val audioPlaylistId: String? = null,
+    val thumbnailUrl: String? = null,
 )
+
+/** A playlist page (`browse VL...`) or one of its continuations: rows plus the token of the next page. */
+data class PlaylistPage(
+    val rows: List<RadioRow>,
+    val continuation: String?,
+) {
+    companion object {
+        val EMPTY = PlaylistPage(emptyList(), null)
+    }
+}
 
 data class ArtistPage(
     val name: String,

@@ -26,6 +26,7 @@ object InnerTubeMusicParsers {
     private const val PAGE_ALBUM = "MUSIC_PAGE_TYPE_ALBUM"
     private const val PAGE_TRACK_RELATED = "MUSIC_PAGE_TYPE_TRACK_RELATED"
     private const val BULLET = "•"
+    private const val AUDIO_PLAYLIST_PREFIX = "OLAK5uy_"
 
     // ── Radio (`next`) ───────────────────────────────────────────────────────
 
@@ -139,7 +140,11 @@ object InnerTubeMusicParsers {
             }
             val releases = shelf.items.mapNotNull(::parseTwoRowRelease)
             if (releases.isNotEmpty() && releases.size == shelf.items.size) {
-                if (shelf.header.contains("single", ignoreCase = true)) singles.addAll(releases) else albums.addAll(releases)
+                if (shelf.header.contains("single", ignoreCase = true)) {
+                    singles.addAll(releases.map { if (it.kind == ReleaseKind.UNKNOWN) it.copy(kind = ReleaseKind.SINGLE) else it })
+                } else {
+                    albums.addAll(releases.map { if (it.kind == ReleaseKind.UNKNOWN) it.copy(kind = ReleaseKind.ALBUM) else it })
+                }
                 continue
             }
             val artists = shelf.items.mapNotNull(::parseTwoRowArtist)
@@ -153,6 +158,95 @@ object InnerTubeMusicParsers {
             singles = singles,
             fansAlsoLike = fans,
         )
+    }
+
+    // ── Discography, album audio, playlists, get_queue, search (stage 2a) ─────
+
+    /**
+     * The whole discography (`browse MPAD<channelId>`, no params): a grid of cards, newest first. Each
+     * card is a release; its [ReleaseRef.audioPlaylistId] is read from the "Shuffle play" menu item when
+     * the response kept it. Empty (never a throw) when the response has no grid.
+     */
+    fun parseDiscography(root: JsonElement): List<ReleaseRef> {
+        val grid = findFirst(root, "gridRenderer") ?: return emptyList()
+        return grid.array("items")?.mapNotNull { (it as? JsonObject)?.let(::parseTwoRowRelease) }.orEmpty()
+    }
+
+    /**
+     * The `OLAK5uy_...` audio playlist of an album page (`browse MPREb_...`), from
+     * `microformat.microformatDataRenderer.urlCanonical`; failing that, from the "Shuffle play" button.
+     * Null when the page names none.
+     */
+    fun parseAlbumAudioPlaylistId(root: JsonElement): String? {
+        val canonical = findFirst(root, "microformatDataRenderer")?.string("urlCanonical")
+        if (canonical != null) {
+            val match = AUDIO_LIST_PARAM.find(canonical)
+            if (match != null) return match.groupValues[1]
+        }
+        return audioPlaylistIn((root as? JsonObject)?.get("contents"))
+    }
+
+    /**
+     * One page of a playlist (`browse VL<id>`) or of its continuation (`browse {continuation}`). Only
+     * the playlist shelf is read: an album page's own track list is music videos when anonymous, so the
+     * `musicShelfRenderer` of an album page is deliberately ignored.
+     *
+     * The continuation token is the last `continuationItemRenderer` of the page; the older
+     * `musicPlaylistShelfContinuation` shape is accepted too.
+     */
+    fun parsePlaylistPage(root: JsonElement): PlaylistPage {
+        val items: JsonArray?
+        var token: String? = null
+        val shelf = findFirst(root, "musicPlaylistShelfRenderer")
+        val appended = findFirst(root, "appendContinuationItemsAction")
+        val legacy = findFirst(root, "musicPlaylistShelfContinuation")
+        when {
+            shelf != null -> items = shelf.array("contents")
+            appended != null -> items = appended.array("continuationItems")
+            legacy != null -> {
+                items = legacy.array("contents")
+                legacy.array("continuations")?.forEach {
+                    (it as? JsonObject)?.obj("nextContinuationData")?.string("continuation")?.takeIf { t -> t.isNotBlank() }?.let { t -> token = t }
+                }
+            }
+            else -> return PlaylistPage.EMPTY
+        }
+        val rows = ArrayList<RadioRow>(items?.size ?: 0)
+        items?.forEach { item ->
+            val obj = item as? JsonObject ?: return@forEach
+            obj.obj("musicResponsiveListItemRenderer")?.let(::parseListItemRow)?.let(rows::add)
+            obj.obj("continuationItemRenderer")?.let { renderer ->
+                findFirst(renderer, "continuationCommand")?.string("token")?.takeIf { it.isNotBlank() }?.let { token = it }
+            }
+        }
+        return PlaylistPage(rows, token)
+    }
+
+    /** `music/get_queue`: the rows of `queueDatas[].content.playlistPanelVideoRenderer`. Unplayable rows are skipped. */
+    fun parseGetQueue(root: JsonElement): List<RadioRow> {
+        val datas = ((root as? JsonObject)?.get("queueDatas") as? JsonArray) ?: return emptyList()
+        val rows = ArrayList<RadioRow>(datas.size)
+        for (data in datas) {
+            val content = (data as? JsonObject)?.obj("content") ?: continue
+            val renderer = content.obj("playlistPanelVideoRenderer")
+                ?: content.obj("playlistPanelVideoWrapperRenderer")?.obj("primaryRenderer")?.obj("playlistPanelVideoRenderer")
+                ?: continue
+            parsePanelRow(renderer)?.let(rows::add)
+        }
+        return rows
+    }
+
+    /**
+     * A songs search: its rows, with the artist runs' channel ids kept (the first hit's artist carries
+     * the `UC...` id an artist station needs when nothing in the library names it). The duration is in
+     * the byline here ("Song • Artist • Album • 3:20"), not in a fixed column.
+     */
+    fun parseSongSearch(root: JsonElement): List<RadioRow> {
+        val rows = ArrayList<RadioRow>(20)
+        collect(root, "musicResponsiveListItemRenderer") { renderer ->
+            parseListItemRow(renderer, bylineClock = true)?.let(rows::add)
+        }
+        return rows
     }
 
     // ── Shelves and their items ──────────────────────────────────────────────
@@ -180,19 +274,23 @@ object InnerTubeMusicParsers {
     private val PLAYS_PATTERN = Regex("""([\d.]+)([KMB]?) (?:plays|views)""")
     private val YEAR_PATTERN = Regex("""\d{4}""")
     private val CLOCK_PATTERN = Regex("""\d+(:\d{1,2}){1,2}""")
+    private val AUDIO_LIST_PARAM = Regex("""[?&]list=(OLAK5uy_[A-Za-z0-9_-]+)""")
 
-    private fun parseListItemRow(renderer: JsonObject): RadioRow? {
+    private fun parseListItemRow(renderer: JsonObject, bylineClock: Boolean = false): RadioRow? {
         val columns = renderer.array("flexColumns")?.mapNotNull {
             (it as? JsonObject)?.obj("musicResponsiveListItemFlexColumnRenderer")?.obj("text")
         }.orEmpty()
         val titleColumn = columns.firstOrNull() ?: return null
         val watch = findFirst(titleColumn, "watchEndpoint")
-        val videoId = watch?.string("videoId")?.takeIf { it.isNotBlank() } ?: return null
+        val videoId = watch?.string("videoId")?.takeIf { it.isNotBlank() }
+            ?: renderer.obj("playlistItemData")?.string("videoId")?.takeIf { it.isNotBlank() }
+            ?: return null
         val title = runsText(titleColumn).takeIf { it.isNotBlank() } ?: return null
 
         // The remaining columns are one byline split across columns.
         val runs = ArrayList<JsonElement>()
         var playCount: Long? = null
+        var clock = 0
         for (i in 1 until columns.size) {
             val columnRuns = columns[i].array("runs") ?: continue
             if (runs.isNotEmpty()) runs.add(SEPARATOR_RUN)
@@ -200,6 +298,7 @@ object InnerTubeMusicParsers {
                 val text = (run as? JsonObject)?.string("text")?.trim().orEmpty()
                 val plays = parsePlayCount(text)
                 if (plays != null) playCount = plays else runs.add(run)
+                if (bylineClock && clock == 0) clock = parseClock(text)
             }
         }
         val byline = parseByline(runs)
@@ -210,7 +309,7 @@ object InnerTubeMusicParsers {
             album = byline.album,
             albumBrowseId = byline.albumBrowseId,
             year = byline.year,
-            durationSec = parseClock(runsText(findFirst(renderer["fixedColumns"], "text"))),
+            durationSec = parseClock(runsText(findFirst(renderer["fixedColumns"], "text"))).takeIf { it > 0 } ?: clock,
             thumbnailUrl = largestThumbnail(findFirst(renderer["thumbnail"], "thumbnail")?.array("thumbnails")
                 ?: findFirstArray(renderer["thumbnail"], "thumbnails")),
             explicit = hasExplicitBadge(renderer.array("badges")),
@@ -235,11 +334,33 @@ object InnerTubeMusicParsers {
         if (pageTypeOf(endpoint) != PAGE_ALBUM) return null
         val browseId = browseIdOf(endpoint) ?: return null
         var year = 0
+        var kind = ReleaseKind.UNKNOWN
         renderer.obj("subtitle")?.array("runs")?.forEach { run ->
             val text = (run as? JsonObject)?.string("text")?.trim().orEmpty()
             if (YEAR_PATTERN.matches(text)) year = text.toInt()
+            else when (text.lowercase()) {
+                "album" -> kind = ReleaseKind.ALBUM
+                "single" -> kind = ReleaseKind.SINGLE
+                "ep" -> kind = ReleaseKind.EP
+            }
         }
-        return ReleaseRef(browseId, runsText(renderer.obj("title")), year)
+        return ReleaseRef(
+            browseId = browseId,
+            title = runsText(renderer.obj("title")),
+            year = year,
+            kind = kind,
+            audioPlaylistId = audioPlaylistIn(renderer["menu"]),
+            thumbnailUrl = largestThumbnail(findFirstArray(renderer["thumbnailRenderer"], "thumbnails")),
+        )
+    }
+
+    /** The first `OLAK5uy_...` playlist a `watchPlaylistEndpoint` below [root] names; null when none. */
+    private fun audioPlaylistIn(root: JsonElement?): String? {
+        var found: String? = null
+        collect(root, "watchPlaylistEndpoint") { endpoint ->
+            if (found == null) endpoint.string("playlistId")?.takeIf { it.startsWith(AUDIO_PLAYLIST_PREFIX) }?.let { found = it }
+        }
+        return found
     }
 
     // ── Bylines ──────────────────────────────────────────────────────────────
