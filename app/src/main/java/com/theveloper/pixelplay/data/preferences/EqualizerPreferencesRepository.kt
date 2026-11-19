@@ -151,19 +151,10 @@ class EqualizerPreferencesRepository @Inject constructor(
             preferences[Keys.EQUALIZER_ENABLED] = enabled
         }
 
-    suspend fun setEqualizerPreset(preset: String) =
+    suspend fun setEqualizerPreset(preset: EqualizerPreset) =
         dataStore.edit { preferences ->
-            preferences[Keys.EQUALIZER_PRESET] = preset
-        }
-
-    suspend fun setEqualizerCustomBands(bands: List<Int>) =
-        dataStore.edit { preferences ->
-            val normalized = when {
-                bands.size >= 10 -> bands.take(10)
-                bands.isEmpty() -> List(10) { 0 }
-                else -> bands + List(10 - bands.size) { 0 }
-            }
-            preferences[Keys.EQUALIZER_CUSTOM_BANDS] = json.encodeToString(normalized)
+            preferences[Keys.EQUALIZER_PRESET] = preset.name
+            preferences[Keys.EQUALIZER_CUSTOM_BANDS] = json.encodeToString(preset.bandLevels)
         }
 
     suspend fun setBassBoostStrength(strength: Int) =

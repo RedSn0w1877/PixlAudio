@@ -1,10 +1,16 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <resources>
     <!-- Equalizer preset dialogs -->
+    <string name="equalizer_error_name_taken">A preset already uses this name</string>
     <string name="equalizer_error_name_empty">Name cannot be empty</string>
     <string name="equalizer_action_rename">Rename</string>
 
     <!-- EqualizerScreen -->
+    <string name="equalizer_mode_sliders">Sliders</string>
+    <string name="equalizer_mode_graph">Graph</string>
+    <string name="equalizer_mode_hybrid">Hybrid</string>
+    <string name="equalizer_custom">Custom</string>
+    <string name="equalizer_audio_effects">Audio effects</string>
     <string name="equalizer_change_view_mode_cd">Change view mode</string>
     <string name="equalizer_disable_cd">Disable equalizer</string>
     <string name="equalizer_enable_cd">Enable equalizer</string>

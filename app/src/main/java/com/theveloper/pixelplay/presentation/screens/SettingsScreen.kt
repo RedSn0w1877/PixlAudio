@@ -264,10 +264,6 @@ fun SettingsScreen(
                             customColors = getCategoryColors(category, isDark),
                             onClick = { openSettingsCategory(navController, category) },
                             shape = settingsGroupShape(itemIndex, totalItems),
-                            // The equalizer is locked until it is fixed.
-                            lockedNote = if (category == SettingsCategory.EQUALIZER) {
-                                stringResource(R.string.common_broken_fix_soon)
-                            } else null
                         )
                         Spacer(modifier = Modifier.height(2.dp))
                         itemIndex++
