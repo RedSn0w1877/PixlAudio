@@ -40,6 +40,22 @@ object MusicBrainMigrations {
             "PRIMARY KEY(`spotifyId`))",
     )
 
+    /** Version 3 to 4 (stage 2b): `track_dna`, `artist_dna` and `source_miss`. Nothing existing is touched. */
+    val V3_TO_V4: List<String> = listOf(
+        "CREATE TABLE IF NOT EXISTS `track_dna` (`rid` INTEGER NOT NULL, `spotifyId` TEXT, `isrc` TEXT, `deezerId` INTEGER, `mbRecordingId` TEXT, `ytAudioIds` TEXT NOT NULL, `artistIds` TEXT NOT NULL, `albumKey` INTEGER, `title` TEXT NOT NULL, `artistDisplay` TEXT NOT NULL, `versionFlags` INTEGER NOT NULL, `firstYear` INTEGER NOT NULL, `yearSource` INTEGER NOT NULL, `durationMs` INTEGER NOT NULL, `explicit` INTEGER NOT NULL, `popPermille` INTEGER NOT NULL, `tempoBpmX10` INTEGER NOT NULL, `tempoSource` INTEGER NOT NULL, `gainDbX10` INTEGER NOT NULL, `scriptLang` INTEGER NOT NULL, `tags` BLOB NOT NULL, `moods` BLOB NOT NULL, `energy` INTEGER NOT NULL, `valence` INTEGER NOT NULL, `embVersion` INTEGER NOT NULL, `confidence` INTEGER NOT NULL, `fetchedMask` INTEGER NOT NULL, `updatedAtMs` INTEGER NOT NULL, `tagsAtMs` INTEGER NOT NULL, `popAtMs` INTEGER NOT NULL, `atlasVersion` INTEGER NOT NULL, `tagInputs` BLOB NOT NULL, `yearClaims` TEXT NOT NULL, `popClaims` TEXT NOT NULL, PRIMARY KEY(`rid`))",
+        "CREATE INDEX IF NOT EXISTS `index_track_dna_spotifyId` ON `track_dna` (`spotifyId`)",
+        "CREATE INDEX IF NOT EXISTS `index_track_dna_updatedAtMs` ON `track_dna` (`updatedAtMs`)",
+        "CREATE TABLE IF NOT EXISTS `artist_dna` (`aid` INTEGER NOT NULL, `spotifyId` TEXT, `ytChannelId` TEXT, `deezerId` INTEGER, `mbid` TEXT, `wikidataId` TEXT, `name` TEXT NOT NULL, `country` TEXT NOT NULL, `tags` BLOB NOT NULL, `popPermille` INTEGER NOT NULL, `releaseIds` TEXT NOT NULL, `fetchedMask` INTEGER NOT NULL, `updatedAtMs` INTEGER NOT NULL, `tagsAtMs` INTEGER NOT NULL, `atlasVersion` INTEGER NOT NULL, `tagInputs` BLOB NOT NULL, PRIMARY KEY(`aid`))",
+        "CREATE INDEX IF NOT EXISTS `index_artist_dna_spotifyId` ON `artist_dna` (`spotifyId`)",
+        "CREATE INDEX IF NOT EXISTS `index_artist_dna_mbid` ON `artist_dna` (`mbid`)",
+        "CREATE TABLE IF NOT EXISTS `source_miss` (`entity` TEXT NOT NULL, `source` INTEGER NOT NULL, `retryAfter` INTEGER NOT NULL, `misses` INTEGER NOT NULL, PRIMARY KEY(`entity`, `source`))",
+    )
+    val MIGRATION_3_4: Migration = object : Migration(3, 4) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            for (statement in V3_TO_V4) db.execSQL(statement)
+        }
+    }
+
     val MIGRATION_2_3: Migration = object : Migration(2, 3) {
         override fun migrate(db: SupportSQLiteDatabase) {
             for (statement in V2_TO_V3) db.execSQL(statement)
@@ -53,5 +69,5 @@ object MusicBrainMigrations {
     }
 
     /** Every migration, in order. A new version adds its step here and its schema file next to the others. */
-    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3)
+    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
 }

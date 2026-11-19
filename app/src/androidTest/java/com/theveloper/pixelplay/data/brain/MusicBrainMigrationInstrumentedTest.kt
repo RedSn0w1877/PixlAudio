@@ -89,8 +89,37 @@ class MusicBrainMigrationInstrumentedTest {
         db.close()
     }
 
+    @Test
+    fun migrates3To4KeepingEverythingAndAddingTheDnaTables() {
+        helper.createDatabase(DB_V3, 3).apply {
+            execSQL(
+                "INSERT INTO play_event (eventId, schema, origin, rid, primaryAid, otherAids, keyAtWrite, startedAtMs, tzOffsetMin, " +
+                    "playedMs, durationMs, startReason, endReason, flags, surface, surfaceId, recId, slot, arm, sessionId, posInSession, " +
+                    "passiveRun, route, retrQ, radioRank, pServedQ, modelVersion) VALUES (1, 1, 0, 42, 7, '', 'n:x', 1000, 0, " +
+                    "190000, 200000, 0, 0, 0, 7, '', 0, -1, 9, 1, 0, 0, 0, -1, -1, 0, 0)"
+            )
+            execSQL("INSERT INTO spotify_fact (spotifyId, isrc, artistIds, albumId, releaseDate, releasePrecision, explicit, seenAtMs) VALUES ('t', 'ISRC1', 'a', 'alb', '2024', 'year', 0, 7)")
+            execSQL("INSERT INTO track_alias (`key`, rid, durationMs) VALUES ('n:x', 42, 200000)")
+            close()
+        }
+
+        val db = helper.runMigrationsAndValidate(DB_V3, 4, true, *MusicBrainMigrations.ALL)
+
+        fun count(table: String): Int = db.query("SELECT COUNT(*) FROM $table").use { it.moveToFirst(); it.getInt(0) }
+        assertEquals(1, count("play_event"))
+        assertEquals(1, count("spotify_fact"))
+        assertEquals(1, count("track_alias"))
+        for (table in listOf("track_dna", "artist_dna", "source_miss")) assertEquals(table, 0, count(table))
+        db.execSQL(
+            "INSERT INTO source_miss (entity, source, retryAfter, misses) VALUES ('t:42', 1, 99, 1)"
+        )
+        assertEquals(1, count("source_miss"))
+        db.close()
+    }
+
     private companion object {
         const val DB = "brain-migration-test.db"
+        const val DB_V3 = "brain-migration-test-v3.db"
         const val DB_V2 = "brain-migration-test-v2.db"
     }
 }

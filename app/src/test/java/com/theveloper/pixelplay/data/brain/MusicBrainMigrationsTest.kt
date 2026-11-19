@@ -70,11 +70,11 @@ class MusicBrainMigrationsTest {
 
     @Test
     fun `there is one migration for every version step and no destructive path`() {
-        assertEquals(2, MusicBrainMigrations.ALL.size)
-        assertEquals(1, MusicBrainMigrations.ALL[0].startVersion)
-        assertEquals(2, MusicBrainMigrations.ALL[0].endVersion)
-        assertEquals(2, MusicBrainMigrations.ALL[1].startVersion)
-        assertEquals(3, MusicBrainMigrations.ALL[1].endVersion)
+        assertEquals(3, MusicBrainMigrations.ALL.size)
+        for ((i, m) in MusicBrainMigrations.ALL.withIndex()) {
+            assertEquals(i + 1, m.startVersion)
+            assertEquals(i + 2, m.endVersion)
+        }
     }
 
     @Test
@@ -95,5 +95,41 @@ class MusicBrainMigrationsTest {
         val added = entities(3).single { tableName(it) == "spotify_fact" }
         val expected = listOf(createSql(added)) + indexSql(added, "spotify_fact")
         assertEquals(expected, MusicBrainMigrations.V2_TO_V3)
+    }
+
+    private val v4Tables = setOf("track_dna", "artist_dna", "source_miss")
+
+    @Test
+    fun `version 4 adds exactly the DNA tables and changes nothing that was there`() {
+        assertEquals(4, schema(4)["database"]!!.jsonObject["version"]!!.jsonPrimitive.int)
+        val v3 = entities(3).associateBy(::tableName)
+        val v4 = entities(4).associateBy(::tableName)
+        assertEquals(v4Tables, v4.keys - v3.keys)
+        assertTrue((v3.keys - v4.keys).isEmpty(), "no table is removed")
+        for ((name, old) in v3) {
+            assertEquals(createSql(old), createSql(v4[name]!!), "table $name is untouched")
+            assertEquals(indexSql(old, name), indexSql(v4[name]!!, name), "indices of $name are untouched")
+        }
+    }
+
+    @Test
+    fun `the version 4 statements are exactly what Room wrote`() {
+        val added = entities(4).filter { tableName(it) in v4Tables }
+            .sortedBy { MusicBrainMigrations.V3_TO_V4.indexOf(createSql(it)) }
+        val expected = ArrayList<String>()
+        for (e in added) {
+            expected.add(createSql(e))
+            expected.addAll(indexSql(e, tableName(e)))
+        }
+        assertEquals(expected, MusicBrainMigrations.V3_TO_V4)
+    }
+
+    @Test
+    fun `the history tables are the same in every version`() {
+        for (table in listOf("play_event", "track_alias", "track_merge", "artist_alias", "feedback")) {
+            val sql = entities(4).single { tableName(it) == table }.let(::createSql)
+            val first = entities(if (table == "feedback") 2 else 1).single { tableName(it) == table }.let(::createSql)
+            assertEquals(first, sql, table)
+        }
     }
 }
