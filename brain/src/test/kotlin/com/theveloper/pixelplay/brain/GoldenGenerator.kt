@@ -55,7 +55,9 @@ object GoldenGenerator {
         files["eval.jsonl"] = evals()
         files["why.jsonl"] = whyLines()
         files["stage2a.jsonl"] = stage2a()
-        files["README.md"] = README
+        val project = corpusDir.absoluteFile.parentFile.parentFile.parentFile.parentFile
+        files.putAll(Stage2bGolden.generate(project, names, titles))
+        files["README.md"] = README + Stage2bGolden.README_NOTES.trimIndent() + "\n"
         val manifest = StringBuilder()
         for ((name, content) in files) {
             manifest.append(sha256(content.toByteArray(Charsets.UTF_8))).append("  ").append(name).append('\n')
