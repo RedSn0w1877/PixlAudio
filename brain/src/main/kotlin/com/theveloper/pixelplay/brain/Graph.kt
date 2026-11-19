@@ -18,6 +18,17 @@ class Graph private constructor(
 
     val nodeCount: Int get() = neighbours.size
 
+    /** Every node that has at least one edge, ascending (the order every sum over the graph runs in, 10.3 rule 2). */
+    fun nodeIds(): LongArray = neighbours.keys.toLongArray().also { it.sort() }
+
+    /** The sum of the weights of the edges [node] kept, added in neighbour order. */
+    fun weightedDegree(node: Long): Double {
+        val w = weights[node] ?: return 0.0
+        var sum = 0.0
+        for (v in w) sum += v
+        return sum
+    }
+
     /** Neighbour ids of [node], ascending. Empty when the node is unknown. */
     fun neighboursOf(node: Long): LongArray = neighbours[node] ?: EMPTY_IDS
 
@@ -155,6 +166,11 @@ class Graph private constructor(
  * artist", and 0.3 means "same artist, or among the first 8 rows of a seed's radio".
  */
 object Similarity {
+    /** Anything that can say how alike two tracks are: the `adj` branch ([sim]) or [SimilarityIndex]. */
+    fun interface Source {
+        fun sim(a: Long, aAid: Long, b: Long, bAid: Long): Double
+    }
+
     const val SAME_ARTIST = 0.8
 
     fun sim(graph: Graph, a: Long, aArtist: Long, b: Long, bArtist: Long): Double {

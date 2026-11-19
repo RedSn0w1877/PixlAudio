@@ -21,7 +21,71 @@ class Candidate(
     val actr: Double = 0.0,
     /** The track's tag vector (3.4); null or empty when its genres are unknown (features 4 and 24 are then exactly 0). */
     val tags: Tags.Vector? = null,
-)
+    /** The graph embedding of the track (5.3); null when it has none. */
+    val emb: ByteArray? = null,
+    /** `popPermille` of its DNA, 0..1000; -1 unknown (feature 20 is then 0). */
+    val popPermille: Int = -1,
+    /** First seen as a new release in the last 28 days (feature 39; arm NEW). */
+    val fresh: Boolean = false,
+    /** A forgotten favourite (arm BACK, 6.1). */
+    val back: Boolean = false,
+    /** From an adjacent genre (arm EDGE, 6.1). */
+    val edge: Boolean = false,
+    /** The index of its island in the request's [Calibration]; -1 when it is in none. */
+    val islandIdx: Int = -1,
+    /** True when its artist is one the listener never played (First Listen's 40% rule, 6.2). */
+    val artistNew: Boolean = false,
+) {
+    /** The point of the track in island space (5.4); null when it has neither an embedding nor a tag. */
+    val point: DoubleArray? by lazy(LazyThreadSafetyMode.NONE) { Islands.point(emb, tags) }
+
+    /** The same candidate placed in island [index] of a [Calibration]. */
+    fun withIsland(index: Int): Candidate = Candidate(
+        rid, aid, albumKey, inLibrary, liked, fromArtistRadio, boostLn, fromSimilarArtist, actr, tags, emb, popPermille,
+        fresh, back, edge, index, artistNew,
+    )
+}
+
+/**
+ * The listener's islands as the scorer reads them (5.8 features 5, 6 and 19): the best island for a track
+ * is the one whose centroid is closest to its point.
+ */
+class IslandContext(val islands: List<Islands.Island>) {
+    private val totalWeight: Double
+
+    init {
+        var t = 0.0
+        for (i in islands) t += i.weight
+        totalWeight = t
+    }
+
+    class Best(val index: Int, val sim: Double)
+
+    /** The closest island and its similarity; index -1 for a track with no point. */
+    fun best(point: DoubleArray?): Best {
+        if (point == null || islands.isEmpty()) return NONE
+        var best = -1
+        var bestSim = 0.0
+        for (i in islands.indices) {
+            val s = Islands.similarity(islands[i], point)
+            if (best < 0 || s > bestSim) {
+                best = i
+                bestSim = s
+            }
+        }
+        return Best(best, bestSim)
+    }
+
+    companion object {
+        private val NONE = Best(-1, 0.0)
+    }
+
+    /** `sqrt(W_c share)` of island [index]. */
+    fun weightFeature(index: Int): Double {
+        if (index < 0 || totalWeight <= 0.0) return 0.0
+        return BrainMath.sqrt(islands[index].weight / totalWeight)
+    }
+}
 
 /**
  * The feature vector of docs/brain-spec.md, 5.8 (D = 51). Stage 1 computes features 0, 1, 2, 3, 8,
@@ -37,6 +101,11 @@ object Features {
     const val ARTIST_AFF = 2
     const val ARTIST_AFF_RECENT = 3
     const val TAG_AFF = 4
+    const val ISLAND_SIM = 5
+    const val ISLAND_WEIGHT = 6
+    const val NOVELTY_DIST = 19
+    const val POP = 20
+    const val FRESH = 39
     const val LIKED = 8
     const val ACTR = 10
     const val ACTR_SQ = 11
@@ -71,6 +140,7 @@ object Features {
         p0: Double,
         allNovel: Boolean,
         out: DoubleArray,
+        islands: IslandContext? = null,
     ) {
         for (i in 0 until D) out[i] = 0.0
         out[BIAS] = 1.0
@@ -108,6 +178,17 @@ object Features {
         out[SKIP_RUN] = BrainMath.min(1.0, session.skipRun.toDouble() / 3.0)
         if (arm != Arm.NONE) out[ARM_AFF] = Affinity.aff(affinity, Family.ARM, arm.toLong(), nowMs, p0) / 3.0
         out[RETRIEVAL] = retrieval
+        if (c.popPermille >= 0) out[POP] = c.popPermille.toDouble() / 1000.0 - 0.5
+        if (c.fresh) out[FRESH] = 1.0
+        if (islands != null) {
+            val best = islands.best(c.point)
+            if (best.index >= 0) {
+                out[ISLAND_SIM] = best.sim
+                out[ISLAND_WEIGHT] = islands.weightFeature(best.index)
+                // Novelty distance: how far an unheard track sits from every island the listener has (5.8 feature 19).
+                if (!Affinity.isHeard(affinity, Family.TRACK, c.rid)) out[NOVELTY_DIST] = 1.0 - best.sim
+            }
+        }
         if (bestRank > 0) out[RADIO_RANK] = 1.0 / BrainMath.log2(2.0 + bestRank.toDouble())
     }
 

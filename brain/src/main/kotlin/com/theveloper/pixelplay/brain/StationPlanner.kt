@@ -19,6 +19,12 @@ object StationPlanner {
      */
     const val MODE_MIX = 3
 
+    /**
+     * First Listen (6.2, stage 2b): unheard music only, a mix-like list built from a fresh session, with the
+     * features that need a history zeroed (5.12 rule 6) and novelty 1.
+     */
+    const val MODE_FIRST_LISTEN = 4
+
     const val FOUR_HOURS_MS = 4L * 60 * 60 * 1000
 
     /** Autoplay: a library track must be this close to an anchor (same artist, or the first 8 radio rows). */
@@ -63,6 +69,17 @@ object StationPlanner {
          * station has up to five, 6.2): close to the nearest of them. Off by default so no earlier plan changes.
          */
         val closestOfSeeds: Boolean = false,
+        /** Stage 2b: the listener's islands (features 5, 6 and 19, 5.8); null leaves those three at 0. */
+        val islands: IslandContext? = null,
+        /** Stage 2b: the island mix a list across islands keeps (6.5); mutated as picks are made. */
+        val calibration: Calibration? = null,
+        /** 0.75 inside one island, 0.6 across islands (6.5). */
+        val lambda: Double = ListBuilder.LAMBDA,
+        /** Stage 2b: similarity with embeddings and tags for the diversity term; null for the `adj` branch alone. */
+        val simSource: Similarity.Source? = null,
+        /** First Listen: at most two tracks by one artist, at least 40% from artists never played. */
+        val maxPerArtist: Int = 0,
+        val minNewArtistShare: Double = 0.0,
     )
 
     class Pick(
@@ -101,7 +118,8 @@ object StationPlanner {
         val cooc = Retrieval.cooc(request.seeds, affinity, nowMs, p0)
         val homeRow = request.mode == MODE_HOME_ROW
         val station = request.mode == MODE_STATION
-        val mix = request.mode == MODE_MIX
+        val firstListen = request.mode == MODE_FIRST_LISTEN
+        val mix = request.mode == MODE_MIX || firstListen
         val stationSeed = if ((station || homeRow) && request.seeds.isNotEmpty()) request.seeds[0] else null
         val newest = if (request.seeds.isNotEmpty()) request.seeds[0] else null
         val newestRank = HashMap<Long, Int>()
@@ -123,6 +141,8 @@ object StationPlanner {
             val last = Affinity.lastMs(affinity, Family.TRACK, c.rid)
             if (last != 0L && nowMs - last < FOUR_HOURS_MS) continue
             if (homeRow && c.inLibrary) continue
+            // First Listen is unheard music only (6.2).
+            if (firstListen && Affinity.isHeard(affinity, Family.TRACK, c.rid)) continue
             if (stationSeed != null && station) {
                 val s = if (request.closestOfSeeds) closestSeed(graph, c, request.seeds)
                 else Similarity.sim(graph, c.rid, c.aid, stationSeed.seedRid, stationSeed.seedAid)
@@ -136,6 +156,10 @@ object StationPlanner {
                 if (close < FAMILIAR_FLOOR) continue
             }
             val arm = when {
+                // The arms of stage 2b (6.1): a flag set by the pool builder names the arm.
+                c.fresh -> Arm.NEW
+                c.back -> Arm.BACK
+                c.edge -> Arm.EDGE
                 c.inLibrary -> if ((affinity.completions[c.rid] ?: 0) >= 1) Arm.FAV else Arm.DEEP
                 c.fromSimilarArtist -> Arm.SIM
                 c.fromArtistRadio -> Arm.ARTIST
@@ -157,7 +181,7 @@ object StationPlanner {
             val c = kept[i]
             val entry = cooc[c.rid]
             val bestRank = entry?.bestRank ?: 0
-            Features.compute(c, armCodes[i], pct[i], bestRank, affinity, session, graph, nowMs, p0, homeRow, x)
+            Features.compute(c, armCodes[i], pct[i], bestRank, affinity, session, graph, nowMs, p0, homeRow || firstListen, x, request.islands)
             var z = Ranker.z(weights, x)
             if (station && stationSeed != null) {
                 val s = if (request.closestOfSeeds) closestSeed(graph, c, request.seeds)
@@ -203,7 +227,7 @@ object StationPlanner {
             firstSlotAids = aids.toLongArray()
         }
         val liked = session.likedWithin > 0 && !homeRow
-        val nu = if (homeRow) 1.0
+        val nu = if (homeRow || firstListen) 1.0
         else if (request.nu >= 0.0) BrainMath.clip(request.nu, 0.0, 1.0)
         else BrainMath.clip(session.nuSession * request.nuMultiplier, 0.0, 1.0)
         val built = ListBuilder.build(
@@ -219,6 +243,11 @@ object StationPlanner {
                 likedRid = if (liked) session.likedRid else 0L,
                 finite = request.finite,
                 thinAid = if (session.seedLimit == 1) session.seedAid else 0L,
+                lambda = request.lambda,
+                calibration = request.calibration,
+                simSource = request.simSource,
+                maxPerArtist = request.maxPerArtist,
+                minNewArtistShare = request.minNewArtistShare,
             ),
             scored,
             graph,

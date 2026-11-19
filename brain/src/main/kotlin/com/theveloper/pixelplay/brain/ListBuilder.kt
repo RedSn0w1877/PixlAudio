@@ -78,6 +78,15 @@ object ListBuilder {
         /** This artist is spaced [THIN_ARTIST_GAP] apart instead of [ARTIST_GAP]. */
         val thinAid: Long = 0L,
         val lambda: Double = LAMBDA,
+        /** Stage 2b: the island mix of a list across islands (6.5 `calibGain`); null for none. Mutated as picks are made. */
+        val calibration: Calibration? = null,
+        val kappa: Double = Calibration.KAPPA,
+        /** Stage 2b: how alike two tracks are, with embeddings and tags; null for the `adj` branch alone. */
+        val simSource: Similarity.Source? = null,
+        /** At most this many tracks by one artist in the whole list (First Listen: 2); 0 for no cap. */
+        val maxPerArtist: Int = 0,
+        /** At least this share of the picks from artists the listener never played (First Listen: 0.4); 0 for none. */
+        val minNewArtistShare: Double = 0.0,
     )
 
     class Pick(
@@ -94,6 +103,9 @@ object ListBuilder {
         list.addAll(request.prior)
         val used = HashSet<Long>(list.size * 2 + request.count * 2)
         var novelSoFar = 0
+        var newArtistSoFar = 0
+        // The spacing rules of 6.4 and, when the list has one, the cap per artist.
+        fun okSlot(c: Candidate): Boolean = fits(list, c, request.thinAid) && withinCap(list, c, request.maxPerArtist)
         for (p in list) {
             used.add(p.rid)
             if (p.novel) novelSoFar++
@@ -121,7 +133,7 @@ object ListBuilder {
                 var best: Scored? = null
                 var bestKey = 0L
                 for (s in scored) {
-                    if (s.novel || s.c.rid in used || !contains(aids, s.c.aid) || !fits(list, s.c, request.thinAid)) continue
+                    if (s.novel || s.c.rid in used || !contains(aids, s.c.aid) || !okSlot(s.c)) continue
                     val key = BrainMath.orderKey(s.p)
                     if (best == null || better(key, s.c.rid, bestKey, best.c.rid, request.tieSeed)) {
                         best = s
@@ -131,7 +143,7 @@ object ListBuilder {
                 if (best == null) {
                     // The best radio row of the newest anchor.
                     for (s in scored) {
-                        if (s.newestSeedRank <= 0 || s.c.rid in used || !fits(list, s.c, request.thinAid)) continue
+                        if (s.newestSeedRank <= 0 || s.c.rid in used || !okSlot(s.c)) continue
                         val key = -s.newestSeedRank.toLong()
                         if (best == null || better(key, s.c.rid, bestKey, best.c.rid, request.tieSeed)) {
                             best = s
@@ -150,8 +162,8 @@ object ListBuilder {
                 var bestKey = 0L
                 if (request.likedAid != 0L) {
                     for (s in scored) {
-                        if (s.c.aid != request.likedAid || s.c.rid in used || !fits(list, s.c, request.thinAid)) continue
-                        val key = BrainMath.orderKey(value(s, list, graph, request.lambda))
+                        if (s.c.aid != request.likedAid || s.c.rid in used || !okSlot(s.c)) continue
+                        val key = BrainMath.orderKey(value(s, list, graph, request))
                         if (best == null || better(key, s.c.rid, bestKey, best.c.rid, request.tieSeed)) {
                             best = s
                             bestKey = key
@@ -160,7 +172,7 @@ object ListBuilder {
                 }
                 if (best == null && request.likedRid != 0L) {
                     for (s in scored) {
-                        if (s.c.rid in used || !fits(list, s.c, request.thinAid)) continue
+                        if (s.c.rid in used || !okSlot(s.c)) continue
                         val sim = Similarity.sim(graph, s.c.rid, s.c.aid, request.likedRid, request.likedAid)
                         if (sim <= 0.0) continue
                         val key = BrainMath.orderKey(sim)
@@ -182,7 +194,7 @@ object ListBuilder {
             if (chosen == null && kind == SLOT_OPENER) {
                 // The trust opener: familiar, highest p, not played today.
                 for (s in scored) {
-                    if (s.novel || s.c.rid in used || !fits(list, s.c, request.thinAid)) continue
+                    if (s.novel || s.c.rid in used || !okSlot(s.c)) continue
                     if (s.lastMs != 0L && BrainMath.localDay(s.lastMs, request.tzOffsetMin) == today) continue
                     val key = BrainMath.orderKey(s.p - s.servedPen + s.noise)
                     if (chosen == null || better(key, s.c.rid, chosenKey, chosen.c.rid, request.tieSeed)) {
@@ -195,7 +207,7 @@ object ListBuilder {
 
             if (chosen == null && kind == SLOT_CLOSER) {
                 for (s in scored) {
-                    if (s.novel || s.c.rid in used || !fits(list, s.c, request.thinAid)) continue
+                    if (s.novel || s.c.rid in used || !okSlot(s.c)) continue
                     val key = BrainMath.orderKey(s.p - s.servedPen + s.noise)
                     if (chosen == null || better(key, s.c.rid, chosenKey, chosen.c.rid, request.tieSeed)) {
                         chosen = s
@@ -209,15 +221,23 @@ object ListBuilder {
                 // A familiar or a novel slot; when its own kind has nobody, the other kind takes it
                 // (staying on topic beats the quota).
                 var wantNovel = kind == SLOT_NOVEL
+                // First Listen (6.2): at least this share of the list comes from artists the listener never played.
+                val needNewArtist = request.minNewArtistShare > 0.0 &&
+                    newArtistSoFar.toDouble() < request.minNewArtistShare * (picks.size + 1).toDouble()
                 var pass = 0
                 while (pass < 2 && chosen == null) {
-                    for (s in scored) {
-                        if (s.novel != wantNovel || s.c.rid in used || !fits(list, s.c, request.thinAid)) continue
-                        val key = BrainMath.orderKey(value(s, list, graph, request.lambda))
-                        if (chosen == null || better(key, s.c.rid, chosenKey, chosen.c.rid, request.tieSeed)) {
-                            chosen = s
-                            chosenKey = key
+                    var restrict = needNewArtist
+                    while (chosen == null) {
+                        for (s in scored) {
+                            if (s.novel != wantNovel || s.c.rid in used || !okSlot(s.c)) continue
+                            if (restrict && !s.c.artistNew) continue
+                            val key = BrainMath.orderKey(value(s, list, graph, request))
+                            if (chosen == null || better(key, s.c.rid, chosenKey, chosen.c.rid, request.tieSeed)) {
+                                chosen = s
+                                chosenKey = key
+                            }
                         }
+                        if (chosen == null && restrict) restrict = false else break
                     }
                     if (chosen == null) wantNovel = !wantNovel
                     pass++
@@ -229,22 +249,35 @@ object ListBuilder {
             picks.add(Pick(pick, kind, chosenKey))
             used.add(pick.c.rid)
             if (pick.novel) novelSoFar++
+            if (pick.c.artistNew) newArtistSoFar++
+            request.calibration?.add(pick.c.islandIdx)
             list.add(Prior(pick.c.rid, pick.c.aid, pick.c.albumKey, pick.novel))
         }
         return picks
     }
 
     /** `lambda * z - (1 - lambda) * max over the last slots j of sim(i, j)`. */
-    private fun value(s: Scored, list: List<Prior>, graph: Graph, lambda: Double): Double {
+    private fun value(s: Scored, list: List<Prior>, graph: Graph, request: Request): Double {
         var maxSim = 0.0
         var back = 1
+        val source = request.simSource
         while (back <= MMR_WINDOW && list.size - back >= 0) {
             val p = list[list.size - back]
-            val sim = Similarity.sim(graph, s.c.rid, s.c.aid, p.rid, p.aid)
+            val sim = if (source != null) source.sim(s.c.rid, s.c.aid, p.rid, p.aid) else Similarity.sim(graph, s.c.rid, s.c.aid, p.rid, p.aid)
             if (sim > maxSim) maxSim = sim
             back++
         }
-        return lambda * s.z - (1.0 - lambda) * maxSim - s.servedPen + s.noise
+        val calib = request.calibration
+        val gain = if (calib != null) request.kappa * calib.gain(s.c.islandIdx) else 0.0
+        return request.lambda * s.z - (1.0 - request.lambda) * maxSim + gain - s.servedPen + s.noise
+    }
+
+    /** True when [c] may take the next slot: the spacing rules of 6.4, and the cap per artist when the list has one. */
+    private fun withinCap(list: List<Prior>, c: Candidate, cap: Int): Boolean {
+        if (cap <= 0 || c.aid == 0L) return true
+        var n = 0
+        for (p in list) if (p.aid == c.aid) n++
+        return n < cap
     }
 
     /** Order: the key descending, then `splitmix64(rid xor seed)` ascending (unsigned), then rid ascending. */
