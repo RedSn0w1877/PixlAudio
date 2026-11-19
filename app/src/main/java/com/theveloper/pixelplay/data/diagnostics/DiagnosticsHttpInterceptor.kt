@@ -37,7 +37,22 @@ object DiagnosticsHttpInterceptor : Interceptor {
         }
     }
 
-    private fun describe(url: HttpUrl): String = url.host + url.encodedPath
+    /**
+     * Host and path for the log. On the open-data hosts the music brain asks, an id in the path (an ISRC, a MusicBrainz id, a Deezer id) is
+     * left out: the exportable log never holds a recording of the listener's library.
+     */
+    internal fun describe(url: HttpUrl): String {
+        if (url.host !in KNOWLEDGE_HOSTS) return url.host + url.encodedPath
+        val path = url.encodedPathSegments.joinToString("/") { if (looksLikeId(it)) "_" else it }
+        return url.host + "/" + path
+    }
+
+    private fun looksLikeId(segment: String): Boolean =
+        ':' in segment || segment.length >= 8 && segment.any(Char::isDigit)
+
+    private val KNOWLEDGE_HOSTS = setOf(
+        "api.deezer.com", "musicbrainz.org", "api.listenbrainz.org", "itunes.apple.com", "query.wikidata.org", "www.wikidata.org",
+    )
 
     private fun elapsedMs(startedAtNanos: Long): Long = (System.nanoTime() - startedAtNanos) / 1_000_000L
 }

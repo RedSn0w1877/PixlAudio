@@ -111,7 +111,7 @@ class DnaTargets @Inject constructor(
             targetOf(
                 rid = r.rid, aid = aid, spotifyId = r.spotifyId, isrc = r.isrc, title = r.title,
                 artist = names[aid] ?: r.artistDisplay.substringBefore(", "), artistDisplay = r.artistDisplay, durationMs = r.durationMs,
-                albumName = null, fact = fact, spotifyGenres = artistIdList.firstOrNull()?.let { genres[it] }.orEmpty(), songYear = 0,
+                albumName = null, fact = fact, spotifyGenres = artistIdList.firstOrNull()?.let { genres[it] }.orEmpty(), songYear = 0, spotifyOff = !shapes,
             )
         }
     }
@@ -178,7 +178,7 @@ class DnaTargets @Inject constructor(
                     rid = rid, aid = aids[i], spotifyId = song.spotifyId, isrc = song.spotifyId?.let { isrcs[it] },
                     title = song.title, artist = LibraryIndex.primaryArtistName(song), artistDisplay = song.displayArtist,
                     durationMs = song.duration.coerceIn(0L, Int.MAX_VALUE.toLong()).toInt(), albumName = song.album,
-                    fact = fact, spotifyGenres = g.distinct(), songYear = if (shapes) song.year else 0,
+                    fact = fact, spotifyGenres = g.distinct(), songYear = if (shapes) song.year else 0, spotifyOff = !shapes,
                 ),
             )
         }
@@ -198,6 +198,7 @@ class DnaTargets @Inject constructor(
         fact: SpotifyFactEntity?,
         spotifyGenres: List<String>,
         songYear: Int,
+        spotifyOff: Boolean = false,
     ): DnaTarget {
         val chips = runCatching {
             repository.chipTagsOf(rid).filter { it.kind == ChipLabels.Kind.GENRE }.map { it.key }
@@ -215,6 +216,7 @@ class DnaTargets @Inject constructor(
             ytPlays = row?.playCount ?: 0L,
             ytExplicit = row?.explicit,
             videoId = row?.videoId,
+            spotifyOff = spotifyOff,
         )
     }
 

@@ -169,7 +169,7 @@ class Stage2bMilestone2Test {
             dnaRow(t.rid, if (i < 10) Tags.Vector(listOf(Tags.Tag(rock, 200))) else Tags.Vector.EMPTY)
         }
         val libraryRids = mockk<LibraryRids> { coEvery { all(any()) } returns tracks }
-        val dao = mockk<TrackDnaDao> { coEvery { getAll(any()) } returns dna }
+        val dao = mockk<TrackDnaDao> { coEvery { getAll(any()) } returns dna; coEvery { count() } returns dna.size; coEvery { newestUpdate() } returns 0L }
         val provider = mockk<AtlasProvider> { coEvery { atlas() } returns atlas }
         val brain = mockk<BrainEngine>(relaxed = true)
         val islandStore = mockk<IslandStore> { coEvery { embeddingCount() } returns 0 }

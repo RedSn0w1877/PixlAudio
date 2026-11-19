@@ -49,8 +49,15 @@ class ServedListStore @Inject constructor(
             else dao.countSinceById(surface, surfaceId, dayStart(nowMs, tzOffsetMin))
         }.getOrDefault(0)
 
-    /** Every list of the last [Repetition.RETENTION_MS], as the budget reads them. */
+    private class RecentCache(val atMs: Long, val list: List<Repetition.Served>)
+    @Volatile private var recentCache: RecentCache? = null
+
+    /**
+     * Every list of the last [Repetition.RETENTION_MS], as the budget reads them. The decoded log is kept for ten minutes and dropped
+     * by every [put]: one Home plan builds up to eleven lists, and each used to decode the whole 60 days again.
+     */
     suspend fun recent(nowMs: Long): List<Repetition.Served> {
+        recentCache?.let { if (nowMs - it.atMs in 0 until RECENT_CACHE_MS) return it.list }
         val rows = try {
             dao.since(Repetition.keepAfter(nowMs))
         } catch (e: CancellationException) {
@@ -64,6 +71,7 @@ class ServedListStore @Inject constructor(
             val mix = MixCodec.decode(row.itemsBlob) ?: continue
             out.add(Repetition.Served(row.surface, row.builtAt, LongArray(mix.items.size) { mix.items[it].rid }, row.surfaceId))
         }
+        recentCache = RecentCache(nowMs, out)
         return out
     }
 
@@ -82,12 +90,14 @@ class ServedListStore @Inject constructor(
                 itemsBlob = MixCodec.encode(mix),
             )
         )
+        recentCache = null
         runCatching { dao.deleteOlderThan(Repetition.keepAfter(clock.nowMs())) }
         return recId
     }
 
     companion object {
         private const val CLOCK_SLACK_MS = 10L * 60 * 1000
+        private const val RECENT_CACHE_MS = 10L * 60 * 1000
 
         /** The start of the local day [nowMs] is in; a day starts at 04:00 (10.3, rule 12). */
         fun dayStart(nowMs: Long, tzOffsetMin: Int): Long =
@@ -102,4 +112,18 @@ class ServedListStore @Inject constructor(
         /** `(builtAtMs << 8) | surface`: unique per build, time-ordered, like an event id. */
         fun recIdOf(builtAtMs: Long, surface: Int): Long = (builtAtMs shl 8) or (0xA0 + surface).toLong()
     }
+}
+
+/**
+ * Only the newest build of each list: a list that was built again the same day (a stale rebuild, "Regenerate") replaced its earlier
+ * build, so the tracks of the superseded one are not "taken" for the other lists.
+ */
+internal fun List<Repetition.Served>.newestPerList(): List<Repetition.Served> {
+    val newest = HashMap<Pair<Int, String?>, Repetition.Served>()
+    for (s in this) {
+        val key = s.surface to s.surfaceId
+        val old = newest[key]
+        if (old == null || s.builtAtMs >= old.builtAtMs) newest[key] = s
+    }
+    return newest.values.sortedBy { it.builtAtMs }
 }

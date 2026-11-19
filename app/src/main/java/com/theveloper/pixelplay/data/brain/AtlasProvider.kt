@@ -35,13 +35,26 @@ class GenreAtlasStore @Inject constructor(
     @Volatile
     private var cached: GenreAtlas? = null
 
+    /** When the last read failed (elapsed realtime): a bad asset is not parsed again by every caller of one Home plan. */
+    @Volatile
+    private var failedAtMs = NEVER
+
     override fun loadedOrNull(): GenreAtlas? = cached
 
     override suspend fun atlas(): GenreAtlas? {
         cached?.let { return it }
+        if (recentlyFailed()) return null
         return lock.withLock {
-            cached ?: load().also { cached = it }
+            cached ?: if (recentlyFailed()) null else load().also {
+                cached = it
+                if (it == null) failedAtMs = android.os.SystemClock.elapsedRealtime()
+            }
         }
+    }
+
+    private fun recentlyFailed(): Boolean {
+        val at = failedAtMs
+        return at != NEVER && android.os.SystemClock.elapsedRealtime() - at < RETRY_AFTER_MS
     }
 
     private suspend fun load(): GenreAtlas? = withContext(Dispatchers.Default) {
@@ -62,5 +75,7 @@ class GenreAtlasStore @Inject constructor(
 
     companion object {
         const val ASSET = "genre-atlas-v1.json.gz"
+        private const val NEVER = Long.MIN_VALUE
+        private const val RETRY_AFTER_MS = 10L * 60 * 1000
     }
 }

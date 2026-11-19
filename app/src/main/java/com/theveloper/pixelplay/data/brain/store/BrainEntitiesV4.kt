@@ -165,8 +165,14 @@ interface TrackDnaDao {
     )
     suspend fun expired(tagsBefore: Long, popBefore: Long, retryBefore: Long, limit: Int): List<TrackDnaEntity>
 
+    @Query("SELECT * FROM track_dna WHERE rid > :after ORDER BY rid LIMIT :limit")
+    suspend fun page(after: Long, limit: Int): List<TrackDnaEntity>
+
     @Query("SELECT COUNT(*) FROM track_dna")
     suspend fun count(): Int
+
+    @Query("SELECT COALESCE(MAX(updatedAtMs), 0) FROM track_dna")
+    suspend fun newestUpdate(): Long
 
     @Query(
         "SELECT COUNT(*) AS tracks, " +

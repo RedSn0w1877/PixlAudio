@@ -18,10 +18,12 @@ import com.theveloper.pixelplay.data.brain.store.GraphEdgeEntity
 import com.theveloper.pixelplay.data.brain.store.IslandDao
 import com.theveloper.pixelplay.data.brain.store.IslandEntity
 import com.theveloper.pixelplay.data.brain.store.IslandMemberEntity
+import com.theveloper.pixelplay.data.brain.store.MusicBrainDatabase
 import com.theveloper.pixelplay.data.brain.store.NodeEmbeddingEntity
 import com.theveloper.pixelplay.data.brain.store.SeedDao
 import com.theveloper.pixelplay.data.brain.store.TrackDnaDao
 import com.theveloper.pixelplay.data.diagnostics.PerformanceMetrics
+import androidx.room.withTransaction
 import java.nio.ByteBuffer
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -56,6 +58,12 @@ class IslandSet(
     }
 }
 
+/** Runs a block as one Room transaction on `brain.db`: all of it is written or none of it. Open so a test can stand in for it. */
+@Singleton
+open class BrainTransactor @Inject constructor(private val db: MusicBrainDatabase) {
+    open suspend fun <T> run(block: suspend () -> T): T = db.withTransaction { block() }
+}
+
 /**
  * Embeddings and islands, as stored in `brain.db` (version 5). Reads are small and lazy; nothing is opened at app
  * start. The fit itself is [IslandBuilder].
@@ -65,6 +73,7 @@ class IslandStore @Inject constructor(
     private val embeddings: EmbeddingDao,
     private val islandDao: IslandDao,
     private val states: BrainStateDao,
+    private val transactor: BrainTransactor,
 ) {
     private val lock = Mutex()
     @Volatile private var cached: IslandSet? = null
@@ -101,21 +110,50 @@ class IslandStore @Inject constructor(
         }
     }
 
-    suspend fun save(fit: Islands.Fit, nowMs: Long) = withContext(Dispatchers.IO) {
-        islandDao.clearIslands()
-        islandDao.clearMembers()
-        islandDao.upsertIslands(fit.islands.map { entityOf(it, nowMs) })
-        for (chunk in fit.memberRids.indices.chunked(500)) {
-            islandDao.upsertMembers(chunk.map { IslandMemberEntity(fit.memberRids[it], fit.memberIslandIds[it]) })
+    /**
+     * Writes a whole fit as ONE transaction: the embeddings, the islands, who belongs to which, the last island id and
+     * the tag shares. A job cancelled or a process killed half way leaves the previous fit exactly as it was (a half
+     * written fit would leave Daily Mixes empty for a week, and could reuse an island id). A fit that placed no tracks
+     * keeps the stored islands, so every "Daily Mix N" stays the island it was; the new embeddings are still kept.
+     */
+    suspend fun saveFit(table: Embeddings, fit: Islands.Fit, nowMs: Long) = withContext(Dispatchers.IO) {
+        transactor.run {
+            writeEmbeddings(table)
+            if (fit.islands.isNotEmpty()) {
+                islandDao.clearIslands()
+                islandDao.clearMembers()
+                islandDao.upsertIslands(fit.islands.map { entityOf(it, nowMs) })
+                for (chunk in fit.memberRids.indices.chunked(500)) {
+                    islandDao.upsertMembers(chunk.map { IslandMemberEntity(fit.memberRids[it], fit.memberIslandIds[it]) })
+                }
+                states.put(BrainStateEntity(KEY_LAST_ID, fit.maxId.toString().toByteArray(Charsets.UTF_8)))
+                states.put(BrainStateEntity(KEY_TAG_SHARES, tagSharesText(fit).toByteArray(Charsets.UTF_8)))
+                states.put(BrainStateEntity(KEY_FIT_AT, nowMs.toString().toByteArray(Charsets.UTF_8)))
+                states.put(BrainStateEntity(KEY_EMPTY_FIT_AT, "0".toByteArray(Charsets.UTF_8)))
+                states.put(BrainStateEntity(KEY_FORCE_REFIT, "0".toByteArray(Charsets.UTF_8)))
+            } else {
+                states.put(BrainStateEntity(KEY_EMPTY_FIT_AT, nowMs.toString().toByteArray(Charsets.UTF_8)))
+            }
         }
-        states.put(BrainStateEntity(KEY_LAST_ID, fit.maxId.toString().toByteArray(Charsets.UTF_8)))
-        val members = HashMap<Long, Int>()
-        for (i in fit.memberRids.indices) members[fit.memberRids[i]] = fit.memberIslandIds[i]
-        lock.withLock {
-            cached = if (fit.islands.isEmpty()) null else IslandSet(fit.islands, nowMs, members)
-            loaded = true
+        if (fit.islands.isNotEmpty()) {
+            val members = HashMap<Long, Int>()
+            for (i in fit.memberRids.indices) members[fit.memberRids[i]] = fit.memberIslandIds[i]
+            lock.withLock {
+                cached = IslandSet(fit.islands, nowMs, members)
+                loaded = true
+            }
         }
     }
+
+    /** A change to the DNA that the islands were built from (the Spotify switch turned off): the next fit is due at once. */
+    suspend fun markRefit() {
+        states.put(BrainStateEntity(KEY_FORCE_REFIT, "1".toByteArray(Charsets.UTF_8)))
+    }
+
+    suspend fun refitMarked(): Boolean = states.get(KEY_FORCE_REFIT)?.toString(Charsets.UTF_8) == "1"
+
+    /** When a fit last placed nothing (0 when it never did): the next attempt waits, so each Home plan does not refit. */
+    suspend fun lastEmptyFitMs(): Long = states.get(KEY_EMPTY_FIT_AT)?.toString(Charsets.UTF_8)?.toLongOrNull() ?: 0L
 
     suspend fun lastId(): Int = states.get(KEY_LAST_ID)?.toString(Charsets.UTF_8)?.toIntOrNull() ?: 0
 
@@ -132,16 +170,6 @@ class IslandStore @Inject constructor(
             out[id] = share
         }
         return out
-    }
-
-    suspend fun saveTagShares(fit: Islands.Fit) {
-        val sb = StringBuilder()
-        for (i in fit.tagIds.indices) {
-            if (fit.tagShares[i] < 0.001) continue
-            if (sb.isNotEmpty()) sb.append(';')
-            sb.append(fit.tagIds[i]).append(':').append(fit.tagShares[i])
-        }
-        states.put(BrainStateEntity(KEY_TAG_SHARES, sb.toString().toByteArray(Charsets.UTF_8)))
     }
 
     /** The embeddings of [ids] only (never the whole table), as one lookup table; null when none is stored. */
@@ -165,7 +193,8 @@ class IslandStore @Inject constructor(
         Embeddings.of(FastRp.VERSION, ids2, data)
     }
 
-    suspend fun saveEmbeddings(table: Embeddings) = withContext(Dispatchers.IO) {
+    /** Inside the fit's transaction: the whole embedding table is replaced. */
+    private suspend fun writeEmbeddings(table: Embeddings) {
         embeddings.clear()
         val ids = table.idsCopy()
         val data = table.dataCopy()
@@ -177,6 +206,15 @@ class IslandStore @Inject constructor(
         states.put(BrainStateEntity(KEY_EMB_COUNT, ids.size.toString().toByteArray(Charsets.UTF_8)))
     }
 
+    /** False when the embedding rows are fewer or more than the fit wrote (a damaged write): the fit is then due again. */
+    suspend fun embeddingsIntact(): Boolean = try {
+        embeddings.count() == embeddingCount()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        true
+    }
+
     suspend fun embeddingCount(): Int = states.get(KEY_EMB_COUNT)?.toString(Charsets.UTF_8)?.toIntOrNull() ?: 0
 
     companion object {
@@ -184,8 +222,20 @@ class IslandStore @Inject constructor(
         const val KEY_TAG_SHARES = "island_tag_shares"
         const val KEY_EMB_COUNT = "emb_count"
         const val KEY_FIT_AT = "island_fit_at"
+        const val KEY_EMPTY_FIT_AT = "island_empty_fit_at"
+        const val KEY_FORCE_REFIT = "island_force_refit"
         const val KEY_FIT_EDGES = "island_fit_edges"
         private const val CHUNK = 800
+
+        fun tagSharesText(fit: Islands.Fit): String {
+            val sb = StringBuilder()
+            for (i in fit.tagIds.indices) {
+                if (fit.tagShares[i] < 0.001) continue
+                if (sb.isNotEmpty()) sb.append(';')
+                sb.append(fit.tagIds[i]).append(':').append(fit.tagShares[i])
+            }
+            return sb.toString()
+        }
 
         fun entityOf(i: Islands.Island, nowMs: Long): IslandEntity {
             val c = ByteBuffer.allocate(Islands.DIM * 8)
@@ -236,8 +286,14 @@ class IslandBuilder @Inject constructor(
 
     /** True when the stored islands are older than a week, or 200 plays have been finished since they were fitted. */
     suspend fun isDue(nowMs: Long): Boolean {
+        // A fit that placed nothing waits a day before it tries again (a refit is not free), unless the DNA changed under it.
+        if (store.refitMarked()) return true
+        val emptyAt = store.lastEmptyFitMs()
+        if (emptyAt > 0L && nowMs - emptyAt in 0 until EMPTY_FIT_RETRY_MS) return false
         val set = store.current() ?: return true
         if (nowMs - set.fitAtMs > REFIT_AGE_MS) return true
+        // Embedding rows that do not match what the fit counted (a damaged write) are repaired by the next fit, not in a week.
+        if (!store.embeddingsIntact()) return true
         return runCatching { seedDao.qualifiedPlaysSince(set.fitAtMs) >= REFIT_PLAYS }.getOrDefault(false)
     }
 
@@ -262,15 +318,16 @@ class IslandBuilder @Inject constructor(
 
     private suspend fun fit(now: Long): IslandSet? {
         val started = System.nanoTime()
-        val tracks = library.all(now)
+        // One recording is one node: a song on an album and on a compilation resolves to the same rid and counts once.
+        val tracks = library.all(now).distinctBy { it.rid }
         if (tracks.isEmpty()) return null
         // The graph: the persisted radio edges plus the track-artist edge of every library track.
         val builder = Graph.Builder()
-        val edges = edgeDao.all()
-        for (e in edges) builder.addEdge(e.src, e.dst, e.wQ16 / GraphEdgeEntity.UNIT)
+        val libraryNodes = HashSet<Long>(tracks.size * 2)
+        for (t in tracks) { libraryNodes.add(t.rid); if (t.aid != 0L) libraryNodes.add(t.aid) }
+        for (e in capEdges(edgeDao.all(), libraryNodes, MAX_NODES)) builder.addEdge(e.src, e.dst, e.wQ16 / GraphEdgeEntity.UNIT)
         for (t in tracks) builder.addTrack(t.rid, t.aid)
         val table = FastRp.embed(builder.build())
-        store.saveEmbeddings(table)
         // The listener's tracks by weight: decayed finished plays and the pseudo-counts of 4.4 (a liked song counts before it is played).
         val weights = brain.withState { st ->
             val out = HashMap<Long, DoubleArray>()
@@ -302,9 +359,7 @@ class IslandBuilder @Inject constructor(
         }
         val previous = store.current()?.islands.orEmpty()
         val fit = Islands.fit(input, previous, store.lastId())
-        store.save(fit, now)
-        store.saveTagShares(fit)
-        states.put(BrainStateEntity(IslandStore.KEY_FIT_AT, now.toString().toByteArray(Charsets.UTF_8)))
+        store.saveFit(table, fit, now)
         PerformanceMetrics.recordTiming("brain_island_fit", (System.nanoTime() - started) / 1_000_000)
         Timber.i("brain: %d islands from %d tracks over %d nodes", fit.islands.size, input.size, table.size)
         return store.current()
@@ -313,6 +368,32 @@ class IslandBuilder @Inject constructor(
     companion object {
         const val REFIT_AGE_MS = 7L * 24 * 60 * 60 * 1000
         const val REFIT_PLAYS = 200
+        const val EMPTY_FIT_RETRY_MS = 24L * 60 * 60 * 1000
+
+        /** FastRP holds three dense arrays of nodes x 64 doubles; this bounds the graph (about 40 MB at the cap). */
+        const val MAX_NODES = 30_000
+
+        /**
+         * The edges to embed: every edge between two library nodes, then the heaviest of the rest, while the node count
+         * stays within [maxNodes]. Deterministic (ties fall back to the ids). Library nodes always stay.
+         */
+        fun capEdges(edges: List<GraphEdgeEntity>, library: Set<Long>, maxNodes: Int): List<GraphEdgeEntity> {
+            val nodes = HashSet<Long>(library)
+            val keep = ArrayList<GraphEdgeEntity>(edges.size)
+            val rest = ArrayList<GraphEdgeEntity>()
+            for (e in edges) {
+                if (e.src in library && e.dst in library) keep.add(e) else rest.add(e)
+            }
+            if (nodes.size + rest.size * 2 <= maxNodes) { keep.addAll(rest); return keep }
+            rest.sortWith(compareByDescending<GraphEdgeEntity> { it.wQ16 }.thenBy { it.src }.thenBy { it.dst })
+            for (e in rest) {
+                val add = (if (e.src in nodes) 0 else 1) + (if (e.dst in nodes) 0 else 1)
+                if (nodes.size + add > maxNodes) continue
+                nodes.add(e.src); nodes.add(e.dst)
+                keep.add(e)
+            }
+            return keep
+        }
     }
 }
 

@@ -87,12 +87,13 @@ class HomePlanBuilder @Inject constructor(
         suspend fun add(spec: MixSpec) {
             mixes.todayOf(spec)?.let { built.add(it) }
         }
+        // On Repeat is what the listener plays now: it takes its tracks first, so the lists drawn from the most played do not leave it short.
+        val repeat = mixes.todayOf(MixSpec(MixKinds.ON_REPEAT))
         add(MixSpec(MixKinds.FIRST_LISTEN))
         if (islands != null && islands.hasMany) for (island in islands.dailyIslands()) add(MixSpec(MixKinds.DAILY, island.id))
         else add(MixSpec(MixKinds.DAILY))
         add(MixSpec(MixKinds.YOUR))
         add(MixSpec(MixKinds.JUST_DROPPED))
-        val repeat = mixes.todayOf(MixSpec(MixKinds.ON_REPEAT))
         val rediscover = mixes.todayOf(MixSpec(MixKinds.REDISCOVER))
         val cards = built.map(::cardOf)
 
@@ -227,7 +228,7 @@ class HomePlanBuilder @Inject constructor(
         val atlas = mixes.atlasProvider.atlas() ?: return null
         val byGenre = mixes.edgeByGenre(now)
         val genre = byGenre.entries.maxByOrNull { it.value.size }?.takeIf { it.value.size >= HomePlanner.MIN_TRACKS } ?: return null
-        val name = atlas.genre(genre.key)?.name?.takeIf { it.isNotBlank() } ?: return null
+        val name = AtlasNames.genreName(atlas, genre.key) ?: return null
         val items = genre.value.take(HomePlanner.ITEMS_PER_SHELF * 2).mapIndexed { slot, t ->
             PlanItem(rid = t.rid, aid = nameHash(LibraryIndex.primaryArtistName(t.song)), songId = t.song.id, arm = Arm.EDGE, whyKey = WhyLine.ADJACENT_GENRE, slot = slot)
         }

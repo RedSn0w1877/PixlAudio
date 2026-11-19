@@ -41,6 +41,11 @@ class DnaTarget(
     val ytPlays: Long = 0L,
     val ytExplicit: Boolean? = null,
     val videoId: String? = null,
+    /**
+     * "Use my Spotify music to shape picks" is off: whatever Spotify said before (artist genres, the album year) is taken out
+     * of the row on this pass, so nothing derived from it stays in tags, moods, islands or names.
+     */
+    val spotifyOff: Boolean = false,
 )
 
 /** What the sources returned for one target in one pass. A null is "not asked or no answer"; [tried] says which sources answered at all. */
@@ -100,7 +105,7 @@ object DnaAssembler {
         if (e.lb != null) { out.add(P_LB_RECORDING); out.add(P_LB_ARTIST) }
         if (e.wd != null) out.add(P_WD_ARTIST)
         if (e.itunes != null) out.add(P_ITUNES)
-        if (target.spotifyGenres.isNotEmpty()) out.add(P_SPOTIFY)
+        if (target.spotifyGenres.isNotEmpty() || target.spotifyOff) out.add(P_SPOTIFY)
         if (target.chipGenres.isNotEmpty()) out.add(P_CHIP)
         return out
     }
@@ -171,9 +176,13 @@ object DnaAssembler {
         a to b
     }
 
-    private fun yearSourceOf(tried: Int): Set<Int> {
+    /**
+     * The year sources this pass replaces. MusicBrainz's year is replaced only when this pass brought one (the recording looked up, or
+     * ListenBrainz's date): a refresh of the artist's genres alone must not erase the stored first-release year.
+     */
+    private fun yearSourceOf(tried: Int, mbYearFresh: Boolean): Set<Int> {
         val out = HashSet<Int>()
-        if (tried and DnaSource.MUSICBRAINZ != 0) out.add(TrackDna.YEAR_MUSICBRAINZ)
+        if (tried and DnaSource.MUSICBRAINZ != 0 && mbYearFresh) out.add(TrackDna.YEAR_MUSICBRAINZ)
         if (tried and DnaSource.ITUNES != 0) out.add(TrackDna.YEAR_ITUNES)
         if (tried and DnaSource.DEEZER != 0) out.add(TrackDna.YEAR_DEEZER)
         return out
@@ -197,6 +206,8 @@ object DnaAssembler {
     ): Result {
         val tried = evidence.tried or DnaSource.SPOTIFY_GENRES.takeIf { target.spotifyGenres.isNotEmpty() }.orZero() or
             DnaSource.YOUTUBE_CHIPS.takeIf { target.chipGenres.isNotEmpty() }.orZero()
+        // With the Spotify switch off the "asked Spotify" bit is cleared too, so a later switch-on asks again.
+        val keepMask = if (target.spotifyOff) DnaSource.SPOTIFY_GENRES.inv() else -1
         val fresh = claimsOf(target, evidence, atlas)
         val priorClaims = if (prior != null && prior.atlasVersion == atlasVersion) decodeClaims(prior.tagInputs) else emptyList()
         // The artist: only the artist-level claims, kept per artist so a track with no tags of its own can borrow them (3.4), and so
@@ -212,7 +223,8 @@ object DnaAssembler {
         val tags = if (!ownTags.isEmpty) ownTags else Tags.fromArtist(artistTags)
 
         // Year: every source's claim, the earliest believable wins; a source that answered replaces its old claim.
-        val oldYear = prior?.yearClaims?.let(::parseClaims).orEmpty().filter { it.first !in yearSourceOf(tried) }
+        val mbYearFresh = evidence.mb != null || (evidence.lb != null && TrackDna.parseYear(evidence.lb.firstReleaseDate) > 0)
+        val oldYear = prior?.yearClaims?.let(::parseClaims).orEmpty().filter { it.first !in yearSourceOf(tried, mbYearFresh) }
         val newYear = ArrayList<Pair<Int, Int>>()
         evidence.mb?.firstReleaseDate?.let { TrackDna.parseYear(it).takeIf { y -> y > 0 }?.let { y -> newYear.add(TrackDna.YEAR_MUSICBRAINZ to y) } }
         evidence.lb?.let { lb -> (TrackDna.parseYear(lb.firstReleaseDate).takeIf { it > 0 } ?: 0).takeIf { it > 0 }?.let { y -> newYear.add(TrackDna.YEAR_MUSICBRAINZ to y) } }
@@ -281,7 +293,7 @@ object DnaAssembler {
             valence = feel.valence,
             embVersion = prior?.embVersion ?: 0,
             confidence = confidence,
-            fetchedMask = (prior?.fetchedMask ?: 0) or tried,
+            fetchedMask = ((prior?.fetchedMask ?: 0) and keepMask) or tried,
             updatedAtMs = nowMs,
             tagsAtMs = if (tagsRefreshed) nowMs else prior?.tagsAtMs ?: 0L,
             popAtMs = if (popRefreshed) nowMs else prior?.popAtMs ?: 0L,
@@ -303,7 +315,7 @@ object DnaAssembler {
             tags = Tags.encode(artistTags),
             popPermille = priorArtist?.popPermille ?: -1,
             releaseIds = priorArtist?.releaseIds.orEmpty(),
-            fetchedMask = (priorArtist?.fetchedMask ?: 0) or (tried and ARTIST_SOURCES),
+            fetchedMask = ((priorArtist?.fetchedMask ?: 0) and keepMask) or (tried and ARTIST_SOURCES),
             updatedAtMs = nowMs,
             tagsAtMs = if (evidence.mbArtist != null || evidence.lb != null || evidence.wd != null) nowMs else priorArtist?.tagsAtMs ?: 0L,
             atlasVersion = atlasVersion,

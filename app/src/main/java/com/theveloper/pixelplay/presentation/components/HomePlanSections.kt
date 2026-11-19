@@ -59,13 +59,13 @@ fun HomeDateLine(text: String, modifier: Modifier = Modifier) {
 }
 
 @Composable
-fun HomeChipsRow(selected: HomeChip, onSelect: (HomeChip) -> Unit, modifier: Modifier = Modifier) {
+fun HomeChipsRow(selected: HomeChip, onSelect: (HomeChip) -> Unit, modifier: Modifier = Modifier, chips: List<HomeChip> = HomeChip.entries) {
     LazyRow(
         modifier = modifier.fillMaxWidth(),
         contentPadding = PaddingValues(horizontal = 16.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        items(HomeChip.entries, key = { it.name }) { chip ->
+        items(chips, key = { it.name }) { chip ->
             FilterChip(
                 selected = chip == selected,
                 onClick = { onSelect(chip) },

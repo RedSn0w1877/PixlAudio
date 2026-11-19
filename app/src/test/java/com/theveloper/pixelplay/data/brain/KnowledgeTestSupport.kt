@@ -86,7 +86,9 @@ class FakeTrackDnaDao : TrackDnaDao {
             (it.tagsAtMs > 0 && it.tagsAtMs < tagsBefore) || (it.popAtMs > 0 && it.popAtMs < popBefore) ||
                 ((it.fetchedMask and 19) != 19 && it.updatedAtMs < retryBefore)
         }.sortedBy { it.updatedAtMs }.take(limit)
+    override suspend fun page(after: Long, limit: Int) = rows.values.filter { it.rid > after }.sortedBy { it.rid }.take(limit)
     override suspend fun count() = rows.size
+    override suspend fun newestUpdate() = rows.values.maxOfOrNull { it.updatedAtMs } ?: 0L
     override suspend fun coverage() = DnaCoverage(
         rows.size, rows.values.count { it.tags.isNotEmpty() }, rows.values.count { it.firstYear > 0 }, rows.values.count { it.popPermille >= 0 },
         rows.values.count { it.energy >= 0 }, rows.values.count { it.tempoBpmX10 > 0 },

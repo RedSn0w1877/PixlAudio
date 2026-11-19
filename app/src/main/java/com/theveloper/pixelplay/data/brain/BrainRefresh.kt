@@ -59,6 +59,12 @@ interface RefreshWork {
      * qualified plays). Reads the database only. A no-op by default, so a work without islands runs exactly as before.
      */
     suspend fun fitIslands() {}
+
+    /**
+     * Before the islands are fitted: with "Use my Spotify music to shape picks" off, takes Spotify's genres and years out of the stored
+     * DNA once, so nothing derived from them stays. Reads and writes the database only. A no-op by default.
+     */
+    suspend fun purgeSpotify() {}
 }
 
 /**
@@ -196,6 +202,7 @@ class BrainRefreshRunner(
         // The embeddings and the islands (2.3 step 9): the part of the job that needs no network, so it runs when the lanes could not.
         if (allowed() && !playing() && stopped != Stop.OFF && stopped != Stop.PLAYING) {
             try {
+                work.purgeSpotify()
                 work.fitIslands()
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
@@ -233,6 +240,7 @@ class AppRefreshWork @Inject constructor(
     private val ledger: RequestLedger,
     private val dnaTargets: DnaTargets,
     private val dnaEnricher: DnaEnricher,
+    private val spotifyPurge: SpotifyDnaPurge,
 ) : RefreshWork {
 
     override suspend fun dnaTargets(lane: Int, limit: Int): List<DnaTarget> = when (lane) {
@@ -246,6 +254,10 @@ class AppRefreshWork @Inject constructor(
 
     override suspend fun fitIslands() {
         mixes.islandBuilder.ensure()
+    }
+
+    override suspend fun purgeSpotify() {
+        spotifyPurge.run()
     }
 
 

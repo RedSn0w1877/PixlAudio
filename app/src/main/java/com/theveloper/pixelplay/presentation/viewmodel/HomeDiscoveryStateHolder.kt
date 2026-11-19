@@ -339,6 +339,11 @@ class HomeDiscoveryViewModel @Inject constructor(
 ) : ViewModel() {
     val state = holder.state
 
+    init {
+        // The saved plan is one small file: start reading it as this ViewModel is made, a frame before the first LaunchedEffect would.
+        planHolder.onHomeShown()
+    }
+
     /** The brain's Home plan (docs/brain-spec.md, 8.1, stage 2); `planState.owned` false means the legacy Home above is the page. */
     val planState = planHolder.state
     fun onHomeShown() = planHolder.onHomeShown()

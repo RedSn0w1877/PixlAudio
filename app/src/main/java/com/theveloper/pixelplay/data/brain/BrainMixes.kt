@@ -155,6 +155,16 @@ class BrainMixes @Inject constructor(
         served.put(spec.surface, spec.surfaceId, stored.copy(items = kept), nuQ = (nuOfSpec(spec, Novelty.factor(stored.novelty)) * 1000.0).toInt())
     }
 
+    /**
+     * The number a Daily Mix has among today's islands (1..K), read now: a refit after the list was saved can move an island, and two
+     * cards must never share a number. Null for a list that is not an island's, and for an island that is no longer one of the six.
+     */
+    internal suspend fun liveNumberOf(spec: MixSpec): Int? {
+        if (spec.kind != MixKinds.DAILY || spec.islandId <= 0) return null
+        val index = islandStore.current()?.dailyIslands()?.indexOfFirst { it.id == spec.islandId } ?: return null
+        return if (index >= 0) index + 1 else null
+    }
+
     private fun nuOfSpec(spec: MixSpec, multiplier: Double): Double = when {
         spec.kind == MixKinds.DAILY && spec.islandId > 0 -> MixPlanner.nuOfIsland(multiplier)
         spec.kind == MixKinds.DAILY || spec.kind == MixKinds.YOUR -> MixPlanner.nuOf(spec.kind, multiplier)
@@ -179,6 +189,8 @@ class BrainMixes @Inject constructor(
                 materialize(saved, now)?.let { return@withLock it }
             }
         }
+        // A Daily Mix of an island that is no longer one of the six is not built again (a saved id that went stale would take tracks from the real lists).
+        if (spec.kind == MixKinds.DAILY && spec.islandId > 0 && liveNumberOf(spec) == null) return@withLock null
         val drawn = if (regenerate) served.buildsToday(surface, now, tz, spec.surfaceId) else 0
         val startedNanos = System.nanoTime()
         val stored = try {
@@ -231,7 +243,7 @@ class BrainMixes @Inject constructor(
         }
         val ignored = runCatching { playEventDao.ignoredThreeTimes(now - SIXTY_DAYS_MS).toHashSet() }.getOrDefault(HashSet())
         val log = served.recent(now)
-        val taken = Repetition.takenOnDay(log, now, tz, exceptSurface = surface, exceptId = spec.surfaceId)
+        val taken = Repetition.takenOnDay(log.newestPerList(), now, tz, exceptSurface = surface, exceptId = spec.surfaceId)
         // This week's First Listen is held all week (8.2): no other list repeats it.
         if (kind != MixKinds.FIRST_LISTEN) taken.addAll(firstListenRids(now, tz))
         val times = Repetition.timesServed(log, now)
@@ -595,7 +607,7 @@ class BrainMixes @Inject constructor(
         // A mix is the same all day: what is left of it is shown, a new list is drawn only when almost nothing is.
         if (songs.size < MIN_SAVED_SONGS) return null
         if (tracks.isNotEmpty()) playableStore.register(tracks, now)
-        return MixView(stored.kind, stored.builtAtMs, recId, songs, reasons, tags, novel, stored.seedLists, spec, stored.number, stored.subtitle, ridBySong)
+        return MixView(stored.kind, stored.builtAtMs, recId, songs, reasons, tags, novel, stored.seedLists, spec, liveNumberOf(spec) ?: stored.number, stored.subtitle, ridBySong)
     }
 
     companion object {

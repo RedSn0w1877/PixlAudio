@@ -496,3 +496,100 @@ One Gradle build at a time, `ANDROID_HOME="C:\Users\Hoa\AppData\Local\Android\Sd
 - Failures met on the way and fixed: `IntArray.mapNotNull` (does not exist), a Boolean-returning lambda where `() -> Unit` was wanted, a
   string resource name that already existed (`artist_picker_title`).
 - **Not run**: the instrumented tests (no device), including `migrates4To5KeepingEverythingAndAddingEmbeddingsAndIslands`.
+
+# After the independent review: fixes (Android)
+
+An independent reviewer read the whole stage 2b diff and gave 16 findings. Each was checked against the code; all were real, and all but
+three are fixed in code. No pure-core behaviour changed, so **no golden file changed** and iOS needs no re-sync of the golden folder; the
+rules below that are app-layer (written in the "For the iOS port" part at the end) must be copied by hand.
+
+## Findings, one by one
+
+| # | Finding | Result |
+|---|---------|--------|
+| 1 | Embeddings and islands rewritten without a transaction | Fixed. `IslandStore.saveFit` writes embeddings, islands, members, `island_last_id`, `island_tag_shares`, `island_fit_at` in ONE `BrainTransactor.run` (Room `withTransaction`). `isDue` is also true when `node_embedding` rows differ from `emb_count`. |
+| 2 | Spotify switch off leaves stored Spotify genres | Fixed. `DnaTarget.spotifyOff`; `assemble` drops provider-3 claims and the Spotify year and clears the "asked Spotify" bit; `SpotifyDnaPurge` runs once in the refresh job when it finds the switch off, rewrites every row that carries such a claim, then marks the islands due (`island_force_refit`). Switching it on clears the mark. |
+| 3 | First frame of Home is the legacy page | Fixed (by hiding, not by a main-thread read). `HomePlanUi.resolved`; the Home list is drawn at alpha 0 until the saved plan has been looked for (120 ms fade); the read starts when the ViewModel is made. No legacy placeholder is ever drawn before the plan is known. |
+| 4 | "New" / "Mixes" chips blank | Fixed. A chip with no content is not offered; a remembered chip with nothing falls back to "For you". |
+| 5 | Island named from a handful of tagged tracks | Fixed in the app layer (no golden change): an island gets a genre name only when at least 40% of its placed tracks carry a genre and the genre is among its top tags by share; otherwise the subtitle is the artists alone. |
+| 6 | Daily Mix number frozen | Fixed. The number is read from today's islands when a list is materialised and when a card is drawn; a card whose island left the six is not drawn; a card opens by its `mixId` only (the `number == 1` routing is gone); `todayOf` does not build a list for an island that is not one of the six. |
+| 7 | 90-day refresh erases the MusicBrainz year | Fixed. The MusicBrainz year claim is replaced only when the pass brought a recording or a ListenBrainz date. Test added. |
+| 8 | Duplicate rids counted twice in the fit | Fixed. `library.all(now).distinctBy { it.rid }` at the start of the fit (iOS: dedupe the same way before the graph and the chosen set). |
+| 9 | Failed atlas parse repeated by every caller | Fixed. A failure is remembered for ten minutes. |
+| 10 | Stale saved plan after a library change | Fixed. A track shelf under 6 is hidden when render drops songs; any dropped song or dissolved island schedules a new plan (at most every 10 minutes), shown at the next appearance. Not fixed: the song COUNT on a mix card still comes from the plan until that new plan arrives. |
+| 11 | "atmos" inside atlas names | Fixed by hiding, not renaming (the atlas stays byte-identical, CC0): `AtlasNames.isShown` hides any node whose name holds a banned word from station cards, Search tiles, island names and "A step sideways". Seven nodes have "atmospheric" in the name (three show up as cards). Decision for Hoa: the rule is by substring like `BrainCopyTest`; if "atmospheric" is fine to show, delete `"atmos"` from `AtlasNames.forbidden`. |
+| 12 | Mix supply and the served log | Partly fixed. On Repeat is built first; `takenOnDay` reads only the newest build of each list (`newestPerList`); `ServedListStore.recent` is decoded once per ten minutes and dropped on every `put`. **Deferred**: the island-aware 30-day, 60%-distinct simulation in `EvalTest` (needs islands plus novel candidates with embeddings in `Eval`; the 2a test still covers Daily and Your Mix). Check it on the phone (below). |
+| 13 | FastRP memory unbounded | Fixed in the app layer: `IslandBuilder.capEdges` keeps every library-to-library edge and the heaviest of the rest while the node count stays at or under 30,000 (about 45 MB for the three arrays). |
+| 14 | Empty fit wipes islands; ghost mix | Fixed. A fit with no islands keeps the stored ones and waits a day (`island_empty_fit_at`); a saved id of a dissolved island shows nothing instead of building a list. |
+| 15 | ISRC in the exportable log | Fixed. On the five open-data hosts any path segment that looks like an id is logged as `_`. |
+| 16 | Genre index cached on a key that ignores the DNA | Fixed. The key holds `track_dna` row count and newest stamp; genre cards are ranked by what the listener plays (decayed play weight), then by song count. |
+
+## Deviations 169 and on
+
+169. **`BrainTransactor`** (an open class over `MusicBrainDatabase.withTransaction`) is injected into `IslandStore` so the fit's writes are one
+     transaction; tests stand in for it. `IslandStore.save`, `saveEmbeddings` and `saveTagShares` are replaced by `saveFit`.
+170. **New `brain_state` keys**: `island_empty_fit_at`, `island_force_refit`, `dna_spotify_purged`. No table changed: brain.db stays at version 5.
+171. **`TrackDnaDao`** got `page`, `newestUpdate` (queries only). `RefreshWork` got `purgeSpotify()` (default no-op).
+172. **Home draws at alpha 0 until the saved plan is looked for** (`HomePlanUi.resolved`): a cold start with the legacy engine also waits for that
+     read (a DataStore read and one small file), about a frame or two.
+173. **A fit now embeds at most 30,000 nodes** (spec 5.3 says 5,000 to 15,000 as a target, and nothing enforced it).
+174. **Island names need 40% of the island's tracks tagged** (app layer). Not in the pure core, so goldens are untouched; iOS must apply it.
+
+## For the iOS port (after the review)
+
+- Write the fit as one transaction (embeddings, islands, members, last id, tag shares); due again when the embedding rows differ from the count.
+- A fit that places nothing keeps the stored islands; wait a day before the next try.
+- Spotify switch off: drop Spotify claims and the Spotify year from stored DNA once, then refit.
+- Dedupe library tracks by recording id before the graph and the fit; cap the graph at 30,000 nodes (library edges first, then heaviest).
+- Island names: at least 40% of the island's tracks tagged, and only genres among its top tags by share.
+- Daily Mix numbers come from today's islands, not from the saved list; cards open by id; no list is built for an island that is gone.
+- On Repeat first; `takenOnDay` over the newest build of each list only.
+- Hide atlas genres whose names hold a banned word (substring) from every surface.
+- Knowledge hosts: never log an id from the path.
+
+## How to test on a phone (stage 2b, whole, for Hoa)
+
+Each step is one line of the stage 2b "done means". Use a build that is installed over one with brain.db 3 or 4 if you have it.
+
+1. **Update over an old build.** The app opens, nothing is lost: the history in Developer mode > Brain data still counts the same plays.
+2. **Home from the file, no spinner.** Play 10 different songs, leave Home open a few seconds, go away and come back: date line, chips, hero, Jump
+   back in, "Made for you". Kill the app, open it again: Home fades in (about a tenth of a second) already showing the plan; it never shows the
+   old "Your Mix" loading or empty card first (`adb shell run-as <pkg> ls files/brain` shows `home_plan.json`).
+3. **Chips.** "New" and "Mixes" are only there when they have something; rotate the phone on each: no blank page.
+4. **Mixes named from real genres.** After one refresh (or `adb shell cmd jobscheduler run -f <pkg> <id of brain_refresh>`) the Daily Mixes
+   appear numbered 1..K. A name appears only when many of that island's songs have a genre ("Soft pop & R&B · Artist, Artist"); a thin corner
+   (for example Vietnamese) shows only the artists. No genre is invented.
+5. **A song is in one mix a day.** Open Daily Mix 1, 2, 3, Your Mix, On Repeat and Rediscover and look for the same song twice: there should be none.
+   Over a week the Daily Mixes should mostly be different songs (this is the part with no automated evidence for islands: tell Hoa's notes what
+   you see).
+6. **A genre station plays.** Tap a card under "Stations for you" and a Search tile: the queue header says "Station · <genre>". A genre with no songs of
+   yours has no tile. No card says "atmospheric ...".
+7. **Spotify switch.** Settings > Brain > "Use my Spotify music to shape picks" off: after the next refresh, Brain data shows fewer genres and
+   the Daily Mix names may go to artists alone; switch it back on and they return after the next refresh.
+8. **Knowledge sources.** Brain data lists Deezer, MusicBrainz, ListenBrainz, Wikidata and iTunes with their terms; each has its own switch. Turn Deezer
+   off: its counter stops. (These are non-commercial sources: switch each off before charging anyone.) The exported diagnostics log never shows an ISRC.
+9. **One background job.** `adb shell dumpsys jobscheduler | grep -c brain_refresh` shows ONE entry. While music plays no enrichment runs.
+10. **Cold start.** A fresh install with Spotify: "Getting to know your music" counts to 8 and goes. A library under 30 songs offers "Pick three artists
+    you love"; after three, Your Mix and a Daily Mix exist.
+11. **Migration.** `./gradlew :app:connectedDebugAndroidTest --tests "*MusicBrainMigrationInstrumentedTest"` on the phone.
+
+## What nobody has verified on a device (stage 2b, whole)
+
+Everything in the list above. In particular: island fit time and memory on a real 3,000 to 20,000 song library with a week of radios; whether real
+islands read as sides of someone's taste and whether the 40% naming rule leaves too many islands unnamed; the fade-in and chips; the purge on a
+real database; the transaction behaviour when the job is cancelled mid-fit (the unit tests prove the writes sit inside one transaction, not that
+SQLite rolls back, which Room guarantees); the instrumented migration tests (never run); the 30-day distinct share of island Daily Mixes;
+that `AtlasTest`'s SHA check passes on the shipped asset; the iOS side (not touched by this review pass).
+
+## What was run, and what it said (review fixes)
+
+`ANDROID_HOME="C:\Users\Hoa\AppData\Local\Android\Sdk"`, one Gradle at a time.
+
+- A filtered run (`:app:testDebugUnitTest --tests "*data.brain.*" "*data.diagnostics.*" "*BrainCopyTest"`) first failed to compile one fake (`FakeTrackDnaDao`
+  lacked the two new queries), then ran 331 tests with 2 failures, both in my own new test (a wrong expectation about the capped edges, and a loop over
+  atlas ids that started at 0); fixed.
+- **The final run**: `./gradlew --continue :brain:test :app:testDebugUnitTest :app:assembleDebug`: **BUILD SUCCESSFUL in 8m 12s**.
+  `:brain:test` **174 tests, 0 failures** (no `:brain` file changed: up to date, the golden files are untouched); `:app:testDebugUnitTest`
+  **2,386 tests, 2 skipped, 0 failures, 0 errors** (2,372 before; +12 `Stage2bReviewFixesTest`, +2 `DiagnosticsHttpInterceptorTest`);
+  `RecommendationGoldenEqualityTest` and the rest of `data/recommendation` pass untouched; `:app:assembleDebug` built.
+- **Not run**: the instrumented tests (no device).

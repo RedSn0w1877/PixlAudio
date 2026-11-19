@@ -17,6 +17,7 @@ import com.theveloper.pixelplay.data.brain.HomePlan
 import com.theveloper.pixelplay.data.brain.HomePlanBuilder
 import com.theveloper.pixelplay.data.brain.HomePlanStore
 import com.theveloper.pixelplay.data.brain.MixKinds
+import com.theveloper.pixelplay.data.brain.MixSpec
 import com.theveloper.pixelplay.data.brain.PlanHero
 import com.theveloper.pixelplay.data.brain.PlanItem
 import com.theveloper.pixelplay.data.brain.PlanMix
@@ -136,6 +137,11 @@ data class HomePlanUi(
     val knowingTotal: Int = 0,
     /** A thin library with no picked artists yet: Home offers "Pick three artists you love". */
     val offerPicker: Boolean = false,
+    /**
+     * The saved plan has been looked for (read, or found missing, or the engine is not the brain). Until then Home does not know whether to
+     * draw the plan or the legacy page, so it draws neither (no placeholder, no jump when the file arrives).
+     */
+    val resolved: Boolean = false,
 )
 
 /**
@@ -206,6 +212,10 @@ class HomePlanStateHolder @Inject constructor(
 
     /** The tags of what each shelf's tap plays, by shelf id then song id. */
     @Volatile private var tagsByShelf: Map<String, Map<String, BrainItemTag>> = emptyMap()
+    /** Songs of the saved plan that the library no longer has, counted by the last render: any of them asks for a new plan. */
+    @Volatile private var droppedInRender = 0
+    @Volatile private var liveNumbers: Map<String, Int> = emptyMap()
+    private var lastStaleRebuildMs = 0L
     @Volatile private var itemsByShelf: Map<String, List<PlanItem>> = emptyMap()
     @Volatile private var songsByShelf: Map<String, Map<String, Song>> = emptyMap()
 
@@ -218,7 +228,7 @@ class HomePlanStateHolder @Inject constructor(
             lock.withLock {
                 try {
                     if (brainSwitch.engine() != BrainEngineChoice.BRAIN) {
-                        mutableState.update { it.copy(owned = false) }
+                        mutableState.update { it.copy(owned = false, resolved = true) }
                         return@withLock
                     }
                     if (!readOnce) {
@@ -235,6 +245,7 @@ class HomePlanStateHolder @Inject constructor(
                     throw e
                 } catch (e: Exception) {
                     Timber.w(e, "Home: reading the plan failed")
+                    mutableState.update { it.copy(resolved = true) }
                 }
             }
             scheduleBuild()
@@ -314,11 +325,17 @@ class HomePlanStateHolder @Inject constructor(
         val tiles = tiles()
         if (plan == null) {
             // Without a plan: Jump back in and the library rows. The brain owns Home only once there is one.
-            mutableState.update { it.copy(owned = false, tiles = tiles) }
+            mutableState.update { it.copy(owned = false, tiles = tiles, resolved = true) }
             return
         }
         val ui = withContext(Dispatchers.Default) { render(plan, tiles) }
-        mutableState.update { it.copy(owned = ui.owned, dateLine = ui.dateLine, hero = ui.hero, shelves = ui.shelves, tiles = ui.tiles, allMixes = ui.allMixes, newShelves = ui.newShelves) }
+        // Songs that left the library since the plan was made: plan again (at most every ten minutes), so counts and shelves are true.
+        val now = clock.nowMs()
+        if (droppedInRender > 0 && now - lastStaleRebuildMs > STALE_REBUILD_GAP_MS) {
+            lastStaleRebuildMs = now
+            scope.launch { scheduleBuild(force = true) }
+        }
+        mutableState.update { it.copy(owned = ui.owned, resolved = true, dateLine = ui.dateLine, hero = ui.hero, shelves = ui.shelves, tiles = ui.tiles, allMixes = ui.allMixes, newShelves = ui.newShelves) }
     }
 
     private suspend fun tiles(): ImmutableList<TileUi> {
@@ -340,11 +357,26 @@ class HomePlanStateHolder @Inject constructor(
         val items = HashMap<String, List<PlanItem>>()
         val songs = HashMap<String, Map<String, Song>>()
         val shelves = ArrayList<HomeShelfUi>(plan.shelves.size)
+        var dropped = 0
+        // A Daily Mix is numbered by today's islands, not by the islands of the day the plan was made; one whose island is gone is not drawn.
+        val numbers = HashMap<String, Int>()
+        val gone = HashSet<String>()
+        val allMixes = plan.mixes + plan.shelves.flatMap { it.mixes }
+        for (m in allMixes) {
+            if (m.kind != MixKinds.DAILY || !m.mixId.startsWith("daily:") || m.mixId in numbers || m.mixId in gone) continue
+            val n = MixSpec.of(m.mixId)?.let { mixes.liveNumberOf(it) }
+            if (n != null) numbers[m.mixId] = n else gone.add(m.mixId)
+        }
+        liveNumbers = numbers
+        dropped += gone.size
         for (shelf in plan.shelves) {
             when {
-                shelf.mixes.isNotEmpty() -> shelves.add(
-                    HomeShelfUi.Mixes(shelf.id, text(shelf.titleKey, shelf.titleArg), text(shelf.subtitleKey, ""), shelf.mixes.map(::mixCard).toImmutableList())
-                )
+                shelf.mixes.isNotEmpty() -> {
+                    val cards = shelf.mixes.filter { it.mixId !in gone }
+                    if (cards.isNotEmpty()) shelves.add(
+                        HomeShelfUi.Mixes(shelf.id, text(shelf.titleKey, shelf.titleArg), text(shelf.subtitleKey, ""), cards.map(::mixCard).toImmutableList())
+                    )
+                }
                 shelf.stations.isNotEmpty() -> shelves.add(
                     HomeShelfUi.Stations(
                         shelf.id, text(shelf.titleKey, shelf.titleArg), text(shelf.subtitleKey, ""),
@@ -369,7 +401,9 @@ class HomePlanStateHolder @Inject constructor(
                         reason(item)?.let { reasons[song.id] = it }
                         tagMap[song.id] = tagOf(shelf, item)
                     }
-                    if (list.isEmpty()) continue
+                    // A library that lost songs since the plan was made can leave a shelf short: under the minimum it is hidden, not padded (8.1).
+                    if (list.size < shelf.items.size) dropped += shelf.items.size - list.size
+                    if (list.size < HomePlanner.MIN_TRACKS) continue
                     tags[shelf.id] = tagMap
                     items[shelf.id] = kept
                     songs[shelf.id] = byId
@@ -384,11 +418,12 @@ class HomePlanStateHolder @Inject constructor(
                 }
             }
         }
+        droppedInRender = dropped
         tagsByShelf = tags
         itemsByShelf = items
         songsByShelf = songs
-        val cards = plan.mixes.map(::mixCard).toImmutableList()
-        val hero = plan.hero?.let { hero(it, plan, library) }
+        val cards = plan.mixes.filter { it.mixId !in gone }.map(::mixCard).toImmutableList()
+        val hero = plan.hero?.takeIf { it.mixId !in gone }?.let { hero(it, plan, library) }
         val newShelves = shelves.filter {
             (it is HomeShelfUi.Tracks && it.section.id.startsWith("new_from_loved")) ||
                 (it is HomeShelfUi.Mixes)
@@ -436,7 +471,9 @@ class HomePlanStateHolder @Inject constructor(
 
     private fun mixCard(m: PlanMix): MixCardUi {
         val title = when (m.kind) {
-            MixKinds.DAILY -> if (m.number > 0) context.getString(R.string.brain_mix_daily_n, m.number) else context.getString(R.string.brain_mix_daily)
+            MixKinds.DAILY -> (liveNumbers[m.mixId] ?: m.number).let { n ->
+                if (n > 0) context.getString(R.string.brain_mix_daily_n, n) else context.getString(R.string.brain_mix_daily)
+            }
             MixKinds.YOUR -> context.getString(R.string.brain_mix_your)
             MixKinds.FIRST_LISTEN -> context.getString(R.string.brain_mix_first_listen)
             MixKinds.JUST_DROPPED -> context.getString(R.string.brain_mix_just_dropped)
@@ -450,7 +487,7 @@ class HomePlanStateHolder @Inject constructor(
             m.kind == MixKinds.JUST_DROPPED -> context.getString(R.string.brain_mix_just_dropped_subtitle)
             else -> ""
         }
-        return MixCardUi(m.mixId, m.kind, m.number, title, subtitle, m.count, m.covers.toImmutableList())
+        return MixCardUi(m.mixId, m.kind, liveNumbers[m.mixId] ?: m.number, title, subtitle, m.count, m.covers.toImmutableList())
     }
 
     /** "16 Nov": the Monday of the week the list was built in (it is fixed all week, 8.2). */
@@ -544,6 +581,7 @@ class HomePlanStateHolder @Inject constructor(
         /** 12.1: no brain work before the first seconds have passed. */
         const val QUIET_MS = 2_500L
         const val TILE_COUNT = 6
+        const val STALE_REBUILD_GAP_MS = 10L * 60 * 1000
 
         /** A library with fewer songs than this is "thin": it gets the artist picker (8.10). */
         const val THIN_LIBRARY = 30

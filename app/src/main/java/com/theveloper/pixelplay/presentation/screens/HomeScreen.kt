@@ -54,6 +54,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -160,6 +161,22 @@ fun HomeScreen(
     // The brain's Home plan (docs/brain-spec.md, 8.1, stage 2): read from its file before anything else; `owned` false is the legacy page.
     val planUi by discoveryViewModel.planState.collectAsStateWithLifecycle()
     var homeChip by rememberSaveable { mutableStateOf(HomeChip.FOR_YOU) }
+    // A chip with nothing behind it is not offered, and one that was remembered (rotation, a new process) falls back to "For you".
+    val homeChips = remember(planUi.allMixes, planUi.newShelves) {
+        buildList {
+            add(HomeChip.FOR_YOU)
+            if (planUi.allMixes.isNotEmpty()) add(HomeChip.MIXES)
+            add(HomeChip.SPATIAL)
+            if (planUi.newShelves.isNotEmpty()) add(HomeChip.NEW)
+        }
+    }
+    val shownChip = if (homeChip in homeChips) homeChip else HomeChip.FOR_YOU
+    // Until the saved plan has been looked for, Home does not know which page it is: it draws nothing, then fades in once.
+    val homeContentAlpha by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (planUi.resolved) 1f else 0f,
+        animationSpec = androidx.compose.animation.core.tween(durationMillis = 120),
+        label = "homeContentAlpha",
+    )
     LaunchedEffect(Unit) { discoveryViewModel.onHomeShown() }
     // "Import your listening history" from the setup page: the existing import opens once, as soon as Home is here.
     val pendingHistoryImport by discoveryViewModel.pendingHistoryImport.collectAsStateWithLifecycle(initialValue = false)
@@ -412,7 +429,8 @@ fun HomeScreen(
                 state = listState,
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.background),
+                    .background(MaterialTheme.colorScheme.background)
+                    .graphicsLayer { alpha = homeContentAlpha },
                 contentPadding = PaddingValues(
                     top = innerPadding.calculateTopPadding(),
                     bottom = paddingValuesParent.calculateBottomPadding()
@@ -486,7 +504,8 @@ fun HomeScreen(
                 if (planUi.owned) {
                     item(key = "home_chips", contentType = "home_chips") {
                         HomeChipsRow(
-                            selected = homeChip,
+                            chips = homeChips,
+                            selected = shownChip,
                             onSelect = { chip ->
                                 if (chip == HomeChip.SPATIAL) navController.navigateSafely(Screen.CloudProcessing.route) else homeChip = chip
                             },
@@ -496,7 +515,7 @@ fun HomeScreen(
                 if (planUi.owned || planUi.tiles.isNotEmpty()) {
                     homePlanItems(
                         planUi = planUi,
-                        chip = homeChip,
+                        chip = shownChip,
                         currentSongId = currentSong?.id,
                         onOpenMix = { card -> openMix(navController, card) },
                         onStartStation = { card -> playerViewModel.startGenreStation(card.kind, card.atlasId, card.name) },
@@ -945,8 +964,7 @@ private const val HomeDiscoveryStartRefreshDelayMs = 450L
 private fun openMix(navController: NavController, card: com.theveloper.pixelplay.presentation.viewmodel.MixCardUi) {
     when {
         card.mixId == "your" -> navController.navigateSafely(Screen.YourMixScreen.route)
-        card.mixId == "daily" || (card.kind == com.theveloper.pixelplay.data.brain.MixKinds.DAILY && card.number == 1) ->
-            navController.navigateSafely(Screen.DailyMixScreen.route)
+        card.mixId == "daily" -> navController.navigateSafely(Screen.DailyMixScreen.route)
         else -> navController.navigateSafely(Screen.MixDetail.createRoute(card.mixId))
     }
 }

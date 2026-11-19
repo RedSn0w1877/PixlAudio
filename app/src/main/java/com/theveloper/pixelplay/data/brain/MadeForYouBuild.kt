@@ -92,7 +92,10 @@ internal suspend fun BrainMixes.edgeByGenre(nowMs: Long): Map<Int, List<LibraryT
 /** "Soft pop & R&B · Sabrina Carpenter, Chappell Roan": the island's two highest-lift genres and its two biggest artists, real ones only. */
 internal suspend fun BrainMixes.islandSubtitle(island: Islands.Island, nowMs: Long): String {
     val atlas = atlasProvider.atlas()
-    val genres = if (atlas == null) emptyList() else IslandNames.pick(atlas, island.liftTags).toList().mapNotNull { atlas.genre(it)?.name?.takeIf { n -> n.isNotBlank() } }
+    // An island is named only when enough of it has a genre (unknown stays unknown), and only by a genre that is among its biggest shares.
+    val named = atlas != null && taggedShare(island) >= NAME_MIN_TAGGED
+    val liftTags = if (named) island.liftTags.filter { it in island.topTags }.toIntArray() else IntArray(0)
+    val genres = if (atlas == null) emptyList() else IslandNames.pick(atlas, liftTags).toList().mapNotNull { AtlasNames.genreName(atlas, it) }
     val names = HashMap<Long, String>()
     for (t in libraryRids.all(nowMs)) if (t.aid != 0L) names.putIfAbsent(t.aid, LibraryIndex.primaryArtistName(t.song))
     val artists = island.topArtists.take(2).mapNotNull { names[it]?.takeIf { n -> n.isNotBlank() } }
@@ -100,13 +103,33 @@ internal suspend fun BrainMixes.islandSubtitle(island: Islands.Island, nowMs: Lo
     return listOf(genreText, artists.joinToString(", ")).filter { it.isNotEmpty() }.joinToString(" · ")
 }
 
+/** The share of the island's tracks that carry a genre at all (0..1): the placed tracks of the island, looked up in the DNA. */
+internal suspend fun BrainMixes.taggedShare(island: Islands.Island): Double {
+    val members = islandStore.current()?.memberOf ?: return 0.0
+    val rids = ArrayList<Long>(island.size)
+    for ((rid, id) in members) if (id == island.id) rids.add(rid)
+    if (rids.isEmpty()) return 0.0
+    var tagged = 0
+    try {
+        for (chunk in rids.chunked(800)) for (row in trackDnaDao.getAll(chunk)) if (!Tags.decode(row.tags).isEmpty) tagged++
+    } catch (e: kotlinx.coroutines.CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        return 0.0
+    }
+    return tagged.toDouble() / rids.size
+}
+
+/** At least this share of an island's tracks must have a genre before the island gets a genre name. */
+internal const val NAME_MIN_TAGGED = 0.4
+
 /** On Repeat, Rediscover and Just Dropped (6.2): ranked by one number each and filled under the hard constraints of 6.4. */
 internal suspend fun BrainMixes.buildSimple(spec: MixSpec, now: Long, tz: Int, regenerate: Int): StoredMix? {
     val level = Novelty.clamp(stations.novelty.value)
     val salt = salt()
     val ignored = runCatching { playEventDao.ignoredThreeTimes(now - SIXTY_DAYS_MS).toHashSet() }.getOrDefault(HashSet())
     val log = served.recent(now)
-    val taken = Repetition.takenOnDay(log, now, tz, exceptSurface = spec.surface, exceptId = spec.surfaceId)
+    val taken = Repetition.takenOnDay(log.newestPerList(), now, tz, exceptSurface = spec.surface, exceptId = spec.surfaceId)
     // This week's First Listen is held all week (8.2): no other list repeats it.
     taken.addAll(firstListenRids(now, tz))
     val times = Repetition.timesServed(log, now)
