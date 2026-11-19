@@ -482,4 +482,17 @@ passes; that the refresh job still shows ONE entry in `dumpsys jobscheduler`.
 
 ## What was run, and what it said (milestone 2)
 
-(see the end of this file for the final numbers)
+One Gradle build at a time, `ANDROID_HOME="C:\Users\Hoa\AppData\Local\Android\Sdk"`.
+
+- **Milestone 1 first**: `./gradlew --continue :brain:test :app:compileDebugKotlin`: BUILD SUCCESSFUL (6m 52s), nothing to fix.
+- Golden files regenerated with `./gradlew :brain:generateGolden` (31 files); `BrainGoldenTest` passes, and the stage 1, 2a and 2b milestone 1
+  golden files are byte-identical to before (git shows only new files, `README.md`, `MANIFEST.sha256`).
+- A filtered run (`:brain:test`, `:app:testDebugUnitTest --tests "*Stage2bMilestone2Test" "*MusicBrainMigrationsTest" "*BrainMixesTest" "*DailyMix*" "*BrainCopyTest" "*PlayerViewModelTest"`): BUILD SUCCESSFUL (22m 23s).
+- **The final run**: `./gradlew --continue :brain:test :app:testDebugUnitTest :app:assembleDebug`: **BUILD SUCCESSFUL in 18m 24s**.
+  `:brain:test` **174 tests, 0 failures** (152 at the end of milestone 1; the new ones are `Stage2bM2Test` and the golden equality over the 8 new files);
+  `:app:testDebugUnitTest` **2,372 tests, 2 skipped, 0 failures, 0 errors** (2,366 at the end of milestone 1: +9 `Stage2bMilestone2Test`, +2
+  `MusicBrainMigrationsTest`, minus the deleted `MusicDiscoveryRepositoryTest`); `RecommendationGoldenEqualityTest` and the rest of
+  `data/recommendation` pass untouched; both split APKs built (the Hilt graph included).
+- Failures met on the way and fixed: `IntArray.mapNotNull` (does not exist), a Boolean-returning lambda where `() -> Unit` was wanted, a
+  string resource name that already existed (`artist_picker_title`).
+- **Not run**: the instrumented tests (no device), including `migrates4To5KeepingEverythingAndAddingEmbeddingsAndIslands`.
