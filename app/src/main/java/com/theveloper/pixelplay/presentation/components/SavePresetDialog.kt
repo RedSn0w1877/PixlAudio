@@ -22,6 +22,7 @@ import androidx.compose.ui.text.style.TextOverflow
 
 @Composable
 fun SavePresetDialog(
+    isNameAvailable: (String) -> Boolean,
     onDismiss: () -> Unit,
     onSave: (String) -> Unit
 ) {
@@ -53,7 +54,7 @@ fun SavePresetDialog(
                 )
                 if (isError) {
                     Text(
-                        text = stringResource(R.string.equalizer_error_name_empty),
+                        text = stringResource(if (name.isBlank()) R.string.equalizer_error_name_empty else R.string.equalizer_error_name_taken),
                         color = MaterialTheme.colorScheme.error,
                         style = MaterialTheme.typography.labelSmall,
                         modifier = Modifier.padding(top = 4.dp)
@@ -64,10 +65,10 @@ fun SavePresetDialog(
         confirmButton = {
             Button(
                 onClick = {
-                    if (name.isBlank()) {
+                    if (name.isBlank() || !isNameAvailable(name.trim())) {
                         isError = true
                     } else {
-                        onSave(name)
+                        onSave(name.trim())
                         onDismiss()
                     }
                 }
@@ -86,6 +87,7 @@ fun SavePresetDialog(
 @Composable
 fun RenamePresetDialog(
     currentName: String,
+    isNameAvailable: (String) -> Boolean,
     onDismiss: () -> Unit,
     onRename: (String) -> Unit
 ) {
@@ -112,7 +114,7 @@ fun RenamePresetDialog(
                 )
                 if (isError) {
                     Text(
-                        text = stringResource(R.string.equalizer_error_name_empty),
+                        text = stringResource(if (name.isBlank()) R.string.equalizer_error_name_empty else R.string.equalizer_error_name_taken),
                         color = MaterialTheme.colorScheme.error,
                         style = MaterialTheme.typography.labelSmall,
                         modifier = Modifier.padding(top = 4.dp)
@@ -123,7 +125,7 @@ fun RenamePresetDialog(
         confirmButton = {
             Button(
                 onClick = {
-                    if (name.isBlank()) {
+                    if (name.isBlank() || !isNameAvailable(name.trim())) {
                         isError = true
                     } else {
                         onRename(name.trim())
