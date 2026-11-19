@@ -45,10 +45,7 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.semantics.disabled
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
@@ -487,13 +484,7 @@ fun LyricsMoreBottomSheet(
                     if (isSyncVisible) {
                         ListItem(
                             headlineContent = {
-                                Text(stringResource(R.string.lyrics_controls_adjust_sync))
-                            },
-                            // Locked: the sync controls are broken for now, so the row is greyed out,
-                            // can't be tapped and says so. (isSyncControlsVisible / onToggleSyncControls
-                            // stay wired for when it is fixed.)
-                            supportingContent = {
-                                Text(stringResource(R.string.common_broken_fix_soon))
+                                Text(stringResource(if (isSyncControlsVisible) R.string.lyrics_controls_hide_sync else R.string.lyrics_controls_adjust_sync))
                             },
                             leadingContent = {
                                 Icon(
@@ -505,8 +496,10 @@ fun LyricsMoreBottomSheet(
                                 .fillMaxWidth()
                                 .clip(controlShape(0))
                                 .background(itemBackgroundColor)
-                                .alpha(0.5f)
-                                .semantics { disabled() },
+                                .clickable {
+                                    onToggleSyncControls()
+                                    onDismissRequest()
+                                },
                             colors = ListItemDefaults.colors(
                                 containerColor = Color.Transparent,
                                 headlineColor = rowContent,

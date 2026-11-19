@@ -56,6 +56,29 @@ class LyricsClockTest {
     }
 
     @Test
+    fun adjustingOffsetImmediatelyMovesLyricsInBothDirections() {
+        var offset = 0L
+        val clock = LyricsClock(positionProvider = { 5000L }, offsetMsProvider = { offset })
+        clock.isPlaying = true
+        clock.tick(0L)
+
+        offset = -100L
+        assertTrue(clock.tick(frame))
+        assertEquals(4900L, clock.currentMs)
+        assertTrue(clock.consumeSeek())
+
+        offset = 400L
+        assertTrue(clock.tick(frame * 2))
+        assertEquals(5400L, clock.currentMs)
+        assertTrue(clock.consumeSeek())
+
+        clock.isPlaying = false
+        offset = 0L
+        assertTrue(clock.tick(frame * 3))
+        assertEquals(5000L, clock.currentMs)
+    }
+
+    @Test
     fun peek_readsPositionPlusOffset_withoutPublishing() {
         var pos = 5_000L
         val clock = LyricsClock(positionProvider = { pos }, offsetMsProvider = { 250L })
