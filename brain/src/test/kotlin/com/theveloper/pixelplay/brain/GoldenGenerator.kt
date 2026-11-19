@@ -58,7 +58,8 @@ object GoldenGenerator {
         val project = corpusDir.absoluteFile.parentFile.parentFile.parentFile.parentFile
         files.putAll(Stage2bGolden.generate(project, names, titles))
         files.putAll(Stage2bM2Golden.generate(project))
-        files["README.md"] = README + Stage2bGolden.README_NOTES.trimIndent() + "\n" + Stage2bM2Golden.README_NOTES.trimIndent() + "\n"
+        files.putAll(Stage3Golden.generate())
+        files["README.md"] = README + Stage2bGolden.README_NOTES.trimIndent() + "\n" + Stage2bM2Golden.README_NOTES.trimIndent() + "\n" + Stage3Golden.README_NOTES.trimIndent() + "\n"
         val manifest = StringBuilder()
         for ((name, content) in files) {
             manifest.append(sha256(content.toByteArray(Charsets.UTF_8))).append("  ").append(name).append('\n')

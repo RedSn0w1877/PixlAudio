@@ -80,6 +80,11 @@ object StationPlanner {
         /** First Listen: at most two tracks by one artist, at least 40% from artists never played. */
         val maxPerArtist: Int = 0,
         val minNewArtistShare: Double = 0.0,
+        /**
+         * Stage 3: which weights rank this list (5.10, 5.12 point 8). Null is the prior `M0`, exactly as in stages 1 and 2.
+         * Build it with [Ranker.WeightSource]; it falls back to the prior by itself when the gate has the prior on.
+         */
+        val ranking: Ranker.WeightSource? = null,
     )
 
     class Pick(
@@ -114,7 +119,8 @@ object StationPlanner {
     fun plan(request: Request, affinity: Affinity.State, session: SessionState, graph: Graph): Plan {
         val nowMs = request.nowMs
         val p0 = Affinity.p0(affinity, nowMs)
-        val weights = Ranker.weights(p0)
+        val weights = request.ranking?.weights(p0) ?: Ranker.weights(p0)
+        val precision = request.ranking?.precision()
         val cooc = Retrieval.cooc(request.seeds, affinity, nowMs, p0)
         val homeRow = request.mode == MODE_HOME_ROW
         val station = request.mode == MODE_STATION
@@ -195,7 +201,7 @@ object StationPlanner {
                     c = c,
                     arm = armCodes[i],
                     z = z,
-                    p = Ranker.p(z, x),
+                    p = if (precision != null) Ranker.p(z, x, precision) else Ranker.p(z, x),
                     novel = !c.inLibrary,
                     bestRank = bestRank,
                     bestSeed = entry?.bestSeed ?: -1,

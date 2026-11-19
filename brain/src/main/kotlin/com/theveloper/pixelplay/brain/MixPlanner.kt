@@ -89,7 +89,10 @@ object MixPlanner {
         val embeddings: Embeddings? = null,
         /** Stage 2b: tag vectors by rid, for the diversity term. */
         val tagsByRid: Map<Long, Tags.Vector> = emptyMap(),
-    )
+    ) {
+        /** Stage 3: which weights rank the list; null is the prior `M0` (see [StationPlanner.Request.ranking]). */
+        var ranking: Ranker.WeightSource? = null
+    }
 
     fun countOf(kind: Int): Int = if (kind == KIND_YOUR) YOUR_COUNT else DAILY_COUNT
 
@@ -176,6 +179,7 @@ object MixPlanner {
                 simSource = simSource,
                 maxPerArtist = if (first) 2 else 0,
                 minNewArtistShare = if (first) 0.4 else 0.0,
+                ranking = request.ranking,
             ),
             affinity,
             session,

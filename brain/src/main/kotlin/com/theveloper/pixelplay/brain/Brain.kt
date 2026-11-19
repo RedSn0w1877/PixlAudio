@@ -9,9 +9,15 @@ object Brain {
     /** Bumped whenever the pure logic changes its output: new golden files, and a rebuild on first use. */
     const val SPEC_VERSION = 2
 
-    fun onEvent(affinity: Affinity.State, tracker: GradeTracker, session: SessionState, e: PlayEvent): Reward.Graded {
+    /** Called with the graded play after grading and BEFORE the tables change: the learner reads the state as it was (5.9). */
+    fun interface BeforeApply {
+        fun beforeApply(e: PlayEvent, g: Reward.Graded)
+    }
+
+    fun onEvent(affinity: Affinity.State, tracker: GradeTracker, session: SessionState, e: PlayEvent, hook: BeforeApply? = null): Reward.Graded {
         val novel = !Affinity.isHeard(affinity, Family.TRACK, e.rid)
         val g = tracker.grade(e)
+        hook?.beforeApply(e, g)
         Affinity.applyEvent(affinity, e, g, e.startedAtMs)
         Session.apply(session, e, g, novel)
         return g
