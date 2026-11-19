@@ -415,13 +415,14 @@ class NewReleases @Inject constructor(
      * The row for Home, from the saved file only. Cards the listener has since muted, blocked, or already
      * has are left out; null when fewer than [NewReleaseRules.MIN_CARDS] are left.
      */
-    suspend fun row(blocked: BlockedArtistIndex, adjustments: TasteAdjustments): BrainReleaseRow? {
+    suspend fun row(blocked: BlockedArtistIndex, adjustments: TasteAdjustments, library: LibraryIndex? = null): BrainReleaseRow? {
         val now = clock.nowMs()
         val file = state()
         if (file.found.isEmpty()) return null
         val cards = NewReleaseRules.cards(file.found, now) { stored ->
             val song = EngineTrack.from(stored.row, stored.rid).toSong()
-            !blocked.isBlocked(song) && !adjustments.excludes(song) && !adjustments.blocks(song)
+            !blocked.isBlocked(song) && !adjustments.excludes(song) && !adjustments.blocks(song) &&
+                (library == null || library.match(stored.row) == null)
         }
         if (cards.size < NewReleaseRules.MIN_CARDS) return null
         val items = ArrayList<BrainHomeItem>(cards.size)

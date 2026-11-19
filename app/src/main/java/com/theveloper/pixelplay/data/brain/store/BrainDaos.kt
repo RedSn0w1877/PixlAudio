@@ -129,7 +129,7 @@ interface PlayEventDao {
      * from anywhere, was not ignored.
      */
     @Query(
-        "SELECT rid FROM play_event WHERE playedMs >= 0 GROUP BY rid HAVING " +
+        "SELECT rid FROM play_event WHERE playedMs >= 0 AND (flags & 4096) = 0 GROUP BY rid HAVING " +
             "SUM(CASE WHEN arm != 9 AND playedMs > 0 AND playedMs < 30000 AND (flags & 8) = 0 " +
             "AND endReason IN (1, 3, 5) THEN 1 ELSE 0 END) >= 3 " +
             "AND SUM(CASE WHEN playedMs >= 30000 THEN 1 ELSE 0 END) = 0 " +

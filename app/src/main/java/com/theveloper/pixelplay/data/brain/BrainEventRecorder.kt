@@ -95,7 +95,17 @@ class BrainEventRecorder @Inject constructor(
 
     override fun onPlayFinished(play: FinishedPlay) = post(Finished(play))
 
-    override fun onPlayOpen(play: FinishedPlay?) = post(Open(play))
+    override fun onPlayOpen(play: FinishedPlay?) {
+        // A play that began (or goes on) while the session is private is saved as excluded, so a play cut
+        // off by a process death is not counted at the next start, when the session is off again.
+        val saved = if (play != null && isPrivate(play.startedAtMs, System.currentTimeMillis())) {
+            play.copy(flags = play.flags or EventFlags.LEARN_EXCLUDED)
+        } else play
+        post(Open(saved))
+    }
+
+    override fun isPrivate(startedAtMs: Long, endMs: Long): Boolean =
+        privateSession?.overlaps(startedAtMs, endMs) == true
 
     override suspend fun isOutsideLibrary(songId: String, context: PlayContext?): Boolean {
         // Only tracks that can be from outside the library cost a lookup.
@@ -162,7 +172,7 @@ class BrainEventRecorder @Inject constructor(
         if (context.repeatOne) flags = flags or EventFlags.REPEAT_ONE
         if (context.offline) flags = flags or EventFlags.OFFLINE
         // A play that overlapped a private session counts for nothing in the picks; the log still has it.
-        if (privateSession?.overlaps(play.startedAtMs, play.startedAtMs + play.playedMs.coerceAtLeast(0L)) == true) {
+        if (isPrivate(play.startedAtMs, play.startedAtMs + play.playedMs.coerceAtLeast(0L))) {
             flags = flags or EventFlags.LEARN_EXCLUDED
         }
 

@@ -59,6 +59,20 @@ class GraphEdgeStoreTest {
     }
 
     @Test
+    fun `a tuned or continued list keeps its own edges and does not replace the first page's`() = runTest {
+        store.record(7L, RadioListEntity.KIND_SONG, longArrayOf(1, 2, 3), 10L)
+        store.record(7L, RadioListEntity.KIND_SONG, longArrayOf(8, 9), 20L, chip = "+songs")
+        assertEquals(setOf(1L, 2L, 3L, 8L, 9L), edges.rows.values.map { it.dst }.toSet())
+        // The chip's edges weigh with the chip factor, not the radio's.
+        val chipEdge = edges.rows.values.first { it.dst == 8L }
+        assertEquals(GraphEdgeEntity.TYPE_CHIP, chipEdge.type)
+        assertEquals(GraphEdgeStore.weightQ16(GraphEdgeEntity.TYPE_CHIP, 1), chipEdge.wQ16)
+        // Refetching the first page leaves the chip list's edges alone.
+        store.record(7L, RadioListEntity.KIND_SONG, longArrayOf(4), 30L)
+        assertEquals(setOf(4L, 8L, 9L), edges.rows.values.map { it.dst }.toSet())
+    }
+
+    @Test
     fun `the lists stage 1 left behind become edges once, an artist list does not, and the second run does nothing`() = runTest {
         lists.upsert(listOf(1L, RadioListEntity.KIND_SONG, "", 11, 12))
         lists.upsert(listOf(2L, RadioListEntity.KIND_RELATED, "", 21))

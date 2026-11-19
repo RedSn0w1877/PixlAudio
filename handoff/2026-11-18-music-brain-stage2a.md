@@ -477,3 +477,106 @@ passed before anything was added.
   harness test's coroutines had thrown on a background thread (building an Android media item on the JVM); the harness now keeps them.
 - **Not run**: the instrumented migration test (extended for 2 to 3), anything on a device.
 - Windows file locks (`Unable to delete directory ...`) did not appear this time.
+
+# Review pass of 2a (Android): findings checked, fixed, and what changed
+
+An independent reviewer read the whole 2a diff. Each finding was checked against the code; all of the majors were real. This
+section is what changed and why. Deviations continue at 122.
+
+## What changed
+
+1. **Private session and "Don't count this" now reach the legacy counters too.** `PlaySink.isPrivate(startMs, endMs)` (the
+   recorder answers from `PrivateSession`); `ListeningStatsTracker.finalizeCurrentSession` passes `learnExcluded` (the play's
+   `LEARN_EXCLUDED` flag or a private overlap) into `persistPlayback`, which then skips `MusicTasteRepository.record` and
+   `DailyMixManager.recordPlay`. The play still goes to `PlaybackStatsRepository.recordPlayback`, so it stays in Recently Played
+   (that is what "Don't count" promises: the plays stay in the log and in the history).
+2. **The seed queries skip `learnExcluded` plays.** `SeedDao.recentChosen` (`flags & 4104`), `recentlySaved` and
+   `PlayEventDao.ignoredThreeTimes` (`flags & 4096`, so an excluded play is as if it never happened: not a seed, not a skip
+   toward the 60-day ban, not a "heard for 30 s" that lifts one). **SQL only, no schema change.** The JVM has no SQLite
+   here, so these three statements are checked by reading, not by a test (see "Unverified").
+3. **"Don't count this" reaches imported Spotify plays.** `ReplayMerger.rebuild(..., excluded = Map<survivor rid, cutoff ms>)`:
+   every play of a recording that started at or before the time of an active `DONT_COUNT` / `TARGET_SONG` feedback row replays as
+   `learnExcluded`, stored or imported, through the merge table (so a later merged recording is still found). `AppStateRebuilder`
+   reads `FeedbackDao.active()` for it (and an Undo makes the row inactive, so the plays count again at the next rebuild).
+   `ListeningHistoryDao.countOfSpotifyTrack(spotifyId)` lets the control say how many imported plays it left out. Album,
+   playlist and last-hour rows have no imported side (no screen for the first two; imports are old for the third).
+4. **Don't count: no row and no rebuild for nothing, and Undo gives the play in flight back.** `excludeRecordings` and
+   `excludeLastHour` return null when there is no stored play, no imported play and no play in flight. `markFlag` returns whether
+   a play was flagged, `unmarkFlag` takes it off, and `Excluded` remembers the song for Undo. A play in flight alone needs no rebuild.
+5. **App start does no brain work.** `DailyMixStateHolder.updateDailyMix` (non-forced, engine brain): with a mix saved today it
+   restores the saved ids from the preferences (a small cache) and stops; the brain is read when a surface that shows a mix opens:
+   `onMixSurfaceOpened(full = true)` from Daily Mix and Your Mix (reads and, if needed, builds), `full = false` from Home (waits out
+   the first 4 s, then reads only today's saved served-log rows: no state load, no build). A new day builds as before, after the
+   quiet period. `BrainSwitch.brainStateSeen()` (a DataStore flag set the first time the brain has state) tells app start whether
+   the brain may own the mixes at all, so an install without state builds the legacy mixes at once instead of after 4 s.
+6. **`brain.db` trouble is the legacy mixes, not a crash.** `publishBrainMixes`, `publishSavedBrainMixes`, `removeItem`
+   and Regenerate catch everything but cancellation and fall back.
+7. **The request budget counts requests.** New `RequestLedger` (a timestamp per request in `brain_state` `request_ledger`, read
+   only when a request is about to go out): `HostBudget(onSpend, dayHasRoom)` records every token it gives out and refuses the
+   63rd request of a day whoever asks, a process restart included. `AppRefreshWork.requestsLeft` stops the worker at 40 of the 60
+   requests (all callers counted), so the foreground keeps at least 20. Lane 1 now leaves `RELEASES_RESERVE` = 4 requests of the
+   window for lane 2 (`RefreshWork.releasesReserve`), so a long list of uncached radios cannot starve the releases lane.
+8. **Minor fixes.** (a) A play in flight when a private session was on is saved as excluded in the open-play record, so recovery
+   after a process death keeps it out. (b) The channel id fallback of the releases path needs the same folded name, and
+   "Various Artists" / "Unknown Artist" are never a top-artist seed. (c) The New releases row drops a card the library has
+   since (`NewReleases.row(..., library)`). (d) A saved mix is kept while it has at least 3 songs (`MIN_SAVED_SONGS`), not 10,
+   so it stays the same list all day. (e) The shortlist cache is one immutable `Slice` in a `@Volatile` field and its key
+   includes the favourites. (f) Spotify Connect autoplay lookups spend a bucket (24 burst, 600 a day) and a pick that is not
+   looked up is "not now". (g) Edges: a chip or continuation list has its own edge type (`TYPE_CHIP` = 3, weight `Graph.CHIP`),
+   the new rows go in before the stale ones are deleted (`GraphEdgeDao.deleteStale`), so a kill leaves too many edges, never none.
+
+## Deviations 122 and on
+
+122. **A launch on a day that has a saved mix reads no brain data**; Home shows the saved library ids until a mix screen opens (full
+     read) or Home's mix card reads the saved served-log rows after 4 s (reasons and outside tracks then appear). Spec 8.2 says the
+     mixes are read from the saved plan; the plan here is `brain.db`'s served log, so a first-frame read of it is what was cut.
+123. **Don't count on an album or a playlist reaches stored plays only**, as before; the rebuild reads `TARGET_SONG` rows only.
+124. **A private play still writes `PlaybackStatsRepository`** (Recently Played, listening time), not the counters that rank.
+125. **`graph_edge.type` 3 is "chip"**: no schema change (the column was already an Int), but iOS must write it the same way.
+126. **The daily request ledger is a new `brain_state` key** (`request_ledger`, up to 240 timestamps), not a table.
+127. **`UserPreferences` `brain_state_seen`** (DataStore) is new: iOS needs an equivalent cheap "brain has state" flag if it wants
+     the same start-up behaviour.
+
+## For the iOS port (review pass)
+
+- **No pure-core change, no golden file changed.** `./gradlew :brain:test` is the check.
+- Mirror: `isPrivate` skipping the legacy counters, the three SQL changes of (2) (exclude `learnExcluded` from seeds, saved and
+  ignored-three-times), the rebuild's `excluded` map, the request ledger, the lane-1 reserve, `TYPE_CHIP` edges.
+
+## How to test on a phone (the stage 2a "Done means", as steps)
+
+Developer mode on. Spotify connected, at least ten songs played through, Wi-Fi.
+
+1. **Mixes with new music.** Open Daily Mix and Your Mix: some rows say why ("Fans of X also play this") and offer Save; one song is in
+   one mix only; play a row from outside the library: it must play. Kill the app and open it again: the same list (nothing new
+   drawn). Regenerate on Your Mix draws another list and leaves the Daily Mix alone.
+2. **The first seconds.** Cold start the app on a day that already has a mix: no pause, Home shows a mix at once, and in
+   Developer options `brain_state_load` has no timing until a mix screen is opened or a track ends (that is "no brain work at app start").
+   Settings > Developer: engine "Legacy" gives the old mixes; with a fresh install (no plays) the mixes appear at once, built the old way.
+3. **The one job.** `adb shell dumpsys jobscheduler | grep brain_refresh`: unique, periodic, unmetered, battery not low, scheduled only
+   after the first mix was opened. Turn the switch off (Settings): the next run does nothing. The ledger: in Developer options
+   (or `brain_state` `request_ledger`) the day's requests never pass 60.
+4. **New from artists you play.** After a day or two on Wi-Fi: the Home row appears with six or more cards, each with a "New from X" line;
+   a card you Save leaves the row.
+5. **Stations.** Song menu > Start artist station for an artist you have never played (sound within a few seconds); the radio icon on an
+   album; the options sheet of a playlist. Let one run long.
+6. **Controls.** "More like this" (next batch leans that way); "Don't count this" on a song you have played, with Undo; on a song whose
+   plays came from your Spotify history only (the sheet should say it left plays out); Private session on, play three songs of one
+   artist ten times, off: **Daily Mix and Home stay as they were**, the songs are in Recently Played (and in the listening time of Stats: deviation 124).
+7. **Cast and Connect.** Cast: Autoplay is off with its words; Connect: picks that Spotify does not have never reach the queue.
+
+## Nobody has verified on a device
+
+Everything above. In particular: the first-frame behaviour of Home (saved ids, then the brain's rows ~4 s later), the whole request
+ledger on a real day (the bucket, the daily gate and the worker's 40), that lane 2 now reaches a real release check, the three SQL
+statements that skip excluded plays (no SQLite on the JVM here), `ReplayMerger`'s imported-play exclusion on a real Spotify export, the
+`brain.db` 2 to 3 migration on real data, and the instrumented migration test (not run).
+
+## What was run, and what it said (review pass)
+
+One Gradle build at a time with `ANDROID_HOME="C:\Users\Hoa\AppData\Local\Android\Sdk"`.
+
+- `./gradlew :app:testDebugUnitTest --tests "...data.brain.*" --tests "...presentation.viewmodel.*" --tests "...data.service.player.*"`: BUILD SUCCESSFUL
+  (the first two attempts failed to compile: a lost line in `DailyMixStateHolder`, a broken insert in `MixTestFakes`, `markFlag` now returns Boolean).
+- `./gradlew --continue :brain:test :app:testDebugUnitTest :app:assembleDebug`: **BUILD SUCCESSFUL** (9m 32s). `:brain:test` 126 tests, 0 failures (no pure-core change, so no golden file was regenerated and `git status brain` is clean); `:app:testDebugUnitTest` (the whole task, once) **2326 tests, 2 skipped, 0 failures, 0 errors** (the new tests: `RequestLedgerTest`, and additions to `LearnExclusionTest`, `DailyMixBrainPathTest`, `ListeningStatsTrackerBrainTest`, `BrainMixesTest`, `GraphEdgeStoreTest`, `NewReleasesTest`, `BrainRefreshReleasesLaneTest`); `:app:assembleDebug` built.
+- Not run: the instrumented tests (migration; the three changed SQL statements have no JVM test).

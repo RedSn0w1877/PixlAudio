@@ -137,6 +137,8 @@ fun HomeScreen(
     val statsViewModel: StatsViewModel = hiltViewModel()
     val dailyMixSongs by playerViewModel.dailyMixSongs.collectAsStateWithLifecycle()
     val curatedYourMixSongs by playerViewModel.yourMixSongs.collectAsStateWithLifecycle()
+    // Home's mix card: today's saved brain mix is read back once the first seconds have passed (no state load).
+    androidx.compose.runtime.LaunchedEffect(Unit) { playerViewModel.onMixSurfaceOpened(full = false) }
     val homeMixPreviewSongs by playerViewModel.homeMixPreviewSongs.collectAsStateWithLifecycle()
     val playbackHistory by playerViewModel.playbackHistory.collectAsStateWithLifecycle()
     val lifecycleOwner = LocalLifecycleOwner.current

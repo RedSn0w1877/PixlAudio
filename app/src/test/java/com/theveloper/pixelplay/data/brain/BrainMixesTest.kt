@@ -262,6 +262,23 @@ class BrainMixesTest {
     }
 
     @Test
+    fun `a mix that lost library songs is not replaced by a different list`() = runTest {
+        listen(30, 6)
+        cacheRadios(6)
+        val m = mixes()
+        val built = m.today(MixPlanner.KIND_DAILY)!!
+        assertTrue(built.novelIds.size >= BrainMixes.MIN_SAVED_SONGS, "the test needs a mix with new music")
+        // Every library song of the mix has left the library (a sync, an unlike).
+        every { music.getSongsByIds(any()) } returns flowOf(emptyList())
+
+        val again = m.today(MixPlanner.KIND_DAILY)!!
+
+        assertEquals(built.builtAtMs, again.builtAtMs)
+        assertEquals(1, servedDao.rows.size, "no second list was drawn")
+        assertTrue(again.songs.isNotEmpty() && again.songs.all { it.id in built.novelIds })
+    }
+
+    @Test
     fun `a song the listener removes from the mix stays out`() = runTest {
         listen(30, 6)
         cacheRadios(6)

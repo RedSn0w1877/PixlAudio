@@ -414,6 +414,12 @@ class SpotifyConnectController @Inject constructor(
      * remembered about it. Autoplay asks this before it queues a pick during a session, so a pick
      * Spotify does not have never reaches the queue. At most [AUTOPLAY_LOOKUP_LIMIT] searches a call.
      */
+    /** Autoplay's searches on a Connect session: 24 back to back, then about one every 2.4 minutes (600 a day). */
+    private val autoplaySearchBudget = com.theveloper.pixelplay.data.brain.source.HostBudget(
+        capacity = AUTOPLAY_LOOKUP_LIMIT,
+        refillIntervalMs = com.theveloper.pixelplay.data.brain.source.HostBudget.DAY_MS / AUTOPLAY_SEARCHES_PER_DAY,
+    )
+
     suspend fun canPlay(items: List<MediaItem>): BooleanArray {
         val out = BooleanArray(items.size)
         if (items.isEmpty()) return out
@@ -424,6 +430,9 @@ class SpotifyConnectController @Inject constructor(
                 var slot = resolver.cached(track)
                 if (slot == SpotifyConnectSlot.Pending) {
                     if (lookups >= AUTOPLAY_LOOKUP_LIMIT) continue
+                    // One bucket for the Spotify search host (docs/brain-spec.md, 2.1): a long session on a speaker cannot
+                    // spend the searches the library sync needs. A pick that is not looked up is "not now".
+                    if (!autoplaySearchBudget.tryAcquire()) continue
                     lookups++
                     slot = resolver.resolve(track)
                 }
@@ -1136,6 +1145,8 @@ class SpotifyConnectController @Inject constructor(
         const val RESYNC_DEBOUNCE_MS = 350L
         /** Searches one [canPlay] call may spend (a station's first batch is 20 picks). */
         const val AUTOPLAY_LOOKUP_LIMIT = 24
+        /** The day's ceiling for those searches on this host. */
+        const val AUTOPLAY_SEARCHES_PER_DAY = 600
         /** Volume key step, in percent (one unit of the session's 0…20 remote volume). */
         const val VOLUME_STEP = SpotifyConnectVolume.STEP_PERCENT
     }

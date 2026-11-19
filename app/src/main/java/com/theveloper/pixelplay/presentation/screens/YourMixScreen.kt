@@ -110,6 +110,7 @@ fun YourMixScreen(
     val curatedYourMixSongs by playerViewModel.yourMixSongs.collectAsStateWithLifecycle()
     val mixReasons by playerViewModel.mixReasons.collectAsStateWithLifecycle()
     val mixNovelSongIds by playerViewModel.mixNovelSongIds.collectAsStateWithLifecycle()
+    androidx.compose.runtime.LaunchedEffect(Unit) { playerViewModel.onMixSurfaceOpened(full = true) }
     val isRegeneratingYourMix by playerViewModel.isRegeneratingYourMix.collectAsStateWithLifecycle()
     val dailyMixSongs by playerViewModel.dailyMixSongs.collectAsStateWithLifecycle()
     val homeMixPreviewSongs by playerViewModel.homeMixPreviewSongs.collectAsStateWithLifecycle()

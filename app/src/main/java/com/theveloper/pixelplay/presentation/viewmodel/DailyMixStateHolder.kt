@@ -24,6 +24,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -71,10 +72,11 @@ class DailyMixStateHolder @Inject constructor(
     @Volatile private var brainYour: MixView? = null
 
     /**
-     * Waits out the first seconds of the process before the brain is touched (stage 1's "nothing at app
-     * start": `brain.db` stays closed while the app starts). Today's saved mixes are then read; until
-     * then the screens show the legacy ids saved with them (the library songs of the same mix). A
-     * var so a test does not wait.
+     * Waits out the first seconds of the process before the brain is touched on a NEW day (the first launch of
+     * a day has a mix to build; stage 1's "nothing at app start": `brain.db` stays closed while the app
+     * starts). A launch on a day that already has a saved mix never touches the brain: the screens show the
+     * saved ids from the preferences, and the brain's own read happens when a mix screen opens
+     * ([onMixSurfaceOpened]). A var so a test does not wait.
      */
     internal var startupQuiet: suspend () -> Unit = {
         val sinceStart = android.os.SystemClock.elapsedRealtime() - android.os.Process.getStartElapsedRealtime()
@@ -82,25 +84,72 @@ class DailyMixStateHolder @Inject constructor(
         if (wait > 0) kotlinx.coroutines.delay(wait)
     }
 
+    /** The brain's mixes were published in this process. */
+    @Volatile private var brainPublished = false
+    private val brainReadLock = kotlinx.coroutines.sync.Mutex()
+
     /**
      * Publishes the brain's mixes (stage 2a) when the brain owns them: the engine switch is on and the
      * brain has played tracks to rank by. Today's saved mixes are read back first and need no brain
      * state, so a restart shows them at once. False means the legacy mixes build as they always did.
+     *
+     * Never throws: a `brain.db` that cannot be read (a failed migration, a full disk) is the legacy
+     * mixes, with a log line and no crash.
      */
     private suspend fun publishBrainMixes(regenerate: Boolean): Boolean {
-        if (brainSwitch.engine() != BrainEngineChoice.BRAIN) return false
-        startupQuiet()
-        var daily = if (regenerate) null else brainMixes.saved(MixPlanner.KIND_DAILY)
-        var your = if (regenerate) null else brainMixes.saved(MixPlanner.KIND_YOUR)
-        if (daily == null || your == null) {
-            if (!brainMixes.hasState()) return false
-            // Daily Mix first: Your Mix may not hold a track the Daily Mix of the same day holds.
-            if (daily == null) daily = brainMixes.today(MixPlanner.KIND_DAILY, regenerate)
-            if (your == null) your = brainMixes.today(MixPlanner.KIND_YOUR, regenerate)
+        try {
+            if (brainSwitch.engine() != BrainEngineChoice.BRAIN) return false
+            var daily = if (regenerate) null else brainMixes.saved(MixPlanner.KIND_DAILY)
+            var your = if (regenerate) null else brainMixes.saved(MixPlanner.KIND_YOUR)
+            if (daily == null || your == null) {
+                if (!brainMixes.hasState()) return false
+                // Daily Mix first: Your Mix may not hold a track the Daily Mix of the same day holds.
+                if (daily == null) daily = brainMixes.today(MixPlanner.KIND_DAILY, regenerate)
+                if (your == null) your = brainMixes.today(MixPlanner.KIND_YOUR, regenerate)
+            }
+            if (daily == null || your == null) return false
+            publish(daily, your)
+            brainPublished = true
+            return true
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            timber.log.Timber.w(e, "brain: the mixes could not be read, the legacy mixes serve")
+            return false
         }
-        if (daily == null || your == null) return false
-        publish(daily, your)
-        return true
+    }
+
+    /**
+     * A surface that shows a mix opened. [full] is a mix screen (Daily Mix, Your Mix): the brain's mix is
+     * read now, once per process, with its reasons and its rows from outside the library, and built when
+     * there is none for today. Without it (Home's mix card) the first seconds of the process are waited out
+     * and only today's saved mix is read back: one small read of the served log, no state load. Until
+     * either, the screens hold the saved ids of the day.
+     */
+    fun onMixSurfaceOpened(full: Boolean = true): Job? {
+        if (brainPublished) return null
+        return scope?.launch(Dispatchers.IO) {
+            if (!full) startupQuiet()
+            brainReadLock.withLock {
+                if (brainPublished) return@withLock
+                if (full) publishBrainMixes(regenerate = false) else publishSavedBrainMixes()
+            }
+        }
+    }
+
+    /** Only today's saved brain mixes, when there are both; nothing is built and no state is loaded. */
+    private suspend fun publishSavedBrainMixes() {
+        try {
+            if (!brainWillOwn(force = false)) return
+            val daily = brainMixes.saved(MixPlanner.KIND_DAILY) ?: return
+            val your = brainMixes.saved(MixPlanner.KIND_YOUR) ?: return
+            publish(daily, your)
+            brainPublished = true
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            timber.log.Timber.w(e, "brain: the saved mixes could not be read")
+        }
     }
 
     private suspend fun publish(daily: MixView?, your: MixView?) {
@@ -121,6 +170,18 @@ class DailyMixStateHolder @Inject constructor(
         brainYour?.let { reasons.putAll(it.reasons); novel.addAll(it.novelIds) }
         _mixReasons.value = reasons
         _novelSongIds.value = novel
+    }
+
+    /**
+     * The brain may own the mixes: the engine switch is on and (unless the listener asked for a new list) the
+     * brain has had state before. A switch and a preference read: nothing of `brain.db` is touched.
+     */
+    private suspend fun brainWillOwn(force: Boolean): Boolean = try {
+        brainSwitch.engine() == BrainEngineChoice.BRAIN && (force || brainSwitch.brainStateSeen())
+    } catch (e: kotlinx.coroutines.CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        false
     }
 
     /** True when the brain scorer builds the mixes (the engine switch is on and the brain has state). */
@@ -154,7 +215,15 @@ class DailyMixStateHolder @Inject constructor(
             val novel = _novelSongIds.value
             userPreferencesRepository.saveDailyMixSongIds(_dailyMixSongs.value.filter { it.id !in novel }.map { it.id })
             // A brain mix is read back from the served log: the removal has to be written there too.
-            if (brainDaily != null) brainMixes.removeItem(MixPlanner.KIND_DAILY, songId)
+            if (brainDaily != null) {
+                try {
+                    brainMixes.removeItem(MixPlanner.KIND_DAILY, songId)
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    timber.log.Timber.w(e, "brain: the removal could not be saved")
+                }
+            }
         }
     }
 
@@ -166,7 +235,23 @@ class DailyMixStateHolder @Inject constructor(
         updateJob?.cancel()
         updateJob = scope?.launch(Dispatchers.IO) {
             // The brain's mixes (stage 2a) when it owns them; otherwise the legacy mixes below, unchanged.
-            if (publishBrainMixes(regenerate = force)) return@launch
+            if (brainWillOwn(force)) {
+                if (force) {
+                    if (publishBrainMixes(regenerate = true)) return@launch
+                } else {
+                    val lastSaved = userPreferencesRepository.lastDailyMixUpdateFlow.first()
+                    val zone = java.time.ZoneId.systemDefault()
+                    val savedToday = lastSaved > 0 && java.time.Instant.ofEpochMilli(lastSaved).atZone(zone).toLocalDate() == java.time.LocalDate.now(zone)
+                    if (savedToday) {
+                        // No brain work at app start: today's saved ids paint the screens; the brain is read when a mix screen opens.
+                        restoreSavedMixes()
+                        if (_dailyMixSongs.value.isNotEmpty()) return@launch
+                    }
+                    // A new day: the mix is built once the first seconds of the process have passed.
+                    startupQuiet()
+                    brainReadLock.withLock { if (publishBrainMixes(regenerate = false)) return@launch }
+                }
+            }
             // Startup and library sync both call here. Keep today's saved discoveries and
             // explicit edits instead of regenerating from the local library on every launch.
             val lastUpdate = userPreferencesRepository.lastDailyMixUpdateFlow.first()
@@ -235,12 +320,12 @@ class DailyMixStateHolder @Inject constructor(
             _isRegeneratingYourMix.value = true
             try {
                 // The brain draws another list, and the served log counts the one it replaces (8.2).
-                if (brainSwitch.engine() == BrainEngineChoice.BRAIN && brainMixes.hasState()) {
-                    val your = brainMixes.today(MixPlanner.KIND_YOUR, regenerate = true)
-                    if (your != null) {
-                        publish(null, your)
-                        return@launch
-                    }
+                val your = runCatching {
+                    if (brainSwitch.engine() == BrainEngineChoice.BRAIN && brainMixes.hasState()) brainMixes.today(MixPlanner.KIND_YOUR, regenerate = true) else null
+                }.onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }.getOrNull()
+                if (your != null) {
+                    publish(null, your)
+                    return@launch
                 }
                 val allSongs = musicRepository.getAllSongsOnce()
                 if (allSongs.isNotEmpty()) {

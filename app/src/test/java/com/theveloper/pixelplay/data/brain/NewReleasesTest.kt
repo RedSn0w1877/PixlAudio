@@ -226,4 +226,32 @@ class NewReleasesTest {
         assertNotNull(releases.channelOf("two"))
         assertNull(releases.channelOf("Nobody"))
     }
+
+    @Test
+    fun `a card the listener has saved since leaves the row`() = runTest {
+        val clock = Clock(1_000_000_000_000L)
+        val now = clock.now
+        val file = MemoryFile()
+        file.file = NewReleaseFile(
+            found = listOf(
+                found("UCa", "A", now - 1_000, listOf(1, 2)),
+                found("UCb", "B", now - 2_000, listOf(3, 4)),
+                found("UCc", "C", now - 3_000, listOf(5, 6)),
+                found("UCd", "D", now - 4_000, listOf(7, 8)),
+            ),
+        )
+        val releases = NewReleases(file, FakeRadioSource(), MemoryTrackResolver(), clock)
+        val blocked = com.theveloper.pixelplay.data.blocking.BlockedArtistIndex(emptyList())
+        val none = com.theveloper.pixelplay.data.recommendation.TasteAdjustments.NONE
+        assertEquals(8, releases.row(blocked, none)!!.items.size)
+
+        // The listener saved "S1" by A: it is a library song now, so it is no longer a card.
+        val saved = com.theveloper.pixelplay.data.model.Song.emptySong().copy(
+            id = "lib-1", title = "S1", artist = "A", duration = 0L,
+            artists = listOf(com.theveloper.pixelplay.data.model.ArtistRef(id = 1L, name = "A", isPrimary = true)),
+        )
+        val row = releases.row(blocked, none, LibraryIndex(listOf(saved)))!!
+        assertEquals(7, row.items.size)
+        assertTrue(row.items.none { it.track.rid == 1L })
+    }
 }

@@ -1517,6 +1517,9 @@ class PlayerViewModel @Inject constructor(
     /** Called just before a mix is played, so its rows carry the mix and their reasons into the queue and the log. */
     fun expectMixPlay(queueName: String, isYourMix: Boolean) = dailyMixStateHolder.expectMixPlay(queueName, isYourMix)
 
+    /** A surface that shows a mix opened: the brain's mix is read now (see [DailyMixStateHolder.onMixSurfaceOpened]). */
+    fun onMixSurfaceOpened(full: Boolean = true) { dailyMixStateHolder.onMixSurfaceOpened(full) }
+
     fun removeFromDailyMix(songId: String) {
         dailyMixStateHolder.removeFromDailyMix(songId)
     }

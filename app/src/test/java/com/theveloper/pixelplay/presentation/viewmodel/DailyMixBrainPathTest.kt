@@ -48,8 +48,11 @@ class DailyMixBrainPathTest {
         )
     }
 
+    /** The brain has today's mixes saved, and it is the first launch of the day (nothing saved in the preferences yet). */
     private fun savedToday(daily: MixView, your: MixView) {
         coEvery { switch.engine() } returns BrainEngineChoice.BRAIN
+        coEvery { switch.brainStateSeen() } returns true
+        every { preferences.lastDailyMixUpdateFlow } returns flowOf(0L)
         coEvery { mixes.saved(MixPlanner.KIND_DAILY) } returns daily
         coEvery { mixes.saved(MixPlanner.KIND_YOUR) } returns your
     }
@@ -125,6 +128,86 @@ class DailyMixBrainPathTest {
         assertEquals(listOf("d", "e", "-5"), holder.yourMixSongs.value.map { it.id })
         assertEquals(listOf("a", "-9"), holder.dailyMixSongs.value.map { it.id })
         assertEquals(setOf("-9", "-5"), holder.novelSongIds.value)
+        holder.onCleared()
+    }
+
+    @Test fun `a launch on a day that has a saved mix does not touch the brain, and a mix screen reads it`() = runBlocking {
+        val daily = view(MixPlanner.KIND_DAILY, listOf("a", "b"), listOf("-9"))
+        val your = view(MixPlanner.KIND_YOUR, listOf("c"), listOf("-8"))
+        coEvery { switch.engine() } returns BrainEngineChoice.BRAIN
+        coEvery { switch.brainStateSeen() } returns true
+        coEvery { mixes.saved(MixPlanner.KIND_DAILY) } returns daily
+        coEvery { mixes.saved(MixPlanner.KIND_YOUR) } returns your
+        every { preferences.lastDailyMixUpdateFlow } returns flowOf(System.currentTimeMillis())
+        every { preferences.dailyMixSongIdsFlow } returns flowOf(listOf("a", "b"))
+        every { preferences.yourMixSongIdsFlow } returns flowOf(listOf("c"))
+        every { music.getSongsByIds(listOf("a", "b")) } returns flowOf(listOf(song("a"), song("b")))
+        every { music.getSongsByIds(listOf("c")) } returns flowOf(listOf(song("c")))
+        holder.startupQuiet = { error("the app start must not wait for, or read, the brain") }
+        holder.initialize(this)
+
+        holder.updateDailyMix(flowOf(emptySet()))!!.join()
+
+        assertEquals(listOf("a", "b"), holder.dailyMixSongs.value.map { it.id })
+        coVerify(exactly = 0) { mixes.saved(any()) }
+        coVerify(exactly = 0) { mixes.hasState() }
+        coVerify(exactly = 0) { mixes.today(any(), any()) }
+
+        holder.onMixSurfaceOpened(full = true)!!.join()
+        assertEquals(listOf("a", "b", "-9"), holder.dailyMixSongs.value.map { it.id })
+        assertEquals(setOf("-9", "-8"), holder.novelSongIds.value)
+        holder.onCleared()
+    }
+
+    @Test fun `Home's mix card reads only the saved mix, with no state load and no build`() = runBlocking {
+        val daily = view(MixPlanner.KIND_DAILY, listOf("a"), listOf("-9"))
+        val your = view(MixPlanner.KIND_YOUR, listOf("c"), emptyList())
+        coEvery { switch.engine() } returns BrainEngineChoice.BRAIN
+        coEvery { switch.brainStateSeen() } returns true
+        coEvery { mixes.saved(MixPlanner.KIND_DAILY) } returns daily
+        coEvery { mixes.saved(MixPlanner.KIND_YOUR) } returns your
+        holder.initialize(this)
+
+        holder.onMixSurfaceOpened(full = false)!!.join()
+
+        assertEquals(listOf("a", "-9"), holder.dailyMixSongs.value.map { it.id })
+        coVerify(exactly = 0) { mixes.hasState() }
+        coVerify(exactly = 0) { mixes.today(any(), any()) }
+        holder.onCleared()
+    }
+
+    @Test fun `a brain database that cannot be read is the legacy mixes, not a crash`() = runBlocking {
+        val fresh = song("fresh")
+        coEvery { switch.engine() } returns BrainEngineChoice.BRAIN
+        coEvery { switch.brainStateSeen() } returns true
+        coEvery { mixes.saved(any()) } throws java.io.IOException("disk full")
+        every { preferences.lastDailyMixUpdateFlow } returns flowOf(0L)
+        coEvery { music.getAllSongsOnce() } returns listOf(fresh)
+        coEvery { manager.generateDailyMix(any(), any(), any()) } returns listOf(fresh)
+        coEvery { manager.generateYourMix(any(), any(), any()) } returns listOf(fresh)
+        holder.initialize(this)
+
+        holder.updateDailyMix(flowOf(emptySet()))!!.join()
+
+        assertEquals(listOf(fresh), holder.dailyMixSongs.value)
+        holder.onCleared()
+    }
+
+    @Test fun `with no brain state seen the legacy mixes build at once, without waiting for the brain`() = runBlocking {
+        val fresh = song("fresh")
+        coEvery { switch.engine() } returns BrainEngineChoice.BRAIN
+        coEvery { switch.brainStateSeen() } returns false
+        every { preferences.lastDailyMixUpdateFlow } returns flowOf(0L)
+        coEvery { music.getAllSongsOnce() } returns listOf(fresh)
+        coEvery { manager.generateDailyMix(any(), any(), any()) } returns listOf(fresh)
+        coEvery { manager.generateYourMix(any(), any(), any()) } returns listOf(fresh)
+        holder.startupQuiet = { error("no wait when there is no brain state") }
+        holder.initialize(this)
+
+        holder.updateDailyMix(flowOf(emptySet()))!!.join()
+
+        assertEquals(listOf(fresh), holder.dailyMixSongs.value)
+        coVerify(exactly = 0) { mixes.saved(any()) }
         holder.onCleared()
     }
 }

@@ -29,23 +29,42 @@ class LearnExclusion @Inject constructor(
     private val tracker: dagger.Lazy<ListeningStatsTracker>,
     private val clock: BrainClock,
 ) {
-    /** What was excluded: the events, and the `feedback` row that records it. */
-    class Excluded(val feedbackId: Long, val eventIds: List<Long>) {
-        val count: Int get() = eventIds.size
+    /**
+     * What was excluded: the events, and the `feedback` row that records it. [flaggedSongId] is the song
+     * whose play in flight was flagged too (Undo clears it), [importedPlays] how many plays of an earlier
+     * history import the rebuild leaves out (the log holds none of them).
+     */
+    class Excluded(
+        val feedbackId: Long,
+        val eventIds: List<Long>,
+        val flaggedSongId: String? = null,
+        val importedPlays: Int = 0,
+    ) {
+        val count: Int get() = eventIds.size + importedPlays + (if (flaggedSongId != null) 1 else 0)
     }
 
-    /** All the plays of the recordings in [rids]: a song, or the songs of an album or a playlist. */
-    suspend fun excludeRecordings(rids: Collection<Long>, targetKind: Int, targetId: Long, playingSongId: String?): Excluded? {
+    /**
+     * All the plays of the recordings in [rids]: a song, or the songs of an album or a playlist.
+     * [importedPlays] is how many plays of an imported history belong to them (the log does not hold those;
+     * the rebuild that follows reads the `feedback` row and leaves them out). Null when there is nothing to leave out.
+     */
+    suspend fun excludeRecordings(
+        rids: Collection<Long>,
+        targetKind: Int,
+        targetId: Long,
+        playingSongId: String?,
+        importedPlays: Int = 0,
+    ): Excluded? {
         if (rids.isEmpty()) return null
-        playingSongId?.let(::flagPlaying)
-        return exclude(targetKind, targetId) { store.eventsOfRecordings(rids) }
+        val flagged = playingSongId?.takeIf(::flagPlaying)
+        return exclude(targetKind, targetId, flagged, importedPlays) { store.eventsOfRecordings(rids) }
     }
 
     /** Every live play of the last [windowMs] (an hour by default). */
     suspend fun excludeLastHour(playingSongId: String?, windowMs: Long = HOUR_MS): Excluded? {
-        playingSongId?.let(::flagPlaying)
+        val flagged = playingSongId?.takeIf(::flagPlaying)
         val since = clock.nowMs() - windowMs
-        return exclude(FeedbackKinds.TARGET_LAST_HOUR, since) { store.eventsStartedSince(since) }
+        return exclude(FeedbackKinds.TARGET_LAST_HOUR, since, flagged, 0) { store.eventsStartedSince(since) }
     }
 
     /** Takes [excluded] back: the plays count again, from the rebuild that follows. */
@@ -54,6 +73,7 @@ class LearnExclusion @Inject constructor(
             engine.withState {
                 store.transaction { store.setEventFlag(excluded.eventIds, EventFlags.LEARN_EXCLUDED, on = false) }
             }
+            excluded.flaggedSongId?.let { runCatching { tracker.get().unmarkFlag(it, EventFlags.LEARN_EXCLUDED) } }
             feedback.undo(excluded.feedbackId, clock.nowMs())
             engine.requestRebuild(force = true)
         } catch (e: CancellationException) {
@@ -63,7 +83,13 @@ class LearnExclusion @Inject constructor(
         }
     }
 
-    private suspend fun exclude(targetKind: Int, targetId: Long, find: () -> List<PlayEvent>): Excluded? {
+    private suspend fun exclude(
+        targetKind: Int,
+        targetId: Long,
+        flaggedSongId: String?,
+        importedPlays: Int,
+        find: () -> List<PlayEvent>,
+    ): Excluded? {
         val now = clock.nowMs()
         val ids = engine.withState { state ->
             val fresh = find().filter { !it.has(EventFlags.LEARN_EXCLUDED) }
@@ -83,17 +109,19 @@ class LearnExclusion @Inject constructor(
             }
             fresh.map { it.eventId }
         }
+        // Nothing stored, nothing imported, and no play in flight: there is nothing to leave out, so no row and no rebuild.
+        if (ids.isEmpty() && importedPlays == 0 && flaggedSongId == null) return null
         val id = now * 8 + FeedbackKinds.DONT_COUNT
         feedback.insert(FeedbackEntity(id, FeedbackKinds.DONT_COUNT, targetKind, targetId, now, null))
-        // The quick subtraction is an approximation (the grade was made without its context); the rebuild is exact.
-        engine.requestRebuild(force = true)
-        return Excluded(id, ids)
+        // The quick subtraction is an approximation (the grade was made without its context); the rebuild is exact,
+        // and it is also what leaves out the imported plays. A play in flight alone needs neither.
+        if (ids.isNotEmpty() || importedPlays > 0) engine.requestRebuild(force = true)
+        return Excluded(id, ids, flaggedSongId, importedPlays)
     }
 
-    /** The play in flight is flagged too, so it is logged as excluded when it ends. */
-    private fun flagPlaying(songId: String) {
-        runCatching { tracker.get().markFlag(songId, EventFlags.LEARN_EXCLUDED) }
-    }
+    /** The play in flight is flagged too, so it is logged as excluded when it ends. True when there was one. */
+    private fun flagPlaying(songId: String): Boolean =
+        runCatching { tracker.get().markFlag(songId, EventFlags.LEARN_EXCLUDED) }.getOrDefault(false)
 
     private companion object {
         const val HOUR_MS = 3_600_000L

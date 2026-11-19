@@ -100,7 +100,8 @@ object BrainModule {
     /** The YouTube Music bucket: the only host the brain talks to in stage 1. */
     @Provides
     @Singleton
-    fun provideYouTubeHostBudget(): HostBudget = HostBudget()
+    fun provideYouTubeHostBudget(ledger: com.theveloper.pixelplay.data.brain.RequestLedger): HostBudget =
+        HostBudget(onSpend = { ledger.record(it) }, dayHasRoom = { ledger.hasRoom() })
 
     /** "New from artists you play": one small file, read by Home without the database. */
     @Provides

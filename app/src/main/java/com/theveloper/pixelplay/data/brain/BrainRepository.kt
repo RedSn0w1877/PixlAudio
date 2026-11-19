@@ -443,7 +443,10 @@ class BrainRepository @Inject constructor(
         if (!allowNetwork) return null
         val fetched = radioSource.songRadio(seed.videoId, 0) ?: return null
         return channelIn(fetched.rows)
-            ?: fetched.rows.firstOrNull { it.videoId == seed.videoId }?.artists?.firstOrNull { it.channelId != null }?.channelId
+            // The seed's own row, but only an artist it names the same way the library does: a track the library credits
+            // to "Various Artists" must not hand over the performer's channel (the releases row would be about them).
+            ?: fetched.rows.firstOrNull { it.videoId == seed.videoId }?.artists
+                ?.firstOrNull { it.channelId != null && BrainText.fold(it.name) == artistKey }?.channelId
     }
 
     private fun isJunk(fetched: FetchedRadio, seed: RadioSeed): Boolean {
@@ -508,7 +511,7 @@ class BrainRepository @Inject constructor(
         if (radioLists.count() > MusicBrainDatabase.MAX_RADIO_LISTS) radioLists.trimTo(MusicBrainDatabase.MAX_RADIO_LISTS)
         // An artist station's list is the artist's top songs, not a ranking by closeness to the seed:
         // it is not an edge of the graph.
-        if (chip != ARTIST_STATION_CHIP && chip != SIMILAR_STATION_CHIP) edges.record(seedRid, kind, LongArray(stored.size) { stored[it].rid }, now)
+        if (chip != ARTIST_STATION_CHIP && chip != SIMILAR_STATION_CHIP) edges.record(seedRid, kind, LongArray(stored.size) { stored[it].rid }, now, chip)
         return StoredRadio(seedRid, kind, stored, fromCache = false)
     }
 

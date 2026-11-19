@@ -74,6 +74,13 @@ interface PlaySink {
      */
     suspend fun isOutsideLibrary(songId: String, context: PlayContext?): Boolean
 
+    /**
+     * True when a play from [startedAtMs] to [endMs] overlapped a private session. The legacy counters
+     * (`feedback_v1`, `song_engagements`, the daily-mix play history) skip such a play as well: they
+     * feed the brain's own shortlist and the cloud rankers, so a private play must not reach them.
+     */
+    fun isPrivate(startedAtMs: Long, endMs: Long): Boolean = false
+
     companion object {
         val NONE = object : PlaySink {
             override fun onPlayFinished(play: FinishedPlay) = Unit

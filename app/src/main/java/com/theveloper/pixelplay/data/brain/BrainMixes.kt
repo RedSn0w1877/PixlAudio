@@ -2,6 +2,7 @@ package com.theveloper.pixelplay.data.brain
 
 import com.theveloper.pixelplay.brain.Affinity
 import com.theveloper.pixelplay.brain.Arm
+import com.theveloper.pixelplay.brain.BrainText
 import com.theveloper.pixelplay.brain.Family
 import com.theveloper.pixelplay.brain.MixPlanner
 import com.theveloper.pixelplay.brain.Repetition
@@ -77,15 +78,24 @@ class BrainMixes @Inject constructor(
     private val clock: BrainClock,
 ) {
     private val buildLock = Mutex()
+    @Volatile private var stateMarked = false
 
     /** True when the brain scorer builds the mixes: switched on, and there is state to rank by. */
     suspend fun ownsMixes(): Boolean {
         if (brainSwitch.engine() != BrainEngineChoice.BRAIN) return false
-        return brain.withState { BrainEngineChoice.hasState(it.affinity) }
+        return hasState()
     }
 
     /** True when the brain has played tracks to rank by (see [BrainEngineChoice.hasState]). Loads the state on first use. */
-    suspend fun hasState(): Boolean = brain.withState { BrainEngineChoice.hasState(it.affinity) }
+    suspend fun hasState(): Boolean {
+        val has = brain.withState { BrainEngineChoice.hasState(it.affinity) }
+        // Remembered, so that the next app start knows without loading anything.
+        if (has && !stateMarked) {
+            stateMarked = true
+            runCatching { brainSwitch.markBrainStateSeen() }
+        }
+        return has
+    }
 
     /**
      * Today's saved mix of [kind], read back without building anything and without loading the brain's
@@ -283,6 +293,7 @@ class BrainMixes @Inject constructor(
             val bestByAid = HashMap<Long, Pair<LibraryTrack, Double>>()
             for (t in library) {
                 if (t.aid == 0L) continue
+                if (BrainText.fold(LibraryIndex.primaryArtistName(t.song)) in NO_ARTIST_NAMES) continue
                 val w = Affinity.weight(state.affinity, Family.TRACK, t.rid, now)
                 val old = bestByAid[t.aid]
                 if (old == null || w > old.second) bestByAid[t.aid] = t to w
@@ -362,15 +373,19 @@ class BrainMixes @Inject constructor(
      * own engagement counters), the favourites, and a day-seeded handful of the rest so deep cuts get a
      * chance. Each gets its recording id; the whole library is not resolved.
      */
-    private var sliceKey = ""
-    private var slice: List<LibraryTrack> = emptyList()
+    // One immutable pair: the key and the list it was built for are published together, so a reader on another
+    // thread (the refresh worker) never sees the new key with the old list.
+    private class Slice(val key: String, val tracks: List<LibraryTrack>)
+
+    @Volatile private var sliceCache: Slice? = null
 
     private suspend fun shortlist(now: Long, tz: Int, salt: Long, taste: TasteConstraints): List<LibraryTrack> {
         val all = musicRepository.getAllSongsOnce()
         val day = Repetition.mixDay(now, tz)
-        val key = "${all.size}:$day:${constraints.signature()}"
-        if (key == sliceKey && slice.isNotEmpty()) return slice
         val favourites = runCatching { musicRepository.getFavoriteSongIdsOnce() }.getOrDefault(emptySet())
+        // The favourites are part of the key: a song liked since is a "liked" row at once, not tomorrow.
+        val key = "${all.size}:$day:${constraints.signature()}:${favourites.hashCode()}"
+        sliceCache?.let { if (it.key == key && it.tracks.isNotEmpty()) return it.tracks }
         val songs = LinkedHashMap<String, Song>()
         val picks = runCatching { dailyMixManager.personalizedPicks(all, favourites, PICKS) }.getOrDefault(emptyList())
         for (p in picks) songs.putIfAbsent(p.song.id, p.song)
@@ -414,8 +429,7 @@ class BrainMixes @Inject constructor(
                 )
             )
         }
-        sliceKey = key
-        slice = out
+        sliceCache = Slice(key, out)
         return out
     }
 
@@ -481,7 +495,8 @@ class BrainMixes @Inject constructor(
                 radioRank = item.radioRank,
             )
         }
-        if (songs.size < MIN_SONGS) return null
+        // A mix is the same all day: what is left of it is shown, a new list is drawn only when almost nothing is.
+        if (songs.size < MIN_SAVED_SONGS) return null
         if (tracks.isNotEmpty()) playableStore.register(tracks, now)
         return MixView(stored.kind, stored.builtAtMs, recId, songs, reasons, tags, novel, stored.seedLists)
     }
@@ -494,7 +509,12 @@ class BrainMixes @Inject constructor(
         const val FAVOURITES = 150
         const val DEEP = 100
         const val MIN_SONGS = 10
+
+        /** A saved mix that has fewer songs than this left (songs left the library, taste changed) is replaced; more is kept. */
+        const val MIN_SAVED_SONGS = 3
         const val TOP_ARTISTS = 20
+        /** Folded names that name no artist: such a library credit is not one a station, a radio or a release lookup can use. */
+        private val NO_ARTIST_NAMES = setOf("various artists", "unknown artist", "unknown", "va", "<unknown>")
         private const val SIXTY_DAYS_MS = 60L * 24 * 60 * 60 * 1000
         private const val REBUILD_MIN_AGE_MS = 10L * 60 * 1000
 

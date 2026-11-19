@@ -19,10 +19,10 @@ import timber.log.Timber
 
 /** What [BrainRepository] says when it stores a radio: the list becomes edges of the graph (3.6). */
 interface RadioEdges {
-    suspend fun record(seedRid: Long, kind: Int, rids: LongArray, nowMs: Long)
+    suspend fun record(seedRid: Long, kind: Int, rids: LongArray, nowMs: Long, chip: String = "")
 
     object None : RadioEdges {
-        override suspend fun record(seedRid: Long, kind: Int, rids: LongArray, nowMs: Long) = Unit
+        override suspend fun record(seedRid: Long, kind: Int, rids: LongArray, nowMs: Long, chip: String) = Unit
     }
 }
 
@@ -44,15 +44,16 @@ class GraphEdgeStore @Inject constructor(
 ) : RadioEdges {
     private val backfillLock = Mutex()
 
-    override suspend fun record(seedRid: Long, kind: Int, rids: LongArray, nowMs: Long) {
+    override suspend fun record(seedRid: Long, kind: Int, rids: LongArray, nowMs: Long, chip: String) {
         if (seedRid == 0L) return
-        val type = typeOf(kind)
+        val type = typeOf(kind, chip)
         val rows = edgesOf(seedRid, type, rids, nowMs)
         try {
-            // Two calls, not a transaction: the graph is a cache of the lists, and a list that is stored
-            // twice or half written is put right by the next fetch of the same seed.
-            dao.deleteFrom(seedRid, type)
+            // The new rows go in first and the ones the fetch before it left (and this one did not write) go after:
+            // a kill between the two leaves a seed with a few edges too many, never with none. The graph is a cache
+            // of the lists, and the next fetch of the same seed puts it right.
             if (rows.isNotEmpty()) dao.upsert(rows)
+            dao.deleteStale(seedRid, type, nowMs)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -74,10 +75,10 @@ class GraphEdgeStore @Inject constructor(
                 val page = seedDao.healthyPage(PAGE, offset)
                 if (page.isEmpty()) break
                 for (list in page) {
-                    if (list.chip == BrainRepository.ARTIST_STATION_CHIP) continue
+                    if (list.chip == BrainRepository.ARTIST_STATION_CHIP || list.chip == BrainRepository.SIMILAR_STATION_CHIP) continue
                     val rids = RadioRowCodec.decodeRows(list.rowsBlob).map { it.rid }.toLongArray()
                     // The conversion keeps the age of the list it came from: its edges expire with it.
-                    record(list.seedRid, list.kind, rids, list.fetchedAt.coerceAtMost(nowMs))
+                    record(list.seedRid, list.kind, rids, list.fetchedAt.coerceAtMost(nowMs), list.chip)
                 }
                 offset += page.size
                 if (page.size < PAGE) break
@@ -105,10 +106,17 @@ class GraphEdgeStore @Inject constructor(
         private const val PAGE = 50
         private const val CHUNK = 400
 
-        fun typeOf(kind: Int): Int =
-            if (kind == RadioListEntity.KIND_RELATED) GraphEdgeEntity.TYPE_RELATED else GraphEdgeEntity.TYPE_RADIO
+        fun typeOf(kind: Int, chip: String = ""): Int = when {
+            chip.isNotEmpty() -> GraphEdgeEntity.TYPE_CHIP
+            kind == RadioListEntity.KIND_RELATED -> GraphEdgeEntity.TYPE_RELATED
+            else -> GraphEdgeEntity.TYPE_RADIO
+        }
 
-        fun factorOf(type: Int): Double = if (type == GraphEdgeEntity.TYPE_RELATED) Graph.RELATED else Graph.RADIO
+        fun factorOf(type: Int): Double = when (type) {
+            GraphEdgeEntity.TYPE_RELATED -> Graph.RELATED
+            GraphEdgeEntity.TYPE_CHIP -> Graph.CHIP
+            else -> Graph.RADIO
+        }
 
         /** The weight of the row at [rank] (1 for the first non-seed row) of a list of [type], times 65,536, rounded. */
         fun weightQ16(type: Int, rank: Int): Int {

@@ -29,7 +29,8 @@ import org.junit.jupiter.api.Test
  */
 class ListeningStatsTrackerBrainTest {
 
-    private class RecordingSink(private val outside: Set<String> = emptySet()) : PlaySink {
+    private class RecordingSink(private val outside: Set<String> = emptySet(), var private: Boolean = false) : PlaySink {
+        override fun isPrivate(startedAtMs: Long, endMs: Long): Boolean = private
         val finished = CopyOnWriteArrayList<FinishedPlay>()
         val open = CopyOnWriteArrayList<FinishedPlay?>()
         override fun onPlayFinished(play: FinishedPlay) { finished.add(play) }
@@ -277,5 +278,45 @@ class ListeningStatsTrackerBrainTest {
         assertTrue(sink.finished.isEmpty())
         coVerify(timeout = 2_000) { playbackStatsRepository.recordPlayback("cast-song", 60_000L, any()) }
         coVerify(timeout = 2_000) { dailyMixManager.recordPlay("cast-song", 60_000L, any()) }
+    }
+
+    @Test
+    fun `a private play and a play that was set aside stay out of the legacy counters but stay in the history`() {
+        val sink = RecordingSink()
+        val tracker = tracker(sink)
+        // A play set aside with "Don't count this" while it sounded.
+        tracker.start("set-aside")
+        tracker.markFlag("set-aside", EventFlags.LEARN_EXCLUDED)
+        clock += 60_000L
+        // A play made while the session is private.
+        sink.private = true
+        tracker.start("private-1", context(), endReason = EndReason.TRACK_DONE)
+        clock += 60_000L
+        tracker.start("normal", context(), endReason = EndReason.TRACK_DONE)
+        sink.private = false
+        clock += 60_000L
+        tracker.finalizeCurrentSession(endReason = EndReason.NEXT)
+
+        coVerify(timeout = 2_000) { dailyMixManager.recordPlay("normal", 60_000L, any()) }
+        coVerify(timeout = 2_000) { tasteRepository.record("normal", 60_000L, any(), any(), any(), any()) }
+        coVerify(timeout = 2_000) { playbackStatsRepository.recordPlayback("set-aside", 60_000L, any()) }
+        coVerify(timeout = 2_000) { playbackStatsRepository.recordPlayback("private-1", 60_000L, any()) }
+        for (id in listOf("set-aside", "private-1")) {
+            coVerify(exactly = 0) { dailyMixManager.recordPlay(id, any(), any()) }
+            coVerify(exactly = 0) { tasteRepository.record(id, any(), any(), any(), any(), any()) }
+        }
+    }
+
+    @Test
+    fun `unmarking a flag gives the play in flight its weight back`() {
+        val sink = RecordingSink()
+        val tracker = tracker(sink)
+        tracker.start("a")
+        assertTrue(tracker.markFlag("a", EventFlags.LEARN_EXCLUDED))
+        assertEquals(false, tracker.markFlag("other", EventFlags.LEARN_EXCLUDED))
+        tracker.unmarkFlag("a", EventFlags.LEARN_EXCLUDED)
+        clock += 60_000L
+        tracker.finalizeCurrentSession(endReason = EndReason.NEXT)
+        assertEquals(0, sink.finished.single().flags and EventFlags.LEARN_EXCLUDED)
     }
 }

@@ -48,7 +48,7 @@ class BrainFeedbackTest {
     /** The holder with the parts these tests do not look at as relaxed mocks. */
     private fun actionsOf() = BrainActionsStateHolder(
         feedback, mockk(relaxed = true), mockk(relaxed = true), mockk(relaxed = true), mockk(relaxed = true),
-        CoroutineScope(Dispatchers.Unconfined),
+        dagger.Lazy { mockk(relaxed = true) }, CoroutineScope(Dispatchers.Unconfined),
     )
 
     private fun outcome(id: String?) =
@@ -115,7 +115,7 @@ class BrainFeedbackTest {
         val order = ArrayList<String>()
         every { tracker.markFlag(any(), any()) } answers {
             order.add("flag")
-            Unit
+            true
         }
         coEvery { taste.apply(any(), TasteSetBy.USER) } returns outcome("abc12345")
         val actions = actionsOf()
@@ -210,7 +210,7 @@ class BrainFeedbackTest {
         val identity = mockk<TrackResolver>(relaxed = true)
         val holder = BrainActionsStateHolder(
             feedback, mockk(relaxed = true), engine, identity, mockk(relaxed = true),
-            CoroutineScope(Dispatchers.Unconfined),
+            dagger.Lazy { mockk(relaxed = true) }, CoroutineScope(Dispatchers.Unconfined),
         )
         holder.swiped(song)
         coVerify(exactly = 0) { identity.resolveTrack(any(), any()) }

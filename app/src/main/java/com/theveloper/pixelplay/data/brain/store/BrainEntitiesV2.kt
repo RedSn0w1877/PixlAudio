@@ -38,6 +38,9 @@ data class GraphEdgeEntity(
     companion object {
         const val TYPE_RADIO = 1
         const val TYPE_RELATED = 2
+
+        /** A list tuned with a chip (and a continuation page): its own type, so it never replaces the first page's edges. */
+        const val TYPE_CHIP = 3
         const val UNIT = 65_536.0
     }
 }
@@ -90,6 +93,10 @@ interface GraphEdgeDao {
     /** A refreshed list replaces what the earlier fetch of the same seed left. */
     @Query("DELETE FROM graph_edge WHERE src = :src AND type = :type")
     suspend fun deleteFrom(src: Long, type: Int)
+
+    /** What a seed's earlier fetch left and the new one did not rewrite: removed after the new rows are in, so a kill in between leaves more edges, never none. */
+    @Query("DELETE FROM graph_edge WHERE src = :src AND type = :type AND fetchedAt < :before")
+    suspend fun deleteStale(src: Long, type: Int, before: Long)
 
 
     @Query("SELECT * FROM graph_edge WHERE src IN (:nodes) OR dst IN (:nodes)")
@@ -146,7 +153,7 @@ interface SeedDao {
      */
     @Query(
         "SELECT rid AS rid, primaryAid AS aid, MAX(startedAtMs) AS lastMs FROM play_event " +
-            "WHERE startedAtMs >= :since AND endReason = 0 AND (flags & 8) = 0 AND playedMs >= 30000 " +
+            "WHERE startedAtMs >= :since AND endReason = 0 AND (flags & 4104) = 0 AND playedMs >= 30000 " +
             "AND (arm = 9 OR (flags & 1216) != 0) GROUP BY rid ORDER BY lastMs DESC LIMIT :limit"
     )
     suspend fun recentChosen(since: Long, limit: Int): List<RecentTrackRow>
@@ -154,7 +161,7 @@ interface SeedDao {
     /** Tracks liked or saved while they played since [since] (flags 64 and 128), newest first. */
     @Query(
         "SELECT rid AS rid, primaryAid AS aid, MAX(startedAtMs) AS lastMs FROM play_event " +
-            "WHERE startedAtMs >= :since AND (flags & 192) != 0 GROUP BY rid ORDER BY lastMs DESC LIMIT :limit"
+            "WHERE startedAtMs >= :since AND (flags & 192) != 0 AND (flags & 4096) = 0 GROUP BY rid ORDER BY lastMs DESC LIMIT :limit"
     )
     suspend fun recentlySaved(since: Long, limit: Int): List<RecentTrackRow>
 

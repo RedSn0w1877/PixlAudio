@@ -169,6 +169,10 @@ abstract class ListeningHistoryDao {
     @Query("SELECT MAX(id) FROM imported_plays")
     abstract suspend fun maxPlayId(): Long?
 
+    /** How many imported plays are of the Spotify track [spotifyId]: what "Don't count this" leaves out of an import. */
+    @Query("SELECT COUNT(*) FROM imported_plays WHERE spotify_track_id = :spotifyId")
+    abstract suspend fun countOfSpotifyTrack(spotifyId: String): Int
+
     @Query("SELECT COUNT(*) FROM imported_plays WHERE source IN (:sources)")
     abstract suspend fun countBySources(sources: List<String>): Int
 

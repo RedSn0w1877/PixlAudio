@@ -16,6 +16,10 @@ class HostBudget(
     private val refillIntervalMs: Long = DAY_MS / DAILY_LIMIT,
     maxParallel: Int = MAX_PARALLEL,
     private val clock: () -> Long = System::currentTimeMillis,
+    /** Told of every request that is let through, so the day's count survives a restart (the ledger). */
+    private val onSpend: (Long) -> Unit = {},
+    /** False when the day's requests are spent, whoever made them; asked before a token is taken. */
+    private val dayHasRoom: suspend () -> Boolean = { true },
 ) {
     private val parallel = Semaphore(maxParallel)
     private var tokens = capacity
@@ -27,6 +31,7 @@ class HostBudget(
         refill()
         if (tokens <= 0) return false
         tokens--
+        onSpend(clock())
         return true
     }
 
@@ -38,6 +43,7 @@ class HostBudget(
 
     /** Runs [block] under the parallelism limit when a token is available; null when the budget is spent. */
     suspend fun <T> withPermit(block: suspend () -> T): T? {
+        if (!dayHasRoom()) return null
         if (!tryAcquire()) return null
         return parallel.withPermit { block() }
     }

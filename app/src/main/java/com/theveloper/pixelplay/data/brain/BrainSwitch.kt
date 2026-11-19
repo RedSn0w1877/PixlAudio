@@ -42,6 +42,11 @@ class BrainSwitch @Inject constructor(
 
     suspend fun setRefreshEnabled(enabled: Boolean) = preferences.setBrainRefreshEnabled(enabled)
 
+    /** The brain has had state to rank by (a cheap marker; see [UserPreferencesRepository.brainStateSeenFlow]). */
+    suspend fun brainStateSeen(): Boolean = preferences.brainStateSeenFlow.first()
+
+    suspend fun markBrainStateSeen() = preferences.setBrainStateSeen()
+
     suspend fun engine(): Int = BrainEngineChoice.clamp(engineFlow.first())
 
     /**

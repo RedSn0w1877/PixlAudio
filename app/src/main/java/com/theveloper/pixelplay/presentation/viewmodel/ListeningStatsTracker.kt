@@ -220,9 +220,18 @@ class ListeningStatsTracker @Inject constructor(
      * reaches the brain as a library fact.
      */
     @Synchronized
-    fun markFlag(songId: String, flag: Int) {
+    fun markFlag(songId: String, flag: Int): Boolean {
+        val play = brainPlay ?: return false
+        if (play.songId != songId) return false
+        play.flags = play.flags or flag
+        return true
+    }
+
+    /** Takes [flag] off the play in flight when it is [songId] (Undo of "Don't count this"). */
+    @Synchronized
+    fun unmarkFlag(songId: String, flag: Int) {
         val play = brainPlay ?: return
-        if (play.songId == songId) play.flags = play.flags or flag
+        if (play.songId == songId) play.flags = play.flags and flag.inv()
     }
 
     /**
@@ -345,6 +354,7 @@ class ListeningStatsTracker @Inject constructor(
         val nowRealtime = SystemClock.elapsedRealtime()
         // The brain first, and whatever the legacy session says: no five-second floor (4.2).
         val finishedContext = brainPlay?.context
+        val brainFlags = brainPlay?.flags ?: 0
         if (!keepBrainPlay) finalizeBrainPlay(nowRealtime, endReason)
         val session = currentSession ?: return
         val nowEpoch = System.currentTimeMillis()
@@ -376,6 +386,7 @@ class ListeningStatsTracker @Inject constructor(
                 totalDurationMs = session.totalDurationMs,
                 isVoluntary = session.isVoluntary,
                 trackChanged = trackChanged,
+                learnExcluded = (brainFlags and EventFlags.LEARN_EXCLUDED) != 0 || runCatching { playSink.isPrivate(session.startedAtEpochMs, timestamp) }.getOrDefault(false),
             )
         }
         currentSession = null
@@ -409,19 +420,23 @@ class ListeningStatsTracker @Inject constructor(
         totalDurationMs: Long,
         isVoluntary: Boolean,
         trackChanged: Boolean,
+        learnExcluded: Boolean,
     ) {
         persistenceScope.launch {
             // A track from outside the library has no place in the legacy counters: they are capped at
             // 5,000 songs and feed rankers that cost money in the cloud (4.2). Its PlaybackEvent is
-            // still written below, so it shows in Recently Played.
+            // still written below, so it shows in Recently Played. A play that does not count (private
+            // session, "Don't count this") stays out of them too: they feed the brain's shortlist, the
+            // legacy mixes and those rankers. It still shows in Recently Played.
             val outsideLibrary = runCatching { playSink.isOutsideLibrary(songId, context) }.getOrDefault(false)
-            if (!outsideLibrary) {
+            val legacyCounters = !outsideLibrary && !learnExcluded
+            if (legacyCounters) {
                 runCatching {
                     tasteRepository.record(songId, listened, totalDurationMs, isVoluntary, trackChanged, timestamp)
                 }.onFailure { Timber.w(it, "Failed to update local music learning") }
             }
             runCatching {
-                persistPlaybackInternal(songId = songId, listened = listened, timestamp = timestamp, legacyCounters = !outsideLibrary)
+                persistPlaybackInternal(songId = songId, listened = listened, timestamp = timestamp, legacyCounters = legacyCounters)
             }.onFailure { throwable ->
                 Timber.e(throwable, "Failed to persist listening session for song=%s", songId)
             }

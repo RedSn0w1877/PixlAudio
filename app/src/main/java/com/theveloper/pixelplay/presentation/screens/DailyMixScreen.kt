@@ -112,6 +112,7 @@ fun DailyMixScreen(
     val dailyMixSongs: ImmutableList<Song> by playerViewModel.dailyMixSongs.collectAsStateWithLifecycle()
     val mixReasons by playerViewModel.mixReasons.collectAsStateWithLifecycle()
     val mixNovelSongIds by playerViewModel.mixNovelSongIds.collectAsStateWithLifecycle()
+    androidx.compose.runtime.LaunchedEffect(Unit) { playerViewModel.onMixSurfaceOpened(full = true) }
     val currentSongId by remember { playerViewModel.stablePlayerState.map { it.currentSong?.id }.distinctUntilChanged() }.collectAsStateWithLifecycle(initialValue = null)
     val isPlaying by remember { playerViewModel.stablePlayerState.map { it.isPlaying }.distinctUntilChanged() }.collectAsStateWithLifecycle(initialValue = false)
     val isShuffleEnabled by remember { playerViewModel.stablePlayerState.map { it.isShuffleEnabled }.distinctUntilChanged() }.collectAsStateWithLifecycle(initialValue = false)

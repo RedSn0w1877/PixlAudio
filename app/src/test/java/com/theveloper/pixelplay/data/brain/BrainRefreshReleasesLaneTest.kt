@@ -14,8 +14,10 @@ class BrainRefreshReleasesLaneTest {
         val artists: List<RefreshTarget>,
         val releaseOrder: List<RefreshTarget>,
         var budget: Int,
+        val reserve: Int = 0,
     ) : RefreshWork {
         val asked = ArrayList<String>()
+        override suspend fun releasesReserve() = reserve
         override suspend fun radioSeeds() = radios
         override suspend fun artistSeeds() = artists
         override suspend fun releaseTargets() = releaseOrder
@@ -61,5 +63,16 @@ class BrainRefreshReleasesLaneTest {
         val report = BrainRefreshRunner(bare, { true }, { false }).run()
         assertEquals(0, report.releasesFetched)
         assertEquals(2, report.fetched)
+    }
+
+    @Test
+    fun `a long list of radios cannot spend what the releases lane needs`() = runTest {
+        val radios = (1L..10L).map(::target)
+        // Eight requests in the window, four of them kept for the releases lane.
+        val work = Work(radios, emptyList(), listOf(target(20), target(21)), budget = 8, reserve = 4)
+        val report = BrainRefreshRunner(work, { true }, { false }).run()
+        assertEquals(listOf("radio:1", "radio:2", "radio:3", "radio:4", "releases:20", "releases:21"), work.asked.take(6))
+        assertEquals(4, report.radiosFetched)
+        assertEquals(2, report.releasesFetched)
     }
 }

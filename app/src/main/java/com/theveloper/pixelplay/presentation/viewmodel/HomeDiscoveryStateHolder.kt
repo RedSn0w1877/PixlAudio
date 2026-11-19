@@ -126,7 +126,12 @@ class HomeDiscoveryStateHolder @Inject constructor(
                 var releaseRow: com.theveloper.pixelplay.data.brain.BrainReleaseRow? = if (enabled) {
                     try {
                         if (brainSwitch.engine() == com.theveloper.pixelplay.data.brain.BrainEngineChoice.BRAIN) {
-                            newReleases.row(blockedArtists.current, tasteAdjustments.snapshot())
+                            newReleases.row(
+                                blockedArtists.current,
+                                tasteAdjustments.snapshot(),
+                                // A card the listener has saved since is in the library now: it leaves the row.
+                                com.theveloper.pixelplay.data.brain.LibraryIndex(music.getAllSongsOnce()),
+                            )
                         } else null
                     } catch (e: CancellationException) {
                         throw e

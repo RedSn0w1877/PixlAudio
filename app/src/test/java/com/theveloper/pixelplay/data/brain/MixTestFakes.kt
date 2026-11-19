@@ -46,6 +46,9 @@ class FakeGraphEdgeDao : GraphEdgeDao {
     override suspend fun deleteFrom(src: Long, type: Int) {
         rows.keys.filter { it.first == src && it.third == type }.forEach(rows::remove)
     }
+    override suspend fun deleteStale(src: Long, type: Int, before: Long) {
+        rows.entries.filter { it.key.first == src && it.key.third == type && it.value.fetchedAt < before }.map { it.key }.forEach(rows::remove)
+    }
     override suspend fun touching(nodes: List<Long>) = rows.values.filter { it.src in nodes || it.dst in nodes }
     override suspend fun deleteOlderThan(before: Long): Int {
         val doomed = rows.entries.filter { it.value.fetchedAt < before }.map { it.key }

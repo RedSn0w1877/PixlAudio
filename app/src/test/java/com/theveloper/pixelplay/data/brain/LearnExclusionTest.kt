@@ -93,7 +93,8 @@ class LearnExclusionTest {
         val first = exclusion.excludeRecordings(listOf(ridA), FeedbackKinds.TARGET_SONG, ridA, null)!!
         assertEquals(2, first.count)
         val again = exclusion.excludeRecordings(listOf(ridA), FeedbackKinds.TARGET_SONG, ridA, null)
-        assertEquals(0, again!!.count)
+        assertNull(again, "nothing left to leave out: no row, no rebuild")
+        assertEquals(1, feedbackDao.rows.size)
 
         exclusion.undo(first)
 
@@ -119,8 +120,53 @@ class LearnExclusionTest {
     @Test
     fun `nothing to leave out is an empty answer, not a row`() = runTest {
         assertNull(exclusion.excludeRecordings(emptyList(), FeedbackKinds.TARGET_SONG, 0L, null))
-        val none = exclusion.excludeLastHour(null)
-        assertEquals(0, none!!.count)
+        assertNull(exclusion.excludeLastHour(null))
+        assertTrue(feedbackDao.rows.isEmpty(), "no row for nothing")
+    }
+
+    @Test
+    fun `the play in flight counts as one, and undo takes its flag back`() = runTest {
+        io.mockk.every { tracker.markFlag("song-a", EventFlags.LEARN_EXCLUDED) } returns true
+        val ridA = resolver.rid("Sơn Tùng M-TP", "Chúng Ta Của Hiện Tại")
+
+        val excluded = exclusion.excludeRecordings(listOf(ridA), FeedbackKinds.TARGET_SONG, ridA, playingSongId = "song-a")
+
+        assertNotNull(excluded)
+        assertEquals(1, excluded!!.count)
+        assertEquals(1, feedbackDao.rows.size)
+        exclusion.undo(excluded)
+        verify { tracker.unmarkFlag("song-a", EventFlags.LEARN_EXCLUDED) }
+        assertNotNull(feedbackDao.rows[excluded.feedbackId]!!.undoneAtMs)
+    }
+
+    @Test
+    fun `plays of an imported history count too, and the row is what the rebuild reads`() = runTest {
+        val ridA = resolver.rid("Sơn Tùng M-TP", "Chúng Ta Của Hiện Tại")
+
+        val excluded = exclusion.excludeRecordings(listOf(ridA), FeedbackKinds.TARGET_SONG, ridA, null, importedPlays = 40)
+
+        assertEquals(40, excluded!!.count)
+        val row = feedbackDao.rows.values.single()
+        assertEquals(FeedbackKinds.DONT_COUNT, row.kind)
+        assertEquals(ridA, row.targetId)
+    }
+
+    @Test
+    fun `a rebuild leaves out the imported plays of a song that was set aside, up to the time it was`() {
+        val rid = 77L
+        fun imported(id: Long, startedAt: Long) = com.theveloper.pixelplay.brain.PlayEvent(
+            eventId = id, origin = com.theveloper.pixelplay.brain.Origin.IMPORT_SPOTIFY, rid = rid, primaryAid = 5L,
+            startedAtMs = startedAt, playedMs = 200_000, durationMs = 200_000, endReason = EndReason.TRACK_DONE,
+        )
+        val plays = (1..20).map { imported(it.toLong() shl 16, 1_000_000L + it * 1_000L) }
+        val merger = ReplayMerger(store)
+        val counted = merger.rebuild(plays, com.theveloper.pixelplay.brain.LibraryFacts.EMPTY, 2_000_000L) { it }.state
+        val left = merger.rebuild(plays, com.theveloper.pixelplay.brain.LibraryFacts.EMPTY, 2_000_000L, mapOf(rid to Long.MAX_VALUE)) { it }.state
+        val before = merger.rebuild(plays, com.theveloper.pixelplay.brain.LibraryFacts.EMPTY, 2_000_000L, mapOf(rid to 1_000_000L)) { it }.state
+
+        assertTrue((counted.counter(Family.TRACK, rid)?.posQ ?: 0L) > 0L)
+        assertEquals(0L, left.counter(Family.TRACK, rid)?.posQ ?: 0L)
+        assertTrue((before.counter(Family.TRACK, rid)?.posQ ?: 0L) > 0L, "plays after the set-aside time still count")
     }
 
     // ── Private session ──────────────────────────────────────────────────────
@@ -158,5 +204,27 @@ class LearnExclusionTest {
         now += 30_000L
         assertTrue(privateSession.overlaps(started, now))
         assertFalse(privateSession.overlaps(started, started + 1_000L))
+    }
+
+    @Test
+    fun `a private play that a process death cut off is still excluded at the next start`() = runTest {
+        privateSession.set(true)
+        now += 1_000L
+        val open = play("song-b", playedMs = 45_000L, endReason = EndReason.KILLED)
+        // The tracker asks the sink whether the play was private: the legacy counters skip it too.
+        assertTrue(recorder.isPrivate(open.startedAtMs, open.startedAtMs + open.playedMs))
+        recorder.onPlayOpen(open)
+        val deadline = System.currentTimeMillis() + 5_000L
+        while (store.state[com.theveloper.pixelplay.data.brain.store.BrainStore.KEY_OPEN_PLAY] == null && System.currentTimeMillis() < deadline) Thread.sleep(10)
+
+        // A new process: the private session is off again, and the play is found left open.
+        val afterRestart = BrainEventRecorder(engine, resolver, catalog, store, HomeAnchorStore(store), PrivateSession(feedbackDao, clock, kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Unconfined)))
+        afterRestart.onPlayOpen(null)
+        while (store.events.isEmpty() && System.currentTimeMillis() < deadline) Thread.sleep(10)
+
+        val event = store.events.values.single()
+        assertEquals(EndReason.KILLED, event.endReason)
+        assertTrue(event.has(EventFlags.LEARN_EXCLUDED))
+        assertEquals(0L, trackPos(resolver.rid("NewJeans", "Ditto")))
     }
 }

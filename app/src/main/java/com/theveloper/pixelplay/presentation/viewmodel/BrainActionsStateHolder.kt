@@ -80,6 +80,7 @@ class BrainActionsStateHolder @Inject constructor(
     private val engine: BrainEngine,
     private val identity: TrackResolver,
     private val whyFacts: WhyFactsLoader,
+    private val historyDao: dagger.Lazy<com.theveloper.pixelplay.data.history.ListeningHistoryDao>,
     @AppScope private val scope: CoroutineScope,
 ) {
     private val _notice = MutableStateFlow<BrainNotice?>(null)
@@ -147,11 +148,15 @@ class BrainActionsStateHolder @Inject constructor(
         scope.launch {
             try {
                 val rid = ridOf(song)
+                // Plays from an imported Spotify history are not in the log; the rebuild leaves them out by the row this writes.
+                val imported = song.spotifyId?.takeIf { it.isNotBlank() }
+                    ?.let { runCatching { historyDao.get().countOfSpotifyTrack(it) }.getOrDefault(0) } ?: 0
                 val excluded = if (rid == 0L) null else learnExclusion.excludeRecordings(
                     rids = listOf(rid),
                     targetKind = FeedbackKinds.TARGET_SONG,
                     targetId = rid,
                     playingSongId = playingSongId?.takeIf { it == song.id },
+                    importedPlays = imported,
                 )
                 showExcluded(excluded)
             } catch (e: CancellationException) {

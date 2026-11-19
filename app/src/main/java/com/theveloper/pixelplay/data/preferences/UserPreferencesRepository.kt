@@ -262,6 +262,7 @@ class UserPreferencesRepository @Inject constructor(
         // The one background job of the brain (BrainRefreshWorker); default on.
         val BRAIN_REFRESH_ENABLED = booleanPreferencesKey("brain_refresh_enabled")
         val BRAIN_SPOTIFY_SHAPES_PICKS = booleanPreferencesKey("brain_spotify_shapes_picks")
+        val BRAIN_STATE_SEEN = booleanPreferencesKey("brain_state_seen")
         val RESUME_ON_HEADSET_RECONNECT = booleanPreferencesKey("resume_on_headset_reconnect")
         val SHOW_QUEUE_HISTORY = booleanPreferencesKey("show_queue_history")
         val PLAYBACK_QUEUE_SNAPSHOT = stringPreferencesKey("playback_queue_snapshot_v1")
@@ -659,6 +660,17 @@ class UserPreferencesRepository @Inject constructor(
 
     suspend fun setBrainSpotifyShapesPicks(enabled: Boolean) {
         dataStore.edit { it[PreferencesKeys.BRAIN_SPOTIFY_SHAPES_PICKS] = enabled }
+    }
+
+    /**
+     * True once the brain has had played tracks to rank by. A cheap marker so that app start can tell
+     * whether the brain may own the mixes without opening `brain.db` or loading its state.
+     */
+    val brainStateSeenFlow: Flow<Boolean> =
+        pref { it[PreferencesKeys.BRAIN_STATE_SEEN] ?: false }
+
+    suspend fun setBrainStateSeen() {
+        dataStore.edit { it[PreferencesKeys.BRAIN_STATE_SEEN] = true }
     }
 
     val resumeOnHeadsetReconnectFlow: Flow<Boolean> =

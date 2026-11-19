@@ -2,6 +2,7 @@ package com.theveloper.pixelplay.data.brain
 
 import com.theveloper.pixelplay.brain.Affinity
 import com.theveloper.pixelplay.brain.Brain
+import com.theveloper.pixelplay.brain.EventFlags
 import com.theveloper.pixelplay.brain.Family
 import com.theveloper.pixelplay.brain.Ids
 import com.theveloper.pixelplay.brain.LibraryFacts
@@ -33,10 +34,19 @@ class ReplayMerger(private val store: BrainStore) {
 
     /**
      * [imported] in any order. [survivorOf] maps a merged recording to the one it was merged into.
+     * [excluded] maps a surviving recording to the time a "Don't count this" was made on it: every play of it
+     * that started at or before then (imported ones included, which the log does not hold) replays as
+     * `learnExcluded`.
      * An imported play whose end is within [DUPLICATE_WINDOW_MS] of a stored play of the same
      * recording is the same listen seen twice and is dropped.
      */
-    fun rebuild(imported: List<PlayEvent>, facts: LibraryFacts, nowMs: Long, survivorOf: (Long) -> Long): Result {
+    fun rebuild(
+        imported: List<PlayEvent>,
+        facts: LibraryFacts,
+        nowMs: Long,
+        excluded: Map<Long, Long> = emptyMap(),
+        survivorOf: (Long) -> Long,
+    ): Result {
         // Pass 1 over the log: when each recording's stored plays ended.
         val endsByRid = HashMap<Long, ArrayList<Long>>()
         val recent = HashSet<Long>()
@@ -96,13 +106,15 @@ class ReplayMerger(private val store: BrainStore) {
                     other!!
                 }
                 val survivor = survivorOf(next.rid)
-                return if (survivor == next.rid) next else next.withRid(survivor)
+                val cutoff = if (excluded.isEmpty()) null else excluded[survivor]
+                val flags = if (cutoff != null && next.startedAtMs <= cutoff) next.flags or EventFlags.LEARN_EXCLUDED else next.flags
+                return if (survivor == next.rid && flags == next.flags) next else next.withRid(survivor, flags)
             }
         }
         return Result(Replay.rebuild(merged, facts, nowMs), recent, kept.size, dropped)
     }
 
-    private fun PlayEvent.withRid(rid: Long) = PlayEvent(
+    private fun PlayEvent.withRid(rid: Long, flags: Int = this.flags) = PlayEvent(
         eventId = eventId, origin = origin, rid = rid, primaryAid = primaryAid, otherAids = otherAids,
         keyAtWrite = keyAtWrite, startedAtMs = startedAtMs, tzOffsetMin = tzOffsetMin, playedMs = playedMs,
         durationMs = durationMs, startReason = startReason, endReason = endReason, flags = flags, surface = surface,
@@ -135,6 +147,7 @@ class AppStateRebuilder @Inject constructor(
     private val clock: BrainClock,
     private val switch: BrainSwitch,
     private val spotifyFacts: dagger.Lazy<com.theveloper.pixelplay.data.brain.store.SpotifyFactDao>,
+    private val feedback: dagger.Lazy<com.theveloper.pixelplay.data.brain.store.FeedbackDao>,
 ) : StateRebuilder {
 
     override suspend fun isNeeded(): Boolean = withContext(Dispatchers.IO) {
@@ -206,7 +219,14 @@ class AppStateRebuilder @Inject constructor(
             .let { all -> if (shapes) all else all.filter { it.origin != Origin.IMPORT_SPOTIFY } }
 
         val merges = identity.merges()
-        val result = ReplayMerger(store).rebuild(imported, libraryFacts(library, ridBySongId, nowMs, shapes), nowMs) { merges[it] ?: it }
+        // "Don't count this" on a song reaches its imported plays too: the log holds only the plays made here.
+        val excluded = HashMap<Long, Long>()
+        for (row in runCatching { feedback.get().active() }.getOrDefault(emptyList())) {
+            if (row.kind != FeedbackKinds.DONT_COUNT || row.targetKind != FeedbackKinds.TARGET_SONG) continue
+            val survivor = merges[row.targetId] ?: row.targetId
+            excluded[survivor] = maxOf(excluded[survivor] ?: 0L, row.createdAtMs)
+        }
+        val result = ReplayMerger(store).rebuild(imported, libraryFacts(library, ridBySongId, nowMs, shapes), nowMs, excluded) { merges[it] ?: it }
         StateRebuilder.Rebuilt(
             state = result.state,
             recentEventIds = result.recentEventIds,

@@ -31,6 +31,12 @@ interface RefreshWork {
     suspend fun artist(target: RefreshTarget): BrainRefreshRunner.Fetch
 
     /**
+     * Requests lane 1 leaves in the window for lane 2: the radios stop when no more than this is left, so a long
+     * list of uncached seeds cannot spend everything before the releases lane is reached. The default is none.
+     */
+    suspend fun releasesReserve(): Int = 0
+
+    /**
      * Lane 2 (3.7, 6.3): the artists whose releases are looked at, the one checked longest ago first. The
      * default is none, so a work that has no releases lane runs exactly as before.
      */
@@ -97,10 +103,13 @@ class BrainRefreshRunner(
 
         stopped = gate()
         if (stopped == Stop.NONE) {
+            val reserve = work.releasesReserve()
             for (target in work.radioSeeds()) {
                 // A list in the cache costs nothing: it is only the network that has to be allowed.
                 val stop = gate()
                 if (stop != Stop.NONE) { stopped = stop; break }
+                // The rest of the window is the releases lane's: lane 1 yields to it (not a stop).
+                if (reserve > 0 && work.requestsLeft() <= reserve) break
                 when (work.radio(target)) {
                     Fetch.NETWORK -> radiosFetched++
                     Fetch.CACHED -> radiosCached++
@@ -148,6 +157,7 @@ class AppRefreshWork @Inject constructor(
     private val clock: BrainClock,
     private val newReleases: NewReleases,
     private val musicRepository: com.theveloper.pixelplay.data.repository.MusicRepository,
+    private val ledger: RequestLedger,
 ) : RefreshWork {
 
     override suspend fun radioSeeds(): List<RefreshTarget> = targetsOf(mixes.seedsForRefresh())
@@ -156,10 +166,17 @@ class AppRefreshWork @Inject constructor(
 
     override suspend fun requestsLeft(): Int {
         val since = clock.nowMs() - HostBudget.DAY_MS
-        val today = seedDao.fetchedSince(since) + newReleases.requestsSince(since)
+        // REQUESTS of the day, whoever made them (the ledger counts every token the bucket gave out), not stored lists:
+        // the worker stops at 40 of the 60, so the foreground keeps at least 20.
+        val today = ledger.countSince(since)
         val byCeiling = WORKER_DAILY_CEILING - today
         val byBucket = budget.available() - FOREGROUND_RESERVE
         return minOf(byCeiling, byBucket)
+    }
+
+    override suspend fun releasesReserve(): Int {
+        val since = clock.nowMs() - HostBudget.DAY_MS
+        return (RELEASES_DAILY_CEILING - newReleases.requestsSince(since)).coerceIn(0, RELEASES_RESERVE)
     }
 
     override suspend fun releaseTargets(): List<RefreshTarget> {
@@ -249,6 +266,9 @@ class AppRefreshWork @Inject constructor(
 
         /** The releases lane's share of the worker's day (6.3, 3.7 lane 2): artist pages, discographies, album playlists. */
         const val RELEASES_DAILY_CEILING = 14
+
+        /** What lane 1 leaves in the window for the releases lane (about two artists), so the radios cannot take it all. */
+        const val RELEASES_RESERVE = 4
 
         /** Artists looked at per run: the top 20 are all covered within about four days, not daily (deviation 101). */
         const val RELEASE_ARTISTS_PER_RUN = 6
