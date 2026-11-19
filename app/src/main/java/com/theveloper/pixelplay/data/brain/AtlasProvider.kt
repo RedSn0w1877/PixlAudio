@@ -46,8 +46,12 @@ class GenreAtlasStore @Inject constructor(
 
     private suspend fun load(): GenreAtlas? = withContext(Dispatchers.Default) {
         try {
+            val startedNanos = System.nanoTime()
             val bytes = context.assets.open(ASSET).use { GZIPInputStream(it).readBytes() }
-            GenreAtlas.parse(String(bytes, Charsets.UTF_8))
+            GenreAtlas.parse(String(bytes, Charsets.UTF_8)).also {
+                // How long the first genre lookup costs on this phone (never at app start; docs/performance-report.md).
+                com.theveloper.pixelplay.data.diagnostics.PerformanceMetrics.recordTiming("brain_atlas_load", (System.nanoTime() - startedNanos) / 1_000_000)
+            }
         } catch (e: kotlin.coroutines.cancellation.CancellationException) {
             throw e
         } catch (e: Exception) {

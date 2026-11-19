@@ -90,6 +90,7 @@ class DnaEnricher @Inject constructor(
 
     suspend fun enrich(targets: List<DnaTarget>, gate: suspend () -> Boolean): Report {
         if (targets.isEmpty()) return Report(0, false)
+        val startedNanos = System.nanoTime()
         val atlas = atlasProvider.atlas() ?: return Report(0, false, noAtlas = true)
         val version = atlas.version
         val now = clock.nowMs()
@@ -191,6 +192,8 @@ class DnaEnricher @Inject constructor(
         if (!stopped) stopped = !batchPasses(states, atlas, now, gate, ::blocked)
         var saved = 0
         for (st in states) if (persist(st, atlas, version)) saved++
+        com.theveloper.pixelplay.data.diagnostics.PerformanceMetrics.recordTiming("brain_dna_round", (System.nanoTime() - startedNanos) / 1_000_000)
+        com.theveloper.pixelplay.data.diagnostics.PerformanceMetrics.increment("brain_dna_tracks", saved.toLong())
         return Report(saved, stopped)
     }
 

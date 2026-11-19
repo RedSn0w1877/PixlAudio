@@ -276,4 +276,23 @@ Developer mode on, Spotify connected, ten songs played, Wi-Fi, music paused.
 
 ## What was run, and what it said
 
-RUN_PLACEHOLDER
+One Gradle build at a time with `ANDROID_HOME="C:\Users\Hoa\AppData\Local\Android\Sdk"`.
+
+- **Stage 2a baseline first**: `./gradlew :brain:test :app:testDebugUnitTest --tests "com.theveloper.pixelplay.data.brain.*"`: BUILD
+  SUCCESSFUL (14m 25s), 328 tests, 0 failures, before any change.
+- **After the atlas was rebuilt with the full MusicBrainz relationships**, `./gradlew :brain:generateGolden` (23 files; only `atlas`,
+  `tags`, `dna`, `tagfeatures`, `MANIFEST.sha256` and the pinned atlas hash changed), then
+  `./gradlew --continue :brain:test :app:testDebugUnitTest :app:assembleDebug`: **BUILD SUCCESSFUL in 7m 22s**. `:brain:test`
+  **152 tests, 0 failures** (126 from 2a plus the atlas, tags and DNA tests, the tag features, and golden equality); the whole
+  `:app:testDebugUnitTest` **2,366 tests, 2 skipped, 0 failures, 0 errors** (2,326 at the end of 2a; the new ones are
+  `KnowledgeSourcesTest`, `KnowledgeHttpTest`, `DnaAssemblerTest`, `DnaEnricherTest`, `DnaLanesTest` and three new cases in
+  `MusicBrainMigrationsTest`); the existing `data.recommendation.*` tests (`RecommendationGoldenEqualityTest` among them) pass
+  untouched; `:app:assembleDebug` built both split APKs (Hilt graph included).
+- **After the last two small changes** (timings in `PerformanceMetrics`, the artist keys): `./gradlew --continue :brain:test
+  :app:testDebugUnitTest --tests "*Dna*" --tests "*Knowledge*" --tests "*BrainCopyTest" --tests "*MusicBrainMigrationsTest" --tests
+  "*BrainRefreshRunnerTest" :app:assembleDebug`: BUILD SUCCESSFUL (14m 50s).
+- Failures met on the way, all fixed: `org.json` is a stub in JVM unit tests (the ListenBrainz request body is built with
+  kotlinx.serialization now); an apostrophe in a string resource; a source edited while Gradle was compiling (KSP and the compiler
+  saw different Room DAOs).
+- An independent Python implementation of `Tags.merge` (written from the spec) reproduced all 360 `merge` cases of `tags.jsonl`.
+- **Not run**: the instrumented tests (`MusicBrainMigrationInstrumentedTest`, including the new 3-to-4 case): no device.
