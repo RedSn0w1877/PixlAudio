@@ -2242,6 +2242,29 @@ class PlayerViewModel @Inject constructor(
     fun startArtistStation(artistName: String, songs: List<Song> = emptyList()) =
         brainSession.stations.startArtistStation(artistName, songs, stationPlayer)
 
+    /** A station from an album: three of its songs seed it. */
+    fun startAlbumStation(albumName: String, songs: List<Song>) =
+        brainSession.stations.startAlbumStation(albumName, songs, stationPlayer)
+
+    /** A station from a playlist: five of its songs seed it. */
+    fun startPlaylistStation(playlistName: String, songs: List<Song>) =
+        brainSession.stations.startPlaylistStation(playlistName, songs, stationPlayer)
+
+    /** "More like this": the song's artist is boosted for two weeks. */
+    fun moreLikeThis(song: Song) = brainSession.actions.moreLikeThis(song)
+
+    /** "Don't count this": the song's plays, the one in flight included, stop shaping the picks. */
+    fun dontCount(song: Song) = brainSession.actions.dontCount(song, mediaController?.currentMediaItem?.mediaId)
+
+    /** "Don't count the last hour". */
+    fun dontCountLastHour() = brainSession.actions.dontCountLastHour(mediaController?.currentMediaItem?.mediaId)
+
+    /** An engine pick was swiped out of the queue unheard: a weak negative for the session. */
+    fun swipedEnginePick(song: Song) = brainSession.actions.swiped(song)
+
+    /** "Refresh picks" on the Autoplay line. */
+    fun refreshPicks() = brainSession.refreshPicks()
+
     /** "Not for me": mutes the song in everything the app picks by itself; skips it when it is playing. */
     fun notForMe(song: Song) {
         val isCurrent = mediaController?.currentMediaItem?.mediaId == song.id

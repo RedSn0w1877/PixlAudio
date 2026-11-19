@@ -15,6 +15,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Block
+import androidx.compose.material.icons.rounded.ThumbUp
+import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.Info
@@ -35,6 +37,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.theveloper.pixelplay.R
+import com.theveloper.pixelplay.brain.WhyFacts
 import com.theveloper.pixelplay.data.brain.BrainFeedback
 import com.theveloper.pixelplay.presentation.viewmodel.WhySheetState
 import com.theveloper.pixelplay.ui.theme.FlexPresets
@@ -54,6 +57,8 @@ fun WhyThisSongSheet(
     onLessFromArtist: (String) -> Unit,
     onHowPicksWork: () -> Unit,
     onDismiss: () -> Unit,
+    onMoreLikeThis: (() -> Unit)? = null,
+    onDontCount: (() -> Unit)? = null,
 ) {
     val song = state.song
     val reason = whyLineText(state.whyKey, state.whyArg)
@@ -110,6 +115,21 @@ fun WhyThisSongSheet(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+            // Up to two supporting facts (8.8), each a true statement read from the listener's own plays.
+            for (fact in state.facts) {
+                val text = when (fact.key) {
+                    WhyFacts.KEY_ARTIST_FINISHED -> stringResource(R.string.brain_why_fact_artist_finished, fact.a, fact.b)
+                    WhyFacts.KEY_TRACK_FINISHED -> stringResource(R.string.brain_why_fact_track_finished, fact.a)
+                    WhyFacts.KEY_YEAR -> stringResource(R.string.brain_why_fact_year, fact.a)
+                    else -> null
+                } ?: continue
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = text,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             Spacer(Modifier.height(20.dp))
 
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
@@ -139,6 +159,21 @@ fun WhyThisSongSheet(
                     Text(stringResource(R.string.brain_not_for_me), maxLines = 1)
                 }
             }
+            if (onMoreLikeThis != null && artist != null) {
+                Spacer(Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = {
+                        onMoreLikeThis()
+                        onDismiss()
+                    },
+                    modifier = Modifier.fillMaxWidth().height(52.dp),
+                    contentPadding = ButtonDefaults.ButtonWithIconContentPadding,
+                ) {
+                    Icon(Icons.Rounded.ThumbUp, contentDescription = null, modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(stringResource(R.string.brain_more_like_this), maxLines = 1)
+                }
+            }
             if (artist != null) {
                 Spacer(Modifier.height(8.dp))
                 OutlinedButton(
@@ -152,6 +187,21 @@ fun WhyThisSongSheet(
                     Icon(Icons.Rounded.Block, contentDescription = null, modifier = Modifier.size(20.dp))
                     Spacer(Modifier.width(8.dp))
                     Text(stringResource(R.string.brain_less_from, artist), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+            if (onDontCount != null) {
+                Spacer(Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = {
+                        onDontCount()
+                        onDismiss()
+                    },
+                    modifier = Modifier.fillMaxWidth().height(52.dp),
+                    contentPadding = ButtonDefaults.ButtonWithIconContentPadding,
+                ) {
+                    Icon(Icons.Rounded.VisibilityOff, contentDescription = null, modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(stringResource(R.string.brain_dont_count), maxLines = 1)
                 }
             }
             Spacer(Modifier.height(4.dp))

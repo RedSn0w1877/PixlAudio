@@ -43,6 +43,8 @@ fun AutoplayDivider(
     modifier: Modifier = Modifier,
     onNoveltyChange: ((Int) -> Unit)? = null,
     onHowPicksWork: (() -> Unit)? = null,
+    /** "Refresh picks": null while there is nothing upcoming to refresh. */
+    onRefreshPicks: (() -> Unit)? = null,
 ) {
     val stationTitle = state.stationTitle
     val isStation = stationTitle != null
@@ -60,6 +62,8 @@ fun AutoplayDivider(
             state.changedDirection -> R.string.queue_autoplay_changed_direction
             state.fromLibrary -> R.string.queue_autoplay_from_library
             isStation && state.stationIsArtist -> R.string.brain_station_subtitle_artist
+            isStation && state.stationSource == com.theveloper.pixelplay.data.brain.Station.SOURCE_ALBUM -> R.string.brain_station_subtitle_album
+            isStation && state.stationSource == com.theveloper.pixelplay.data.brain.Station.SOURCE_PLAYLIST -> R.string.brain_station_subtitle_playlist
             isStation -> R.string.brain_station_subtitle_song
             else -> R.string.queue_autoplay_on
         }
@@ -115,6 +119,14 @@ fun AutoplayDivider(
                 modifier = Modifier.fillMaxWidth(),
             )
             Spacer(modifier = Modifier.height(4.dp))
+        }
+        if (onRefreshPicks != null && (isStation || state.enabled) && !state.fromLibrary && !state.offWhileCasting) {
+            androidx.compose.material3.TextButton(
+                onClick = onRefreshPicks,
+                modifier = Modifier.align(Alignment.End),
+            ) {
+                Text(stringResource(R.string.brain_refresh_picks))
+            }
         }
     }
 }

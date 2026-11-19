@@ -943,7 +943,8 @@ fun QueueBottomSheet(
                                             state = autoplayState,
                                             onToggle = onToggleAutoplay,
                                             onNoveltyChange = onNoveltyChange,
-                                            onHowPicksWork = onHowPicksWork
+                                            onHowPicksWork = onHowPicksWork,
+                                            onRefreshPicks = if (hasUpcomingEngineItems) brainUi?.refreshPicks else null
                                         )
                                     }
                                     val why = queueWhy[song.id]
@@ -967,7 +968,11 @@ fun QueueBottomSheet(
                                         isRemoveButtonVisible = false,
                                         enableSwipeToDismiss = canReorder,
                                         swipeStateIdentity = itemStableKey,
-                                        onDismissSong = { onRemoveSong(song.id) },
+                                        onDismissSong = {
+                                            onRemoveSong(song.id)
+                                            // An engine pick swiped away unheard is a weak negative (8.4).
+                                            if (song.id in engineQueueIds) brainUi?.swiped?.invoke(song)
+                                        },
                                         isFromPlaylist = true,
                                         onMoreOptionsClick = { onSongInfoClick(song) },
                                         whyLine = whyText,
@@ -1019,7 +1024,8 @@ fun QueueBottomSheet(
                                         state = autoplayState,
                                         onToggle = onToggleAutoplay,
                                         onNoveltyChange = onNoveltyChange,
-                                        onHowPicksWork = onHowPicksWork
+                                        onHowPicksWork = onHowPicksWork,
+                                        onRefreshPicks = null
                                     )
                                 }
                             }

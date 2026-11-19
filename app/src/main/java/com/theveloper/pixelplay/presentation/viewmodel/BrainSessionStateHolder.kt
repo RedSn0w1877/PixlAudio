@@ -41,7 +41,8 @@ data class QueueWhy(val key: String, val arg: String)
  */
 @Singleton
 class BrainSessionStateHolder @Inject constructor(
-    autoplayController: AutoplayController,
+    private val autoplayController: AutoplayController,
+    private val privateSession: com.theveloper.pixelplay.data.brain.PrivateSession,
     private val brainSwitch: BrainSwitch,
     private val playableStore: PlayableStore,
     private val engineTrackSaver: EngineTrackSaver,
@@ -98,6 +99,14 @@ class BrainSessionStateHolder @Inject constructor(
         val nextWhy: Map<String, QueueWhy> = why ?: emptyMap()
         if (nextWhy != _queueWhy.value) _queueWhy.value = nextWhy.toImmutableMap()
     }
+
+    /** "Refresh picks" on the Autoplay line (8.4). Main thread. */
+    fun refreshPicks() = autoplayController.refreshPicks()
+
+    /** Private session (8.5): while it is on, plays are logged as excluded from the picks. Off at every app start. */
+    val privateSessionActive: StateFlow<Boolean> get() = privateSession.active
+
+    fun setPrivateSession(on: Boolean) = privateSession.set(on)
 
     /** The Familiar / Blend / Discover switch (`Novelty.*`). */
     fun setNovelty(level: Int) = stationStore.setNovelty(level)

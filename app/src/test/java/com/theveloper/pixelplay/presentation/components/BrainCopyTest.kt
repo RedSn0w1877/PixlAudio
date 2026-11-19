@@ -75,6 +75,8 @@ class BrainCopyTest {
         val resources = mockk<Resources> {
             every { getString(R.string.brain_why_radio_fans, "d4vd") } returns "Fans of d4vd also play this"
             every { getString(R.string.brain_why_on_repeat) } returns "On repeat lately"
+            every { getString(R.string.brain_why_new_release, "X") } returns "New from X"
+            every { getString(R.string.brain_why_similar_artist, "X") } returns "Close to X"
         }
         assertEquals("Fans of d4vd also play this", WhyLineText.format(resources, "radio_fans", "d4vd"))
         assertEquals("On repeat lately", WhyLineText.format(resources, "on_repeat", ""))
@@ -82,8 +84,12 @@ class BrainCopyTest {
         assertNull(WhyLineText.format(resources, "radio_fans", ""))
         assertNull(WhyLineText.format(resources, "because_liked", "  "))
         assertNull(WhyLineText.format(resources, "artist_more", null))
-        // Keys of arms stage 1 does not serve, and nonsense, show nothing.
-        assertNull(WhyLineText.format(resources, "new_release", "X"))
+        // Stage 2a serves two more arms: new releases and similar artists.
+        assertEquals("New from X", WhyLineText.format(resources, "new_release", "X"))
+        assertEquals("Close to X", WhyLineText.format(resources, "similar_artist", "X"))
+        assertNull(WhyLineText.format(resources, "new_release", ""))
+        // Keys of arms no surface serves yet, and nonsense, show nothing.
+        assertNull(WhyLineText.format(resources, "forgotten", "X"))
         assertNull(WhyLineText.format(resources, "nonsense", "X"))
         assertNull(WhyLineText.format(resources, null, "X"))
     }

@@ -20,6 +20,18 @@ class BrainUi(
     /** Opens the sheet behind a pick's reason line. */
     val showWhy: (song: Song, whyKey: String, whyArg: String) -> Unit,
     val showHowPicksWork: () -> Unit,
+    /** A station from an album: a few of its songs seed it, and none of its own songs lead. */
+    val startAlbumStation: (albumName: String, songs: List<Song>) -> Unit = { _, _ -> },
+    /** A station from a playlist. */
+    val startPlaylistStation: (playlistName: String, songs: List<Song>) -> Unit = { _, _ -> },
+    /** "More like this": the song's artist is boosted for two weeks. */
+    val moreLikeThis: (Song) -> Unit = {},
+    /** "Don't count this": the song's plays stop shaping the picks. */
+    val dontCount: (Song) -> Unit = {},
+    /** An engine pick was swiped out of the queue without being heard: a weak negative for the session. */
+    val swiped: (Song) -> Unit = {},
+    /** "Refresh picks" on the Autoplay line. */
+    val refreshPicks: () -> Unit = {},
 )
 
 val LocalBrainUi = compositionLocalOf<BrainUi?> { null }

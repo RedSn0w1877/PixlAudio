@@ -82,3 +82,28 @@ fun MixSongRow(
         }
     }
 }
+
+/**
+ * The line under a Recently Played row of a track from outside the library (docs/brain-spec.md, 7.2): a
+ * "Save" that imports it for good, through the same importer Like uses. Without it a listener cannot keep
+ * the song autoplay just played them.
+ */
+@Composable
+fun EngineSaveRow(onSave: () -> Unit, modifier: Modifier = Modifier) {
+    var saved by remember { mutableStateOf(false) }
+    Row(
+        modifier = modifier.fillMaxWidth().padding(end = 4.dp, bottom = 2.dp),
+        horizontalArrangement = Arrangement.End,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        TextButton(
+            onClick = {
+                saved = true
+                onSave()
+            },
+            enabled = !saved,
+        ) {
+            Text(stringResource(if (saved) R.string.brain_mix_saved else R.string.brain_recent_save))
+        }
+    }
+}

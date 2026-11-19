@@ -59,6 +59,7 @@ import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.CloudUpload
 import androidx.compose.material.icons.rounded.DragIndicator
 import androidx.compose.material.icons.rounded.FileDownload
+import androidx.compose.material.icons.rounded.Radio
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.Search
@@ -777,6 +778,18 @@ fun PlaylistDetailScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
+                }
+                // Music brain (8.3): a station seeded by five of this playlist's songs.
+                val brainUi = com.theveloper.pixelplay.presentation.utils.LocalBrainUi.current
+                if (brainUi != null && songsInPlaylist.isNotEmpty()) {
+                    PlaylistActionItem(
+                        icon = rememberVectorPainter(Icons.Rounded.Radio),
+                        label = stringResource(R.string.brain_start_playlist_station),
+                        onClick = {
+                            showPlaylistOptionsSheet = false
+                            brainUi.startPlaylistStation(currentPlaylist?.name ?: fallbackPlaylistName, songsInPlaylist)
+                        }
+                    )
                 }
                 PlaylistActionItem(
                     icon = painterResource(R.drawable.rounded_edit_24),

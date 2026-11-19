@@ -63,6 +63,9 @@ fun HowPicksWorkSheet(
     onAutoplayChange: (Boolean) -> Unit,
     onOpenTasteChanges: () -> Unit,
     onDismiss: () -> Unit,
+    privateSession: Boolean = false,
+    onPrivateSessionChange: ((Boolean) -> Unit)? = null,
+    onDontCountLastHour: (() -> Unit)? = null,
 ) {
     AdaptiveModalBottomSheet(onDismissRequest = onDismiss) {
         Column(
@@ -140,6 +143,59 @@ fun HowPicksWorkSheet(
                         Spacer(Modifier.width(12.dp))
                         // The row itself is the control: the switch only shows the state.
                         Switch(checked = autoplayEnabled, onCheckedChange = null)
+                    }
+                }
+                if (onPrivateSessionChange != null) {
+                    Surface(
+                        shape = GroupMiddle,
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(GroupMiddle)
+                            .clickable(role = Role.Switch) { onPrivateSessionChange(!privateSession) },
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(start = 16.dp, end = 12.dp, top = 12.dp, bottom = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text(stringResource(R.string.brain_private_session), style = MaterialTheme.typography.titleMedium)
+                                Text(
+                                    stringResource(R.string.brain_private_session_body),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            Spacer(Modifier.width(12.dp))
+                            Switch(checked = privateSession, onCheckedChange = null)
+                        }
+                    }
+                }
+                if (onDontCountLastHour != null) {
+                    Surface(
+                        shape = GroupMiddle,
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(GroupMiddle)
+                            .clickable(role = Role.Button) {
+                                onDontCountLastHour()
+                                onDismiss()
+                            },
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(start = 16.dp, end = 12.dp, top = 12.dp, bottom = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text(stringResource(R.string.brain_dont_count_hour), style = MaterialTheme.typography.titleMedium)
+                                Text(
+                                    stringResource(R.string.brain_dont_count_hour_supporting),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
                     }
                 }
                 Surface(

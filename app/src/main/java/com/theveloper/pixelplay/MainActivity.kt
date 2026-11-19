@@ -351,7 +351,13 @@ class MainActivity : ComponentActivity() {
                     startArtistStation = { name, songs -> playerViewModel.startArtistStation(name, songs) },
                     notForMe = { song -> playerViewModel.notForMe(song) },
                     showWhy = { song, key, arg -> playerViewModel.brainSession.actions.showWhy(song, key, arg) },
-                    showHowPicksWork = { playerViewModel.brainSession.actions.showHowPicksWork() }
+                    showHowPicksWork = { playerViewModel.brainSession.actions.showHowPicksWork() },
+                    startAlbumStation = { name, songs -> playerViewModel.startAlbumStation(name, songs) },
+                    startPlaylistStation = { name, songs -> playerViewModel.startPlaylistStation(name, songs) },
+                    moreLikeThis = { song -> playerViewModel.moreLikeThis(song) },
+                    dontCount = { song -> playerViewModel.dontCount(song) },
+                    swiped = { song -> playerViewModel.swipedEnginePick(song) },
+                    refreshPicks = { playerViewModel.refreshPicks() }
                 )
             }
             val useDarkTheme = when (appThemeMode) {
@@ -1188,11 +1194,20 @@ class MainActivity : ComponentActivity() {
                             notice = brainNotice,
                             onUndo = remember(brainActions) { { brainActions.undo() } },
                             onLessFromArtist = remember(brainActions) { { brainActions.lessFromArtist() } },
+                            onMuteArtist = remember(brainActions) { { brainActions.muteArtist() } },
                             modifier = Modifier
                                 .align(Alignment.BottomCenter)
                                 .padding(bottom = innerPadding.calculateBottomPadding() + MiniPlayerBottomSpacer + MiniPlayerHeight + 12.dp)
                                 .padding(horizontal = horizontalPadding + 14.dp)
                         )
+                        // Private session (8.5): visible while it is on, and one tap ends it.
+                        val privateOn by playerViewModel.brainSession.privateSessionActive.collectAsStateWithLifecycle()
+                        if (privateOn) {
+                            com.theveloper.pixelplay.presentation.components.PrivatePill(
+                                onClick = { playerViewModel.brainSession.setPrivateSession(false) },
+                                modifier = Modifier.align(Alignment.TopCenter)
+                            )
+                        }
                         BrainSheets(playerViewModel = playerViewModel, navController = navController)
 
                         if (showPlayStoreAnnouncement) {
@@ -1232,12 +1247,18 @@ class MainActivity : ComponentActivity() {
                     actions.dismissWhy()
                     actions.showHowPicksWork()
                 },
-                onDismiss = { actions.dismissWhy() }
+                onDismiss = { actions.dismissWhy() },
+                onMoreLikeThis = { playerViewModel.moreLikeThis(state.song) },
+                onDontCount = { playerViewModel.dontCount(state.song) }
             )
         }
         if (howPicksWorkVisible) {
             val autoplay by playerViewModel.brainSession.autoplayUiState.collectAsStateWithLifecycle()
+            val privateOn by playerViewModel.brainSession.privateSessionActive.collectAsStateWithLifecycle()
             com.theveloper.pixelplay.presentation.components.HowPicksWorkSheet(
+                privateSession = privateOn,
+                onPrivateSessionChange = { playerViewModel.brainSession.setPrivateSession(it) },
+                onDontCountLastHour = { playerViewModel.dontCountLastHour() },
                 autoplayEnabled = autoplay.enabled,
                 onAutoplayChange = { playerViewModel.brainSession.setAutoplayEnabled(it) },
                 onOpenTasteChanges = {

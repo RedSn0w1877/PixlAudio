@@ -126,7 +126,7 @@ class SpotifyBrowseViewModel @Inject constructor(
         val artistId = artist.id ?: return
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, level = BrowseLevel.Artist(artist)) }
-            val top = runCatching { repository.getArtistTopTracks(artistId) }.getOrElse { emptyList() }
+            val top = runCatching { repository.getArtistTopTracks(artistId, artist.name) }.getOrElse { emptyList() }
             val albums = runCatching { repository.getArtistAlbums(artistId) }.getOrElse { emptyList() }
             _uiState.update {
                 it.copy(isLoading = false, tracks = top, artistAlbums = albums)

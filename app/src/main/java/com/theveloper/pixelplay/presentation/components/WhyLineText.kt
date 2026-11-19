@@ -21,7 +21,9 @@ object WhyLineText {
         WhyLine.BECAUSE_LISTENED -> R.string.brain_why_because_listened
         WhyLine.ARTIST_MORE -> R.string.brain_why_artist_more
         WhyLine.ON_REPEAT -> R.string.brain_why_on_repeat
-        // The other keys of 8.8 belong to arms that stage 1 does not serve.
+        WhyLine.SIMILAR_ARTIST -> R.string.brain_why_similar_artist
+        WhyLine.NEW_RELEASE -> R.string.brain_why_new_release
+        // The other keys of 8.8 belong to arms that no surface serves yet.
         else -> 0
     }
 

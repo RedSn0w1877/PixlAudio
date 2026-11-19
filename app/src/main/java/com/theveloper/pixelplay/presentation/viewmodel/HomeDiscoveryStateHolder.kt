@@ -66,7 +66,10 @@ class HomeDiscoveryStateHolder @Inject constructor(
     private val tasteAdjustments: TasteAdjustmentRepository,
     /** The music brain's "Because you listened to" rows (docs/brain-spec.md, 8.1). */
     private val brainHomeRows: com.theveloper.pixelplay.data.brain.BrainHomeRows,
-    private val brainPlayTags: com.theveloper.pixelplay.data.brain.BrainPlayTags
+    private val brainPlayTags: com.theveloper.pixelplay.data.brain.BrainPlayTags,
+    /** "New from artists you play" (docs/brain-spec.md, 6.3): found by the refresh worker, read from one small file. */
+    private val newReleases: com.theveloper.pixelplay.data.brain.NewReleases,
+    private val brainSwitch: com.theveloper.pixelplay.data.brain.BrainSwitch,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     // The ranking/planning passes are pure CPU over the whole library: run them on one Default
@@ -81,7 +84,7 @@ class HomeDiscoveryStateHolder @Inject constructor(
     @Volatile private var lastRefreshFinishedAt = 0L
     @Volatile private var lastRefreshHadLibrary = false
     // The brain rows on screen, by section id: what a tap on one of their cards plays.
-    @Volatile private var brainRowsById: Map<String, com.theveloper.pixelplay.data.brain.BrainHomeRow> = emptyMap()
+    @Volatile private var brainRowsById: Map<String, com.theveloper.pixelplay.data.brain.PlayableBrainRow> = emptyMap()
 
     init {
         // A taste change (boost, mute, block...) makes the snapshot stale: the next visit to Home re-plans
@@ -118,15 +121,36 @@ class HomeDiscoveryStateHolder @Inject constructor(
                         emptyList()
                     }
                 } else emptyList()
+                // New from artists you play: from its saved file, with the brain engine on. A missing row leaves the
+                // legacy "New from artists you enjoy" shelf where it was; a present one replaces it (6.3).
+                var releaseRow: com.theveloper.pixelplay.data.brain.BrainReleaseRow? = if (enabled) {
+                    try {
+                        if (brainSwitch.engine() == com.theveloper.pixelplay.data.brain.BrainEngineChoice.BRAIN) {
+                            newReleases.row(blockedArtists.current, tasteAdjustments.snapshot())
+                        } else null
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        null
+                    }
+                } else null
                 var legacyShelves: ImmutableList<HomeMusicSection> = mutableState.value.shelves
-                    .filterNot { it.id.startsWith(com.theveloper.pixelplay.data.brain.BrainHomeRow.ID_PREFIX) }
+                    .filterNot {
+                        it.id.startsWith(com.theveloper.pixelplay.data.brain.BrainHomeRow.ID_PREFIX) ||
+                            it.id == com.theveloper.pixelplay.data.brain.BrainReleaseRow.ID
+                    }
                     .toImmutableList()
                 fun publishShelves() {
-                    brainRowsById = brainRows.associateBy { it.id }
-                    val sections = brainRows.map(::brainSection)
+                    val byId = HashMap<String, com.theveloper.pixelplay.data.brain.PlayableBrainRow>()
+                    for (row in brainRows) byId[row.id] = row
+                    releaseRow?.let { byId[it.id] = it }
+                    brainRowsById = byId
+                    val sections = ArrayList<HomeMusicSection>(brainRows.size + 1)
+                    for (row in brainRows) sections.add(brainSection(row))
+                    releaseRow?.let { sections.add(releaseSection(it)) }
                     mutableState.update { it.copy(shelves = (sections + legacyShelves).toImmutableList()) }
                 }
-                if (brainRows.isNotEmpty() || brainRowsById.isNotEmpty()) publishShelves()
+                if (brainRows.isNotEmpty() || brainRowsById.isNotEmpty() || releaseRow != null) publishShelves()
                 // Blocked artists never reach Home recommendations.
                 val library = blockedArtists.current.filterAllowed(music.getAllSongsOnce())
                 lastRefreshHadLibrary = library.isNotEmpty()
@@ -159,7 +183,9 @@ class HomeDiscoveryStateHolder @Inject constructor(
                             // No `discoveries`: the legacy "Beyond your library" shelf is replaced by the
                             // brain's rows, which keep their own order and reasons (decision D10).
                             discoveries = emptyList(),
-                            releases = blockedArtists.current.filterAllowed(snapshot.releases.filter { HomeRecommendationPlanner.isRecentRelease(it.releaseDate, LocalDate.now()) }.map { it.song }),
+                            // The brain's New releases row replaces the legacy shelf when it has one (6.3).
+                            releases = if (releaseRow != null) emptyList()
+                            else blockedArtists.current.filterAllowed(snapshot.releases.filter { HomeRecommendationPlanner.isRecentRelease(it.releaseDate, LocalDate.now()) }.map { it.song }),
                             nowMs = now, seed = LocalDate.now().toEpochDay(), variant = variant,
                             artistPriors = artistPriors, adjustments = adjustments
                         )
@@ -237,6 +263,22 @@ class HomeDiscoveryStateHolder @Inject constructor(
     }
 
     fun clearMessage() { mutableState.update { it.copy(message = null) } }
+
+    /** The New releases row as the shelf component draws it: each card says whose release it is. */
+    private fun releaseSection(row: com.theveloper.pixelplay.data.brain.BrainReleaseRow): HomeMusicSection {
+        val reasons = HashMap<String, String>(row.items.size * 2)
+        for (item in row.items) {
+            row.artistBySongId[item.song.id]?.takeIf { it.isNotBlank() }
+                ?.let { reasons[item.song.id] = context.getString(R.string.brain_why_new_release, it) }
+        }
+        return HomeMusicSection(
+            id = row.id,
+            title = context.getString(R.string.brain_home_new_releases),
+            subtitle = context.getString(R.string.brain_home_new_releases_subtitle),
+            songs = row.items.map { it.song }.toImmutableList(),
+            reasons = reasons.toImmutableMap()
+        )
+    }
 
     /** A brain row as the shelf component draws it: the title names the anchor, each card says why. */
     private fun brainSection(row: com.theveloper.pixelplay.data.brain.BrainHomeRow): HomeMusicSection {

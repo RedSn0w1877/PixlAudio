@@ -1539,6 +1539,13 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    val brainSpotifyShapesPicks: StateFlow<Boolean> = userPreferencesRepository.brainSpotifyShapesPicksFlow
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
+
+    fun setBrainSpotifyShapesPicks(enabled: Boolean) {
+        viewModelScope.launch { userPreferencesRepository.setBrainSpotifyShapesPicks(enabled) }
+    }
+
     fun setBrainRefreshEnabled(enabled: Boolean) {
         viewModelScope.launch { userPreferencesRepository.setBrainRefreshEnabled(enabled) }
     }

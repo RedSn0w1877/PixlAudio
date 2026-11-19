@@ -12,6 +12,14 @@
     <string name="brain_station_off_while_casting">Stations don\'t work while casting. Stop casting to start one.</string>
     <string name="brain_station_nothing_to_start">Nothing to start from yet. Add a song by %1$s first.</string>
 
+    <string name="brain_start_artist_station">Start artist station</string>
+    <string name="brain_start_artist_station_supporting">Plays this artist and music close to them</string>
+    <string name="brain_start_album_station">Start station from this album</string>
+    <string name="brain_start_playlist_station">Start station from this playlist</string>
+    <string name="brain_station_subtitle_album">Music like this album, picked as you listen</string>
+    <string name="brain_station_subtitle_playlist">Music like this playlist, picked as you listen</string>
+    <string name="brain_station_nothing_found">Couldn\'t find music for %1$s right now. Try again in a moment.</string>
+
     <!-- Familiar / Blend / Discover (8.3) -->
     <string name="brain_novelty_familiar">Familiar</string>
     <string name="brain_novelty_blend">Blend</string>
@@ -24,6 +32,8 @@
     <string name="brain_why_because_listened">Because you listened to %1$s</string>
     <string name="brain_why_artist_more">More from %1$s</string>
     <string name="brain_why_on_repeat">On repeat lately</string>
+    <string name="brain_why_similar_artist">Close to %1$s</string>
+    <string name="brain_why_new_release">New from %1$s</string>
     <string name="brain_why_sheet_title">Why this song</string>
     <string name="brain_why_sheet_basis">Picks are based on what you play.</string>
     <string name="brain_why_cd">Why this song was picked</string>
@@ -35,6 +45,27 @@
     <string name="brain_not_for_me_failed">Couldn\'t save that. Remove a few taste changes first.</string>
     <string name="brain_less_from">Less from %1$s</string>
     <string name="brain_less_from_done">You\'ll hear less from %1$s.</string>
+    <string name="brain_more_like_this">More like this</string>
+    <string name="brain_more_like_this_supporting">Leans your picks that way for two weeks</string>
+    <string name="brain_more_like_done">Got it. More like %1$s for a while.</string>
+    <string name="brain_dont_count">Don\'t count this</string>
+    <string name="brain_dont_count_supporting">Keeps this song out of what your picks are based on</string>
+    <string name="brain_dont_count_done">This won\'t shape your picks.</string>
+    <string name="brain_dont_count_hour">Don\'t count the last hour</string>
+    <string name="brain_dont_count_hour_supporting">Leaves everything you played in the last hour out of your picks</string>
+    <string name="brain_dont_count_nothing">There was nothing to leave out.</string>
+    <string name="brain_mute_artist">Mute %1$s</string>
+    <string name="brain_mute_artist_offer">You already hear less from %1$s. Mute them?</string>
+    <string name="brain_mute_artist_done">You won\'t hear %1$s in your picks.</string>
+    <string name="brain_private_session">Private session</string>
+    <string name="brain_private_session_body">Plays aren\'t counted in your picks until you switch this off. It switches off when the app restarts.</string>
+    <string name="brain_private_pill">Private</string>
+    <string name="brain_private_pill_cd">Private session is on. Tap to end it.</string>
+    <string name="brain_refresh_picks">Refresh picks</string>
+    <string name="brain_why_fact_artist_finished">You finished %1$d of your last %2$d plays by this artist</string>
+    <string name="brain_why_fact_track_finished">You\'ve finished this %1$d times</string>
+    <string name="brain_why_fact_year">Out in %1$d</string>
+    <string name="brain_recent_save">Save</string>
     <string name="brain_undo">Undo</string>
     <string name="brain_undone">Undone</string>
     <string name="brain_like">Like</string>
@@ -44,6 +75,9 @@
     <string name="brain_home_because_listened">Because you listened to %1$s</string>
     <string name="brain_home_because_listened_subtitle">Music you don\'t have yet</string>
 
+    <string name="brain_home_new_releases">New from artists you play</string>
+    <string name="brain_home_new_releases_subtitle">Fresh releases from music in your library</string>
+
     <!-- Daily Mix and Your Mix (8.2) -->
     <string name="brain_mix_save">Save</string>
     <string name="brain_mix_saved">Saved</string>
@@ -51,6 +85,8 @@
     <!-- Developer mode: the engine that ranks the mixes -->
     <string name="brain_engine_title">Music engine</string>
     <string name="brain_engine_subtitle">Rank Daily Mix and Your Mix with the new engine. Off uses the old one. Regenerate the daily mix to see the change.</string>
+    <string name="brain_spotify_shapes_title">Use my Spotify music to shape picks</string>
+    <string name="brain_spotify_shapes_subtitle">Your Spotify likes, top lists and listening history count towards your picks. Off takes them out at the next rebuild.</string>
     <string name="brain_export_title">Export play events</string>
     <string name="brain_export_subtitle">Writes your play log to a file on this phone, for measuring the picks on a computer. Nothing is uploaded.</string>
     <string name="brain_export_action">Export</string>

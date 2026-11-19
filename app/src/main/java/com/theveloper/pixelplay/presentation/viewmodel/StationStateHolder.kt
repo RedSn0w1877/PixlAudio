@@ -10,6 +10,7 @@ import com.theveloper.pixelplay.data.brain.BrainPlayTags
 import com.theveloper.pixelplay.data.brain.EngineTrack
 import com.theveloper.pixelplay.data.brain.LibraryIndex
 import com.theveloper.pixelplay.data.brain.Station
+import com.theveloper.pixelplay.data.brain.StationSeeds
 import com.theveloper.pixelplay.data.brain.StationStore
 import com.theveloper.pixelplay.data.database.EngagementDao
 import com.theveloper.pixelplay.data.model.Song
@@ -38,6 +39,8 @@ class StationStateHolder @Inject constructor(
     private val engagementDao: EngagementDao,
     private val clock: BrainClock,
     private val castStateHolder: CastStateHolder,
+    private val brainRepository: com.theveloper.pixelplay.data.brain.BrainRepository,
+    private val playableStore: com.theveloper.pixelplay.data.brain.PlayableStore,
 ) {
     /** What the player does for a station; implemented by the ViewModel that owns the controller. */
     interface Player {
@@ -77,24 +80,79 @@ class StationStateHolder @Inject constructor(
                 Timber.w(e, "station: finding the artist's seed failed")
                 null
             }
+            // An artist with no song in the library: the artist page's own radio button starts it (8.3). One
+            // `browse` and one `next` before sound, off the main thread, under the YouTube budget.
+            val outsideSeed = if (seed != null) null else try {
+                withContext(Dispatchers.IO) { seedFromYouTube(artistName) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Timber.w(e, "station: starting an artist with nothing in the library failed")
+                null
+            }
             withContext(Dispatchers.Main.immediate) {
-                if (seed == null) {
-                    player.toast(context.getString(R.string.brain_station_nothing_to_start, artistName))
+                val chosen = seed ?: outsideSeed
+                if (chosen == null) {
+                    player.toast(context.getString(R.string.brain_station_nothing_found, artistName))
                 } else {
-                    start(Station.artist(seed.id, artistName, clock.nowMs()), seed, player)
+                    start(Station.artist(chosen.id, artistName, clock.nowMs()), chosen, player)
                 }
             }
         }
     }
 
-    private fun start(station: Station, seed: Song, player: Player) {
+    /** The seed song of an artist the library has nothing of: a track from the artist page's radio, ready to play. */
+    private suspend fun seedFromYouTube(artistName: String): Song? {
+        val started = brainRepository.beginArtistStation(artistName) ?: return null
+        val track = EngineTrack.from(started.seedRow, started.seedRid)
+        // The track must be in `playable` BEFORE its media item reaches the player (7.2).
+        playableStore.register(listOf(track), clock.nowMs())
+        return track.toSong()
+    }
+
+    /** A station from an album: three of its songs seed it, and none of its own songs lead (6.2). */
+    fun startAlbumStation(albumName: String, songs: List<Song>, player: Player) =
+        startFromSource(Station.SOURCE_ALBUM, albumName, songs, StationSeeds.ALBUM_SEEDS, player)
+
+    /** A station from a playlist: five of its songs seed it (6.2). */
+    fun startPlaylistStation(playlistName: String, songs: List<Song>, player: Player) =
+        startFromSource(Station.SOURCE_PLAYLIST, playlistName, songs, StationSeeds.PLAYLIST_SEEDS, player)
+
+    private fun startFromSource(source: Int, name: String, songs: List<Song>, maxSeeds: Int, player: Player) {
+        if (songs.isEmpty() || name.isBlank()) return
+        player.scope.launch {
+            val seeds = try {
+                withContext(Dispatchers.Default) {
+                    val ids = songs.mapTo(HashSet(songs.size * 2)) { it.id }
+                    val plays = HashMap<String, Int>()
+                    runCatching { for (row in engagementDao.getAllEngagements()) if (row.songId in ids) plays[row.songId] = row.playCount }
+                    StationSeeds.pick(songs, plays, maxSeeds)
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Timber.w(e, "station: picking the seeds failed")
+                emptyList()
+            }
+            withContext(Dispatchers.Main.immediate) {
+                if (seeds.isEmpty()) {
+                    player.toast(context.getString(R.string.brain_station_nothing_found, name))
+                } else {
+                    val station = Station.fromSource(source, seeds.map { it.id }, name, clock.nowMs())
+                    start(station, seeds[0], player, sourceIds = songs.mapTo(HashSet(songs.size * 2)) { it.id })
+                }
+            }
+        }
+    }
+
+    private fun start(station: Station, seed: Song, player: Player, sourceIds: Set<String> = emptySet()) {
         // A Cast device plays a queue loaded once, of files this phone serves: the picks a station
         // lives on cannot reach it (docs/brain-spec.md, 14.6). Say so instead of starting one song.
         if (castStateHolder.castSession.value != null) {
             player.toast(context.getString(R.string.brain_station_off_while_casting))
             return
         }
-        stations.start(station)
+        stations.start(station, sourceIds)
         if (player.currentSongId() == seed.id) {
             // The seed is already sounding: it keeps playing, and what was queued behind it goes.
             player.clearUpcoming()

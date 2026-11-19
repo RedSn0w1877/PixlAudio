@@ -251,6 +251,7 @@ fun RecentlyPlayedScreen(
                             )
                         }
                         items(group.songs, key = { songUi -> songUi.song.id }, contentType = { "recently_played_song" }) { item ->
+                          androidx.compose.foundation.layout.Column {
                             EnhancedSongListItem(
                                 modifier = Modifier.padding(horizontal = 16.dp),
                                 song = item.song,
@@ -268,6 +269,14 @@ fun RecentlyPlayedScreen(
                                     showSongInfoBottomSheet = true
                                 }
                             )
+                            // A track the engine played that is not in the library can be kept from here (7.2).
+                            if (com.theveloper.pixelplay.data.brain.EngineTrack.isEngineOnly(item.song)) {
+                                com.theveloper.pixelplay.presentation.components.EngineSaveRow(
+                                    onSave = { playerViewModel.brainSession.saveEngineSongs(listOf(item.song.id)) },
+                                    modifier = Modifier.padding(horizontal = 16.dp),
+                                )
+                            }
+                          }
                         }
                     }
                 }

@@ -1779,6 +1779,14 @@ fun SettingsCategoryScreen(
                                     onCheckedChange = { settingsViewModel.setBrainRefreshEnabled(it) },
                                     leadingIcon = { Icon(Icons.Rounded.Science, null, tint = MaterialTheme.colorScheme.secondary) }
                                 )
+                                val brainSpotifyShapes by settingsViewModel.brainSpotifyShapesPicks.collectAsStateWithLifecycle()
+                                SwitchSettingItem(
+                                    title = stringResource(R.string.brain_spotify_shapes_title),
+                                    subtitle = stringResource(R.string.brain_spotify_shapes_subtitle),
+                                    checked = brainSpotifyShapes,
+                                    onCheckedChange = { settingsViewModel.setBrainSpotifyShapesPicks(it) },
+                                    leadingIcon = { Icon(Icons.Rounded.Science, null, tint = MaterialTheme.colorScheme.secondary) }
+                                )
                                 val exportContext = LocalContext.current
                                 ActionSettingsItem(
                                     title = stringResource(R.string.brain_export_title),

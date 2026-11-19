@@ -36,6 +36,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.rounded.Radio
 import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ContainedLoadingIndicator
@@ -374,8 +375,12 @@ fun AlbumDetailScreen(
                         }
 
                         WithCollapsingHeader(topBarHeight, collapseFractionState) { fraction, headerHeight ->
+                            val brainUi = com.theveloper.pixelplay.presentation.utils.LocalBrainUi.current
                             if (UseSharedCollapsibleTopBarProbe) {
                                 SharedAlbumTopBarProbe(
+                                    onStartStation = if (brainUi != null && songs.isNotEmpty()) {
+                                        { brainUi.startAlbumStation(album.title, songs) }
+                                    } else null,
                                     album = album,
                                     songsCount = songs.size,
                                     collapseFraction = fraction,
@@ -526,7 +531,8 @@ private fun SharedAlbumTopBarProbe(
     headerImageRequestSize: Size,
     onHeaderArtworkState: ((AsyncImagePainter.State) -> Unit)? = null,
     onBackPressed: () -> Unit,
-    onPlayClick: () -> Unit
+    onPlayClick: () -> Unit,
+    onStartStation: (() -> Unit)? = null,
 ) {
     val surfaceColor = MaterialTheme.colorScheme.surface
     val statusBarColor =
@@ -638,6 +644,24 @@ private fun SharedAlbumTopBarProbe(
             ) {
                 Icon(Icons.Rounded.Shuffle, contentDescription = stringResource(R.string.common_shuffle_play_album))
         }
+
+            // Music brain (8.3): a station seeded by three of this album's songs.
+            if (onStartStation != null) {
+                androidx.compose.material3.FilledTonalIconButton(
+                    onClick = onStartStation,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .statusBarsPadding()
+                        .padding(top = 6.dp, end = 12.dp)
+                        .graphicsLayer {
+                            scaleX = expandedContentAlpha
+                            scaleY = expandedContentAlpha
+                            alpha = expandedContentAlpha
+                        }
+                ) {
+                    Icon(Icons.Rounded.Radio, contentDescription = stringResource(R.string.brain_start_album_station))
+                }
+            }
     }
 }
 
