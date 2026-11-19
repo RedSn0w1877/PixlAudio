@@ -256,3 +256,224 @@ the app) was NOT run in one go; only the filters above.
 
 Known nuisance seen four times: `Unable to delete directory ... app\build\kotlin\compileDebugUnitTestKotlin` or `hiltJavaCompileDebug`
 (a Windows lock). Deleting the named folder and running again was enough.
+
+---
+
+# Milestone 2 of 2a: "more ways in, more control"
+
+Same branch, same rules: nothing below has run on a phone. "Works" means unit tests, compiling, and reading the code
+path end to end. Deviations continue at **101**.
+
+## What was built (per task)
+
+### Task 1: InnerTube additions (spec 3.3)
+
+- `InnerTubeMusicParsers`: `parseDiscography` (`browse MPAD<channelId>`, no params: the grid, newest first, each card a
+  `ReleaseRef` with kind, year and the audio playlist id from its "Shuffle play" menu item), `parseAlbumAudioPlaylistId`
+  (`microformat...urlCanonical`, the `OLAK5uy_` list), `parsePlaylistPage` (a `browse VL<id>` page **and** a browse
+  continuation: the playlist shelf only, never an album page's own tracks; the old and the new continuation shape),
+  `parseGetQueue` (`music/get_queue`), `parseSongSearch` (rows keep the artist run's channel id and read the length from the
+  byline). `ReleaseRef` gained `kind`, `audioPlaylistId`, `thumbnailUrl`; `parseListItemRow` falls back to
+  `playlistItemData.videoId`.
+- `InnerTubeClient`: `browseContinuation`, `getQueue` (max 100 ids), `searchSongsRaw`, all on the `@YouTubeOkHttpClient`.
+- `RadioSource` (`YouTubeRadioSource`): `discography`, `releaseTracks` (card playlist id, else one album page request),
+  `playlistRows` (up to 3 pages), `hydrate` (bisects a 404 batch, at most 3 extra requests), `channelIdFor` (a songs search).
+  Default bodies return null so existing fakes still compile.
+- Fixtures cut by `tools/brain/cut_fixtures.py <raw> --2a` from `builds/music-brain-2026-11-17/yt/raw`
+  (`discography`, `album_audio`, `playlist_album`, `playlist_top_songs`, `playlist_cont`, `get_queue`, `search_songs`, each
+  with an `.expected.json` from the script's own plain extraction). No new probe was needed: every capture existed.
+  `InnerTubeMusicParsers2aTest` holds them. The iOS parsers read the same files.
+
+### Task 2: New releases (6.3)
+
+`NewReleases` (`data/brain/NewReleases.kt`) keeps one small file (`brain_new_releases_v1.json`, no Room change): per
+artist the `MPREb_` ids and folded titles seen, plus the releases found with their tracks. `NewReleaseRules` is pure and
+tested: the first look at an artist is a **baseline** and surfaces nothing; an id first seen later is news unless its folded
+title matches an older release of that artist (a re-release) or repeats inside one answer; the year must be this year
+(or last year during January). A full carousel (10 albums or 10 singles/EPs on the artist page) reads the whole
+discography (`MPAD`). Tracks of a new release (at most 2 releases per artist per check) come from the audio playlist.
+The worker's **lane 2** (`BrainRefreshRunner.releaseTargets` / `releases`) checks the six artists checked longest ago,
+ahead of the artist lists, with its own share of the day (14 requests, counted in the file) inside the worker's 40.
+Home: `HomeDiscoveryStateHolder` shows "New from artists you play" after the Because rows, 12 cards at most, 2 per
+artist and 3 per release, hidden under 6 cards; when it has cards the legacy "New from artists you enjoy" shelf is not
+passed to the planner. A card's reason reads "New from <artist>" (`WhyLine.NEW_RELEASE`, arm NEW); playing it logs
+surface `homeShelf`, id `brain_new_releases`.
+
+### Task 3: stations
+
+- **Album and playlist stations.** `Station.source` (`SOURCE_SONG/ARTIST/ALBUM/PLAYLIST`) and `Station.seedMediaIds`;
+  `StationSeeds.pick` (most played, else the first, at most 2 per artist, 3 for an album, 5 for a playlist);
+  `StationStateHolder.startAlbumStation/startPlaylistStation`; the controller seeds the pool from all of them
+  (`seedingOf`), `StationPlanner` takes the closest of its seeds (not only `seeds[0]`: **golden unchanged**, a single seed
+  gives the same bits), and none of the source's own songs lead the first batch (`StationStore.sourceIds`, memory only).
+  Entries: an icon on the album page header, "Start station from this playlist" in the playlist options sheet.
+- **An artist with no song in the library.** `BrainRepository.beginArtistStation`: the channel (a songs search, unless a cached
+  radio names it), the artist page, the radio its own button starts; its first track is the seed, registered in `playable`
+  and played; the page's top songs and the radio are stored as the artist list under the seed, so the first pool is a cache
+  hit. Entry: "Start artist station" in the song options sheet (any song, any artist). The message for nothing found is
+  now "Couldn't find music for X right now".
+- **Similar artists' top songs.** `BrainRepository.similarArtistSongs`: the artist page's "Fans might also like", the top 3,
+  their pages' top songs, cached 14 days under `radio_list` chip `+similar`. Pure core: `Candidate.fromSimilarArtist` gives arm
+  SIM and `WhyLine.SIMILAR_ARTIST` names the artist whose list brought the pick ("Close to <artist>").
+- **Re-seed.** When a station's pool runs under 15, the track it did best with (the latest finished or liked station play,
+  from `Reaction.played`) joins the seeds (at most 2 per station); the pool is rebuilt from the cached radios plus its radio.
+
+### Task 4: feedback controls (8.4, 8.5)
+
+- **More like this**: a 14-day boost on the track's artist (a taste change, listed in Taste changes, undoable); the controller
+  re-reads the boost into its pool and tail (`onTasteChanged`), so the next batch leans that way. Rows in the song options
+  sheet and in the Why sheet.
+- **Don't count this**: the control reads "Don't count this" (no "learn"). `LearnExclusion` flags the plays `learnExcluded`,
+  takes their weight out of the tables at once (`Affinity.subtract`, pure, golden), writes a `feedback` row, and asks for a
+  full rebuild (which makes the tables exact). Scopes in the UI: the song (song options, Why sheet) and the last hour
+  ("How picks work"). The data layer also takes an album or a playlist (a set of recordings) and is tested; no screen offers
+  those two yet. Undo is on the bar that follows.
+- **Private session**: a switch in "How picks work", a "Private" pill at the top of the screen while it is on (a tap ends it),
+  **off at every app start** (memory only). Every play that overlaps a span is logged `learnExcluded`; each span is a `feedback`
+  row (`PRIVATE_SPAN`) with its end.
+- **Less from X, second tap**: if the artist already has a reduce, the bar says so and offers "Mute X"; after a first reduce
+  the bar offers "Mute X" next to Undo.
+- **Swipe on an engine row** = `Session.weakNegative` (`h = 0.2`, pure, golden): `recentNeg` only, no event, no block.
+  Only while the brain is in memory.
+- **Refresh picks** on the Autoplay line: the tail is replaced by the next best picks in one edit (the old tail is excluded
+  from that plan); with under 10 in the pool a deeper pool is built first.
+- **Save on Recently Played** for a track the engine played that is not in the library (`EngineTrack.isEngineOnly`), on the
+  full list; not on Home's pills.
+
+### Task 5: repeat activation (5.6)
+
+`RepeatActivation` in `:brain`: `History` (last 30 plays + one aggregate bucket), `b`, `feature` (`clip((B+4)/6, 0, 1)`);
+`Candidate.actr` feeds features 10 and 11 (`Features.ACTR`, `ACTR_SQ`); both stay 0 when the caller gives nothing, so
+every earlier golden line is unchanged. In the app, `ActivationFeatures` gives the mixes' library tracks their feature 10. **Golden file `stage2a.jsonl` is new** (see the loud note below).
+
+### Task 6: Spotify facts sink
+
+`BrainFactsSink` (`RoomBrainFactsSink`): `SpotifyRepository.toSpotifySongEntity` hands every track to it; it queues in
+memory and writes `spotify_fact` (brain.db **version 3**, migration `V2_TO_V3`, schema `3.json`, migration test) in batches
+2 s later. `SpotifyTrack.explicit` and `album.release_date_precision` are new fields and `PLAYLIST_TRACK_FIELDS` asks for
+`explicit` and the album's release date; `getArtistAlbums` asks for 10, not 50. `getArtistTopTracks` no longer calls the removed
+endpoint: the browse screen gets the tracks of a catalogue search for the artist that credit them. **The off switch**:
+Developer mode "Use my Spotify music to shape picks" (default on); off, the sink drops what it holds and the next rebuild
+leaves out the imported Spotify plays and the top lists and follows (`AppStateRebuilder`). Nothing is named "training".
+**Chips**: `ChipLabels` (pure, golden) says whether a radio chip names a genre, a decade, a mood or only steers the radio;
+chip labels were already kept in `radio_list.chipsBlob`, `BrainRepository.chipTagsOf(seedRid)` reads them mapped. No atlas
+ids yet: unknown stays unknown.
+
+### Task 7: "Why this song" facts
+
+`WhyFacts` (pure, golden): up to two true facts, in order: how many of the last plays by the artist were finished, how often
+the track was finished, the year. `WhyFactsLoader` reads them when the sheet opens. A genre or mood fact needs the atlas
+(2b) and is not shown. An engine track in the queue has no year (the media item carries none), so its sheet usually shows
+the first two.
+
+### Task 8: the AutoplayController harness
+
+`AutoplayControllerHarnessTest`: the controller built over mocks and fakes, with a queue the test owns. It holds the
+trigger (two left asks for a radio around the playing song; three left does not; repeat and the off switch ask nothing;
+Cast asks nothing and Spotify Connect does; a queue that is still being attached waits). What it cannot reach: the media items
+the controller builds carry their `brain.*` extras in an Android `Bundle`, which the JVM stubs do not hold, so the engine's
+rows and the built items' extras stay with the phone checklist.
+
+## Deviations 101 and on
+
+101. **Release checks rotate**: six artists a run, the one checked longest ago first, so the top 20 are all covered in about
+     four days, not daily (the host budget is 60 a day, deviation 88). Spec 6.3 says daily.
+102. **The releases lane runs before the artist lists** (spec lane 2 is releases; milestone 1 had put the artist lists there).
+103. **The releases lane has its own ceiling**, 14 requests a day, counted in the file and subtracted from the worker's 40.
+104. **A release's audio playlist id comes from the card's "Shuffle play" menu item first**, which saves the album page request;
+     the album page's canonical URL is the fallback, as the spec says.
+105. **The row needs 6 cards and shows at most 2 per artist** (the page rules of 8.1), so a listener with fewer than three
+     artists with news sees no row. It is not a Home hero or a mix ("Just Dropped" is 2b).
+106. **The artist's channel id for a release check** comes from the file, a cached radio row, else one `next` for the seed; that
+     request is spent outside the releases lane's count (like deviation 79).
+107. **Album and playlist stations use the song station's rules in the pure core** (`SEED_STATION_SONG`); the source is app-only.
+108. **A station's closest seed is a flag**, `StationPlanner.Request.closestOfSeeds` (default false): with it a station-mode track
+     must be near the nearest of the seeds, without it near the first one as before. The app sets it for an album or playlist station
+     and for one that was re-seeded. Default false keeps every earlier plan, so **no existing golden file changed**.
+109. **The source's own songs are out of the whole first batch** (20), not only the first 10, because the plan is one batch.
+110. **Re-seed**: the best-received track is the latest finished or liked station play (not "best by affinity").
+111. **An artist station for an unknown artist costs up to 3 requests before sound** (songs search, artist page, radio) and 4 more
+     for the similar artists at the first pool build.
+112. **Don't count this scopes in the UI**: song and last hour. Album and playlist exist in the data layer only.
+113. **The quick subtraction grades the play without its context** (past completions, skip streak), so it can differ from what
+     was applied; the full rebuild that follows is exact.
+114. **Private session is memory only**; a span is written to `feedback` when it opens and closed when it ends. A play that
+     overlaps a span at all is private.
+115. **More like this is an artist boost for 14 days** (no tags yet); the spec's "genre controls" wait for 2b.
+116. **A swipe writes no event**: the session nudge is all it does, so the log stays raw facts.
+117. **Refresh picks** excludes the current tail from the re-plan; with a pool under 10 it builds a deeper one first.
+118. **Save on Recently Played is on the full screen only.** Home's pills have a width calculation that a button would break.
+119. **Repeat activation reaches the mixes, not yet autoplay or stations.** `ActivationFeatures` reads the last 90 days of a track's
+     plays (`PlayEventDao.stampsOf`, one query per 800 recordings), grades each without its moment's context for its trust weight
+     `c`, and gives `BrainMixes`' library shortlist its `Candidate.actr`. The spec keeps the last 30 plays plus an aggregate
+     bucket; the pure `History` does that, the app's 90 days stands in for the bucket. Autoplay and station candidates still
+     carry `actr = 0` (their library tracks come from a different path); no golden line depends on it.
+120. **`getArtistTopTracks` takes the artist name** and uses a catalogue search; Spotify's own top tracks are gone.
+121. **Chips are mapped, not turned into atlas ids** (there is no atlas in 2a).
+
+## For the iOS port (milestone 2)
+
+- **GOLDEN FILES: one new file, `stage2a.jsonl`, and README.md / MANIFEST.sha256 changed to list it. No existing golden file
+  changed** (the new `Candidate` fields and `Features` 10 and 11 are zero by default, `Request.closestOfSeeds` is false by default, and `WhyLine`'s SIM argument falls back to the candidate's own artist when no list named
+  one: the old behaviour for the old inputs). Copy `brain/src/test/resources/brain-golden` as it is and match every line
+  of `stage2a.jsonl` bit for bit: `subtract`, `repeat`, `chip`, `weakNegative`, `whyFacts`, `plan` (README says how to replay).
+- New pure types to transliterate: `Affinity.subtract`, `RepeatActivation`, `ChipLabels`, `WhyFacts`, `Session.weakNegative`
+  and `Session.SWIPE_H`, `Candidate.fromSimilarArtist` and `actr`, `Features.ACTR`/`ACTR_SQ`, `StationPlanner.Request.closestOfSeeds`.
+- Parsers and fixtures: the seven `*.json` + `*.expected.json` pairs in `app/src/test/resources/innertube` (copy them);
+  the discography card's audio playlist id sits under `menu.menuRenderer.items[].menuNavigationItemRenderer...
+  watchPlaylistEndpoint.playlistId` (`OLAK5uy_`), and a playlist page's continuation token is the last
+  `continuationItemRenderer`.
+- Behaviour to mirror: the New releases rules (`NewReleaseRules`), the rotation and the budget; the second tap on "Less from"
+  offers mute; "Don't count this" is flag + subtract + rebuild + a `feedback` row; Private session is off at app start;
+  a swipe on an engine row is `weakNegative` only; the station sources (album 3 seeds, playlist 5, 2 per artist, the
+  source's songs out of the first batch); re-seed under 15; similar artists' top songs as arm SIM; the "Use my Spotify music
+  to shape picks" switch.
+- Words (Android strings, English): "New from artists you play", "New from %1$s", "Close to %1$s", "Start artist station",
+  "Start station from this album / playlist", "More like this", "Don't count this", "This won't shape your picks.",
+  "Don't count the last hour", "Mute %1$s", "Private session", "Private", "Refresh picks", "You finished %1$d of your last
+  %2$d plays by this artist", "You've finished this %1$d times", "Out in %1$d". None says "learn".
+
+## Still not verified on a device (new in this milestone)
+
+That a release check finds a real new release and that its audio playlist plays; that the row shows after a day on Wi-Fi;
+that an artist station starts for an artist the library lacks, and how long it takes before sound (three requests); that an
+album or playlist station's first batch leaves the source's songs out and feels like the album; that a re-seed happens when a
+long station runs low; that "More like this" visibly changes the next batch; that "Don't count this" leaves the picks after the
+rebuild and that Undo brings the plays back; that the Private pill shows above every screen and a private play leaves
+the picks alone; that a swipe lowers similar songs; that Refresh picks changes the tail; the Save button of Recently Played; the
+Settings row for Spotify; the `brain.db` 2 to 3 migration on a phone holding stage 1 or milestone 1 data (the JVM test holds
+the statement against the exported schema; the instrumented migration test was extended and has not run).
+
+## How to test (on a phone), milestone 2
+
+1. Developer mode on. Play ten songs through; wait a day on Wi-Fi (or run the job from Developer options): `dumpsys jobscheduler | grep brain_refresh`.
+2. Home: "New from artists you play" after a day or two, once an artist you play has a release this year the file had not seen.
+3. A song menu: "Start artist station" on a song of an artist you never played; watch for sound within a few seconds.
+4. Album page: the radio icon at the top right; playlist: the options sheet. Skip around; let the station run long.
+5. Song menu: "More like this", "Don't count this" (then Undo), "How picks work": Private session on, play, off.
+6. Queue: swipe an engine row away, then "Refresh picks".
+7. Recently Played (the full list): a track the engine played has "Save".
+
+## What was run, and what it said (milestone 2 of 2a)
+
+One Gradle build at a time, `ANDROID_HOME="C:\Users\Hoa\AppData\Local\Android\Sdk"`. Milestone 1 was first confirmed: it compiled and its tests
+passed before anything was added.
+
+    ./gradlew --continue :brain:generateGolden :brain:test :app:testDebugUnitTest :app:assembleDebug
+
+- `:brain:test`: **126 tests, 0 failures**. `git status` after `generateGolden`: only `stage2a.jsonl` (new), `README.md` and `MANIFEST.sha256`
+  changed; every earlier golden file is byte for byte what it was. (A first draft of `StationPlanner` changed `session.jsonl`; that is why
+  the multi-seed rule is the flag `closestOfSeeds`, off by default, and not the new default.)
+- `:app:testDebugUnitTest`, the whole task, once: **2310 tests, 1 failed, 2 skipped**. The failure was `BrainCopyTest > a reason line is a true
+  statement or nothing`, which still asserted that `new_release` shows nothing (true in stage 1; this milestone serves it). The test was
+  updated for "New from X" and "Close to X" and the class passes in a second run (`--tests BrainCopyTest`, `NewReleasesTest`,
+  `AutoplayControllerHarnessTest`: BUILD SUCCESSFUL). `RecommendationGoldenEqualityTest` and the rest of `data/recommendation` ran in the
+  whole task and are untouched. The 2 skipped are the real-export test (needs `PIXLAUDIO_EVAL_EXPORT`) and one older skip.
+- `:app:assembleDebug`: both split debug APKs built (`app-arm64-v8a-debug.apk`, `app-armeabi-v7a-debug.apk`).
+- Earlier in the milestone the whole thing was built and tested four times; each time the failures were mine and small: a test name with a `;`
+  or a `:` (the JVM rejects them), a stale count in `NewReleasesTest` (requests older than a day leave the count, on purpose), a
+  forgotten title for a release whose tracks could not be read (a real bug: it was then taken for a re-release of itself; fixed in `check()`),
+  and a smart-cast error. `HedgedRaceTest > no strategies means no winner` failed once with "uncaught exceptions before the test started": my
+  harness test's coroutines had thrown on a background thread (building an Android media item on the JVM); the harness now keeps them.
+- **Not run**: the instrumented migration test (extended for 2 to 3), anything on a device.
+- Windows file locks (`Unable to delete directory ...`) did not appear this time.
