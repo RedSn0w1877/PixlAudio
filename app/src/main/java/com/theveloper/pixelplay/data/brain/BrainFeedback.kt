@@ -23,6 +23,8 @@ import javax.inject.Singleton
 class BrainFeedback @Inject constructor(
     private val tasteAdjustments: TasteAdjustmentRepository,
     private val tracker: dagger.Lazy<ListeningStatsTracker>,
+    /** Asked for one replay after a genre change, so the pseudo-counts of 4.4 reach the picks soon (null in tests). */
+    private val engine: dagger.Lazy<BrainEngine>? = null,
 ) {
     class NotForMe(
         /** The id of the mute, for Undo; null when it could not be stored (too many active changes). */
@@ -116,6 +118,34 @@ class BrainFeedback @Inject constructor(
         return outcome.changes.firstOrNull { it.changed }?.adjustmentId
     }
 
+    /**
+     * "More of this" / "Less of this" on a genre (8.7): the existing boost or reduce on a genre, which also writes the prior pseudo-count of
+     * 4.4 on the genre's tag at the next replay (asked for here). The genre is [name] as the atlas spells it. Returns the id of the change,
+     * or null when it could not be stored.
+     */
+    suspend fun adjustGenre(name: String, more: Boolean): String? {
+        val key = TasteAdjustments.nameKey(name)
+        if (key.isEmpty()) return null
+        val outcome = tasteAdjustments.apply(
+            listOf(
+                TasteRequest(
+                    action = if (more) TasteAction.BOOST else TasteAction.REDUCE,
+                    target = TasteTarget.GENRE,
+                    key = key,
+                    altKey = null,
+                    label = name,
+                    strength = TasteAdjustmentMath.DEFAULT_STRENGTH,
+                    reason = if (more) REASON_MORE_GENRE else REASON_LESS_GENRE,
+                    expiresDays = null,
+                )
+            ),
+            TasteSetBy.USER,
+        )
+        val id = outcome.changes.firstOrNull { it.changed }?.adjustmentId
+        if (id != null) runCatching { engine?.get()?.requestRebuild(force = true) }
+        return id
+    }
+
     /** Takes one change back. False when it was already gone. */
     suspend fun undo(adjustmentId: String): Boolean = tasteAdjustments.remove(adjustmentId)
 
@@ -158,6 +188,8 @@ class BrainFeedback @Inject constructor(
         const val REASON_LESS_FROM = "Less from this artist"
         const val REASON_MORE_LIKE = "More like this"
         const val REASON_MUTE_ARTIST = "Muted from Less from this artist"
+        const val REASON_MORE_GENRE = "More of this genre"
+        const val REASON_LESS_GENRE = "Less of this genre"
 
         /** "More like this" leans the picks for this long. */
         const val MORE_LIKE_DAYS = 14

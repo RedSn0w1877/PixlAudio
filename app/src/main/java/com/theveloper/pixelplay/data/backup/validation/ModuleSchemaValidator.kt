@@ -47,7 +47,7 @@ class ModuleSchemaValidator @Inject constructor(
         }
 
         // Most modules are JSON arrays
-        if (section != BackupSection.QUICK_FILL && section != BackupSection.EQUALIZER) {
+        if (section != BackupSection.QUICK_FILL && section != BackupSection.EQUALIZER && section != BackupSection.BRAIN) {
             if (!jsonElement.isJsonArray) {
                 errors.add(ValidationError("NOT_ARRAY", "Module '${section.key}' should be a JSON array.", module = section.key))
                 return BackupValidationResult.Invalid(errors)
@@ -81,6 +81,7 @@ class ModuleSchemaValidator @Inject constructor(
                 // Basic array validation is already done at line 50. 
                 // Any extra specific field validation for AI logs can be added here.
             }
+            BackupSection.BRAIN -> validateBrain(jsonElement, errors)
         }
 
         return if (errors.any { it.severity == Severity.ERROR }) {
@@ -340,6 +341,14 @@ class ModuleSchemaValidator @Inject constructor(
             if (durationMs < 0) {
                 errors.add(ValidationError("NEGATIVE_DURATION", "PlaybackHistory[$i]: negative duration", module = "playback_history", severity = Severity.WARNING))
             }
+        }
+    }
+
+    /** The brain module is one object (see [com.theveloper.pixelplay.data.backup.module.BrainBackupFormat]); anything else is refused. */
+    private fun validateBrain(element: com.google.gson.JsonElement, errors: MutableList<ValidationError>) {
+        val parsed = com.theveloper.pixelplay.data.backup.module.BrainBackupFormat.decode(com.google.gson.Gson(), element.toString())
+        if (parsed == null) {
+            errors.add(ValidationError("INVALID_BRAIN_PAYLOAD", "Module 'brain' is not a music picks backup.", module = "brain"))
         }
     }
 

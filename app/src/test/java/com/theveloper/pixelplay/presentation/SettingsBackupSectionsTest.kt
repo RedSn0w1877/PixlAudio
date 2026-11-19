@@ -24,6 +24,7 @@ class SettingsBackupSectionsTest {
                 BackupSection.SEARCH_HISTORY,
                 BackupSection.PLAYBACK_HISTORY,
                 BackupSection.EQUALIZER,
+                BackupSection.BRAIN,
             ),
             shown,
         )

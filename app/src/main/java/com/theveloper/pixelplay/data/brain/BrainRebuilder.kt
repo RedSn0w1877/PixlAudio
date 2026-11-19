@@ -4,6 +4,7 @@ import com.theveloper.pixelplay.brain.Affinity
 import com.theveloper.pixelplay.brain.Brain
 import com.theveloper.pixelplay.brain.EventFlags
 import com.theveloper.pixelplay.brain.Family
+import com.theveloper.pixelplay.brain.GenreAtlas
 import com.theveloper.pixelplay.brain.Ids
 import com.theveloper.pixelplay.brain.LearnReplay
 import com.theveloper.pixelplay.brain.LibraryFacts
@@ -165,6 +166,7 @@ class AppStateRebuilder @Inject constructor(
     private val switch: BrainSwitch,
     private val spotifyFacts: dagger.Lazy<com.theveloper.pixelplay.data.brain.store.SpotifyFactDao>,
     private val feedback: dagger.Lazy<com.theveloper.pixelplay.data.brain.store.FeedbackDao>,
+    private val atlasProvider: dagger.Lazy<AtlasProvider>,
 ) : StateRebuilder {
 
     override suspend fun isNeeded(): Boolean = withContext(Dispatchers.IO) {
@@ -323,7 +325,13 @@ class AppStateRebuilder @Inject constructor(
                     val rid = song?.let { ridBySongId[it.id] } ?: continue
                     adjustments.add(LibraryFacts.Adjustment(Family.TRACK, rid, more, adjustment.strength))
                 }
-                else -> Unit // genre and album adjustments need the atlas and album ids of stage 2
+                TasteTarget.GENRE -> {
+                    // A genre the atlas knows becomes a pseudo-count on its tag (4.4, 5.11); a name it does not know is absent, never guessed.
+                    val atlas = atlasProvider.get().atlas()
+                    val id = atlas?.idForName(adjustment.label) ?: GenreAtlas.NONE
+                    if (id != GenreAtlas.NONE) adjustments.add(LibraryFacts.Adjustment(Family.TAG, id.toLong(), more, adjustment.strength))
+                }
+                else -> Unit // album adjustments need album ids
             }
         }
         return LibraryFacts(liked, topArtists, topTracks, followed.toLongArray(), adjustments)

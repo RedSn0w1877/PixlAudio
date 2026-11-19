@@ -48,7 +48,7 @@ class BackupSectionTest {
 
     @Test
     fun `all twelve supported backup sections are present`() {
-        assertEquals(12, BackupSection.entries.size)
+        assertEquals(13, BackupSection.entries.size)
         assertEquals(BackupSection.AI_USAGE_LOGS, BackupSection.fromKey("ai_usage_logs"))
         assertEquals(4, BackupSection.AI_USAGE_LOGS.sinceVersion)
     }

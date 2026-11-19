@@ -253,4 +253,38 @@
     <string name="brain_genre_shaped_by">Shaped by</string>
     <string name="brain_genre_play_station">Play station</string>
     <string name="brain_genre_nothing">Nothing of yours is under this genre yet.</string>
+
+    <!-- Stage 3 completion: the daypart mix shelf (8.1) -->
+    <string name="brain_home_daypart_weekday_morning">Your weekday mornings</string>
+    <string name="brain_home_daypart_weekday_day">Your weekday afternoons</string>
+    <string name="brain_home_daypart_weekday_evening">Your weekday evenings</string>
+    <string name="brain_home_daypart_weekday_night">Your weeknights</string>
+    <string name="brain_home_daypart_weekend_morning">Your weekend mornings</string>
+    <string name="brain_home_daypart_weekend_day">Your weekend afternoons</string>
+    <string name="brain_home_daypart_weekend_evening">Your weekend evenings</string>
+    <string name="brain_home_daypart_weekend_night">Your weekend nights</string>
+    <string name="brain_home_daypart_subtitle">Music from the side of your taste you play at this time of the week</string>
+
+    <!-- Stage 3 completion: Lately, island and genre tap-throughs, the genre page's own sections (8.6, 8.7) -->
+    <string name="brain_sound_lately">Lately</string>
+    <string name="brain_sound_lately_up">Up: %1$s</string>
+    <string name="brain_sound_lately_down">Down: %1$s</string>
+    <string name="brain_sound_island_artists">Top artists</string>
+    <string name="brain_sound_island_songs">Top songs</string>
+    <string name="brain_sound_island_play_station">Play station</string>
+    <string name="brain_sound_island_more">More of this</string>
+    <string name="brain_sound_island_less">Less of this</string>
+    <string name="brain_sound_island_close">Close</string>
+    <string name="brain_sound_family_open">Show the genres inside</string>
+    <string name="brain_genre_key_artists">Key artists</string>
+    <string name="brain_genre_from_library">From your library</string>
+    <string name="brain_genre_you">You and this genre</string>
+    <string name="brain_genre_you_first">First played %1$s</string>
+    <string name="brain_genre_you_share">%1$d%% of your listening, %2$d plays</string>
+    <string name="brain_genre_you_top">Played most</string>
+    <string name="brain_genre_more">More of this</string>
+    <string name="brain_genre_less">Less of this</string>
+    <string name="brain_genre_more_done">Got it. You will hear more %1$s.</string>
+    <string name="brain_genre_less_done">Got it. You will hear less %1$s.</string>
+    <string name="brain_genre_adjust_failed">That change could not be saved.</string>
 </resources>

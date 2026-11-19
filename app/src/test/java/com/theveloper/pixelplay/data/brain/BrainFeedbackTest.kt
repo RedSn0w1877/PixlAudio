@@ -215,4 +215,24 @@ class BrainFeedbackTest {
         holder.swiped(song)
         coVerify(exactly = 0) { identity.resolveTrack(any(), any()) }
     }
+
+    @Test
+    fun `more of a genre and less of a genre are the existing boost and reduce on the genre, with no end date`() = runTest {
+        val calls = ArrayList<List<TasteRequest>>()
+        coEvery { taste.apply(capture(calls), TasteSetBy.USER) } returns outcome("g1")
+
+        assertEquals("g1", feedback.adjustGenre("Bedroom pop", more = true))
+        assertEquals("g1", feedback.adjustGenre("Bedroom pop", more = false))
+
+        val requests = calls.map { it.single() }
+        assertEquals(listOf(TasteAction.BOOST, TasteAction.REDUCE), requests.map { it.action })
+        for (r in requests) {
+            assertEquals(TasteTarget.GENRE, r.target)
+            assertEquals("Bedroom pop", r.label)
+            assertEquals(com.theveloper.pixelplay.data.recommendation.TasteAdjustments.nameKey("Bedroom pop"), r.key)
+            assertNull(r.expiresDays)
+        }
+        // A name with nothing in it changes nothing.
+        assertNull(feedback.adjustGenre("   ", more = true))
+    }
 }

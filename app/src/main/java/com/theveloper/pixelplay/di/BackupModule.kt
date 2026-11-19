@@ -57,7 +57,8 @@ object BackupModule {
         quickFillHandler: QuickFillModuleHandler,
         artistImagesHandler: ArtistImagesModuleHandler,
         equalizerHandler: EqualizerModuleHandler,
-        aiUsageHandler: AiUsageBackupHandler
+        aiUsageHandler: AiUsageBackupHandler,
+        brainHandler: com.theveloper.pixelplay.data.backup.module.BrainBackupHandler
     ): Map<BackupSection, BackupModuleHandler> {
         return mapOf(
             BackupSection.PLAYLISTS to playlistsHandler,
@@ -71,7 +72,8 @@ object BackupModule {
             BackupSection.QUICK_FILL to quickFillHandler,
             BackupSection.ARTIST_IMAGES to artistImagesHandler,
             BackupSection.EQUALIZER to equalizerHandler,
-            BackupSection.AI_USAGE_LOGS to aiUsageHandler
+            BackupSection.AI_USAGE_LOGS to aiUsageHandler,
+            BackupSection.BRAIN to brainHandler
         )
     }
 }

@@ -105,6 +105,7 @@ class FakeArtistDnaDao : ArtistDnaDao {
     override suspend fun bySpotifyId(spotifyId: String) = rows.values.firstOrNull { it.spotifyId == spotifyId }
     override suspend fun count() = rows.size
     override suspend fun countWithTags() = rows.values.count { it.tags.isNotEmpty() }
+    override suspend fun withTags() = rows.values.filter { it.tags.isNotEmpty() }
     override suspend fun clear() { rows.clear() }
 }
 

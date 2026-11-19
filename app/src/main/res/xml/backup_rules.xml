@@ -35,4 +35,9 @@
     <exclude domain="sharedpref" path="spotify_prefs_plain.xml"/>
     <exclude domain="sharedpref" path="youtube_auth_prefs.xml"/>
     <exclude domain="sharedpref" path="youtube_auth_prefs_plain.xml"/>
+
+    <!-- The music brain (docs/brain-spec.md, 12.2): the saved Home plan and the Home rows are caches that a plan made on this phone replaces, so
+         they are not backed up. The brain's database (brain.db, the plays and the salt) is the listener's own and goes with the app's data;
+         the app's own backup has a "Music picks" module for the salt, the taste changes and the exclusions. -->
+    <exclude domain="file" path="brain/"/>
 </full-backup-content>

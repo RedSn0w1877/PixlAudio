@@ -571,7 +571,7 @@ fun AppNavigation(
                 Screen.YourSound.route,
             ) {
                 ScreenWrapper(navController = navController, playerViewModel = playerViewModel, animatedVisibilityScope = this) {
-                    com.theveloper.pixelplay.presentation.screens.YourSoundScreen(navController = navController)
+                    com.theveloper.pixelplay.presentation.screens.YourSoundScreen(navController = navController, playerViewModel = playerViewModel)
                 }
             }
             composable(

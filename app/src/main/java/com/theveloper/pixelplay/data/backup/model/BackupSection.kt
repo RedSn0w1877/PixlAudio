@@ -84,6 +84,13 @@ enum class BackupSection(
         description = "History of AI requests and token consumption.",
         iconRes = R.drawable.rounded_monitoring_24,
         sinceVersion = 4
+    ),
+    BRAIN(
+        key = "brain",
+        label = "Music picks",
+        description = "Your taste changes, what you asked not to count, and the seed of your picks.",
+        iconRes = R.drawable.rounded_instant_mix_24,
+        sinceVersion = 4
     );
 
     companion object {

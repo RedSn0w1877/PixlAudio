@@ -39,6 +39,9 @@
         <exclude domain="sharedpref" path="spotify_prefs_plain.xml"/>
         <exclude domain="sharedpref" path="youtube_auth_prefs.xml"/>
         <exclude domain="sharedpref" path="youtube_auth_prefs_plain.xml"/>
+
+        <!-- The music brain's saved Home plan and rows are caches (see backup_rules.xml). -->
+        <exclude domain="file" path="brain/"/>
     </cloud-backup>
     <device-transfer>
         <!-- Also exclude from device-to-device transfers — user must re-authenticate -->
@@ -73,5 +76,8 @@
         <exclude domain="sharedpref" path="spotify_prefs_plain.xml"/>
         <exclude domain="sharedpref" path="youtube_auth_prefs.xml"/>
         <exclude domain="sharedpref" path="youtube_auth_prefs_plain.xml"/>
+
+        <!-- The music brain's saved Home plan and rows are caches (see backup_rules.xml). -->
+        <exclude domain="file" path="brain/"/>
     </device-transfer>
 </data-extraction-rules>

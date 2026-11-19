@@ -148,6 +148,16 @@ interface FeedbackDao {
 
     @Query("SELECT * FROM feedback WHERE undoneAtMs IS NULL ORDER BY createdAtMs")
     suspend fun active(): List<FeedbackEntity>
+
+    /** Every row, undone or not (the backup keeps the whole record). */
+    @Query("SELECT * FROM feedback ORDER BY createdAtMs")
+    suspend fun all(): List<FeedbackEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAll(rows: List<FeedbackEntity>)
+
+    @Query("DELETE FROM feedback")
+    suspend fun clear()
 }
 
 /** What a seed pick reads from the event log and the radio cache (3.6, "Stage 2 before islands exist"). */

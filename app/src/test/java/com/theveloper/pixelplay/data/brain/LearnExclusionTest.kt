@@ -25,6 +25,9 @@ class LearnExclusionTest {
         override suspend fun insert(row: FeedbackEntity) { rows[row.id] = row }
         override suspend fun undo(id: Long, nowMs: Long) { rows[id]?.let { rows[id] = it.copy(undoneAtMs = nowMs) } }
         override suspend fun active(): List<FeedbackEntity> = rows.values.filter { it.undoneAtMs == null }
+        override suspend fun all(): List<FeedbackEntity> = rows.values.toList()
+        override suspend fun insertAll(rows: List<FeedbackEntity>) { for (r in rows) this.rows[r.id] = r }
+        override suspend fun clear() { rows.clear() }
     }
 
     private val store = MemoryBrainStore()

@@ -87,6 +87,17 @@ class TasteAdjustmentRepository @Inject constructor(@ApplicationContext context:
         count
     }
 
+    /** Puts a whole set of adjustments in place (a restored backup). */
+    suspend fun replaceAll(list: List<TasteAdjustment>) = writeLock.withLock {
+        if (list.isEmpty()) {
+            store.edit { it.remove(KEY) }
+            decoded = null
+            _version.value = _version.value + 1
+        } else {
+            write(list)
+        }
+    }
+
     private suspend fun write(list: List<TasteAdjustment>) {
         val encoded = TasteAdjustmentCodec.encode(list)
         store.edit { it[KEY] = encoded }

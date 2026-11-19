@@ -7,6 +7,8 @@ map of what exists: stage 1 (deviations 1 to 79), stage 2a (80 to 127), stage 2b
 end. **The learner has only ever run on synthetic listeners. There is no real-data number yet** (no accuracy, no log-loss, no test 6 result
 on a real export): nothing in the code, the copy or this file claims one.
 
+> The "Cut or deferred" list below was closed in part by the second pass: see "Stage 3 completion" at the end of this file (deviations 189 and on).
+
 ## What happened to this branch
 
 The first stage 3 pass left the branch without commits: one uncommitted edit of `Ranker.kt`. An independent review (3 majors, 5 minors, 1
@@ -153,3 +155,101 @@ completion rates (the flag and `modelVersion` are set at the end of a play, not 
 - After correcting that assertion: `:app:testDebugUnitTest --tests "*LearnerEngineTest" --tests "*BrainCopyTest"`: BUILD SUCCESSFUL. (The whole app suite was not run a second time.)
 - **Not run**: the instrumented tests (no device); nothing on a phone.
 - Golden files were regenerated with `:brain:generateGolden`: four NEW files, `MANIFEST.sha256` and `README.md` changed, no earlier file changed.
+
+---
+
+# Stage 3 completion (second pass)
+
+The first pass (above) left out the parts listed in "Cut or deferred". This pass built them, in the order of the task: control sessions, the arm bandit,
+novelty appetite, context and the daypart mix, impressions and the shelf bandit, Your sound's completions and the genre pages, the brain backup module,
+and the test 6 command. **Still true: nothing here has run on a phone, every number is from synthetic listeners, there is no real-data number, and the
+legacy engine is NOT deleted.** Deviations continue from 189.
+
+## What was built (files)
+
+`:brain` (pure, tested, golden files `bandit`, `novelty`, `context`, `shelfbandit`, `posteriors`; no earlier golden file changed):
+
+- `ArmBandit.kt` (5.10 arms + audit of 5.12 point 3, `ArmPicker`, `Sampler`), `NoveltyAppetite.kt`, `Posteriors.kt` (`Posteriors`, `PosteriorUpdate`, `PosteriorCodec`: the one
+  entry point for live and replay), `ContextLift.kt`, `ShelfBandit.kt` (+ `ShelfBanditCodec`, `rebuild` from impression rows).
+- `ListBuilder` (`armPicker`, `Pick.explore`), `StationPlanner` / `MixPlanner` (`armPicker`, `nuBase`, `nuOverride`), `HomePlanner` (`DAYPART_MIX`, `reorder`),
+  `LearnReplay` (`Result.posteriors`, `applyLive(..., posteriors)`), `Replay.applyFacts` (a taste adjustment on a TAG), `YourSound` (`lately`, `genreTree`, `genreHistory`).
+- Tests: `Stage3bTest` (33 cases), `RealExportTest6` (skipped without a file).
+
+App:
+
+- Control sessions: `BrainEngine.Loaded.rankingChoice` / `RankingChoice`; `BrainItemTag.control` / `modelVersion` / `explore` (extras `brain.ctrl`, `brain.model`, `brain.explore`, queue snapshot
+  `brainControl` / `brainModel` / `brainExplore`); `StoredMix`, `StoredHomeRow`, `PlanShelf`, `PlanItem` carry them; `BrainEventRecorder` reads them.
+- `BrainEngine`: `Learner.posteriors`, `posteriors_v1`, `armPicker`, `sessionNu`; `ContextStore`; `ShelfStore` + `ImpressionDao` / `ImpressionEntity` (brain.db **version 6**, migration 5 to 6, schema `6.json`);
+  `HomePlanBuilder` (daypart shelf, shelf order), `MixKinds.DAYPART`, `HomePlanStateHolder` / `HomeScreen` (seen and started signals), `BrainRefresh` (`settleShelves`).
+- Your sound: `YourSoundRepository` (Lately, genre tree, island rows with names), `YourSoundScreen` (Lately, the tree, island dialog with Play station and More / Less), `YourSoundViewModel.adjustGenre`.
+- Genre pages: `GenrePageRepository` (key artists, from your library, You and this genre), `GenrePageViewModel` / `GenrePageScreen` (More of this, Less of this), `BrainFeedback.adjustGenre`,
+  `AppStateRebuilder` (a genre adjustment becomes a pseudo-count on its tag).
+- Backup: `BrainBackupHandler`, `BrainBackupFormat`, `BackupSection.BRAIN`, `ModuleSchemaValidator`, `files/brain/` excluded in `backup_rules.xml` and `data_extraction_rules.xml`.
+
+## Deviations 189 and on
+
+189. **The control flag and the model version are decided when a list is built** (`RankingChoice`), carried in each item and read at finalisation. The recorder no longer works out
+     either at the end of a play. An item that carries nothing (a queue saved by an older build, a track the listener chose, a pick made in pool order with no planner, a Home plan shelf other than
+     "Because you listened to" and the daypart mix) is recorded as the prior and not a control. The flag now also applies to cards of mixes and Home rows (`chosen = true` items), which the first pass
+     never flagged. Your sound's two completion rates are therefore measured on what was really ranked with the prior.
+190. **The arm bandit runs only while the learned weights are in use and the session is not a control** (`Loaded.armPicker` is null otherwise). A listener on the standard recipe keeps stage 2's
+     choice of the best-valued novel candidate, so no earlier list changes. The spec's "the same code runs with the priors frozen" was not done (it would draw over priors for everybody and move
+     every golden list).
+191. **An exploration slot** is a novel slot the bandit drew the arm for (`ListBuilder.Pick.explore`); it travels as `brain.explore`, becomes `EventFlags.EXPLORE_SLOT` (which `Reward` already weights 1.5) and feeds the audit
+     posterior. The audit is drawn from instead of the main posterior when it holds at least 5 weighted exploration plays beyond its prior and its mean differs by more than 0.15 (the spec gives no evidence floor).
+     Arms update from `cOther` of live plays on home, mix (daily, your, named) and station / autoplay surfaces only; other surfaces and imports are ignored.
+192. **Novelty**: F and N start at Beta(4, 4) (the spec names no prior), discount 0.98 a day, `nu0` from per-day counts of the trailing 365 days (a "qualified" play is `c > 0`, not excluded; the first play is the first ever),
+     `nuLong` moves at most 0.02 a day toward `nu0 * (meanN / meanF)^1.5` (`x * sqrt(x)`), the +0.01 boost fades linearly over 30 days, capped at +0.10, final clip 0.60. It replaces the stage 2 constant only while the
+     learned weights are in use: `MixPlanner.nuBase` for mixes and island mixes, and the starting `nuSession` of a new session for autoplay and stations (surface factors and the Familiar / Blend / Discover multiplier unchanged).
+     The `nuQ` written to `served_list` still uses the constant.
+193. **Persisted as `posteriors_v1`** in `brain_state` (no table). A learner saved before this build, or an unreadable posterior state, clears `learn_version` so the next replay makes both from the log;
+     `LearnReplay.VERSION` was not bumped (no golden file moves). Reset gives fresh posteriors with the reset watermark; plays before it are not learned from.
+194. **Context** uses the spec's dayparts (05-11, 11-17, 17-22, 22-05) in `ContextLift`; the Home plan keeps its stage 2 daypart (morning to 12). The two disagree only at hour 11. The table is a pure function of the log
+     (`ContextStore`, read in the background when the plan needs it, kept 30 minutes; a play with no timezone uses the device offset now). A bucket's play count is plays with an island and trust above 0.
+     **Feature 29 (`ctx_lift`) is NOT fed**: it stays 0 as in stage 2 (not in the task list; see Cut).
+195. **The daypart mix** is `MixKinds.DAYPART` (`surfaceId daypart:<bucket>:<island>`), planned like a Daily Mix of the leading island (largest `W_c * exp(lift)` among the up to six Daily Mix islands), 25 tracks, 15% new,
+     seeded by date and bucket, one per bucket per day. The buckets are weekday and weekend, not single weekdays, so the shelf says "Your weekday nights", "Your weekend mornings" and so on (spec's example "Friday nights" would be a
+     claim about one weekday the data does not make). It shows after the Because rows, only with at least two islands, only when the bucket has 50 plays, and not below 6 tracks. It is not gated by the learned weights.
+196. **Shelf bandit**: no daily discount (the spec has none for shelves). Rewards come from the log: a tap on a shelf starts the visit's one reward candidate, and it is a reward only when the first play that starts within 2 minutes is heard
+     for 30 s or to its end; a shelf on screen for 1 s counts as seen (`LaunchedEffect` in each shelf item). A visit is settled when 30 minutes have passed, at the next page show or in the refresh worker (`settleShelves`).
+     Impressions: `impression` (brain.db v6), at most 200 visits and 90 days. The order is used only while the learned weights are on and after 20 shelf updates; drawn once per `planKey`, frozen, with one forced exposure
+     (to the top) for a type last seen 14 or more days ago. Reset clears posteriors and impressions.
+197. **Lately** is two sets of affinity tables built from the log in order (now, and as of 14 days ago), over artists and tags, keys with at least 3 weight and a move of at least 0.25 of `aff`; only names the brain knows are shown.
+     It makes Your sound read the whole log once (background, on open, cached 5 minutes), as it did.
+198. **Genre tree**: a family is the genre's ancestor of depth 0; the section shows families, each opening to the genres played inside it; a genre opens its page. **Island tap-through**: top artists and songs by name from the
+     DNA tables (unknown names absent); "Play station" is the genre station of the island's first nameable top genre; More / Less is a boost or reduce on that genre with no end date. An island with no nameable genre has the
+     lists only.
+199. **Genre page**: key artists come from `artist_dna` vectors (artists the brain holds DNA for), "From your library" is the artists of the library songs under the genre, "You and this genre" is first play, share and top 5
+     (hidden if never played). More / Less is a genre taste change; `AppStateRebuilder` turns it into the 4.4 pseudo-count (+6 / +6, scaled by strength) on the genre's TAG, and `BrainFeedback.adjustGenre` asks for that replay.
+     **Not done**: the ranking-time `ln(product)` of a genre adjustment still matches `Song.genre` only (empty for Spotify tracks); its effect on Spotify tracks is through feature 4 and the pseudo-count.
+200. **Backup**: the `brain` module holds the salt, the taste changes and the whole `feedback` table (exclusions); restore puts them back and asks for one replay. The event log is the listener's history and is not in it
+     (the playback history modules cover plays); `brain.db` itself still goes with the platform backup; `files/brain/` (saved plans) is excluded there. `sinceVersion` is 4 like the AI logs (the manifest schema is still 3).
+201. **Test 6 on a real export**: `RealExportTest6` (below). Not run: no export.
+
+## Cut or deferred in this pass
+
+- Feature 29 `ctx_lift` is not fed (needs the context table at scoring time, and a decision on gating it).
+- Your sound: the energy and mood sections, the hero tinted by artwork, entry from Home's avatar (still Settings only), "Private session" / "Not learning from" list on the screen (they live in their own screens).
+- A station from an island that has no nameable genre; "Export my data" on Your sound.
+- `M0` refit on pooled exports; test 6 on real data; the deletion of the legacy engine (plan above is unchanged).
+- iOS is not touched (see below).
+
+## How to test (additions to the phone checklist above)
+
+1. **Control flag**: play autoplay in a few sessions; in the exported events (Developer mode, "Export play events") about one session in ten has flag 32 on its engine picks, and `modelVersion` is 0 on them and on every pick while the gate is off.
+2. **Arm bandit and appetite**: nothing changes until the gate turns on. After that, engine picks in novel slots carry flag 16 (exploration); Your sound's novelty line and the share of new tracks follow what you finish.
+3. **Daypart shelf**: needs islands and 50 plays in one bucket of the week; then "Your weekday nights" (or the bucket you are in) appears after "Because you listened to". Absent otherwise.
+4. **Shelf order**: with the gate on and 20 shelf updates, the order of shelves can differ between dayparts but not within one; `adb shell sqlite3` on `brain.db`: `select count(*) from impression` stays under about 1,600 rows.
+5. **Your sound**: Lately appears after a few days of moved plays; tapping a family opens its genres; tapping an island opens its artists and songs, Play station, More of this, Less of this. A genre page shows More / Less.
+6. **Backup**: Settings > Backup lists "Music picks"; export, change a taste change, restore: the change comes back.
+7. **Test 6 on your own export** (nothing is uploaded):
+   `ANDROID_HOME="C:\Users\Hoa\AppData\Local\Android\Sdk" PIXLAUDIO_EVAL_EXPORT="C:\path\to\play-events.jsonl" ./gradlew :brain:test --tests "com.theveloper.pixelplay.brain.RealExportTest6" -i`
+   The report is printed and written to `brain/build/reports/brain-test6.txt`. Only a pass of test 6 on at least two real exports, and test 1 of the same file, allow the deletion plan above.
+
+## For the iOS port (completion pass)
+
+Copy `brain/src/test/resources/brain-golden/` again: NEW `bandit.jsonl`, `novelty.jsonl`, `context.jsonl`, `shelfbandit.jsonl`, `posteriors.jsonl`; `MANIFEST.sha256` and `README.md` changed; **no earlier golden file changed and
+`Brain.SPEC_VERSION` is still 2.** Port: `ArmBandit`, `NoveltyAppetite`, `Posteriors` (+ codec), `ContextLift`, `ShelfBandit` (+ codec), the `armPicker` / `explore` path of `ListBuilder` and `StationPlanner`, `MixPlanner.nuBase` /
+`nuOverride`, `HomePlanner.reorder` and `DAYPART_MIX`, `LearnReplay` (`posteriors`, the extra `applyLive` argument), `Replay.applyFacts` for a TAG adjustment, and `YourSound.lately` / `genreTree` / `genreHistory` (no golden file holds
+those three; port the tests of `Stage3bTest`). The app side to copy by behaviour: deviations 189 to 200 (the item carries the ranking record; the arm picker only while the learned weights are on; the
+impression visit and its settlement; the daypart shelf; Your sound's Lately and genre tree; the genre page's sections; the backup module's contents).

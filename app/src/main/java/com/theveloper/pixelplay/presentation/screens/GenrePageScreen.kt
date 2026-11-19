@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -18,6 +19,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -52,6 +54,10 @@ fun GenrePageScreen(
     val facts = ui.facts
     val context = LocalContext.current
     val nothing = stringResource(R.string.brain_genre_nothing)
+    val extras = ui.extras
+    val moreDone = stringResource(R.string.brain_genre_more_done, facts?.name.orEmpty())
+    val lessDone = stringResource(R.string.brain_genre_less_done, facts?.name.orEmpty())
+    val failed = stringResource(R.string.brain_genre_adjust_failed)
     Scaffold(
         topBar = {
             TopAppBar(
@@ -87,10 +93,52 @@ fun GenrePageScreen(
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text(stringResource(R.string.brain_genre_play_station)) }
             }
+            item(key = "adjust") {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(
+                        onClick = { viewModel.adjust(true) { ok -> Toast.makeText(context, if (ok) moreDone else failed, Toast.LENGTH_SHORT).show() } },
+                        modifier = Modifier.weight(1f),
+                    ) { Text(stringResource(R.string.brain_genre_more)) }
+                    OutlinedButton(
+                        onClick = { viewModel.adjust(false) { ok -> Toast.makeText(context, if (ok) lessDone else failed, Toast.LENGTH_SHORT).show() } },
+                        modifier = Modifier.weight(1f),
+                    ) { Text(stringResource(R.string.brain_genre_less)) }
+                }
+            }
+            if (extras != null) {
+                extras.you?.let { you ->
+                    item(key = "you") {
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(stringResource(R.string.brain_genre_you), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+                            Text(
+                                stringResource(R.string.brain_genre_you_first, java.text.DateFormat.getDateInstance(java.text.DateFormat.MEDIUM).format(java.util.Date(you.firstPlayedMs))),
+                                style = MaterialTheme.typography.bodyLarge,
+                            )
+                            Text(stringResource(R.string.brain_genre_you_share, (you.permille + 5) / 10, you.plays), style = MaterialTheme.typography.bodyMedium)
+                            if (you.topSongs.isNotEmpty()) {
+                                Text(stringResource(R.string.brain_genre_you_top), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                for (s in you.topSongs) Text(s, style = MaterialTheme.typography.bodyMedium)
+                            }
+                        }
+                    }
+                }
+                namesItem("key_artists", R.string.brain_genre_key_artists, extras.keyArtists)
+                namesItem("library_artists", R.string.brain_genre_from_library, extras.libraryArtists)
+            }
             familyItem("parents", R.string.brain_genre_comes_from, facts.parents, navController)
             familyItem("children", R.string.brain_genre_branches, facts.children, navController)
             familyItem("related", R.string.brain_genre_close_to, facts.related, navController)
             familyItem("influences", R.string.brain_genre_shaped_by, facts.influences, navController)
+        }
+    }
+}
+
+private fun androidx.compose.foundation.lazy.LazyListScope.namesItem(key: String, title: Int, names: List<String>) {
+    if (names.isEmpty()) return
+    item(key = key) {
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(stringResource(title), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+            for (n in names) Text(n, style = MaterialTheme.typography.bodyLarge)
         }
     }
 }

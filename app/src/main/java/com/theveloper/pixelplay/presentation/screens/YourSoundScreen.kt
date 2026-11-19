@@ -45,8 +45,10 @@ import com.theveloper.pixelplay.R
 import com.theveloper.pixelplay.brain.Gate
 import com.theveloper.pixelplay.brain.HomePlanner
 import com.theveloper.pixelplay.brain.ModelVoice
+import com.theveloper.pixelplay.data.brain.StationCard
 import com.theveloper.pixelplay.data.brain.YourSoundRepository
 import com.theveloper.pixelplay.presentation.navigation.Screen
+import com.theveloper.pixelplay.presentation.viewmodel.PlayerViewModel
 import com.theveloper.pixelplay.presentation.viewmodel.YourSoundViewModel
 import java.time.Month
 import java.time.format.TextStyle
@@ -60,12 +62,15 @@ import java.util.Locale
 @Composable
 fun YourSoundScreen(
     navController: NavController,
+    playerViewModel: PlayerViewModel,
     viewModel: YourSoundViewModel = hiltViewModel(),
 ) {
     val ui by viewModel.state.collectAsStateWithLifecycle()
     LaunchedEffect(Unit) { viewModel.refresh() }
     val context = LocalContext.current
     var confirmReset by remember { mutableStateOf(false) }
+    var openIsland by remember { mutableStateOf<YourSoundRepository.IslandRow?>(null) }
+    var openFamilies by remember { mutableStateOf(setOf<Int>()) }
     val resetDone = stringResource(R.string.brain_sound_reset_done)
 
     Scaffold(
@@ -95,14 +100,32 @@ fun YourSoundScreen(
                 if (data.islands.isNotEmpty()) item(key = "islands") {
                     Section(stringResource(R.string.brain_sound_now), stringResource(R.string.brain_sound_now_hint)) {
                         for (row in data.islands.take(6)) {
-                            Bar(row.name ?: stringResource(R.string.brain_sound_island_unnamed), row.permille)
+                            Bar(row.name ?: stringResource(R.string.brain_sound_island_unnamed), row.permille, onClick = { openIsland = row })
                         }
                     }
                 }
                 if (data.genres.isNotEmpty()) item(key = "genres") {
                     Section(stringResource(R.string.brain_sound_genres)) {
-                        for (row in data.genres) {
-                            Bar(row.name, row.permille, onClick = { navController.navigate(Screen.GenrePage.createRoute(row.atlasId)) })
+                        if (data.genreTree.isNotEmpty()) {
+                            // The atlas tree: a family opens to the genres played inside it; a genre opens its page.
+                            for (family in data.genreTree) {
+                                val open = family.rootId in openFamilies
+                                Bar(
+                                    family.name, family.permille,
+                                    onClick = { openFamilies = if (open) openFamilies - family.rootId else openFamilies + family.rootId },
+                                )
+                                if (open) for (child in family.children) {
+                                    Row(Modifier.padding(start = 16.dp)) {
+                                        Column(Modifier.weight(1f)) {
+                                            Bar(child.name, child.permille, onClick = { navController.navigate(Screen.GenrePage.createRoute(child.atlasId)) })
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            for (row in data.genres) {
+                                Bar(row.name, row.permille, onClick = { navController.navigate(Screen.GenrePage.createRoute(row.atlasId)) })
+                            }
                         }
                     }
                 }
@@ -137,6 +160,12 @@ fun YourSoundScreen(
                                 Text(top.first.orEmpty(), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
                         }
+                    }
+                }
+                if (!data.lately.isEmpty) item(key = "lately") {
+                    Section(stringResource(R.string.brain_sound_lately)) {
+                        if (data.lately.up.isNotEmpty()) Text(stringResource(R.string.brain_sound_lately_up, data.lately.up.joinToString(", ")), style = MaterialTheme.typography.bodyMedium)
+                        if (data.lately.down.isNotEmpty()) Text(stringResource(R.string.brain_sound_lately_down, data.lately.down.joinToString(", ")), style = MaterialTheme.typography.bodyMedium)
                     }
                 }
                 val novelty = data.novelty
@@ -176,6 +205,49 @@ fun YourSoundScreen(
                 )
             }
         }
+    }
+
+    val island = openIsland
+    if (island != null) {
+        val moreDone = stringResource(R.string.brain_genre_more_done, island.genreName.orEmpty())
+        val lessDone = stringResource(R.string.brain_genre_less_done, island.genreName.orEmpty())
+        val failed = stringResource(R.string.brain_genre_adjust_failed)
+        val nothing = stringResource(R.string.brain_genre_nothing)
+        AlertDialog(
+            onDismissRequest = { openIsland = null },
+            title = { Text(island.name ?: stringResource(R.string.brain_sound_island_unnamed)) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (island.topArtists.isNotEmpty()) {
+                        Text(stringResource(R.string.brain_sound_island_artists), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+                        for (a in island.topArtists) Text(a, style = MaterialTheme.typography.bodyMedium)
+                    }
+                    if (island.topSongs.isNotEmpty()) {
+                        Text(stringResource(R.string.brain_sound_island_songs), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+                        for (s in island.topSongs) Text(s, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    }
+                    val genre = island.genreName
+                    if (genre != null) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            TextButton(onClick = { viewModel.adjustGenre(genre, true) { ok -> Toast.makeText(context, if (ok) moreDone else failed, Toast.LENGTH_SHORT).show() } }) {
+                                Text(stringResource(R.string.brain_sound_island_more))
+                            }
+                            TextButton(onClick = { viewModel.adjustGenre(genre, false) { ok -> Toast.makeText(context, if (ok) lessDone else failed, Toast.LENGTH_SHORT).show() } }) {
+                                Text(stringResource(R.string.brain_sound_island_less))
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                val genre = island.genreName
+                if (genre != null) TextButton(onClick = {
+                    openIsland = null
+                    playerViewModel.startGenreStation(StationCard.KIND_GENRE, island.genreId, genre) { Toast.makeText(context, nothing, Toast.LENGTH_SHORT).show() }
+                }) { Text(stringResource(R.string.brain_sound_island_play_station)) }
+            },
+            dismissButton = { TextButton(onClick = { openIsland = null }) { Text(stringResource(R.string.brain_sound_island_close)) } },
+        )
     }
 
     if (confirmReset) {
