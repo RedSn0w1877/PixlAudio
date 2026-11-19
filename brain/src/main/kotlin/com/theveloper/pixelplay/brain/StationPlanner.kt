@@ -85,6 +85,8 @@ object StationPlanner {
          * Build it with [Ranker.WeightSource]; it falls back to the prior by itself when the gate has the prior on.
          */
         val ranking: Ranker.WeightSource? = null,
+        /** Stage 3: the arm bandit of 5.10 (null keeps stage 2's choice of the novel candidate, byte for byte). */
+        val armPicker: ArmPicker? = null,
     )
 
     class Pick(
@@ -104,6 +106,8 @@ object StationPlanner {
         /** `p` x 10,000. */
         val pQ: Int,
         val novel: Boolean,
+        /** The slot was an exploration slot: the arm was drawn by the bandit (5.10), and the play is logged with [EventFlags.EXPLORE_SLOT]. */
+        val explore: Boolean = false,
     )
 
     class Plan(
@@ -254,6 +258,7 @@ object StationPlanner {
                 simSource = request.simSource,
                 maxPerArtist = request.maxPerArtist,
                 minNewArtistShare = request.minNewArtistShare,
+                armPicker = request.armPicker,
             ),
             scored,
             graph,
@@ -292,6 +297,7 @@ object StationPlanner {
                     key = b.key,
                     pQ = BrainMath.floorToLong(s.p * 10000.0 + 0.5).toInt(),
                     novel = s.novel,
+                    explore = b.explore,
                 )
             )
         }

@@ -170,6 +170,110 @@ object YourSound {
         val ids = counts.keys.sortedWith { a, b -> if (counts[a] != counts[b]) counts[b]!!.compareTo(counts[a]!!) else a.compareTo(b) }
         return ids.take(top).map { it to permille(counts[it]!!, known) }
     }
+
+    // ── Lately (8.6 point 8) ────────────────────────────────────────────────
+
+    /** "Lately" looks this far back. */
+    const val LATELY_DAYS = 14
+
+    /** The most moves "Lately" shows. */
+    const val LATELY_TOP = 5
+
+    /** A key needs this much decayed weight (about three plays) in the newer or the older state to count as a move. */
+    const val LATELY_MIN_WEIGHT = 3.0
+
+    /** A move smaller than this in `aff` (which runs -3..3) is noise. */
+    const val LATELY_MIN_DELTA = 0.25
+
+    /** One affinity move: [family] is [Family.ARTIST] or [Family.TAG]; [delta] is `aff` now minus `aff` [LATELY_DAYS] days ago. */
+    class Move(val family: Int, val key: Long, val delta: Double)
+
+    /**
+     * The largest affinity moves between [before] (the tables as they stood at [beforeMs]) and [after] (as they stand at [nowMs]), over artists
+     * and tags: `aff(after, nowMs) - aff(before, beforeMs)`, each read with that state's own base rate. Only keys with at least
+     * [LATELY_MIN_WEIGHT] of weight in one of the two and a move of at least [LATELY_MIN_DELTA]; largest absolute move first, ties by family
+     * then key; at most [top].
+     */
+    fun lately(before: Affinity.State, after: Affinity.State, beforeMs: Long, nowMs: Long, top: Int = LATELY_TOP): List<Move> {
+        val p0Before = Affinity.p0(before, beforeMs)
+        val p0After = Affinity.p0(after, nowMs)
+        val moves = ArrayList<Move>()
+        for (family in intArrayOf(Family.ARTIST, Family.TAG)) {
+            val keys = java.util.TreeSet<Long>()
+            for (k in before.sortedKeys(family)) keys.add(k)
+            for (k in after.sortedKeys(family)) keys.add(k)
+            for (key in keys) {
+                val wBefore = Affinity.weight(before, family, key, beforeMs)
+                val wAfter = Affinity.weight(after, family, key, nowMs)
+                if (wBefore < LATELY_MIN_WEIGHT && wAfter < LATELY_MIN_WEIGHT) continue
+                val delta = Affinity.aff(after, family, key, nowMs, p0After) - Affinity.aff(before, family, key, beforeMs, p0Before)
+                if (BrainMath.abs(delta) < LATELY_MIN_DELTA) continue
+                moves.add(Move(family, key, delta))
+            }
+        }
+        moves.sortWith { a, b ->
+            val ka = BrainMath.orderKey(BrainMath.abs(a.delta))
+            val kb = BrainMath.orderKey(BrainMath.abs(b.delta))
+            if (ka != kb) (if (ka > kb) -1 else 1) else if (a.family != b.family) a.family.compareTo(b.family) else a.key.compareTo(b.key)
+        }
+        return if (moves.size > top) moves.subList(0, top).toList() else moves
+    }
+
+    // ── The genre tree (8.6 point 2) ────────────────────────────────────────
+
+    /** A family of the atlas (a root) with the share of the plays under it and the genres played inside it. */
+    class GenreFamily(val rootId: Int, val permille: Int, val children: List<Pair<Int, Int>>)
+
+    /**
+     * The plays' genres rolled up along the atlas tree: each play with a known top tag adds one count to its genre and to that genre's root
+     * ([rootOf] gives the root family of a genre, the genre itself for a root). Families heaviest first (ties: smaller id), each with its
+     * genres heaviest first. Shares are permille of the plays whose genre is known. Unknown genres are absent.
+     */
+    fun genreTree(plays: List<Play>, top: Int = 8, topTagOf: (Long) -> Int, rootOf: (Int) -> Int): List<GenreFamily> {
+        val perGenre = HashMap<Int, Int>()
+        val perRoot = HashMap<Int, Int>()
+        val under = HashMap<Int, HashMap<Int, Int>>()
+        var known = 0
+        for (p in plays) {
+            val t = topTagOf(p.rid)
+            if (t == GenreAtlas.NONE) continue
+            val root = rootOf(t)
+            known++
+            perGenre[t] = (perGenre[t] ?: 0) + 1
+            perRoot[root] = (perRoot[root] ?: 0) + 1
+            under.getOrPut(root) { HashMap() }.merge(t, 1, Int::plus)
+        }
+        val roots = perRoot.keys.sortedWith { a, b -> if (perRoot[a] != perRoot[b]) perRoot[b]!!.compareTo(perRoot[a]!!) else a.compareTo(b) }
+        return roots.take(top).map { root ->
+            val m = under[root]!!
+            val ids = m.keys.sortedWith { a, b -> if (m[a] != m[b]) m[b]!!.compareTo(m[a]!!) else a.compareTo(b) }
+            GenreFamily(root, permille(perRoot[root]!!, known), ids.map { it to permille(m[it]!!, known) })
+        }
+    }
+
+    // ── "You and this genre" (8.7) ──────────────────────────────────────────
+
+    /** What the listener's own plays say about one genre: when they first played it, how much of their listening it is, their favourite tracks in it. */
+    class GenreHistory(val firstPlayedMs: Long, val permille: Int, val plays: Int, val topRids: LongArray)
+
+    /**
+     * [belongs] says whether a recording is under the genre (its tag vector holds the genre or one of its descendants). Null when the listener
+     * never played anything under it: the section is hidden then. [top] tracks by plays, ties by the smaller id.
+     */
+    fun genreHistory(plays: List<Play>, top: Int = 5, belongs: (Long) -> Boolean): GenreHistory? {
+        var first = Long.MAX_VALUE
+        var n = 0
+        val perTrack = HashMap<Long, Int>()
+        for (p in plays) {
+            if (!belongs(p.rid)) continue
+            n++
+            if (p.startedAtMs < first) first = p.startedAtMs
+            perTrack.merge(p.rid, 1, Int::plus)
+        }
+        if (n == 0) return null
+        val ids = perTrack.keys.sortedWith { a, b -> if (perTrack[a] != perTrack[b]) perTrack[b]!!.compareTo(perTrack[a]!!) else a.compareTo(b) }
+        return GenreHistory(first, permille(n, plays.size), n, ids.take(top).toLongArray())
+    }
 }
 
 /**

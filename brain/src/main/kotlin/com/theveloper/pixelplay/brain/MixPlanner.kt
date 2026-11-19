@@ -92,16 +92,25 @@ object MixPlanner {
     ) {
         /** Stage 3: which weights rank the list; null is the prior `M0` (see [StationPlanner.Request.ranking]). */
         var ranking: Ranker.WeightSource? = null
+
+        /** Stage 3: the arm bandit of 5.10; null keeps stage 2's choice (see [StationPlanner.Request.armPicker]). */
+        var armPicker: ArmPicker? = null
+
+        /** Stage 3: the novelty appetite the mixes start from ([NoveltyAppetite.nu]); [NU0] is stage 2's constant, kept while the gate has the prior on. */
+        var nuBase: Double = NU0
+
+        /** A list with its own novelty share (the daypart mix: 0.15, 6.2); negative for the share of its kind. */
+        var nuOverride: Double = -1.0
     }
 
     fun countOf(kind: Int): Int = if (kind == KIND_YOUR) YOUR_COUNT else DAILY_COUNT
 
     /** The novelty share of one island's Daily Mix. */
-    fun nuOfIsland(multiplier: Double): Double = BrainMath.clip(NU0 * multiplier, ISLAND_NU_MIN, ISLAND_NU_MAX)
+    fun nuOfIsland(multiplier: Double, base: Double = NU0): Double = BrainMath.clip(base * multiplier, ISLAND_NU_MIN, ISLAND_NU_MAX)
 
     /** The share of the slots given to music the listener does not have (8.2, 5.10). */
-    fun nuOf(kind: Int, multiplier: Double): Double {
-        val base = if (kind == KIND_YOUR) NU0 * YOUR_FACTOR else NU0
+    fun nuOf(kind: Int, multiplier: Double, appetite: Double = NU0): Double {
+        val base = if (kind == KIND_YOUR) appetite * YOUR_FACTOR else appetite
         return BrainMath.clip(base * multiplier, 0.0, NU_MAX)
     }
 
@@ -130,7 +139,7 @@ object MixPlanner {
         var candidates = request.candidates
         var calibration: Calibration? = null
         var lambda = ListBuilder.LAMBDA
-        var nu = nuOf(kind, request.nuMultiplier)
+        var nu = nuOf(kind, request.nuMultiplier, request.nuBase)
         if (islands != null && islands.islands.isNotEmpty()) {
             if (request.islandIdx >= 0 && request.islandIdx < islands.islands.size) {
                 // A Daily Mix of one island: every track must be close to it (6.2).
@@ -141,7 +150,7 @@ object MixPlanner {
                     if (Islands.similarity(island, p) >= ISLAND_FLOOR) kept.add(c)
                 }
                 candidates = kept
-                nu = nuOfIsland(request.nuMultiplier)
+                nu = nuOfIsland(request.nuMultiplier, request.nuBase)
             } else if (kind == KIND_YOUR && islands.islands.size > 1) {
                 // Your Mix: every island, kept in the listener's proportions (6.5).
                 val weights = DoubleArray(islands.islands.size) { islands.islands[it].weight }
@@ -152,6 +161,7 @@ object MixPlanner {
                 candidates = placed
             }
         }
+        if (request.nuOverride >= 0.0) nu = BrainMath.clip(request.nuOverride, 0.0, NU_MAX)
         val simSource: Similarity.Source? =
             if (islands != null && (request.embeddings != null || request.tagsByRid.isNotEmpty())) {
                 SimilarityIndex(graph, request.embeddings, request.tagsByRid)
@@ -180,6 +190,7 @@ object MixPlanner {
                 maxPerArtist = if (first) 2 else 0,
                 minNewArtistShare = if (first) 0.4 else 0.0,
                 ranking = request.ranking,
+                armPicker = request.armPicker,
             ),
             affinity,
             session,

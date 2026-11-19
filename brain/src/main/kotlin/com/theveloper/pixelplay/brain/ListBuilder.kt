@@ -87,6 +87,11 @@ object ListBuilder {
         val maxPerArtist: Int = 0,
         /** At least this share of the picks from artists the listener never played (First Listen: 0.4); 0 for none. */
         val minNewArtistShare: Double = 0.0,
+        /**
+         * Stage 3 (5.10): the arm bandit. A novel slot goes to the arm with the largest draw among the arms that still have a candidate, and
+         * the pick is flagged [Pick.explore]. Null keeps stage 2's choice (the best-valued novel candidate), exactly.
+         */
+        val armPicker: ArmPicker? = null,
     )
 
     class Pick(
@@ -94,6 +99,8 @@ object ListBuilder {
         val kind: Int,
         /** The quantised key it won its slot with. */
         val key: Long,
+        /** The novel slot was filled from the arm the bandit drew (an exploration slot, logged with [EventFlags.EXPLORE_SLOT]). */
+        val explore: Boolean = false,
     )
 
     fun build(request: Request, scored: List<Scored>, graph: Graph): List<Pick> {
@@ -127,6 +134,7 @@ object ListBuilder {
             }
             var chosen: Scored? = null
             var chosenKey = 0L
+            var explore = false
 
             if (kind == SLOT_BRIDGE) {
                 val aids = request.firstSlotAids!!
@@ -228,13 +236,29 @@ object ListBuilder {
                 while (pass < 2 && chosen == null) {
                     var restrict = needNewArtist
                     while (chosen == null) {
+                        // 5.10: a novel slot goes to the arm with the largest draw among the arms that still have a candidate.
+                        var drawnArm = -1
+                        val picker = request.armPicker
+                        if (wantNovel && picker != null) {
+                            val eligible = BooleanArray(ArmBandit.ARMS)
+                            var any = false
+                            for (s in scored) {
+                                if (!s.novel || s.c.rid in used || s.arm < 0 || s.arm >= ArmBandit.ARMS || !okSlot(s.c)) continue
+                                if (restrict && !s.c.artistNew) continue
+                                eligible[s.arm] = true
+                                any = true
+                            }
+                            if (any) drawnArm = picker.pick(eligible)
+                        }
                         for (s in scored) {
                             if (s.novel != wantNovel || s.c.rid in used || !okSlot(s.c)) continue
                             if (restrict && !s.c.artistNew) continue
+                            if (drawnArm >= 0 && s.arm != drawnArm) continue
                             val key = BrainMath.orderKey(value(s, list, graph, request))
                             if (chosen == null || better(key, s.c.rid, chosenKey, chosen.c.rid, request.tieSeed)) {
                                 chosen = s
                                 chosenKey = key
+                                explore = drawnArm >= 0
                             }
                         }
                         if (chosen == null && restrict) restrict = false else break
@@ -246,7 +270,7 @@ object ListBuilder {
             }
 
             val pick = chosen ?: break
-            picks.add(Pick(pick, kind, chosenKey))
+            picks.add(Pick(pick, kind, chosenKey, explore && pick.novel))
             used.add(pick.c.rid)
             if (pick.novel) novelSoFar++
             if (pick.c.artistNew) newArtistSoFar++

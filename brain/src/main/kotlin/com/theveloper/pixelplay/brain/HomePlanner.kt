@@ -28,6 +28,9 @@ object HomePlanner {
     const val MORE_LIKE_ALBUM = 7
     const val POPULAR = 8
 
+    /** Stage 3: the daypart mix shelf (6.2, 8.1). Not in stage 2's table; the builder puts it right after "Because you listened to". */
+    const val DAYPART_MIX = 9
+
     const val MAX_SHELVES = 7
     const val ITEMS_PER_SHELF = 12
 
@@ -112,6 +115,24 @@ object HomePlanner {
             rounds++
         }
         return result
+    }
+
+    /**
+     * Puts [shelves] (in the fixed order of stage 2) in the order of [typeOrder], the shelf types the shelf bandit drew (5.10): by the place of
+     * each shelf's type in [typeOrder], shelves of one type keeping their own order; a type [typeOrder] does not hold goes after the others, in
+     * its fixed order. The page rules of [plan] then apply to this order as before.
+     */
+    fun reorder(shelves: List<ShelfIn>, typeOrder: IntArray): List<ShelfIn> {
+        fun place(type: Int): Int {
+            for (i in typeOrder.indices) if (typeOrder[i] == type) return i
+            return typeOrder.size
+        }
+        val idx = shelves.indices.sortedWith { a, b ->
+            val pa = place(shelves[a].type)
+            val pb = place(shelves[b].type)
+            if (pa != pb) pa.compareTo(pb) else a.compareTo(b)
+        }
+        return idx.map { shelves[it] }
     }
 
     private fun key(type: Int, id: String): String = "$type:$id"

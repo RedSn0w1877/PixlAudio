@@ -58,10 +58,13 @@ object LearnReplay {
         affinity: Affinity.State,
         session: SessionState,
         nowMs: Long,
+        /** The arm bandit and the novelty appetite (5.10); null leaves them out. Their update reads the tables as they are before the play. */
+        posteriors: Posteriors? = null,
     ): Int {
         val t = if (e.startedAtMs > nowMs) nowMs else e.startedAtMs
         val x = DoubleArray(Ranker.D)
         val p0 = Affinity.p0(affinity, t)
+        if (posteriors != null) PosteriorUpdate.onPlay(posteriors, e, g, !Affinity.isHeard(affinity, Family.TRACK, e.rid), t)
         featuresOf(e, liked, affinity, session, t, p0, x)
         val originIndex = originIndexOf(e.origin)
         if (originIndex >= 0) x[originIndex] = 1.0
@@ -84,6 +87,8 @@ object LearnReplay {
         val events: Int,
         /** The id of the newest event replayed: the watermark the live path catches up from. */
         val lastEventId: Long,
+        /** The arm bandit and the novelty appetite, built by the same pass (plays after "Reset what I've learned" only). */
+        val posteriors: Posteriors,
     )
 
     private class DoubleBuf(capacity: Int = 1024) {
@@ -125,6 +130,7 @@ object LearnReplay {
         val tracker = GradeTracker(affinity.completions)
         var session = SessionState()
         var model: RankerModel? = null
+        var posteriors: Posteriors? = null
         val x = DoubleArray(Ranker.D)
         val times = LongBuf()
         val sessions = LongBuf()
@@ -170,6 +176,11 @@ object LearnReplay {
             if (originIndex >= 0) x[originIndex] = 1.0
             Ranker.applyEvent(m, x, g.r, g.c, bias, day, e.eventId)
             val novel = !Affinity.isHeard(affinity, Family.TRACK, e.rid)
+            val post = posteriors ?: Posteriors.newState(day).also {
+                it.lastEventId = if (learnAfterEventId == Long.MIN_VALUE) Long.MIN_VALUE else learnAfterEventId
+                posteriors = it
+            }
+            PosteriorUpdate.onPlay(post, e, g, novel, nowMs)
             Affinity.applyEvent(affinity, e, g, t)
             Session.apply(session, e, g, novel)
             count++
@@ -182,7 +193,11 @@ object LearnReplay {
         Ranker.forget(finalModel, BrainMath.localDay(nowMs, tzNowMin))
         val fin = BooleanArray(finished.size) { finished[it] }
         val pred = Gate.Predictions(times.done(), sessions.done(), fin, pl.done(), pp.done(), thr.done())
-        return Result(affinity, finalModel, pred, count, lastId)
+        val finalPosteriors = posteriors ?: Posteriors.newState(BrainMath.localDay(nowMs, tzNowMin)).also {
+            it.lastEventId = learnAfterEventId
+        }
+        PosteriorUpdate.advanceTo(finalPosteriors, BrainMath.localDay(nowMs, tzNowMin))
+        return Result(affinity, finalModel, pred, count, lastId, finalPosteriors)
     }
 
     // ── Test 6 (11): learned weights against the frozen prior ──────────────────

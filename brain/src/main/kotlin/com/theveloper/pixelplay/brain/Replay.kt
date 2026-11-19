@@ -144,7 +144,7 @@ object Replay {
             if (aid != 0L && followed.add(aid)) state.addPrior(Family.ARTIST, aid, BrainMath.toQ(2.0), 0L)
         }
         for (a in facts.adjustments) {
-            if (a.key == 0L || (a.family != Family.TRACK && a.family != Family.ARTIST)) continue
+            if (a.key == 0L || (a.family != Family.TRACK && a.family != Family.ARTIST && a.family != Family.TAG)) continue
             val scale = if (a.strength >= 3) 2.0 else if (a.strength == 2) 1.5 else 1.0
             val q = BrainMath.toQ(6.0 * scale)
             if (a.more) state.addPrior(a.family, a.key, q, 0L) else state.addPrior(a.family, a.key, 0L, q)
