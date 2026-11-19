@@ -1,0 +1,118 @@
+# name | energy | valence | danceability | acousticness | tempo low-high bpm | up to 4 moods | description. Assistant-drafted, not yet human-reviewed.
+jazz|110|130|110|150|80-180|relaxed,cozy,focus,sensual|Improvised music built on swing, blues and rich chords, played by small groups or big bands.
+bebop|190|140|110|190|150-300|intense,focus,energetic|Fast, complex jazz with quick melodies and wild improvisation, made for listening.
+cool jazz|80|130|85|190|80-140|relaxed,cozy,chill|Calm, understated jazz with a light tone and a relaxed pace.
+hard bop|155|140|100|190|110-220|groovy,intense,nostalgic|Jazz with bebop's drive and a bluesy, gospel-rooted feel, hot and earthy.
+swing|170|190|180|170|120-220|party,playful,nostalgic|Big-band jazz of the 30s and 40s with a bouncing rhythm made for dancing.
+big band|180|180|150|180|100-220|festive,nostalgic,confident|Large jazz orchestras with brass and reeds, punchy arrangements and a full sound.
+smooth jazz|70|140|100|110|70-110|relaxed,cozy,sensual|Polished, mellow instrumental jazz with a soft groove, easy to leave on.
+jazz fusion|190|130|130|80|90-170|intense,groovy,focus|Jazz joined with rock and funk: electric instruments, tricky rhythms and virtuosity.
+free jazz|170|90|40|140|60-200|intense,mysterious,raw|Jazz without set chords or rhythm, driven by wild, open improvisation.
+modal jazz|85|110|80|190|70-150|focus,peaceful,moody|Jazz built on scales instead of chord changes, spacious, calm and thoughtful.
+vocal jazz|90|140|95|180|60-150|romantic,cozy,sensual|Jazz centered on a singer, with relaxed phrasing and rich accompaniment.
+latin jazz|165|170|170|150|100-190|party,groovy,summer|Jazz mixed with Afro-Cuban and Brazilian rhythms, bright, percussive and danceable.
+acid jazz|165|170|190|60|95-125|groovy,funky,party|Jazz played over funk and hip hop grooves, slick and made for dancing.
+nu jazz|110|110|130|60|90-130|chill,night drive,groovy|Jazz harmony mixed with electronic beats and a modern, club-friendly sound.
+dixieland|180|200|170|190|100-200|festive,playful,nostalgic|Early New Orleans jazz with collective improvisation, brass and a lively, marching energy.
+gypsy jazz|170|170|130|200|120-220|playful,nostalgic,cozy|Fast, swinging acoustic jazz of strummed guitars and violin, from Paris in the 30s.
+bossa nova|55|150|100|200|70-130|relaxed,romantic,summer,cozy|Brazilian jazz-samba with soft nylon guitar, hushed vocals and a gentle, swaying rhythm.
+blues|100|90|100|140|60-130|sad,gritty,moody,raw|Twelve-bar songs of hardship and feeling, with a bending guitar and a voice to match.
+delta blues|85|90|85|200|60-120|raw,sad,gritty|Early, rough acoustic blues from the Mississippi Delta: slide guitar and a crying voice.
+chicago blues|150|110|110|80|80-140|gritty,groovy,raw|Electric, full-band blues from Chicago, with harmonica and a driving shuffle.
+electric blues|150|105|105|70|70-140|gritty,raw,groovy|Blues played on an amplified guitar, with bent notes, long solos and a driving beat.
+country blues|85|110|95|200|70-130|raw,cozy,nostalgic|Rural, acoustic blues with fingerpicked guitar and plain, honest vocals.
+texas blues|165|120|115|75|80-140|groovy,confident,gritty|Guitar-led blues from Texas, with a swinging shuffle and confident solos.
+boogie-woogie|185|190|170|180|120-200|playful,party,nostalgic|Piano blues with a driving left-hand pattern that rolls on without stopping.
+country|120|150|110|140|80-140|nostalgic,cozy,heartbreak|Story songs about home, love and heartache, with acoustic guitar, steel and a twang in the voice.
+bluegrass|190|170|120|230|110-180|nostalgic,playful,festive|Fast acoustic string music with banjo and fiddle, close harmony and quick solos.
+alternative country|130|120|100|140|80-140|moody,nostalgic,raw|Country with the loose spirit of rock and folk, with rougher edges and personal lyrics.
+outlaw country|140|120|100|120|80-140|rebellious,gritty,confident|Country that rejected Nashville's polish for a rough, independent and defiant voice.
+country pop|150|180|135|100|90-140|happy,summer,romantic|Country songs with a pop shine: catchy choruses and a polished, radio-ready sound.
+country rock|165|150|115|90|90-150|energetic,nostalgic,summer|Country stories played with the volume of a rock band.
+honky tonk|150|150|130|150|90-150|nostalgic,festive,heartbreak|Classic country with a bar-room feel: steel guitar, shuffle and songs of drinking and love.
+americana|110|120|95|180|70-130|cozy,nostalgic,raw|Roots music that draws on folk, country and blues, with honest storytelling and acoustic warmth.
+folk|80|130|80|210|60-130|cozy,nostalgic,peaceful|Acoustic songs that tell a story, with simple melodies and a plain, human voice.
+indie folk|85|120|80|200|65-130|cozy,hopeful,dreamy|Soft acoustic songs with warm vocals and a close, forest-cabin feel.
+singer-songwriter|75|110|75|200|60-125|cozy,sad,peaceful|One person, one guitar or piano, and a song that tells you something true.
+folk pop|105|150|95|170|75-130|cozy,hopeful,happy|Folk's acoustic warmth with the hooks of pop, bright and easy to sing along to.
+celtic|120|150|110|210|70-170|nostalgic,festive,peaceful|Traditional music from Ireland and Scotland, with fiddles, pipes and dance rhythms.
+freak folk|70|100|60|200|60-120|dreamy,mysterious,peaceful|Strange, fragile folk with unusual voices and a woodsy, other-worldly feel.
+folk punk|215|150|120|90|140-190|rebellious,festive,raw|Folk songs played with punk speed and attitude, with banjo, accordion and shouting.
+neofolk|65|60|55|190|55-110|dark,moody,peaceful|Dark, sparse acoustic folk with a solemn voice and a mythic atmosphere.
+vietnamese folk|70|110|70|220|60-110|nostalgic,peaceful,cozy|Traditional Vietnamese melodies of the countryside, with zither, bamboo flute and a natural voice.
+classical|60|110|50|230|50-140|peaceful,focus,epic|Orchestral and chamber music from centuries of European tradition, from delicate piano to full symphony.
+baroque|90|140|75|230|60-140|focus,cozy,epic|Ornate European music of the 1600s and 1700s: harpsichord, strings and intertwining melodies.
+opera|115|110|35|230|50-160|epic,romantic,spiritual|Sung drama with a full orchestra, trained voices and music that carries the whole story.
+contemporary classical|70|80|35|220|40-140|focus,mysterious,cinematic|Concert music written today, with new sounds, textures and old forms.
+minimalism|60|110|50|200|50-140|focus,peaceful,dreamy|Music of small, repeating patterns that shift slowly and create a trance-like effect.
+chamber music|65|110|45|240|50-140|focus,cozy,peaceful|Music for a small group of instruments, with an intimate, conversational feel.
+choral|70|120|35|230|50-110|spiritual,peaceful,epic|Music for a choir, from reverent chant to soaring concert works.
+orchestral|110|120|40|230|60-140|epic,cinematic,lush|Music for a full symphony orchestra, grand and wide in range.
+romantic classical|85|110|40|230|50-130|romantic,epic,melancholic|The sweeping, emotional classical music of the 1800s, full of drama and longing.
+soundtrack|100|100|50|180|60-140|cinematic,epic,moody|Music written to go with a film, series or game, built to carry a scene.
+film score|95|95|40|200|55-140|cinematic,epic,moody,focus|Orchestral and electronic music written for the screen, often vast and emotional.
+video game music|130|120|70|120|70-160|focus,playful,epic,energetic|Music written for games, from bright chiptunes to big orchestral scores, often looping and energetic.
+anime|185|160|135|70|100-170|energetic,bright,hopeful|Songs from anime, with soaring vocals and fast-moving, dramatic arrangements.
+korean ost|90|110|60|150|60-110|romantic,sad,cinematic|Ballads and piano songs from Korean dramas, tender and made to carry a scene.
+musical|130|150|85|170|70-150|playful,epic,hopeful|Songs from the stage: story-driven numbers with big voices and theatrical flair.
+chiptune|190|170|165|2|110-170|playful,energetic,nostalgic|Music made on old computer and console sound chips, with bright, buzzing, bleeping melodies.
+latin|180|180|180|110|85-130|party,sensual,summer|Music from Spanish- and Portuguese-speaking cultures, driven by percussion and bright melody.
+reggaeton|195|160|215|20|85-100|party,sensual,confident|Latin club music built on the dembow beat, with rapped and sung vocals and a heavy bass line.
+salsa|205|190|210|120|150-220|party,festive,groovy|Fast Afro-Cuban dance music with horns, congas and a driving, interlocking rhythm.
+bachata|135|140|170|120|110-140|romantic,sensual,heartbreak|Dominican love songs with soft, plucked guitar, a swaying beat and tender lyrics.
+merengue|225|200|220|80|150-190|party,festive,happy|Fast Dominican dance music with a galloping beat, accordion and bright horns.
+cumbia|170|170|190|100|80-110|party,groovy,festive|A rolling, swaying dance rhythm from Colombia, now heard all over Latin America.
+tango|100|90|90|200|50-130|romantic,melancholic,sensual|Dramatic dance music from Argentina with accordion-like bandoneon, strings and strong feeling.
+latin pop|165|170|175|80|85-130|romantic,party,summer|Pop sung in Spanish or Portuguese, bright, melodic and made for a wide audience.
+mariachi|165|180|125|230|90-160|festive,romantic,nostalgic|Mexican ensemble music with trumpets, violins and guitars, played in proud, passionate songs.
+ranchera|130|140|100|220|70-140|heartbreak,nostalgic,romantic|Emotional Mexican country songs sung with a big voice about love and pride.
+norteño|165|165|150|180|90-160|festive,nostalgic,party|Mexican folk dance music led by accordion and a bajo sexto, with a polka-like beat.
+corrido|125|120|105|200|80-140|raw,gritty,nostalgic|Mexican story songs that tell of heroes, outlaws and events, often with guitars and horns.
+bolero|55|110|60|210|55-100|romantic,sensual,heartbreak|Slow Latin love songs with soft guitar and a velvety voice.
+vallenato|160|170|150|160|90-130|nostalgic,festive,romantic|Colombian folk music led by the accordion, with storytelling lyrics and a lilting beat.
+dembow|200|150|215|15|85-105|party,sensual,gritty|A hard, rapid Caribbean beat that carries reggaeton and its offshoots.
+reggae|90|150|120|140|65-90|relaxed,summer,spiritual,groovy|Jamaican music with an offbeat guitar skank and a heavy, rolling bass; laid-back and full of message.
+dancehall|180|150|210|20|85-110|party,groovy,confident|Jamaican dance music with a digital, bass-heavy beat and toasted vocals.
+dub|75|90|120|40|60-90|dreamy,groovy,chill|Reggae stripped to bass and drums, remixed with echo, reverb and space.
+ska|205|200|160|90|120-190|playful,party,energetic|Jamaican music with a quick offbeat, bright horns and a bouncy energy.
+rocksteady|105|170|135|140|65-100|romantic,relaxed,groovy|Jamaican music slower than ska, with a smooth bass line and sweet vocal harmony.
+soca|215|205|225|40|120-170|party,festive,summer|Fast, joyful Caribbean carnival music with chanted hooks and pounding drums.
+calypso|145|190|150|170|90-140|playful,festive,summer|Trinidadian story songs with clever lyrics, steel pans and a lilting beat.
+afrobeats|160|185|205|40|95-115|party,summer,groovy,happy|West African pop with a bouncy rhythm, bright melodies and a sound made for dancing.
+afrobeat|175|160|185|90|100-130|groovy,spiritual,energetic|Long, hypnotic Nigerian grooves of horns, percussion and political lyrics, from Fela Kuti.
+highlife|150|190|180|140|100-130|festive,happy,nostalgic|West African dance music with bright guitars, horns and a lilting, joyful beat.
+amapiano|135|160|205|20|110-115|party,groovy,night drive|South African house with log drum basslines, piano chords and a smooth, steady groove.
+soukous|180|190|200|100|110-140|festive,groovy,happy|Central African dance music with sparkling guitars and fast, flowing rhythms.
+afro house|155|150|205|20|115-125|groovy,spiritual,night drive|House with African percussion and chants, hypnotic and warm.
+gqom|215|100|205|10|120-130|intense,dark,party|Raw, minimal South African dance music with heavy kicks and a dark, driving rhythm.
+trot|180|170|165|90|100-140|nostalgic,festive,playful|Korean pop with a bouncy, twirling rhythm and sung with a strong vibrato; loved across generations.
+korean ballad|65|90|55|140|55-90|sad,romantic,heartbreak|Slow, emotional Korean songs with piano, strings and powerful vocals.
+enka|75|90|55|180|55-100|nostalgic,melancholic,heartbreak|Traditional Japanese ballads with a trembling vocal style and slow, sorrowful melodies.
+nhạc vàng|65|95|60|170|55-100|nostalgic,romantic,heartbreak,melancholic|Vietnamese romantic ballads of the 1960s and 70s, sung with a gentle vibrato and soft arrangements.
+vietnamese bolero|55|90|55|170|55-95|nostalgic,heartbreak,romantic|Slow Vietnamese love songs with a bolero rhythm and tender vocals, heard across generations.
+vietnamese ballad|65|100|55|150|55-95|romantic,sad,heartbreak|Slow Vietnamese love songs, usually with piano and strings and a voice made for heartbreak.
+ca trù|45|90|20|240|45-90|spiritual,mysterious,nostalgic|An old Vietnamese art of sung poetry with a three-string lute and clapper, intimate and austere.
+filmi|165|170|170|90|90-140|festive,romantic,party|Songs from Indian cinema: large productions, playback singers and many styles, with plenty of dance.
+bhangra|220|200|220|60|100-130|party,festive,energetic|Energetic Punjabi dance music with a driving dhol drum and bright, shouted vocals.
+dangdut|170|170|175|70|100-140|festive,party,groovy|Indonesian dance music with a lilting drum pattern, flute, and lively melody.
+qawwali|150|140|120|200|70-160|spiritual,intense,epic|Devotional Sufi music with handclaps, harmonium and singers building in ecstatic waves.
+hindustani classical|60|100|30|240|40-140|spiritual,focus,peaceful|Classical music of northern India, improvised around ragas with sitar, tabla and voice.
+carnatic classical|75|110|45|230|50-160|spiritual,focus,peaceful|Classical music of southern India, with intricate rhythms, violin and voice.
+luk thung|160|160|150|130|90-140|nostalgic,festive,romantic|Thai country songs with a lively beat and stories of rural life.
+arabesk|105|100|90|140|70-120|heartbreak,melancholic,nostalgic|Turkish music of longing and sorrow, with a rich orchestral and Arabic influence.
+raï|170|160|160|130|90-130|festive,party,spiritual|Algerian pop-folk with a throaty voice, driving percussion and modern synths.
+persian pop|140|130|130|90|80-125|romantic,nostalgic,party|Pop from Iran and its diaspora, with a lilting beat, rich melody and poetic lyrics.
+mpb|85|130|90|200|60-120|relaxed,nostalgic,romantic|Brazilian popular music, from samba and bossa nova to rock and folk, with sweeping melodies.
+samba|185|200|200|170|90-150|party,festive,happy|Brazil's carnival music, with swinging percussion, cavaquinho and joyful singing.
+forró|180|190|185|170|100-150|party,festive,happy|Northeastern Brazilian dance music with accordion, triangle and zabumba drum, quick and warm.
+sertanejo|140|160|135|110|80-140|romantic,party,summer|Brazil's country music, from sad duets to modern pop-leaning hits sung in close harmony.
+pagode|145|180|165|150|90-130|festive,happy,groovy|Brazilian samba played in a relaxed circle, with cavaquinho, pandeiro and sing-along choruses.
+tropicália|115|130|105|150|70-130|playful,mysterious,nostalgic|Brazilian music of the late 60s that mixed bossa nova, rock and avant-garde, bright and strange.
+gospel|140|180|130|130|70-130|spiritual,uplifting,hopeful|Christian vocal music with choirs, organ and clapping, full of fervor and joy.
+contemporary christian|130|160|110|110|70-130|spiritual,uplifting,hopeful|Pop and rock songs with faith at their heart, made for church and radio.
+praise & worship|100|150|85|120|60-120|spiritual,uplifting,peaceful|Songs for congregational worship, with a swelling chorus and simple, sincere lyrics.
+gospel hymn|55|130|40|210|55-100|spiritual,peaceful,nostalgic|Traditional hymns sung in plain harmony, solemn and warm.
+experimental|120|70|50|70|40-160|mysterious,intense,focus|Music that breaks the rules of songwriting and sound, trying new ideas over comfort.
+noise|235|30|20|10|40-200|aggressive,intense,raw|Sound without conventional melody or rhythm: feedback, static and raw volume.
+avant-garde|110|60|40|100|40-160|mysterious,intense,moody|Music that pushes the edge of what music can be, often unpredictable and difficult.
+industrial|220|50|130|15|100-150|dark,aggressive,intense|Harsh, mechanical music with metallic percussion, noise and a cold, factory feel.

@@ -1,0 +1,73 @@
+# atlas genre name | extra names that mean the same thing (comma separated). Hand-written; compared after BrainText.fold.
+# Spotify-style strings and the spellings listeners and databases use. Each name goes to ONE atlas node; the first listing wins.
+hip hop|rap,hip-hop,hiphop,hip hop rap,rap hip hop,melodic rap,rap music,hip hop music
+trap|trap rap,trap music,trap beats
+r&b|rnb,r and b,rhythm and blues,rhythm & blues,r&b soul
+dance-pop|dance pop,pop dance,club pop
+pop|pop music,post-teen pop,post teen pop,mainstream pop,top 40
+k-pop|kpop,k pop,korean pop,k-pop girl group,k-pop boy group,k-pop idol,korean idol pop,korean girl group,korean boy group
+j-pop|jpop,j pop,japanese pop
+v-pop|vpop,v pop,vietnamese pop,nhạc trẻ,nhac tre,nhạc pop việt,viet pop
+c-pop|cpop,c pop,chinese pop
+mandopop|mando pop,mandarin pop
+edm|electronic dance music,dance edm,big room,electro dance
+electronic|electronica,electronic music,electro pop dance
+house|house music
+techno|techno music
+drum and bass|drum & bass,drum n bass,dnb,drum'n'bass
+lo-fi hip hop|lofi hip hop,lofi beats,lo-fi beats,lo fi hip hop,chillhop,lofi hiphop
+lo-fi|lofi,lo fi,lo-fi beats
+rock|rock music
+alternative rock|alt rock,alternative,alt-rock
+indie rock|indie,indie music
+hard rock|heavy rock
+classic rock|classic rock music,oldies rock
+punk rock|punk
+metal|heavy music
+heavy metal|classic metal
+country|country music,modern country,country road
+folk|folk music,traditional folk
+singer-songwriter|singer songwriter,singer/songwriter
+classical|classical music,classic music
+bossa nova|bossa
+reggaeton|reggaetón,urbano latino,reggaeton flow
+latin pop|pop latino,pop latin
+latin|latin music,musica latina,música latina
+trap latino|latin trap,trap latin
+soul|soul music
+funk|funk music
+jazz|jazz music
+blues|blues music
+k-pop|korean pop music
+korean hip hop|k-rap,k-hip hop,korean hip-hop,korean rap
+korean r&b|k-r&b,korean r&b/soul,korean rnb
+korean indie|k-indie,korean indie rock
+korean ballad|k-ballad,korean ballad pop
+trot|korean trot,k-trot
+anime|anime opening,anime ost,japanese anime
+city pop|citypop,japanese city pop
+vietnamese hip hop|vietnamese rap,viet rap,vietnamese melodic rap,rap viet,rap việt,nhạc rap
+vietnamese indie pop|vietnamese indie,indie viet,indie việt,indie vietnam
+vietnamese ballad|nhạc trữ tình,nhac tru tinh,ballad việt
+vietnamese edm|viet edm,vietnamese dance
+vietnamese lo-fi|lofi viet,viet lofi,lofi việt
+vietnamese rock|viet rock,rock việt,vietnamese pop rock
+vietnamese bolero|nhạc bolero,bolero việt,bolero viet
+nhạc vàng|nhac vang,vietnamese golden music
+vinahouse|vinahouse remix,viet house
+soundtrack|ost,original soundtrack,movie soundtrack,tv soundtrack
+video game music|vgm,game music,game soundtrack
+new age|meditation music,relaxing music
+ambient|ambient music,atmospheric
+shoegaze|shoegazing,shoegazer
+synthwave|retrowave,outrun,synth wave
+vaporwave|vapor wave,future funk
+phonk|drift phonk,brazilian phonk
+amapiano|amapiano music
+afrobeats|afro pop,afropop,afro-pop,afrobeat pop,naija pop,nigerian pop
+dancehall|dance hall
+drill|chicago drill
+uk drill|british drill
+grime|uk grime
+house|club house
+disco|nu-disco,nu disco

@@ -1,0 +1,212 @@
+# source | the source's own genre string | atlas genre names it means (MusicBrainz or curated names, comma separated; "-" = not a genre, never mapped)
+# 3.5 step 7: Deezer's 28 names and the iTunes names that matter, by hand. Strings are compared after BrainText.fold.
+deezer|All|-
+deezer|Pop|pop
+deezer|Rap/Hip Hop|hip hop
+deezer|Reggaeton|reggaeton
+deezer|Rock|rock
+deezer|Dance|dance
+deezer|R&B|r&b
+deezer|Alternative|alternative rock
+deezer|Christian|contemporary christian
+deezer|Electro|electronic
+deezer|Folk|folk
+deezer|Reggae|reggae
+deezer|Jazz|jazz
+deezer|Country|country
+deezer|Salsa|salsa
+deezer|Traditional Mexicano|latin
+deezer|Classical|classical
+deezer|Films/Games|soundtrack
+deezer|Metal|metal
+deezer|Soul & Funk|soul,funk
+deezer|African Music|-
+deezer|Asian Music|-
+deezer|Blues|blues
+deezer|Brazilian Music|-
+deezer|Cumbia|cumbia
+deezer|Indian Music|-
+deezer|Kids|-
+deezer|Latin Music|latin
+itunes|Pop|pop
+itunes|Hip-Hop/Rap|hip hop
+itunes|Rock|rock
+itunes|Alternative|alternative rock
+itunes|R&B/Soul|r&b,soul
+itunes|Dance|dance
+itunes|Electronic|electronic
+itunes|Electronica|electronic
+itunes|Country|country
+itunes|Jazz|jazz
+itunes|Classical|classical
+itunes|Blues|blues
+itunes|Reggae|reggae
+itunes|Latin|latin
+itunes|Metal|metal
+itunes|Folk|folk
+itunes|K-Pop|k-pop
+itunes|J-Pop|j-pop
+itunes|Japanese Pop|j-pop
+itunes|C-Pop|c-pop
+itunes|Mandopop|mandopop
+itunes|Cantopop/HK-Pop|cantopop
+itunes|Soundtrack|soundtrack
+itunes|Singer/Songwriter|singer-songwriter
+itunes|Indie Pop|indie pop
+itunes|Indie Rock|indie rock
+itunes|Hard Rock|hard rock
+itunes|Punk|punk
+itunes|Grunge|grunge
+itunes|EMO|emo
+itunes|Pop Punk|pop punk
+itunes|New Wave|new wave
+itunes|Britpop|britpop
+itunes|Soft Rock|soft rock
+itunes|Teen Pop|teen pop
+itunes|Adult Contemporary|adult contemporary
+itunes|Contemporary R&B|contemporary r&b
+itunes|Disco|disco
+itunes|Funk|funk
+itunes|Neo-Soul|neo soul
+itunes|Quiet Storm|quiet storm
+itunes|Soul|soul
+itunes|Dub|dub
+itunes|Ska|ska
+itunes|Roots Reggae|roots reggae
+itunes|Modern Dancehall|dancehall
+itunes|Glam Rock|glam rock
+itunes|Death Metal/Black Metal|death metal,black metal
+itunes|Hair Metal|glam metal
+itunes|Blues-Rock|blues rock
+itunes|Prog-Rock/Art Rock|progressive rock,art rock
+itunes|Psychedelic|psychedelic rock
+itunes|Rockabilly|rockabilly
+itunes|Southern Rock|southern rock
+itunes|Surf|surf rock
+itunes|Alternative Country|alternative country
+itunes|Americana|americana
+itunes|Bluegrass|bluegrass
+itunes|Honky Tonk|honky tonk
+itunes|Outlaw Country|outlaw country
+itunes|Contemporary Country|country
+itunes|House|house
+itunes|Techno|techno
+itunes|Trance|trance
+itunes|Breakbeat|breakbeat
+itunes|Jungle/Drum'n'bass|drum and bass,jungle
+itunes|Garage|uk garage
+itunes|Dubstep|dubstep
+itunes|Ambient|ambient
+itunes|Downtempo|downtempo
+itunes|IDM/Experimental|idm
+itunes|Industrial|industrial
+itunes|Bass|bass music
+itunes|Lounge|lounge
+itunes|Swing|swing
+itunes|Big Band|big band
+itunes|Cool Jazz|cool jazz
+itunes|Hard Bop|hard bop
+itunes|Smooth Jazz|smooth jazz
+itunes|Vocal Jazz|vocal jazz
+itunes|Latin Jazz|latin jazz
+itunes|Dixieland|dixieland
+itunes|Fusion|jazz fusion
+itunes|Bop|bebop
+itunes|Bossa Nova|bossa nova
+itunes|Samba|samba
+itunes|Sertanejo|sertanejo
+itunes|MPB|mpb
+itunes|Pagode|pagode
+itunes|Forró|forró
+itunes|Baile Funk|funk carioca
+itunes|Anime|anime
+itunes|Enka|enka
+itunes|Trot|trot
+itunes|Korean Hip-Hop|korean hip hop
+itunes|Korean Indie|korean indie
+itunes|Korean Rock|korean rock
+itunes|Gangsta Rap|gangsta rap
+itunes|East Coast Rap|east coast hip hop
+itunes|West Coast Rap|west coast hip hop
+itunes|Dirty South|southern hip hop
+itunes|Alternative Rap|alternative hip hop
+itunes|Hardcore Rap|hardcore hip hop
+itunes|Old School Rap|hip hop
+itunes|Underground Rap|hip hop
+itunes|Rap|hip hop
+itunes|Hip-Hop|hip hop
+itunes|Bollywood|filmi
+itunes|Dangdut|dangdut
+itunes|Afrobeats|afrobeats
+itunes|Afro-Beat|afrobeat
+itunes|Amapiano|amapiano
+itunes|Highlife|highlife
+itunes|Soukous|soukous
+itunes|Gqom|gqom
+itunes|Afro House|afro house
+itunes|Gospel|gospel
+itunes|Contemporary Gospel|gospel
+itunes|CCM|contemporary christian
+itunes|Praise & Worship|praise & worship
+itunes|Christian|contemporary christian
+itunes|Opera|opera
+itunes|Baroque|baroque
+itunes|Minimalism|minimalism
+itunes|Chamber Music|chamber music
+itunes|Choral|choral
+itunes|Orchestral|orchestral
+itunes|Romantic|romantic classical
+itunes|Piano|piano
+itunes|Film Music|film score
+itunes|Original Score|film score
+itunes|Video Game|video game music
+itunes|Musicals|musical
+itunes|Celtic|celtic
+itunes|Calypso|calypso
+itunes|Soca|soca
+itunes|Tango|tango
+itunes|Bolero|bolero
+itunes|Pop Latino|latin pop
+itunes|Urbano latino|reggaeton
+itunes|New Age|new age
+itunes|Meditation|new age
+itunes|Relaxation|new age
+itunes|Easy Listening|lounge
+itunes|Holiday|-
+itunes|Spoken Word|-
+itunes|Comedy|-
+itunes|Children's Music|-
+itunes|Karaoke|-
+itunes|Tribute|-
+itunes|Worldwide|-
+itunes|Vocal|-
+itunes|Oldies|-
+itunes|Inspirational|-
+itunes|Instrumental|-
+chip|Pop|pop
+chip|Rock|rock
+chip|Alternative|alternative rock
+chip|Electronic|electronic
+chip|Hip-Hop|hip hop
+chip|Hip Hop|hip hop
+chip|Rap|hip hop
+chip|R&B|r&b
+chip|Soul|soul
+chip|Indie|indie rock
+chip|Indie Pop|indie pop
+chip|Country|country
+chip|Jazz|jazz
+chip|Classical|classical
+chip|Metal|metal
+chip|Punk|punk
+chip|Dance|dance
+chip|House|house
+chip|Folk|folk
+chip|Latin|latin
+chip|Reggae|reggae
+chip|K-Pop|k-pop
+chip|V-Pop|v-pop
+chip|J-Pop|j-pop
+chip|Vietnamese Hip Hop|vietnamese hip hop
+chip|Vietnamese Indie Pop|vietnamese indie pop
+chip|Adult Pop|adult contemporary

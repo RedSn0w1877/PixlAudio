@@ -1,0 +1,82 @@
+# name | energy | valence | danceability | acousticness | tempo low-high bpm | up to 4 moods | description. Assistant-drafted, not yet human-reviewed.
+hip hop|175|130|185|20|70-110|confident,gritty,groovy|Spoken rhythm over beats and samples: rapping, turntable culture and storytelling that run from boasts to politics.
+trap|190|90|180|10|130-160|dark,confident,intense,gritty|Hip hop with rolling hi-hats, heavy 808 bass and a cold, dark or luxurious mood.
+boom bap|160|120|170|25|80-100|nostalgic,gritty,groovy|Classic hip hop built on sampled, hard-hitting drums and a head-nodding swing.
+gangsta rap|180|90|170|15|80-105|gritty,confident,dark|Rap about street life with hard beats and blunt, vivid storytelling.
+conscious hip hop|140|120|150|45|75-105|hopeful,spiritual,focus|Rap that speaks to social and personal themes, often over warm, soulful beats.
+alternative hip hop|155|110|150|40|75-120|moody,playful,mysterious|Rap outside the mainstream mold: odd samples, personal lyrics and unusual flows.
+east coast hip hop|165|115|165|25|80-100|gritty,nostalgic,confident|Lyric-heavy hip hop from New York and its neighbors, built on sampled drums and tight rhymes.
+west coast hip hop|175|140|175|20|80-100|summer,groovy,confident|Laid-back, bass-heavy hip hop from California with funk samples and smooth synth lines.
+southern hip hop|190|130|185|15|70-150|groovy,confident,party|Rap from the American South, from bouncing club beats to slow, heavy bass.
+drill|195|60|170|10|135-150|dark,gritty,intense|Cold, gritty rap with sliding 808s, sparse beats and blunt lyrics about the street.
+uk drill|195|55|165|10|135-145|dark,gritty,intense|A British take on drill: sliding bass, skittering hi-hats and a dark, urgent flow.
+cloud rap|130|90|140|15|65-140|dreamy,moody,chill|Hazy, atmospheric rap with soft synths, echoing vocals and a floating mood.
+emo rap|165|60|140|20|70-160|sad,heartbreak,moody|Rap that mixes emo's open sadness with trap beats and melodic, sung hooks.
+jazz rap|130|140|150|85|80-100|chill,groovy,cozy|Rap over jazz samples and live instruments, relaxed, smooth and wordy.
+g-funk|150|150|180|25|85-100|summer,groovy,confident|Slow, synth-laced West Coast hip hop with funk bass lines and a long, lazy groove.
+grime|215|90|170|10|135-145|aggressive,gritty,intense|Fast, aggressive British MC music over sparse, bass-heavy electronic beats.
+phonk|200|60|170|10|120-160|dark,gritty,intense,night drive|Dark, bass-heavy hip hop built on Memphis samples, cowbells and distorted 808s.
+lo-fi hip hop|75|130|130|60|60-95|chill,focus,cozy,sleep|Soft, dusty, jazz-tinged beats made to be studied to: warm crackle, mellow loops, no hurry.
+pop rap|170|170|185|20|80-130|happy,party,confident|Rap with a pop chorus and a bright production, easy for a wide audience.
+hardcore hip hop|190|90|165|15|85-105|aggressive,gritty,intense|Hard, aggressive rap with heavy drums and raw, uncompromising lyrics.
+trap latino|190|110|185|15|130-160|confident,sensual,party|Trap production with Spanish-language rapping and singing, glossy and bass-heavy.
+vietnamese hip hop|175|130|175|25|70-140|confident,gritty,groovy|Rap in Vietnamese, from storytelling flows to club bangers, with a fast-growing scene.
+korean hip hop|180|130|175|20|70-150|confident,energetic,groovy|Rap in Korean, mixing hard trap beats with melodic hooks and a polished sound.
+r&b|140|150|170|50|65-110|sensual,romantic,groovy|Smooth, rhythm-led vocals over soft beats and warm chords, about love and desire.
+contemporary r&b|135|140|165|45|60-110|sensual,romantic,moody|Modern R&B with sleek production, silky vocals and a slow, late-night groove.
+alternative r&b|110|100|140|40|60-110|moody,sensual,dreamy|R&B that bends toward electronic and indie sounds: spacious, hazy and moody.
+soul|120|160|130|110|70-120|romantic,spiritual,nostalgic|Gospel-rooted vocals over warm bands, with sincere feeling and a full, human sound.
+neo soul|100|150|130|120|65-105|chill,sensual,groovy,cozy|Modern soul with jazz harmony and hip hop beats: relaxed, intimate and warm.
+funk|190|210|215|60|95-120|groovy,funky,party|Rhythm first: tight bass, syncopated guitar and drums that lock into a groove made for dancing.
+disco|205|210|230|50|110-130|party,groovy,happy,festive|Four-on-the-floor dance music with strings, bass lines and sparkle, made for the dance floor.
+quiet storm|75|140|90|120|60-95|romantic,sensual,relaxed|Slow, smooth late-night R&B built for a slow dance.
+new jack swing|200|190|220|30|100-115|party,groovy,confident|Late-80s R&B with hip hop drums: swinging beats and bright, sharp production.
+boogie|180|200|220|40|105-125|groovy,summer,party|Early 80s electro-funk: slap bass, synths and a smooth dance feel.
+northern soul|190|200|200|60|115-140|nostalgic,energetic,party|Fast, uptempo 60s soul made for dancing, loved for its rare records.
+vietnamese r&b|120|130|150|50|65-110|sensual,romantic,groovy|Vietnamese vocals over smooth, slow-burning R&B production.
+korean r&b|120|130|150|50|65-110|sensual,romantic,dreamy|Korean vocals over silky, slow-burning R&B, with careful harmonies and soft production.
+electronic|190|130|180|10|100-150|energetic,focus,night drive|Music made with synthesizers, drum machines and computers, across all kinds of moods and speeds.
+edm|225|170|200|5|120-150|party,festive,energetic,workout|Big, festival-sized dance music with huge drops and a driving beat.
+dance|205|170|220|10|115-140|party,energetic,happy|Music made to be danced to, with a steady kick drum and a repeating, rising structure.
+house|195|165|220|8|118-130|party,groovy,uplifting|Steady four-on-the-floor dance music with a pulsing kick, soulful chords and a long build.
+deep house|150|140|205|10|115-125|chill,groovy,night drive|Smooth, deep, low-lit house with warm chords and a hypnotic bassline.
+tech house|205|120|215|5|120-130|groovy,intense,night drive|House stripped to its groove, with the sharp drums of techno and a hypnotic pulse.
+progressive house|190|150|190|8|122-130|epic,uplifting,lush|House that builds slowly with long, layered synth lines and a sweeping climax.
+electro house|225|130|205|5|126-132|energetic,intense,party|Loud, bass-heavy house with distorted synths and a hard-edged drop.
+tropical house|130|180|190|20|100-115|summer,chill,happy|Gentle, sunny house with steel drums, soft synths and a relaxed beach feel.
+future bass|180|170|165|5|130-160|uplifting,energetic,lush|Bright electronic with huge, detuned synth chords and bouncing drops.
+dubstep|235|80|150|5|135-150|aggressive,intense,dark|Heavy bass music with wobbling basslines and sparse, half-time drums.
+drum and bass|235|110|170|8|165-180|energetic,intense,workout|Very fast breakbeats and deep sub-bass, built for high-energy dance floors.
+jungle|225|115|180|8|155-175|energetic,gritty,intense|Fast, chopped breakbeats with deep ragga bass, the rough older cousin of drum and bass.
+uk garage|180|150|205|10|128-138|groovy,party,night drive|Skippy, shuffling beats, bass lines and vocal samples from London clubs.
+trance|215|150|175|5|128-145|uplifting,epic,energetic|Fast, euphoric electronic music with long builds and soaring synth melodies.
+psytrance|235|100|160|3|140-150|intense,mysterious,energetic|Fast, hypnotic trance with twisting basslines and layered, psychedelic effects.
+techno|215|100|200|5|120-150|intense,dark,focus,night drive|Hard, repetitive machine music with a steady kick and a hypnotic, industrial feel.
+minimal techno|180|100|200|5|120-130|focus,groovy,night drive|Techno stripped to its bones: tiny sounds, deep bass and slow-moving patterns.
+acid house|200|120|210|5|120-135|intense,playful,groovy|House driven by a squelching, resonant bass synth line and an unstoppable pulse.
+hardstyle|245|110|160|3|140-160|aggressive,energetic,workout|Hard, distorted kicks with a melodic hook, built for a stage and a crowd.
+breakbeat|205|120|180|8|120-150|energetic,groovy,gritty|Dance music built on chopped, syncopated drum breaks instead of a straight kick.
+synthwave|160|110|150|8|80-125|nostalgic,night drive,cinematic,dreamy|Retro electronic music that remembers 80s film scores and arcade games, with neon-lit synth lines.
+vaporwave|90|100|110|15|60-110|nostalgic,dreamy,chill|Slowed, glossy electronic music built from old pop and muzak, nostalgic and strange.
+chillwave|110|140|120|20|80-115|summer,dreamy,nostalgic|Soft, hazy electronic pop with warm synths and a memory of summer.
+idm|165|90|110|20|90-170|focus,mysterious,moody|Intricate electronic music for listening, with complex rhythms and unusual textures.
+glitch|155|90|100|10|80-160|focus,mysterious,intense|Electronic music built from stutters and digital errors, played as rhythm and texture.
+trip hop|90|60|100|50|60-100|moody,dark,night drive|Slow, smoky, beat-driven music that blends hip hop, soul and dark atmosphere.
+downtempo|85|110|100|40|70-110|chill,relaxed,night drive|Relaxed electronic music at a slow pace, with warm textures and a soft pulse.
+ambient|40|100|20|60|40-100|peaceful,sleep,focus,dreamy|Soft, slow-moving sound that sets a mood instead of telling a story, made to float in the background.
+dark ambient|55|20|15|40|40-90|dark,mysterious,moody|Slow, shadowy sound that builds a cold, unsettling atmosphere.
+drone|50|40|10|40|40-90|focus,mysterious,peaceful|Long, sustained tones that change slowly and fill the room.
+new age|45|130|25|110|50-100|peaceful,spiritual,sleep,relaxed|Calm, gentle, spacious music for relaxation, meditation and rest.
+lo-fi|70|120|110|70|60-95|chill,focus,cozy|Soft, imperfect, warm-sounding music, made to relax or study with.
+chillout|75|130|90|50|70-110|chill,relaxed,summer|Soft electronic music for coming down: gentle beats, warm pads and an unhurried mood.
+lounge|80|140|110|80|70-110|relaxed,cozy,romantic|Smooth, easy background music, jazzy and light, made for a cocktail hour.
+electro|200|110|200|8|110-135|energetic,groovy,night drive|Machine-funk built on drum machine patterns, vocoder voices and a robotic groove.
+italo-disco|180|165|210|10|115-135|nostalgic,party,night drive|European synth disco of the 80s with robot voices, bright arpeggios and a cheerful beat.
+eurodance|210|190|225|8|125-145|party,happy,festive|90s European club pop with rapped verses, sung hooks and a pounding, cheerful beat.
+future garage|90|90|120|15|130-140|moody,dreamy,night drive|Dark, spacious, shuffling garage with ghostly vocals and deep, soft bass.
+vinahouse|235|140|215|3|130-150|party,energetic,festive|Fast, loud Vietnamese dance music with pounding kicks and catchy, looped hooks.
+vietnamese edm|230|160|215|5|125-150|party,festive,energetic|Vietnamese dance tracks built for clubs and festivals, with big drops and catchy hooks.
+vietnamese lo-fi|65|115|110|90|60-90|chill,cozy,focus|Gentle Vietnamese songs and beats turned slow and soft, made for study and rest.
+bass music|220|90|170|5|130-150|intense,dark,energetic|A broad family of electronic music built around heavy, wobbling or rumbling bass.
+funk carioca|205|140|220|8|125-140|party,groovy,energetic|Brazilian favela party music with a harsh, booming drum pattern and chanted vocals.
+moombahton|200|140|205|8|105-115|party,groovy,summer|A slowed-down house sound with reggaeton rhythm, made for a hot dance floor.

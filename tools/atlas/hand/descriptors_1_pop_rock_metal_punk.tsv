@@ -1,0 +1,83 @@
+# name (MusicBrainz name or a curated name) | energy | valence | danceability | acousticness (all 0..255) | tempo low-high bpm | up to 4 moods | one-paragraph description
+# Hand-written (assistant-drafted, NOT yet human-reviewed). Descendants inherit from the nearest described ancestor.
+pop|170|180|170|70|95-130|happy,bright,party|Songs built around a strong hook and a clean, polished sound. Short verses, big choruses, made to be sung along to.
+dance-pop|200|195|220|40|110-130|party,energetic,happy|Pop with a club beat under the chorus: four-on-the-floor drums, bright synths and a hook you can dance to.
+synth-pop|170|160|190|30|100-135|nostalgic,dreamy,bright|Pop led by synthesizers and drum machines, from the cool sound of the early 80s to its modern revival.
+electropop|190|165|200|25|100-130|energetic,bright,party|Pop sung over electronic production: pulsing synths, sharp beats and vocals that are often processed.
+indie pop|140|160|140|110|95-130|dreamy,hopeful,cozy|Pop made on a small scale: light guitars or synths, soft vocals and an unpolished, homemade charm.
+dream pop|110|120|110|90|75-120|dreamy,lush,peaceful,nostalgic|Hazy, reverb-soaked pop where the vocals float inside layers of guitar and synth.
+bedroom pop|100|130|110|110|80-115|cozy,dreamy,chill|Quiet, lo-fi pop recorded at home: soft vocals, simple beats and a close, diary-like feel.
+art pop|140|110|120|80|80-130|moody,mysterious,lush|Pop that treats the song as art: unusual structures, rich arrangements and an eye for the strange.
+teen pop|190|210|200|40|100-135|happy,bright,playful|Bright, catchy pop made for a young audience: simple love songs, big choruses, clean production.
+power pop|200|190|150|60|120-170|energetic,bright,hopeful|Guitar pop with the crunch of rock: short, melodic songs with strong choruses and tight harmonies.
+europop|205|200|225|30|115-140|party,happy,festive|Upbeat continental dance-pop with simple, sing-along hooks and a steady, bright beat.
+hyperpop|225|150|180|15|130-180|intense,playful,energetic,dark|Pop pushed to excess: distorted, pitch-shifted vocals and glittering, maximal production.
+k-pop|200|175|210|35|100-145|energetic,party,bright,confident|Korean pop built in a polished studio system: sharp choreography, shifts of style within one song, and hooks from every angle.
+j-pop|180|170|160|60|95-150|bright,hopeful,nostalgic|Japanese pop, from bright idol songs to melodic band-driven tracks, often with quick shifts of mood.
+c-pop|140|140|130|90|70-125|romantic,nostalgic,lush|Chinese-language pop in its many forms, often built on a sweeping melody and a romantic mood.
+mandopop|130|130|120|100|65-120|romantic,nostalgic,lush,sad|Pop sung in Mandarin, known for its ballads and clear melodies that carry strong feeling.
+cantopop|135|140|125|95|65-125|romantic,nostalgic,lush|Pop sung in Cantonese from Hong Kong, with a long tradition of melodic ballads and film songs.
+v-pop|155|150|150|75|70-130|romantic,bright,nostalgic,hopeful|Vietnamese pop, from tender ballads to bright dance tracks, usually led by a strong melody and a clear voice.
+city pop|170|190|190|60|95-125|summer,nostalgic,groovy,night drive|Smooth Japanese pop of the late 70s and 80s: sunny funk and soft rock, polished and made for city nights.
+adult contemporary|100|140|100|120|65-110|relaxed,romantic,cozy|Smooth, easy pop for grown-ups: warm vocals, piano and gentle arrangements that stay out of the way.
+baroque pop|100|130|90|140|70-120|lush,dreamy,nostalgic|Pop dressed in strings, harpsichord and woodwinds, with a rich, orchestral sense of melody.
+chamber pop|90|120|80|160|70-120|cozy,lush,melancholic|Small-ensemble pop with strings and soft instruments, intimate and carefully arranged.
+sophisti-pop|120|140|140|90|80-115|romantic,groovy,night drive|Polished 80s pop with jazz chords, smooth vocals and a late-night feel.
+bubblegum pop|190|215|200|40|110-140|happy,playful,bright|Simple, sugary pop with a skipping beat and a chorus you can hum after one listen.
+rock|185|140|120|60|100-150|energetic,rebellious,raw|Guitar, bass and drums played loud: riffs and backbeat at the front, from rough garage energy to stadium choruses.
+alternative rock|180|120|115|60|100-150|moody,raw,intense|Rock that grew out of the underground: angular guitars, honest lyrics and moods that are not always bright.
+indie rock|165|130|120|80|100-150|raw,hopeful,nostalgic|Guitar bands working outside the mainstream: loose, heartfelt songs with jangling or fuzzy guitars.
+hard rock|210|130|110|40|110-160|energetic,rebellious,confident|Loud, riff-driven rock with big drums, a belting singer and heavy blues roots.
+classic rock|185|150|115|60|100-150|nostalgic,energetic,confident|The guitar rock of the 60s, 70s and 80s that still fills radio: riffs, solos and choruses made to be shouted.
+punk rock|235|150|120|20|150-200|angry,rebellious,energetic,raw|Fast, short, loud songs with simple chords and a shout in place of polish.
+pop rock|180|170|140|70|100-140|happy,energetic,hopeful|Rock with a pop sense of melody: guitars up front, a clean sound and a big chorus.
+soft rock|110|150|100|110|70-115|relaxed,romantic,nostalgic|Mellow guitar rock with warm vocals and gentle drums, easy to listen to from start to finish.
+folk rock|140|140|110|120|90-140|nostalgic,hopeful,cozy|Folk songs played with electric guitars and a band: storytelling lyrics over a rolling beat.
+psychedelic rock|165|120|100|60|90-140|dreamy,mysterious,intense|Swirling guitars and studio tricks that aim to bend the mind, with long jams and strange sounds.
+progressive rock|170|110|90|60|80-150|epic,intense,moody|Long, adventurous rock with changing time signatures, big arrangements and a taste for concept albums.
+garage rock|215|140|120|30|120-170|raw,rebellious,energetic|Raw, fuzzy guitar rock played fast and loose, with a sound like a band in a garage.
+grunge|205|90|100|30|90-150|angry,gritty,moody,raw|Heavy, murky guitar rock from Seattle: sludgy riffs, dark lyrics and loud-quiet shifts.
+post-punk|170|90|130|40|110-160|dark,moody,intense|Angular, brooding rock that took punk's energy and added bass-led grooves and a cold atmosphere.
+new wave|175|160|170|35|110-150|bright,nostalgic,playful|Quirky, synth-flecked rock and pop of the late 70s and 80s with a clean, stylish edge.
+shoegaze|165|90|90|40|90-140|dreamy,lush,moody|Walls of reverb-drenched guitar with soft, buried vocals; loud, gauzy and beautiful.
+post-rock|140|80|70|50|70-150|epic,cinematic,moody,focus|Mostly instrumental rock that builds slowly from quiet to huge, using guitars for texture instead of riffs.
+math rock|170|110|90|50|110-170|intense,playful,focus|Intricate, angular guitar rock with odd time signatures and tightly woven parts.
+emo|185|80|110|50|110-170|sad,heartbreak,intense,nostalgic|Emotional rock with confessional lyrics and sudden shifts from quiet to loud.
+pop punk|230|165|130|25|150-195|energetic,playful,rebellious,summer|Fast punk with big pop choruses, upbeat chords and lyrics about growing up.
+britpop|170|150|120|70|100-150|nostalgic,confident,hopeful|1990s British guitar pop with big choruses, sharp wit and a love of the 60s.
+glam rock|190|160|140|40|100-150|playful,confident,party|Flashy, stomping rock with big hooks, sequins and a theatrical edge.
+blues rock|170|120|105|70|90-140|raw,groovy,gritty|Rock built on blues scales and a shuffle: overdriven guitar, gritty vocals and long solos.
+southern rock|185|140|115|90|100-150|nostalgic,gritty,confident|Guitar rock from the American South with twin guitars, a blues swagger and country roots.
+surf rock|200|190|150|40|130-180|summer,playful,energetic|Twangy, reverb-heavy instrumentals with fast picking, made to sound like waves.
+noise rock|220|70|80|20|100-170|intense,aggressive,raw|Rock played at the edge of chaos: feedback, distortion and rhythms that grind.
+art rock|150|110|100|70|90-140|moody,mysterious,epic|Rock with an artistic reach: ambitious arrangements, odd instruments and ideas from outside rock.
+stoner rock|170|100|80|40|70-120|groovy,dark,intense|Slow, fuzzy, riff-heavy rock with a thick sound and a hazy, heavy groove.
+rockabilly|190|190|160|90|120-190|playful,party,nostalgic|Early rock and roll with country roots: slap bass, twangy guitar and a fast, jumping rhythm.
+post-grunge|185|100|105|35|90-150|moody,gritty,intense|Radio-ready heavy rock that softened grunge's edge: big riffs, polished production and earnest vocals.
+midwest emo|150|110|100|80|110-160|nostalgic,melancholic,sad|Twinkling guitars and shouted, honest vocals, often about home and growing apart.
+vietnamese rock|185|120|110|60|100-150|energetic,rebellious,nostalgic|Vietnamese rock, from 90s bands to modern indie groups, with strong melody and a hungry live sound.
+korean rock|190|130|115|55|100-155|energetic,rebellious,bright|Korean bands playing everything from pop-punk to heavy rock, with big choruses and a polished live sound.
+korean indie|120|130|110|110|85-130|dreamy,cozy,hopeful|Korean artists working outside the big agencies, with soft guitars, personal lyrics and a quiet mood.
+vietnamese indie pop|110|130|105|110|80-125|dreamy,cozy,hopeful|Soft, personal Vietnamese pop made outside the big labels, with light guitars and quiet beats.
+heavy metal|230|110|90|20|100-170|aggressive,epic,intense,confident|Loud, powerful music built on distorted guitars, driving drums and a commanding vocal.
+metal|230|100|90|20|100-180|aggressive,intense,dark|The family of heavy, distorted guitar music, from classic riffs to extreme speed.
+thrash metal|245|80|85|10|150-220|aggressive,angry,intense,workout|Very fast, tight, aggressive metal with palm-muted riffs and shouted vocals.
+death metal|250|50|70|10|130-230|aggressive,dark,intense|Extreme metal with growled vocals, blast beats and downtuned, dense guitars.
+black metal|235|40|60|15|120-220|dark,aggressive,mysterious|Cold, fast metal with tremolo-picked guitars, shrieked vocals and a bleak atmosphere.
+doom metal|160|40|50|20|50-90|dark,moody,intense|Slow, crushing metal that favors weight and gloom over speed.
+power metal|230|180|100|15|140-200|epic,energetic,hopeful|Fast, melodic metal with soaring vocals, fantasy themes and triumphant choruses.
+progressive metal|200|90|80|20|100-180|intense,epic,focus|Metal with long songs, complex rhythms and a love of technical playing.
+metalcore|240|60|90|10|120-190|aggressive,angry,intense|A mix of metal riffs and hardcore energy, with screamed verses and sung choruses.
+nu metal|215|80|105|20|90-140|angry,gritty,intense|Down-tuned, groove-heavy metal with rap-influenced vocals, turntables and angst.
+symphonic metal|215|110|85|35|110-180|epic,cinematic,lush|Heavy metal joined with orchestra and choir for a grand, dramatic sound.
+industrial metal|230|55|110|10|100-150|aggressive,dark,intense|Metal fused with machine beats and electronics for a heavy, mechanical drive.
+folk metal|225|150|100|40|120-180|epic,festive,playful|Metal mixed with folk instruments and melodies, often sung about old tales and drinking songs.
+glam metal|215|170|115|30|110-160|party,confident,playful|Big-hair 80s metal with catchy choruses, flashy solos and a party spirit.
+groove metal|220|70|95|15|90-140|aggressive,gritty,intense|Heavy metal with a slow, swinging chug and a thick, punishing sound.
+deathcore|250|40|80|5|120-200|aggressive,intense,dark|Death metal's brutality joined with hardcore breakdowns and screamed vocals.
+alternative metal|205|85|100|25|95-150|moody,gritty,intense|Heavy music that bends metal toward alternative rock: odd rhythms, melody and experiments.
+punk|235|140|120|20|150-200|angry,rebellious,raw,energetic|Fast, loud and simple music that values attitude over skill, usually in short, shouted songs.
+hardcore punk|250|90|100|10|170-240|aggressive,angry,intense,workout|The fastest, hardest edge of punk: breakneck tempos, shouted vocals and crowds that sing along.
+post-hardcore|215|80|95|25|110-180|intense,heartbreak,aggressive|Hardcore that adds melody, dynamics and emotion, moving from tense verses to explosive choruses.
+ska punk|230|200|150|35|150-210|playful,party,energetic|Punk's speed with ska's horns and offbeat guitar, fast, skanking and cheerful.
+street punk|225|110|110|15|140-190|rebellious,angry,raw|Loud, anthemic punk with gang vocals, plain chords and a working-class edge.

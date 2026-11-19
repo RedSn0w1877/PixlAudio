@@ -1,0 +1,25 @@
+# family | root genres (MusicBrainz names, comma separated). Each genre takes the nearest root along its parents (3.5 step 5); ties go to the earlier family.
+pop|pop
+rock|rock
+metal|metal
+punk|punk
+hip hop|hip hop
+r&b and soul|r&b,soul,funk,disco
+electronic|electronic
+house and techno|house,techno,trance,drum and bass
+ambient and downtempo|ambient,downtempo,new age,trip hop
+jazz|jazz
+blues|blues
+country|country,bluegrass
+folk|folk,singer-songwriter
+classical|classical,opera,baroque
+soundtrack|soundtrack,film score,video game music,musical
+latin|latin,salsa,bachata,cumbia,tango,reggaeton,norteño,mariachi,ranchera,banda sinaloense,corrido
+reggae and caribbean|reggae,dancehall,ska,soca,calypso
+african|afrobeat,afrobeats,highlife,amapiano,soukous
+east asian pop|k-pop,j-pop,c-pop,mandopop,cantopop,city pop,trot,korean ballad,enka
+south and southeast asian|filmi,bhangra,dangdut,v-pop,nhạc vàng,vietnamese bolero,carnatic classical,hindustani classical,qawwali,luk thung,opm
+middle eastern|arabesk,raï,pop raï,persian pop,persian classical,laiko
+brazilian|mpb,bossa nova,samba,forró,sertanejo,pagode,tropicália
+gospel and religious|gospel,contemporary christian,praise & worship,gospel hymn
+experimental|experimental,noise,avant-garde,industrial

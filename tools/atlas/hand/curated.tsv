@@ -1,0 +1,24 @@
+# Hand-curated nodes that no open source has (3.5 step 6: the Vietnamese and K-pop corner). They exist as YouTube Music chips and as Spotify genre strings only.
+# slug | name | parents (MusicBrainz names, comma separated) | aliases (comma separated) | country | era start
+x:vietnamese hip hop|vietnamese hip hop|hip hop,v-pop|vietnamese rap,viet rap,vietnamese melodic rap,rap viet,nhạc rap,rap việt|VN|2000
+x:vietnamese indie pop|vietnamese indie pop|indie pop,v-pop|vietnamese indie,indie viet,indie việt|VN|2010
+x:vietnamese pop rock|vietnamese rock|rock,v-pop|vietnamese pop rock,viet rock,rock việt|VN|1990
+x:vietnamese r&b|vietnamese r&b|contemporary r&b,v-pop|vietnamese rnb,viet r&b|VN|2015
+x:vietnamese edm|vietnamese edm|edm,v-pop|viet edm,vietnamese dance,viet dance|VN|2012
+x:vietnamese lo-fi|vietnamese lo-fi|lo-fi,v-pop|lofi viet,viet lofi,lofi việt|VN|2019
+x:vietnamese ballad|vietnamese ballad|ballad,v-pop|nhạc trữ tình,nhạc trẻ ballad,ballad việt,vietnamese love songs|VN|1990
+x:vietnamese traditional|vietnamese folk|folk,v-pop|dân ca,nhạc dân gian,vietnamese traditional|VN|1900
+x:korean hip hop|korean hip hop|hip hop,k-pop|k-rap,k-hip hop,korean rap,korean hip-hop|KR|1992
+x:korean r&b|korean r&b|contemporary r&b,k-pop|k-r&b,k-rnb,korean rnb|KR|2000
+x:korean indie|korean indie|indie rock,k-pop|k-indie,korean indie pop,korean indie rock|KR|2000
+x:korean rock|korean rock|rock,k-pop|k-rock,korean band|KR|1990
+x:korean ost|korean ost|film score,k-pop|k-drama ost,korean drama ost,k-ost|KR|2000
+x:soundtrack|soundtrack||ost,original soundtrack,soundtracks,movie soundtrack,tv soundtrack,motion picture soundtrack||1930
+x:film score|film score|soundtrack|score,film music,movie score,orchestral score||1930
+x:video game music|video game music|soundtrack,chiptune|game soundtrack,vgm,game ost,video game soundtrack,game music||1980
+x:anime|anime|soundtrack,j-pop|anime ost,anison,anime soundtrack,anime opening,anime song|JP|1990
+x:adult contemporary|adult contemporary|pop|adult pop,ac,soft ac,adult contemporary pop||1960
+x:bass music|bass music|electronic|bass,uk bass,bass heavy||1990
+x:chamber music|chamber music|classical|string quartet,chamber ensemble,chamber orchestra||1600
+x:choral|choral|classical|choir,choral music,chorus,choral works||1500
+x:piano|piano|classical|solo piano,piano music,piano solo,instrumental piano||1700
