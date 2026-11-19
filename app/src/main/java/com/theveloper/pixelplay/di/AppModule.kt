@@ -553,6 +553,28 @@ object AppModule {
     }
 
     /**
+     * The client of the brain's knowledge sources (docs/brain-spec.md, 3.7): no cookies, no account, a User-Agent that identifies
+     * the app (`PixlAudio/<version> ( <project url> )`) and never the listener, short timeouts, and no retry of its own: the brain's
+     * request budget counts every request, so a silent retry would spend it unseen.
+     */
+    @Provides
+    @Singleton
+    @com.theveloper.pixelplay.di.KnowledgeOkHttpClient
+    fun provideKnowledgeOkHttpClient(): OkHttpClient {
+        val userAgent = "PixlAudio/${com.theveloper.pixelplay.BuildConfig.VERSION_NAME} ( ${com.theveloper.pixelplay.data.brain.source.KnowledgeUserAgent.PROJECT_URL} )"
+        return OkHttpClient.Builder()
+            .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
+            .writeTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+            .retryOnConnectionFailure(false)
+            .addInterceptor { chain ->
+                chain.proceed(chain.request().newBuilder().header("User-Agent", userAgent).build())
+            }
+            .addInterceptor(com.theveloper.pixelplay.data.diagnostics.DiagnosticsHttpInterceptor)
+            .build()
+    }
+
+    /**
      * Retrofit para el servidor de cuentas de Spotify (solo OAuth).
      */
     @Provides

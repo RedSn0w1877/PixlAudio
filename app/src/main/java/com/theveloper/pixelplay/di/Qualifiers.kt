@@ -28,6 +28,15 @@ annotation class FastOkHttpClient
 annotation class YouTubeOkHttpClient
 
 /**
+ * Qualifier for the OkHttpClient the music brain uses for the open-data hosts (Deezer, MusicBrainz, ListenBrainz, Wikidata,
+ * iTunes; docs/brain-spec.md, 3.7). Its User-Agent names the app and never the listener, which MusicBrainz and Wikimedia ask for;
+ * the shared client overwrites User-Agent, so it must not be used for these.
+ */
+@Qualifier
+@Retention(AnnotationRetention.BINARY)
+annotation class KnowledgeOkHttpClient
+
+/**
  * Qualifier for the Retrofit instance pointed at api.spotify.com.
  */
 @Qualifier

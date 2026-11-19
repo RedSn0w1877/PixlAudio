@@ -651,6 +651,18 @@ class UserPreferencesRepository @Inject constructor(
     }
 
     /**
+     * One off switch per open-data knowledge source (docs/brain-spec.md, 3.7 "Switches"; owner decision on third-party terms):
+     * `deezer`, `musicbrainz`, `listenbrainz`, `wikidata`, `itunes`. Default on while the testers are friends and nothing in the
+     * brain is paid.
+     */
+    fun brainSourceEnabledFlow(source: String): Flow<Boolean> =
+        pref { it[androidx.datastore.preferences.core.booleanPreferencesKey("brain_source_$source")] ?: true }
+
+    suspend fun setBrainSourceEnabled(source: String, enabled: Boolean) {
+        dataStore.edit { it[androidx.datastore.preferences.core.booleanPreferencesKey("brain_source_$source")] = enabled }
+    }
+
+    /**
      * "Use my Spotify music to shape picks" (docs/brain-spec.md, 15, owner question 1): the Spotify facts the
      * brain keeps, and the likes, top lists, follows and imported Spotify plays it counts. Off removes them
      * from the picks at the next rebuild. Default on.

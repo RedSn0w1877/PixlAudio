@@ -551,6 +551,15 @@ class BrainRepository @Inject constructor(
         return out
     }
 
+    /**
+     * The cached row of the song radio of [seedRid] that is the seed itself (its year, play count and explicit flag), or null.
+     * Reads the cache, never the network (stage 2b's track DNA reads what is already stored).
+     */
+    suspend fun cachedSeedRow(seedRid: Long): com.theveloper.pixelplay.data.youtube.RadioRow? {
+        val row = radioLists.get(seedRid, RadioListEntity.KIND_SONG, "")?.takeIf { it.healthy } ?: return null
+        return RadioRowCodec.decodeRows(row.rowsBlob).firstOrNull { it.rid == seedRid }?.row
+    }
+
     /** The artist top songs and radio the artist station of [seedRid] cached, however old; empty when none. */
     suspend fun cachedArtistRadio(seedRid: Long): List<StoredRadioRow> {
         val row = radioLists.get(seedRid, RadioListEntity.KIND_ARTIST, ARTIST_STATION_CHIP)?.takeIf { it.healthy } ?: return emptyList()

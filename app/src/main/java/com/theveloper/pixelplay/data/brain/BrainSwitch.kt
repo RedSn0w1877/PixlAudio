@@ -17,7 +17,7 @@ import kotlinx.coroutines.flow.first
 class BrainSwitch @Inject constructor(
     private val preferences: UserPreferencesRepository,
     private val remote: BrainRemoteFlags,
-) {
+) : com.theveloper.pixelplay.data.brain.source.KnowledgeSwitch {
     val autoplayEnabledFlow: Flow<Boolean> get() = preferences.brainAutoplayEnabledFlow
 
     val youTubeSourceEnabledFlow: Flow<Boolean> get() = preferences.brainYouTubeSourceEnabledFlow
@@ -29,6 +29,20 @@ class BrainSwitch @Inject constructor(
 
     /** "Use my Spotify music to shape picks": the Spotify facts and history the picks may count (default on). */
     val spotifyShapesPicksFlow: Flow<Boolean> get() = preferences.brainSpotifyShapesPicksFlow
+
+    /** The local switch of one open-data source (Developer mode > Brain data). */
+    fun sourceEnabledFlow(host: com.theveloper.pixelplay.data.brain.source.KnowledgeHost): Flow<Boolean> =
+        preferences.brainSourceEnabledFlow(host.key)
+
+    suspend fun setSourceEnabled(host: com.theveloper.pixelplay.data.brain.source.KnowledgeHost, enabled: Boolean) =
+        preferences.setBrainSourceEnabled(host.key, enabled)
+
+    /**
+     * An open-data source may be asked: its local switch is on AND the remote config does not switch it off. Asked before every
+     * request, so flipping either stops the very next one.
+     */
+    override suspend fun sourceAllowed(host: com.theveloper.pixelplay.data.brain.source.KnowledgeHost): Boolean =
+        sourceEnabledFlow(host).first() && remote.sourceAllowed(host.key)
 
     suspend fun spotifyShapesPicks(): Boolean = spotifyShapesPicksFlow.first()
 

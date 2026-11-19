@@ -62,6 +62,10 @@ object BrainModule {
     @Provides fun provideSeedDao(db: MusicBrainDatabase): SeedDao = db.seedDao()
     @Provides fun provideSpotifyFactDao(db: MusicBrainDatabase): com.theveloper.pixelplay.data.brain.store.SpotifyFactDao = db.spotifyFactDao()
 
+    @Provides fun provideTrackDnaDao(db: MusicBrainDatabase): com.theveloper.pixelplay.data.brain.store.TrackDnaDao = db.trackDnaDao()
+    @Provides fun provideArtistDnaDao(db: MusicBrainDatabase): com.theveloper.pixelplay.data.brain.store.ArtistDnaDao = db.artistDnaDao()
+    @Provides fun provideSourceMissDao(db: MusicBrainDatabase): com.theveloper.pixelplay.data.brain.store.SourceMissDao = db.sourceMissDao()
+
     /** Every stored radio also becomes edges of the persisted graph (3.6). */
     @Provides
     @Singleton
@@ -112,6 +116,20 @@ object BrainModule {
     @Provides
     @Singleton
     fun provideBrainFactsSink(sink: com.theveloper.pixelplay.data.brain.RoomBrainFactsSink): com.theveloper.pixelplay.data.brain.BrainFactsSink = sink
+
+    @Provides
+    @Singleton
+    fun provideKnowledgeSwitch(switch: com.theveloper.pixelplay.data.brain.BrainSwitch): com.theveloper.pixelplay.data.brain.source.KnowledgeSwitch = switch
+
+    /** The open-data hosts' one door (off switches, budgets, ledger, spacing, back-off). */
+    @Provides
+    @Singleton
+    fun provideKnowledgeHttp(http: com.theveloper.pixelplay.data.brain.source.OkHttpKnowledgeHttp): com.theveloper.pixelplay.data.brain.source.KnowledgeHttp = http
+
+    /** The genre atlas, read from the asset the first time something needs a genre. */
+    @Provides
+    @Singleton
+    fun provideAtlasProvider(store: com.theveloper.pixelplay.data.brain.GenreAtlasStore): com.theveloper.pixelplay.data.brain.AtlasProvider = store
 
     @Provides
     @Singleton

@@ -31,6 +31,21 @@ object BrainRemoteConfig {
             enabled != false
         }.getOrDefault(true)
     }
+
+    /**
+     * False only when [configText] says `{"brain": {"sources": {"<key>": {"enabled": false}}}}` for that source. The owner can
+     * switch a knowledge source off for every phone before charging anyone (docs/brain-spec.md, 15, question 2). A missing file,
+     * a missing key or text that is not JSON means "on".
+     */
+    fun sourceAllowed(configText: String?, key: String): Boolean {
+        if (configText.isNullOrBlank()) return true
+        return runCatching {
+            val root = json.parseToJsonElement(configText).jsonObject
+            val sources = (root["brain"] as? JsonObject)?.get("sources") as? JsonObject
+            val enabled = (sources?.get(key) as? JsonObject)?.get("enabled")?.jsonPrimitive?.booleanOrNull
+            enabled != false
+        }.getOrDefault(true)
+    }
 }
 
 @Singleton
@@ -42,6 +57,13 @@ class BrainRemoteFlags @Inject constructor(
         val file = File(context.filesDir, SAVED_CONFIG)
         val text = runCatching { if (file.isFile && file.length() < MAX_CHARS) file.readText() else null }.getOrNull()
         return BrainRemoteConfig.refreshAllowed(text)
+    }
+
+    /** True unless the saved remote config switches the open-data source [key] off. Reads one small file. */
+    fun sourceAllowed(key: String): Boolean {
+        val file = File(context.filesDir, SAVED_CONFIG)
+        val text = runCatching { if (file.isFile && file.length() < MAX_CHARS) file.readText() else null }.getOrNull()
+        return BrainRemoteConfig.sourceAllowed(text, key)
     }
 
     private companion object {

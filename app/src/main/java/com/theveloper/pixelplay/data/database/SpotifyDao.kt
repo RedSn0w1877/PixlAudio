@@ -216,6 +216,10 @@ interface SpotifyDao {
     )
     suspend fun updateMatch(spotifyId: String, videoId: String?, score: Float?, state: Int)
 
+    /** The ISRCs of tracks the brain wants to look up (read only: no schema change). */
+    @Query("SELECT DISTINCT spotify_id AS spotifyId, isrc FROM spotify_songs WHERE spotify_id IN (:spotifyIds) AND isrc IS NOT NULL AND isrc != ''")
+    suspend fun getIsrcs(spotifyIds: List<String>): List<SpotifyIsrcRow>
+
     @Query("SELECT matched_video_id FROM spotify_songs WHERE spotify_id = :spotifyId AND matched_video_id IS NOT NULL LIMIT 1")
     suspend fun getMatchedVideoId(spotifyId: String): String?
 
@@ -298,3 +302,6 @@ data class SpotifyMatchRow(
     @androidx.room.ColumnInfo(name = "match_score") val matchScore: Float?,
     @androidx.room.ColumnInfo(name = "match_state") val matchState: Int
 )
+
+/** A Spotify track id and its ISRC. */
+data class SpotifyIsrcRow(val spotifyId: String, val isrc: String)

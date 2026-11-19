@@ -44,6 +44,15 @@ interface RefreshWork {
 
     /** One artist's releases: the artist page, the discography when a carousel was full, the tracks of what is new. */
     suspend fun releases(target: RefreshTarget): BrainRefreshRunner.Fetch = BrainRefreshRunner.Fetch.NONE
+
+    /**
+     * Lanes 3 to 5 (3.7, stage 2b): the tracks to enrich next, [lane] 3 the most played without DNA, 4 the rest of the library,
+     * 5 the rows whose tags or popularity expired. Empty by default, so a work without DNA lanes runs exactly as before.
+     */
+    suspend fun dnaTargets(lane: Int, limit: Int): List<DnaTarget> = emptyList()
+
+    /** Enriches [targets] from the open-data sources; [gate] false stops it, and what was gathered is still saved. */
+    suspend fun enrich(targets: List<DnaTarget>, gate: suspend () -> Boolean): DnaEnricher.Report = DnaEnricher.Report(0, false)
 }
 
 /**
@@ -65,10 +74,12 @@ class BrainRefreshRunner(
     private val work: RefreshWork,
     private val allowed: suspend () -> Boolean,
     private val playing: () -> Boolean,
+    /** Milliseconds since the run began; the DNA lanes stop on their own before a periodic work's ten minutes are up. */
+    private val elapsedMs: () -> Long = { 0L },
 ) {
     enum class Fetch { NETWORK, CACHED, NONE }
 
-    enum class Stop { NONE, OFF, PLAYING, BUDGET }
+    enum class Stop { NONE, OFF, PLAYING, BUDGET, TIME }
 
     class Report(
         val stopped: Stop,
@@ -79,8 +90,13 @@ class BrainRefreshRunner(
         val missed: Int,
         val releasesFetched: Int = 0,
         val releasesCached: Int = 0,
+        /** Tracks whose DNA was saved in lanes 3 to 5, per lane. */
+        val dnaLane3: Int = 0,
+        val dnaLane4: Int = 0,
+        val dnaLane5: Int = 0,
     ) {
         val fetched: Int get() = radiosFetched + artistsFetched + releasesFetched
+        val dnaTracks: Int get() = dnaLane3 + dnaLane4 + dnaLane5
     }
 
     suspend fun run(): Report {
@@ -141,7 +157,48 @@ class BrainRefreshRunner(
                 }
             }
         }
-        return Report(stopped, radiosFetched, radiosCached, artistsFetched, artistsCached, missed, releasesFetched, releasesCached)
+
+        // Lanes 3 to 5 (stage 2b): the open-data sources. They have budgets of their own (3.7) and never spend YouTube's, so a day with
+        // no YouTube requests left still enriches; the same switches, the same "never while music plays", and a time limit.
+        val dna = IntArray(3)
+        if (stopped == Stop.NONE || stopped == Stop.BUDGET) {
+            suspend fun dnaGate(): Boolean {
+                currentCoroutineContext().ensureActive()
+                return allowed() && !playing() && elapsedMs() < DNA_TIME_LIMIT_MS
+            }
+            lanes@ for (lane in 3..5) {
+                var rounds = 0
+                while (rounds++ < MAX_ROUNDS[lane - 3]) {
+                    if (!dnaGate()) {
+                        stopped = if (!allowed()) Stop.OFF else if (playing()) Stop.PLAYING else Stop.TIME
+                        break@lanes
+                    }
+                    val targets = work.dnaTargets(lane, DNA_BATCH)
+                    if (targets.isEmpty()) break
+                    val r = work.enrich(targets, ::dnaGate)
+                    dna[lane - 3] += r.tracks
+                    if (r.noAtlas) break@lanes
+                    if (r.stopped) {
+                        stopped = if (!allowed()) Stop.OFF else if (playing()) Stop.PLAYING else Stop.TIME
+                        break@lanes
+                    }
+                    // A round that saved nothing asked nothing: every source is spent or off. The next lane would find the same.
+                    if (r.tracks == 0) break
+                }
+            }
+        }
+        return Report(stopped, radiosFetched, radiosCached, artistsFetched, artistsCached, missed, releasesFetched, releasesCached, dna[0], dna[1], dna[2])
+    }
+
+    companion object {
+        /** Tracks per enrichment round: about three minutes of polite requests, so little is lost if the work is cancelled. */
+        const val DNA_BATCH = 16
+
+        /** Rounds per lane in one run (lane 3, 4, 5). The daily budgets are the real limit; this keeps one run bounded. */
+        val MAX_ROUNDS = intArrayOf(10, 10, 4)
+
+        /** A periodic work gets about ten minutes: the DNA lanes stop at eight. */
+        const val DNA_TIME_LIMIT_MS = 8L * 60 * 1000
     }
 }
 
@@ -158,7 +215,19 @@ class AppRefreshWork @Inject constructor(
     private val newReleases: NewReleases,
     private val musicRepository: com.theveloper.pixelplay.data.repository.MusicRepository,
     private val ledger: RequestLedger,
+    private val dnaTargets: DnaTargets,
+    private val dnaEnricher: DnaEnricher,
 ) : RefreshWork {
+
+    override suspend fun dnaTargets(lane: Int, limit: Int): List<DnaTarget> = when (lane) {
+        3 -> dnaTargets.mostPlayed(limit)
+        4 -> dnaTargets.restOfLibrary(limit)
+        5 -> dnaTargets.expired(limit)
+        else -> emptyList()
+    }
+
+    override suspend fun enrich(targets: List<DnaTarget>, gate: suspend () -> Boolean): DnaEnricher.Report = dnaEnricher.enrich(targets, gate)
+
 
     override suspend fun radioSeeds(): List<RefreshTarget> = targetsOf(mixes.seedsForRefresh())
 
@@ -298,17 +367,38 @@ class BrainRefresh @Inject constructor(
         } catch (e: Exception) {
             Timber.d(e, "brain: converting the old radios to edges failed")
         }
-        val report = BrainRefreshRunner(work, switch::refreshAllowed, playing).run()
+        val startedAt = System.currentTimeMillis()
+        val report = BrainRefreshRunner(work, switch::refreshAllowed, playing) { System.currentTimeMillis() - startedAt }.run()
         runCatching {
             val now = clock.nowMs()
             graphEdges.prune(now)
-            val note = "$now|r${report.radiosFetched}+${report.radiosCached}|a${report.artistsFetched}+${report.artistsCached}|n${report.releasesFetched}+${report.releasesCached}|m${report.missed}|${report.stopped}"
+            val note = "$now|r${report.radiosFetched}+${report.radiosCached}|a${report.artistsFetched}+${report.artistsCached}|n${report.releasesFetched}+${report.releasesCached}|m${report.missed}|d${report.dnaLane3}+${report.dnaLane4}+${report.dnaLane5}|${report.stopped}"
             states.put(BrainStateEntity(KEY_LAST, note.toByteArray(Charsets.UTF_8)))
         }.onFailure { if (it is CancellationException) throw it else Timber.d(it, "brain: refresh note not saved") }
         return report
     }
 
+    /** What the note of one run says, for the Developer screen. Radios, artists and releases are fetched plus cached. */
+    class Note(
+        val atMs: Long,
+        val radios: Int,
+        val artists: Int,
+        val releases: Int,
+        val tracksEnriched: Int,
+        val stopped: String,
+    )
+
     companion object {
         const val KEY_LAST = "refresh_last"
+
+        /** Reads a note written by [run] (`ms|r1+2|a3+4|n5+6|m7|d8+9+10|STOP`; the `d` part is missing in a stage 2a note), or null. */
+        fun parseNote(text: String?): Note? {
+            if (text.isNullOrBlank()) return null
+            val parts = text.split('|')
+            val at = parts.firstOrNull()?.toLongOrNull() ?: return null
+            fun sum(prefix: Char): Int = parts.firstOrNull { it.startsWith(prefix) && it.length > 1 && it[1].isDigit() }
+                ?.substring(1)?.split('+')?.sumOf { it.toIntOrNull() ?: 0 } ?: 0
+            return Note(at, sum('r'), sum('a'), sum('n'), sum('d'), parts.lastOrNull().orEmpty().takeIf { it.isNotBlank() } ?: "NONE")
+        }
     }
 }
