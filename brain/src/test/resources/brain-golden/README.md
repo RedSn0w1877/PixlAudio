@@ -77,3 +77,7 @@ How each `fn` is replayed:
   `Tags.encode` in hex); `tagdot`; `fromArtist`; `inputs` is `Tags.inputs(atlas, source, table, raws)` then `merge`.
   `mergeYear(claims, maxYear)`, `parseYear`, `popDeezer`, `popPlays`, `popListeners`, `mergePopularity`, `playCount`
   (`TrackDna.parsePlayCount`), `feel` is `TrackDna.feel(atlas, tags, gainDbX10)` and `TrackDna.moods`, `scriptLang`.
+- `tagfeatures.jsonl` (stage 2b): `tagAff` runs `Affinity.apply(state, TAG, id, r, c, part, tMs)` for each step on one empty
+  state and reads `Features.tagAff(tags, state, nowMs, p0)` (feature 4). `sessTagPen` runs `Session.applyTags(session,
+  tags, h, completed)` for each step on one fresh `SessionState`; `penalties` are the session's `tagPen` entries in ascending
+  atlas id, `feature` is `Features.sessTagPen(tags, session)` (feature 24).

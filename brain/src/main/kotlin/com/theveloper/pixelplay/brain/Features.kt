@@ -19,12 +19,14 @@ class Candidate(
     val fromSimilarArtist: Boolean = false,
     /** Feature 10, `clip((B + 4) / 6, 0, 1)` of [RepeatActivation]; 0 for a track never played or an unknown history. */
     val actr: Double = 0.0,
+    /** The track's tag vector (3.4); null or empty when its genres are unknown (features 4 and 24 are then exactly 0). */
+    val tags: Tags.Vector? = null,
 )
 
 /**
  * The feature vector of docs/brain-spec.md, 5.8 (D = 51). Stage 1 computes features 0, 1, 2, 3, 8,
  * 12-18, 22, 23, 25, 26, 36, 37 and 38; stage 2a adds 10 and 11 (repeat activation, given by the caller
- * in [Candidate.actr]); every other entry is exactly 0, because its input does not
+ * in [Candidate.actr]); stage 2b adds 4 and 24 when the candidate carries a tag vector (3.4); every other entry is exactly 0, because its input does not
  * exist yet or its prior weight is 0. A feature whose input is unknown is exactly 0.
  */
 object Features {
@@ -34,6 +36,7 @@ object Features {
     const val TRACK_AFF = 1
     const val ARTIST_AFF = 2
     const val ARTIST_AFF_RECENT = 3
+    const val TAG_AFF = 4
     const val LIKED = 8
     const val ACTR = 10
     const val ACTR_SQ = 11
@@ -42,6 +45,7 @@ object Features {
     const val UNHEARD_ARTIST = 18
     const val SESS_POS_SIM = 22
     const val SESS_NEG_SIM = 23
+    const val SESS_TAG_PEN = 24
     const val PREV_COMPLETED = 25
     const val SKIP_RUN = 26
     const val ARM_AFF = 36
@@ -92,6 +96,12 @@ object Features {
         }
         if (c.aid != 0L && !Affinity.isHeard(affinity, Family.ARTIST, c.aid)) out[UNHEARD_ARTIST] = 1.0
 
+        val tags = c.tags
+        if (tags != null && !tags.isEmpty) {
+            out[TAG_AFF] = tagAff(tags, affinity, nowMs, p0)
+            out[SESS_TAG_PEN] = sessTagPen(tags, session)
+        }
+
         out[SESS_POS_SIM] = sessPosSim(c, session, graph)
         out[SESS_NEG_SIM] = sessNegSim(c, session, graph)
         if (session.prevCompleted) out[PREV_COMPLETED] = 1.0
@@ -99,6 +109,24 @@ object Features {
         if (arm != Arm.NONE) out[ARM_AFF] = Affinity.aff(affinity, Family.ARM, arm.toLong(), nowMs, p0) / 3.0
         out[RETRIEVAL] = retrieval
         if (bestRank > 0) out[RADIO_RANK] = 1.0 / BrainMath.log2(2.0 + bestRank.toDouble())
+    }
+
+    /** Feature 4: `sum over tags of (w / 255) * aff(tag) / 3`, summed in the tag vector's order. */
+    fun tagAff(tags: Tags.Vector, affinity: Affinity.State, nowMs: Long, p0: Double): Double {
+        var sum = 0.0
+        for (t in tags.tags) sum += (t.q.toDouble() / 255.0) * (Affinity.aff(affinity, Family.TAG, t.atlasId.toLong(), nowMs, p0) / 3.0)
+        return sum
+    }
+
+    /** Feature 24: `min(1, sum over tags of (w / 255) * tagPen[tag])`. */
+    fun sessTagPen(tags: Tags.Vector, session: SessionState): Double {
+        if (session.tagPen.isEmpty()) return 0.0
+        var sum = 0.0
+        for (t in tags.tags) {
+            val pen = session.tagPen[t.atlasId] ?: continue
+            sum += (t.q.toDouble() / 255.0) * pen
+        }
+        return BrainMath.min(1.0, sum)
     }
 
     /** Feature 22: `max over j of 0.7^j * sim(i, pos_j)`. */

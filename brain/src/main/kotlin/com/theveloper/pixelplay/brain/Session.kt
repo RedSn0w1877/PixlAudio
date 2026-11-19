@@ -65,6 +65,15 @@ class SessionState(
     var likedAid = 0L
     var likedWithin = 0
 
+    /**
+     * `tagPen[atlasId]` (5.5, stage 2b): how much the listener has just skipped each genre. Ascending atlas id, so any sum over it is
+     * in a fixed order. Transient, like the rest of the session, and left out of [encode] (the stage 2a golden files pin that text).
+     */
+    val tagPen = java.util.TreeMap<Int, Double>()
+
+    /** The heaviest tag of the track skipped last, or -1: a second skip of the same genre in a row counts three times (5.5). */
+    var lastSkippedTopTag = -1
+
     fun isBlocked(aid: Long): Boolean {
         if (aid == 0L) return false
         for (i in blockAid.indices) if (blockAid[i] == aid) return true
@@ -115,6 +124,31 @@ object Session {
     const val SEED_AUTOPLAY = 1
     const val SEED_STATION_SONG = 2
     const val SEED_STATION_ARTIST = 3
+
+    /** The most tags a skip penalises (5.5: "the track's top 5 tags"). */
+    const val PENALISED_TAGS = 5
+
+    /**
+     * The tag part of 5.5, called next to [apply] when the track's tags are known: on a skip with strength [h] (> 0) each of the
+     * track's top 5 tags gains `h * w / 255`, three times that when the previous skipped track had the same top tag; on a
+     * completion every entry is multiplied by 0.7. Any other play changes nothing.
+     */
+    fun applyTags(state: SessionState, tags: Tags.Vector, h: Double, completed: Boolean) {
+        if (completed) {
+            for (e in state.tagPen.entries) e.setValue(e.value * 0.7)
+            state.lastSkippedTopTag = -1
+            return
+        }
+        if (h <= 0.0 || tags.isEmpty) return
+        val top = tags.top
+        val factor = if (top == state.lastSkippedTopTag) 3.0 else 1.0
+        var n = 0
+        for (t in tags.tags) {
+            if (n++ >= PENALISED_TAGS) break
+            state.tagPen[t.atlasId] = (state.tagPen[t.atlasId] ?: 0.0) + factor * h * (t.q.toDouble() / 255.0)
+        }
+        state.lastSkippedTopTag = top
+    }
 
     /** What a play that starts now is stamped with (4.1 `sessionId`, `posInSession`, `passiveRun`). */
     class Stamp(val sessionId: Long, val posInSession: Int, val passiveRun: Int)

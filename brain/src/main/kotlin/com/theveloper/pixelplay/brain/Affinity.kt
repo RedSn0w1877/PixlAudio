@@ -207,6 +207,16 @@ object Affinity {
     }
 
     /**
+     * The tag part of [applyEvent] (5.2): each of the track's tags gets the play with the weight `q / 255` as its part, in the
+     * tag vector's order. Called next to [applyEvent] when the track's tags are known; a play that was never audible or is excluded
+     * from the counters touches nothing, as there.
+     */
+    fun applyTags(state: State, e: PlayEvent, g: Reward.Graded, tags: Tags.Vector, tMs: Long) {
+        if (e.has(EventFlags.NEVER_AUDIBLE) || e.has(EventFlags.LEARN_EXCLUDED)) return
+        for (t in tags.tags) apply(state, Family.TAG, t.atlasId.toLong(), g.r, g.cOther, t.q.toDouble() / 255.0, tMs)
+    }
+
+    /**
      * Takes one event's own contribution back out of the tables (5.2, "Undo (stage 2)"): "Don't count
      * this" removes what [applyEvent] added, `c * r * part` and `c * (1 - r) * part` decayed to the
      * counter's own time, floored at 0, for every key the event touched, and its completion. [tMs] is the

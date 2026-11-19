@@ -28,6 +28,7 @@ object Stage2bGolden {
         val vectors = ArrayList<Tags.Vector>()
         files["tags.jsonl"] = tagLines(atlas, vectors)
         files["dna.jsonl"] = dnaLines(atlas, vectors, titles)
+        files["tagfeatures.jsonl"] = tagFeatureLines(vectors)
         return files
     }
 
@@ -247,6 +248,64 @@ object Stage2bGolden {
         return sb.toString()
     }
 
+    // ── tagfeatures.jsonl ────────────────────────────────────────────────────
+
+    private fun tagFeatureLines(vectors: List<Tags.Vector>): String {
+        val sb = StringBuilder()
+        val rng = BrainHash.Rng(BrainHash.fnv1a64("golden:tagfeatures"))
+        val usable = vectors.filter { !it.isEmpty }
+        // Feature 4: tags' affinities after some plays, read with a vector.
+        for (k in 0 until 60) {
+            val state = Affinity.State()
+            val steps = ArrayList<DoubleArray>() // id, r, c, part, tMs
+            var t = 1_700_000_000_000L
+            for (s in 0 until 2 + rng.int(12)) {
+                val v = usable[rng.int(usable.size)]
+                val tag = v.tags[rng.int(v.tags.size)]
+                t += (1 + rng.int(40)) * 3_600_000L
+                val r = rng.int(11) / 10.0
+                val c = 0.5 + rng.int(6) / 2.0
+                val part = tag.q / 255.0
+                Affinity.apply(state, Family.TAG, tag.atlasId.toLong(), r, c, part, t)
+                steps.add(doubleArrayOf(tag.atlasId.toDouble(), r, c, part, t.toDouble()))
+            }
+            val read = usable[rng.int(usable.size)]
+            val now = t + rng.int(60) * 86_400_000L
+            val p0 = 0.5 + (rng.int(5) - 2) / 10.0
+            sb.append(line("tagAff", {
+                beginArray("steps")
+                for (st in steps) rawItem(BrainJson.Writer().beginObject().int("id", st[0].toInt()).double("r", st[1]).double("c", st[2]).double("part", st[3]).long("tMs", st[4].toLong()).endObject().toString())
+                endArray()
+                vector("tags", read); long("nowMs", now); double("p0", p0)
+            }, { double("feature", Features.tagAff(read, state, now, p0)) }))
+        }
+        // Feature 24 and the penalties of 5.5.
+        for (k in 0 until 60) {
+            val session = SessionState()
+            val steps = ArrayList<Triple<Tags.Vector, Double, Boolean>>()
+            for (s in 0 until 1 + rng.int(8)) {
+                val v = usable[rng.int(usable.size)]
+                val completed = rng.int(4) == 0
+                val h = if (completed) 0.0 else doubleArrayOf(0.0, 0.2, 0.6, 1.0)[rng.int(4)]
+                Session.applyTags(session, v, h, completed)
+                steps.add(Triple(v, h, completed))
+            }
+            val read = usable[rng.int(usable.size)]
+            sb.append(line("sessTagPen", {
+                beginArray("steps")
+                for ((v, h, done) in steps) rawItem(BrainJson.Writer().beginObject().raw("tags", BrainJson.Writer().also { w -> w.beginArray(); for (tg in v.tags) w.stringItem("${tg.atlasId}:${tg.q}"); w.endArray() }.toString()).double("h", h).bool("completed", done).endObject().toString())
+                endArray()
+                vector("tags", read)
+            }, {
+                beginArray("penalties")
+                for ((id, pen) in session.tagPen) rawItem(BrainJson.Writer().beginObject().int("id", id).double("pen", pen).endObject().toString())
+                endArray()
+                double("feature", Features.sessTagPen(read, session))
+            }))
+        }
+        return sb.toString()
+    }
+
     const val README_NOTES = """
         - `atlas.jsonl`, `tags.jsonl`, `dna.jsonl` (stage 2b, milestone 1; new files, nothing before them changed): they need the
           genre atlas, the bytes of `app/src/main/assets/genre-atlas-v1.json.gz` (SHA-256 in `atlas/genre-atlas-v1.sha256`),
@@ -257,5 +316,9 @@ object Stage2bGolden {
           `Tags.encode` in hex); `tagdot`; `fromArtist`; `inputs` is `Tags.inputs(atlas, source, table, raws)` then `merge`.
           `mergeYear(claims, maxYear)`, `parseYear`, `popDeezer`, `popPlays`, `popListeners`, `mergePopularity`, `playCount`
           (`TrackDna.parsePlayCount`), `feel` is `TrackDna.feel(atlas, tags, gainDbX10)` and `TrackDna.moods`, `scriptLang`.
+        - `tagfeatures.jsonl` (stage 2b): `tagAff` runs `Affinity.apply(state, TAG, id, r, c, part, tMs)` for each step on one empty
+          state and reads `Features.tagAff(tags, state, nowMs, p0)` (feature 4). `sessTagPen` runs `Session.applyTags(session,
+          tags, h, completed)` for each step on one fresh `SessionState`; `penalties` are the session's `tagPen` entries in ascending
+          atlas id, `feature` is `Features.sessTagPen(tags, session)` (feature 24).
     """
 }
