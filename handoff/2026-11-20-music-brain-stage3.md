@@ -144,4 +144,12 @@ completion rates (the flag and `modelVersion` are set at the end of a play, not 
 
 ## What was run, and what it said
 
-See the end of this file (filled in after the last run).
+`ANDROID_HOME` set to the SDK, one Gradle at a time.
+
+- `./gradlew --continue :brain:test :app:testDebugUnitTest :app:assembleDebug`: `:brain:test` **214 tests, 0 failures** (includes the new `LearnerTest` with the batch-refit
+  comparison, `YourSoundTest`, `GenrePageTest`, the golden test over the four new files, `PurityTest`); `:app:testDebugUnitTest` **2,392 tests, 2 skipped, 1 failure** (my own
+  `LearnerEngineTest`: a wrong assertion about how many times the tables were rewritten); `:app:assembleDebug` built both ABI APKs. `RecommendationGoldenEqualityTest` and the rest of
+  `data/recommendation` passed untouched.
+- After correcting that assertion: `:app:testDebugUnitTest --tests "*LearnerEngineTest" --tests "*BrainCopyTest"`: BUILD SUCCESSFUL. (The whole app suite was not run a second time.)
+- **Not run**: the instrumented tests (no device); nothing on a phone.
+- Golden files were regenerated with `:brain:generateGolden`: four NEW files, `MANIFEST.sha256` and `README.md` changed, no earlier file changed.
