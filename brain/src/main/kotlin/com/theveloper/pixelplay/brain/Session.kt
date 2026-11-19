@@ -195,6 +195,18 @@ object Session {
         }
     }
 
+    /** The strength of a swipe on an engine row of the queue (8.4): the weakest skip of 5.5. */
+    const val SWIPE_H = 0.2
+
+    /**
+     * The listener removed an engine pick from the queue without hearing it (8.4: "swipe removes it, a
+     * weak negative, `h = 0.2`"). It only pushes the track onto `recentNeg` with that strength, so tracks
+     * like it rank lower for the rest of the session: no affinity changes, no block, no skip run.
+     */
+    fun weakNegative(state: SessionState, rid: Long, aid: Long) {
+        pushNeg(state, rid, aid, SWIPE_H)
+    }
+
     private fun countDown(state: SessionState) {
         var i = 0
         while (i < state.blockAid.size) {

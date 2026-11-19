@@ -54,6 +54,7 @@ object GoldenGenerator {
         files["repetition.jsonl"] = repetition()
         files["eval.jsonl"] = evals()
         files["why.jsonl"] = whyLines()
+        files["stage2a.jsonl"] = stage2a()
         files["README.md"] = README
         val manifest = StringBuilder()
         for ((name, content) in files) {
@@ -752,6 +753,12 @@ object GoldenGenerator {
         endObject()
     }
 
+    /** [request] plus the station-mode field of milestone 2 (kept out of [request] so earlier files do not change). */
+    private fun BrainJson.Writer.request2(r: StationPlanner.Request) {
+        request(r)
+        bool("closestOfSeeds", r.closestOfSeeds)
+    }
+
     private fun BrainJson.Writer.plan(name: String, plan: StationPlanner.Plan?) {
         if (plan == null) {
             nullValue(name)
@@ -972,6 +979,149 @@ object GoldenGenerator {
                     bool("station", mode == 1); events("session", sessionEvents); seeds(world.seeds)
                     candidates(candidates); request(request)
                 }, { raw("sessionState", state.encode()); plan("plan", plan) })
+            )
+        }
+        return sb.toString()
+    }
+
+    // ── stage2a.jsonl: subtract, repeat activation, chip labels, swipe, similar artists (milestone 2) ─────
+
+    private fun BrainJson.Writer.candidates2(list: List<Candidate>, name: String = "candidates") {
+        beginArray(name)
+        for (c in list) {
+            beginObject(); long("rid", c.rid); long("aid", c.aid); long("albumKey", c.albumKey)
+            bool("inLibrary", c.inLibrary); bool("liked", c.liked); bool("fromArtistRadio", c.fromArtistRadio)
+            double("boostLn", c.boostLn); bool("fromSimilarArtist", c.fromSimilarArtist); double("actr", c.actr)
+            endObject()
+        }
+        endArray()
+    }
+
+    private fun stage2a(): String {
+        val sb = StringBuilder()
+
+        // Affinity.subtract: rebuild from a log, then take some events back out, in order.
+        for (c in 0 until 8) {
+            val world = World(BrainHash.fnv1a64("golden:subtract:$c"), historySize = 60, withFacts = c % 2 == 1)
+            val now = if (c == 7) world.history[world.history.size / 2].startedAtMs else world.nowMs
+            val state = Replay.rebuild(world.history.iterator(), world.facts, now)
+            val rng = BrainHash.Rng(BrainHash.fnv1a64("golden:subtract:pick:$c"))
+            val picked = ArrayList<Int>()
+            for (i in world.history.indices) if (rng.chance(if (c < 4) 0.12 else 0.5)) picked.add(i)
+            for (i in picked) {
+                val e = world.history[i]
+                val g = Reward.grade(e, Reward.Context(0, 0))
+                Affinity.subtract(state, e, g, if (e.startedAtMs > now) now else e.startedAtMs)
+            }
+            state.drainTouched { _, _ -> }
+            sb.append(
+                line("subtract", {
+                    events("events", world.history); facts(world.facts); long("nowMs", now)
+                    beginArray("indices"); for (i in picked) intItem(i); endArray()
+                }, { raw("state", dump(state)) })
+            )
+        }
+
+        // RepeatActivation: histories of 0 to 45 plays (past 30 the oldest fold into the bucket).
+        val rng = BrainHash.Rng(BrainHash.fnv1a64("golden:repeat"))
+        val weights = doubleArrayOf(0.0, 0.3, 0.6, 1.0, 3.0, 4.5, 0.25)
+        for (c in 0 until 60) {
+            val n = when (c % 6) { 0 -> 0; 1 -> 1; 2 -> 5; 3 -> 30; 4 -> 31; else -> 45 }
+            val times = LongArray(n)
+            val cs = DoubleArray(n)
+            var t = T0 - 300L * 86_400_000L
+            for (i in 0 until n) {
+                t += 60_000L + rng.int(20 * 24 * 60) * 60_000L / 4
+                times[i] = t
+                cs[i] = weights[rng.int(weights.size)]
+            }
+            val history = RepeatActivation.History()
+            for (i in 0 until n) history.add(times[i], cs[i])
+            val now = when (c % 4) {
+                0 -> t + 1_000L
+                1 -> t + 3_600_000L * (1 + rng.int(48))
+                2 -> t + 86_400_000L * (1 + rng.int(200))
+                else -> t - 500_000L // a play "in the future": the clock was set back
+            }
+            val b = RepeatActivation.b(history, now)
+            sb.append(
+                line("repeat", {
+                    longs("times", times); beginArray("weights"); for (w in cs) doubleItem(w); endArray(); long("nowMs", now)
+                }, {
+                    int("count", history.count); double("aggC", history.aggC); double("aggT", history.aggT)
+                    double("b", b); double("feature", RepeatActivation.feature(history, now))
+                })
+            )
+        }
+
+        // Chip labels: the same words the radios carry, and ones that are not tags.
+        val labels = listOf(
+            "Popular", "Deep cuts", "Discover", "All", "Pop", "Adult Pop", "Alternative", "Electronic", "V-pop", "K-Pop",
+            "2010s", "2020s", "1990s", "80s", "'70s", "Party", "Romance", "Workout", "Chill", "Hip-Hop", "R&B", "Indie & Alternative",
+            "", "  ", "Sơn Tùng", "POP", "Familiar", "Some New Thing", "3000s", "2015s",
+        )
+        for (label in labels) {
+            val chip = ChipLabels.classify(label)
+            sb.append(line("chip", { string("label", label) }, { string("kind", chip.kind.name); string("key", chip.key) }))
+        }
+
+        // Session.weakNegative: a swipe on an engine row pushes a weak negative and nothing else.
+        for (c in 0 until 6) {
+            val state = SessionState(Session.NU_DEFAULT)
+            val k = 1 + c * 2
+            val ids = LongArray(k) { 1000L + c * 100 + it }
+            val aids = LongArray(k) { 50L + it % 3 }
+            for (i in 0 until k) Session.weakNegative(state, ids[i], aids[i])
+            sb.append(
+                line("weakNegative", { longs("rids", ids); longs("aids", aids) }, { raw("sessionState", state.encode()) })
+            )
+        }
+
+        // The supporting facts of a reason: every combination of the four inputs that matters.
+        for (artistPlays in intArrayOf(0, 2, 3, 10)) for (finished in intArrayOf(0, 3, 9, 11)) {
+            for (track in intArrayOf(0, 1, 2, 7)) for (year in intArrayOf(0, 1850, 2024, 2101)) {
+                val facts = WhyFacts.pick(artistPlays, finished, track, year)
+                sb.append(
+                    line("whyFacts", {
+                        int("artistPlays", artistPlays); int("artistFinished", finished); int("trackFinished", track); int("year", year)
+                    }, {
+                        beginArray("facts")
+                        for (f in facts) { beginArray().stringItem(f.key).intItem(f.a).intItem(f.b).endArray() }
+                        endArray()
+                    })
+                )
+            }
+        }
+
+        // A station with songs from similar artists (arm SIM, "Close to X") and activation on library tracks.
+        for (c in 0 until 8) {
+            val world = World(BrainHash.fnv1a64("golden:stage2a:plan:$c"), historySize = 30, withFacts = c % 2 == 0, seedCount = 1 + c % 3)
+            val affinity = Replay.rebuild(world.history.iterator(), world.facts, world.nowMs)
+            val session = SessionState(Session.NU_DEFAULT)
+            session.seed = world.seeds[0].seedRid
+            session.seedAid = world.seeds[0].seedAid
+            session.seedKind = Session.SEED_STATION_ARTIST
+            val base = world.candidates()
+            val candidates = base.mapIndexed { i, b ->
+                Candidate(
+                    rid = b.rid, aid = b.aid, albumKey = b.albumKey, inLibrary = b.inLibrary, liked = b.liked,
+                    fromArtistRadio = b.fromArtistRadio && i % 3 != 0, boostLn = b.boostLn,
+                    fromSimilarArtist = !b.inLibrary && i % 3 == 0,
+                    actr = if (b.inLibrary) (if (i % 4 == 0) 0.9 else if (i % 4 == 1) 0.35 else 0.0) else 0.0,
+                )
+            }
+            val graph = StationPlanner.buildGraph(world.seeds, candidates, session)
+            val request = StationPlanner.Request(
+                mode = StationPlanner.MODE_STATION, count = 20, candidates = candidates, seeds = world.seeds,
+                nowMs = world.nowMs, tzOffsetMin = world.tz, nuMultiplier = 1.0, tieSeed = BrainHash.fnv1a64("stage2a $c"),
+                closestOfSeeds = c >= 4,
+            )
+            val plan = StationPlanner.plan(request, affinity, session, graph)
+            sb.append(
+                line("plan", {
+                    events("history", world.history); facts(world.facts); long("nowMs", world.nowMs)
+                    seeds(world.seeds); candidates2(candidates); request2(request)
+                }, { plan("plan", plan) })
             )
         }
         return sb.toString()
@@ -1251,5 +1401,16 @@ object GoldenGenerator {
           completions); `listHealth` is `Eval.listHealth(world, Snapshot.decode(snapshot), days, nowMs,
           tzOffsetMin, salt)` with `HealthWorld(library, novel, seeds, finishRates)`; `finishRates` are
           `[rid, rate]`.
+        - `stage2a.jsonl` (stage 2a, milestone 2; a new file, nothing before it changed): `subtract` rebuilds
+          `Replay.rebuild(events, facts, nowMs)`, then for each of `indices` (in order)
+          `Affinity.subtract(state, e, Reward.grade(e, Context(0, 0)), min(e.startedAtMs, nowMs))`; `out.state` is
+          the dump. `repeat` adds `(times[i], weights[i])` to a `RepeatActivation.History` in order and reads
+          `count`, `aggC`, `aggT`, `b(nowMs)` (NaN is the bit pattern 7ff8000000000000) and `feature(nowMs)`.
+          `chip` is `ChipLabels.classify(label)`. `whyFacts` is `WhyFacts.pick(artistPlays, artistFinished,
+          trackFinished, year)`, each fact `[key, a, b]`. `weakNegative` calls `Session.weakNegative(state, rid, aid)` for
+          each pair on a fresh `SessionState` and compares `encode()`. `plan` is `StationPlanner.plan` in station
+          mode with the new `Candidate` fields `fromSimilarArtist` (arm SIM, "Close to X") and `actr` (feature 10;
+          feature 11 is its square), `closestOfSeeds` (station mode: nearest of the seeds, not the first; `in.request2.closestOfSeeds`)
+          and a session whose seed is an artist station.
     """.trimIndent() + "\n"
 }

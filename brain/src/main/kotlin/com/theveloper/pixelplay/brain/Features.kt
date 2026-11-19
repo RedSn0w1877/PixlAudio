@@ -15,11 +15,16 @@ class Candidate(
     val fromArtistRadio: Boolean = false,
     /** The listener's boost / reduce adjustments for it (5.11): `ln(product)`, 0 for none. */
     val boostLn: Double = 0.0,
+    /** True when the row came from the top songs of an artist close to the seed's (arm SIM, 6.1). */
+    val fromSimilarArtist: Boolean = false,
+    /** Feature 10, `clip((B + 4) / 6, 0, 1)` of [RepeatActivation]; 0 for a track never played or an unknown history. */
+    val actr: Double = 0.0,
 )
 
 /**
  * The feature vector of docs/brain-spec.md, 5.8 (D = 51). Stage 1 computes features 0, 1, 2, 3, 8,
- * 12-18, 22, 23, 25, 26, 36, 37 and 38; every other entry is exactly 0, because its input does not
+ * 12-18, 22, 23, 25, 26, 36, 37 and 38; stage 2a adds 10 and 11 (repeat activation, given by the caller
+ * in [Candidate.actr]); every other entry is exactly 0, because its input does not
  * exist yet or its prior weight is 0. A feature whose input is unknown is exactly 0.
  */
 object Features {
@@ -30,6 +35,8 @@ object Features {
     const val ARTIST_AFF = 2
     const val ARTIST_AFF_RECENT = 3
     const val LIKED = 8
+    const val ACTR = 10
+    const val ACTR_SQ = 11
     const val SINCE_LAST = 12
     const val UNHEARD_TRACK = 17
     const val UNHEARD_ARTIST = 18
@@ -66,6 +73,9 @@ object Features {
         if (!allNovel) {
             out[TRACK_AFF] = Affinity.aff(affinity, Family.TRACK, c.rid, nowMs, p0) / 3.0
             if (c.liked) out[LIKED] = 1.0
+            // Repeat activation (5.6): where the listener's own point of fatigue sits (features 10 and 11).
+            out[ACTR] = c.actr
+            out[ACTR_SQ] = c.actr * c.actr
         }
         if (c.aid != 0L) {
             out[ARTIST_AFF] = Affinity.aff(affinity, Family.ARTIST, c.aid, nowMs, p0) / 3.0

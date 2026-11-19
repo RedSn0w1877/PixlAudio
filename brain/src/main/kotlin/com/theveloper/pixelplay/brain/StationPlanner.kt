@@ -58,6 +58,11 @@ object StationPlanner {
         val jitter: Double = 0.0,
         /** The penalty at three serves or more (see [Repetition.MAX_PENALTY]). */
         val servedMax: Double = Repetition.MAX_PENALTY,
+        /**
+         * Station mode only. False (stage 1): a track must be close to the first seed. True (an album or playlist
+         * station has up to five, 6.2): close to the nearest of them. Off by default so no earlier plan changes.
+         */
+        val closestOfSeeds: Boolean = false,
     )
 
     class Pick(
@@ -119,7 +124,8 @@ object StationPlanner {
             if (last != 0L && nowMs - last < FOUR_HOURS_MS) continue
             if (homeRow && c.inLibrary) continue
             if (stationSeed != null && station) {
-                val s = Similarity.sim(graph, c.rid, c.aid, stationSeed.seedRid, stationSeed.seedAid)
+                val s = if (request.closestOfSeeds) closestSeed(graph, c, request.seeds)
+                else Similarity.sim(graph, c.rid, c.aid, stationSeed.seedRid, stationSeed.seedAid)
                 if (s < (if (c.inLibrary) FAMILIAR_FLOOR else STATION_FLOOR)) continue
             } else if (c.inLibrary && !mix) {
                 var close = 0.0
@@ -131,6 +137,7 @@ object StationPlanner {
             }
             val arm = when {
                 c.inLibrary -> if ((affinity.completions[c.rid] ?: 0) >= 1) Arm.FAV else Arm.DEEP
+                c.fromSimilarArtist -> Arm.SIM
                 c.fromArtistRadio -> Arm.ARTIST
                 c.aid != 0L && Affinity.aff(affinity, Family.ARTIST, c.aid, nowMs, p0) > ARTIST_ARM_AFF &&
                     Affinity.weight(affinity, Family.ARTIST, c.aid, nowMs) >= ARTIST_ARM_WEIGHT -> Arm.ARTIST
@@ -153,7 +160,8 @@ object StationPlanner {
             Features.compute(c, armCodes[i], pct[i], bestRank, affinity, session, graph, nowMs, p0, homeRow, x)
             var z = Ranker.z(weights, x)
             if (station && stationSeed != null) {
-                val s = Similarity.sim(graph, c.rid, c.aid, stationSeed.seedRid, stationSeed.seedAid)
+                val s = if (request.closestOfSeeds) closestSeed(graph, c, request.seeds)
+                else Similarity.sim(graph, c.rid, c.aid, stationSeed.seedRid, stationSeed.seedAid)
                 z += 1.2 * (0.6 * s + 0.4 * x[Features.SESS_POS_SIM])
             }
             // The listener's boost / reduce is applied after scoring, outside the model (5.11).
@@ -253,6 +261,22 @@ object StationPlanner {
             )
         }
         return Plan(picks, usedLiked, familiarNext && picks.isNotEmpty(), n)
+    }
+
+    /**
+     * How close [c] is to the station: the closest of its seeds. A song or artist station has one seed
+     * (so this is that seed's similarity, as before); an album or playlist station has up to five (6.2),
+     * and a track is wanted when it is near any of them.
+     */
+    private fun closestSeed(graph: Graph, c: Candidate, seeds: List<Retrieval.SeedList>): Double {
+        var best = 0.0
+        var first = true
+        for (seed in seeds) {
+            val v = Similarity.sim(graph, c.rid, c.aid, seed.seedRid, seed.seedAid)
+            if (first || v > best) best = v
+            first = false
+        }
+        return best
     }
 
     /**

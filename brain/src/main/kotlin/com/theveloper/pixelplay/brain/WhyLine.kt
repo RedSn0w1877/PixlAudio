@@ -81,7 +81,8 @@ object WhyLine {
                 candidateAid != 0L -> Why(ARTIST_MORE, candidateAid)
                 else -> Why(NONE, 0L)
             }
-            Arm.SIM -> Why(SIMILAR_ARTIST, candidateAid)
+            // "Close to X": X is the artist whose list brought the pick in; the pick's own artist when no list did.
+            Arm.SIM -> Why(SIMILAR_ARTIST, if (seedAid != 0L) seedAid else candidateAid)
             Arm.NEW -> Why(NEW_RELEASE, candidateAid)
             Arm.BACK -> Why(FORGOTTEN, 0L)
             Arm.EDGE -> Why(ADJACENT_GENRE, 0L)
