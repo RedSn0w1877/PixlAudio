@@ -199,8 +199,12 @@ def main():
                 if m not in mood_id: warnings.append("unknown mood %s in %s" % (m, name))
             if len(ms) > 4: warnings.append("more than 4 moods: " + name)
             own[k] = {"x": {"e": int(e), "v": int(v), "dn": int(dn), "ac": int(ac), "t": [int(lo), int(hi)], "mood": ms[:4]}, "desc": desc}
+    banned = ("lossless", "hi-res", "hi res", "dolby", "atmos", "360 reality", "claude", "anthropic", "binilyrics", "enhanced", "learn")
     for k, d in own.items():
         nodes[k]["x"] = d["x"]; nodes[k]["desc"] = d["desc"]
+        for w in banned:
+            if w in d["desc"].lower() or w in nodes[k]["n"].lower():
+                raise SystemExit("a description or genre name contains a word the app never shows: %r in %s" % (w, nodes[k]["n"]))
     inherited = 0
     for k in sorted(nodes, key=lambda x: ids[x]):
         if k in own: continue
