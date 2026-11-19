@@ -62,8 +62,19 @@ class SetupViewModel @Inject constructor(
     private val syncManager: SyncManager,
     private val backupManager: BackupManager,
     private val musicRepository: MusicRepository,
+    private val stationStore: com.theveloper.pixelplay.data.brain.StationStore,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
+
+    /** Familiar (0) / Blend (1) / Discover (2): the setup page of docs/brain-spec.md, 8.10. */
+    val novelty = stationStore.novelty
+
+    fun setNovelty(level: Int) = stationStore.setNovelty(level)
+
+    /** "Import your listening history": Home opens the existing import once, as soon as setup is done. */
+    fun requestHistoryImport() {
+        viewModelScope.launch { userPreferencesRepository.setPendingHistoryImport(true) }
+    }
 
     private val _uiState = MutableStateFlow(SetupUiState())
     val uiState = _uiState.asStateFlow()

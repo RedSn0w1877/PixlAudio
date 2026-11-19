@@ -45,6 +45,12 @@ data class EngineTrack(
     )
 
     /** The in-memory [Song] the queue, the player screen and the notification show. */
+    /** The parsed row this track came from, rebuilt for a saved plan (it carries what a card and the player need). */
+    fun toRadioRow(): com.theveloper.pixelplay.data.youtube.RadioRow = com.theveloper.pixelplay.data.youtube.RadioRow(
+        videoId = videoId, title = title, artists = artists, album = album, durationSec = (durationMs / 1000L).toInt(),
+        thumbnailUrl = artUrl, kind = com.theveloper.pixelplay.data.youtube.MusicVideoKind.ATV,
+    )
+
     fun toSong(): Song {
         val refs = artists.mapIndexed { index, artist ->
             ArtistRef(id = SpotifyRepository.unifiedArtistId(artist.name), name = artist.name, isPrimary = index == 0)

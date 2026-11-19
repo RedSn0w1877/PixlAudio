@@ -215,6 +215,9 @@ object Stage2bM2Golden {
             val p = planted(atlas, "golden:islands:$c", s[0], s[1], s[2])
             val fit = Islands.fit(p.tracks)
             sb.append(line("fit", { islandTracks("tracks", p.tracks) }, { fitOut(fit) }))
+            for (i in fit.islands) {
+                sb.append(line("name", { ints("liftTags", i.liftTags) }, { ints("names", IslandNames.pick(atlas, i.liftTags)) }))
+            }
         }
         // Matching: a second fit after the listener's taste moved a little keeps the ids it can.
         for (c in 0 until 6) {
@@ -538,7 +541,7 @@ object Stage2bM2Golden {
         - `islands.jsonl`: `fit` is `Islands.fit(tracks)` (`emb` is hex, empty for none; `tags` are `"atlasId:q"`; `w` is the weight);
           `match` fits `first`, then fits `second` with the first fit's islands and its `maxId` (`firstMaxId`); the output is the second
           fit. `centroidHash` is FNV-1a 64 over the 8 little-endian bytes of each centroid double, `head` its first numbers. `point` is
-          `Islands.point(emb, tags)`.
+          `Islands.point(emb, tags)`. `name` is `IslandNames.pick(atlas, liftTags)` (two atlas ids).
         - `arms.jsonl`: `ArmRules.isBack`, `simSources`, `adjacentGenres` (needs the atlas; `shares` are the tags the listener plays).
         - `listmixes.jsonl`: `lists` rebuilds one `Affinity.State` by `Affinity.apply(TRACK, rid, r = s[2] / 10, c = 0.5 + s[3] / 2, part 1,
           t)` for each step, then `ListMixes.onRepeat`/`rediscover`/`justDropped` followed by `ListMixes.fill(items, 30, excluded, tieSeed

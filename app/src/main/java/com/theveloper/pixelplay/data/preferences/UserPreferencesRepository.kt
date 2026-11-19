@@ -257,6 +257,7 @@ class UserPreferencesRepository @Inject constructor(
         // The station of the current queue (8.3) and the Familiar / Blend / Discover switch.
         val BRAIN_STATION = stringPreferencesKey("brain_station")
         val BRAIN_NOVELTY = intPreferencesKey("brain_novelty")
+        val BRAIN_PENDING_HISTORY_IMPORT = booleanPreferencesKey("brain_pending_history_import")
         // Which engine ranks Daily Mix and Your Mix: 0 legacy, 1 brain (default). Developer mode flips it.
         val BRAIN_ENGINE = intPreferencesKey("brain_engine")
         // The one background job of the brain (BrainRefreshWorker); default on.
@@ -633,6 +634,14 @@ class UserPreferencesRepository @Inject constructor(
 
     suspend fun setBrainNovelty(level: Int) {
         dataStore.edit { it[PreferencesKeys.BRAIN_NOVELTY] = level }
+    }
+
+    /** Set by the setup page's "Import your listening history" link; Home opens the import once and clears it. */
+    val pendingHistoryImportFlow: Flow<Boolean> =
+        pref { it[PreferencesKeys.BRAIN_PENDING_HISTORY_IMPORT] ?: false }
+
+    suspend fun setPendingHistoryImport(pending: Boolean) {
+        dataStore.edit { it[PreferencesKeys.BRAIN_PENDING_HISTORY_IMPORT] = pending }
     }
 
     /** 0 legacy, 1 brain (default): the engine that ranks Daily Mix and Your Mix. */

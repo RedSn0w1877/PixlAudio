@@ -34,7 +34,7 @@ class DailyMixBrainPathTest {
     private val mixes = mockk<BrainMixes>()
     private val playTags = mockk<BrainPlayTags>(relaxed = true)
     private val switch = mockk<BrainSwitch>()
-    private val holder = DailyMixStateHolder(manager, preferences, music, workers, mockk(), mixes, playTags, switch).also { it.startupQuiet = {} }
+    private val holder = DailyMixStateHolder(manager, preferences, music, workers, mixes, playTags, switch).also { it.startupQuiet = {} }
 
     private fun song(id: String) = Song.emptySong().copy(id = id, title = "T $id")
 

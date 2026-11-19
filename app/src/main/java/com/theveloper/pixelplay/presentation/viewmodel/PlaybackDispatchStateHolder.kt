@@ -99,6 +99,7 @@ class PlaybackDispatchStateHolder @Inject constructor(
     private val themeStateHolder: ThemeStateHolder,
     private val blockedArtists: com.theveloper.pixelplay.data.blocking.BlockedArtistsRepository,
     private val brainPlayTags: com.theveloper.pixelplay.data.brain.BrainPlayTags,
+    private val recentContexts: com.theveloper.pixelplay.data.brain.RecentContexts,
     @param:ApplicationContext private val context: Context,
 ) {
 
@@ -804,6 +805,8 @@ class PlaybackDispatchStateHolder @Inject constructor(
             return
         }
         val effectiveStartSong = songsToPlay.firstOrNull { it.id == startSong.id } ?: songsToPlay.first()
+        // Jump back in (8.1): the context this queue came from, noted in the background (one small file).
+        recentContexts.note(queueName, playlistId, brainExpected?.default ?: brainExpected?.bySongId?.values?.firstOrNull(), songsToPlay)
 
         // Update dynamic shortcut for last played playlist
         if (playlistId != null && queueName != "None") {

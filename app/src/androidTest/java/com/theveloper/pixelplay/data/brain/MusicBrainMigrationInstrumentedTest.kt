@@ -117,7 +117,30 @@ class MusicBrainMigrationInstrumentedTest {
         db.close()
     }
 
+    @Test
+    fun migrates4To5KeepingEverythingAndAddingEmbeddingsAndIslands() {
+        helper.createDatabase(DB_V4, 4).apply {
+            execSQL(
+                "INSERT INTO play_event (eventId, schema, origin, rid, primaryAid, otherAids, keyAtWrite, startedAtMs, tzOffsetMin, " +
+                    "playedMs, durationMs, startReason, endReason, flags, surface, surfaceId, recId, slot, arm, sessionId, posInSession, " +
+                    "passiveRun, route, retrQ, radioRank, pServedQ, modelVersion) VALUES (1, 1, 0, 42, 7, '', 'n:x', 1000, 0, " +
+                    "190000, 200000, 0, 0, 0, 7, '', 0, -1, 9, 1, 0, 0, 0, -1, -1, 0, 0)"
+            )
+            close()
+        }
+
+        val db = helper.runMigrationsAndValidate(DB_V4, 5, true, *MusicBrainMigrations.ALL)
+
+        fun count(table: String): Int = db.query("SELECT COUNT(*) FROM $table").use { it.moveToFirst(); it.getInt(0) }
+        assertEquals(1, count("play_event"))
+        for (table in listOf("node_embedding", "island", "island_member")) assertEquals(table, 0, count(table))
+        db.execSQL("INSERT INTO island_member (rid, islandId) VALUES (42, 1)")
+        assertEquals(1, count("island_member"))
+        db.close()
+    }
+
     private companion object {
+        const val DB_V4 = "brain-migration-test-v4.db"
         const val DB = "brain-migration-test.db"
         const val DB_V3 = "brain-migration-test-v3.db"
         const val DB_V2 = "brain-migration-test-v2.db"

@@ -50,6 +50,8 @@ class BrainSessionStateHolder @Inject constructor(
     private val stationStore: StationStore,
     /** "Start station": the seed and the hand-over to the player. */
     val stations: StationStateHolder,
+    /** Genre and mood stations and the Search tiles that start them (8.3, 8.10). */
+    val genreStations: com.theveloper.pixelplay.data.brain.GenreStations,
     /** "Not for me", its bar, and the two sheets that explain picks. */
     val actions: BrainActionsStateHolder,
     castStateHolder: CastStateHolder,
@@ -59,6 +61,9 @@ class BrainSessionStateHolder @Inject constructor(
      * The Autoplay line of the queue. The switch comes from the setting, so it is right before the
      * service runs. While a Cast session is up the line says picks are off there (14.6).
      */
+    /** True when the brain engine (not the legacy one) is switched on: a switch read, no database. */
+    suspend fun brainEngineOn(): Boolean = brainSwitch.engine() == com.theveloper.pixelplay.data.brain.BrainEngineChoice.BRAIN
+
     val autoplayUiState: StateFlow<AutoplayUiState> =
         combine(
             brainSwitch.autoplayEnabledFlow,

@@ -70,7 +70,7 @@ class MusicBrainMigrationsTest {
 
     @Test
     fun `there is one migration for every version step and no destructive path`() {
-        assertEquals(3, MusicBrainMigrations.ALL.size)
+        assertEquals(4, MusicBrainMigrations.ALL.size)
         for ((i, m) in MusicBrainMigrations.ALL.withIndex()) {
             assertEquals(i + 1, m.startVersion)
             assertEquals(i + 2, m.endVersion)
@@ -124,10 +124,37 @@ class MusicBrainMigrationsTest {
         assertEquals(expected, MusicBrainMigrations.V3_TO_V4)
     }
 
+    private val v5Tables = setOf("node_embedding", "island", "island_member")
+
+    @Test
+    fun `version 5 adds exactly the embedding and island tables and changes nothing that was there`() {
+        assertEquals(5, schema(5)["database"]!!.jsonObject["version"]!!.jsonPrimitive.int)
+        val v4 = entities(4).associateBy(::tableName)
+        val v5 = entities(5).associateBy(::tableName)
+        assertEquals(v5Tables, v5.keys - v4.keys)
+        assertTrue((v4.keys - v5.keys).isEmpty(), "no table is removed")
+        for ((name, old) in v4) {
+            assertEquals(createSql(old), createSql(v5[name]!!), "table $name is untouched")
+            assertEquals(indexSql(old, name), indexSql(v5[name]!!, name), "indices of $name are untouched")
+        }
+    }
+
+    @Test
+    fun `the version 5 statements are exactly what Room wrote`() {
+        val added = entities(5).filter { tableName(it) in v5Tables }
+            .sortedBy { MusicBrainMigrations.V4_TO_V5.indexOf(createSql(it)) }
+        val expected = ArrayList<String>()
+        for (e in added) {
+            expected.add(createSql(e))
+            expected.addAll(indexSql(e, tableName(e)))
+        }
+        assertEquals(expected, MusicBrainMigrations.V4_TO_V5)
+    }
+
     @Test
     fun `the history tables are the same in every version`() {
         for (table in listOf("play_event", "track_alias", "track_merge", "artist_alias", "feedback")) {
-            val sql = entities(4).single { tableName(it) == table }.let(::createSql)
+            val sql = entities(5).single { tableName(it) == table }.let(::createSql)
             val first = entities(if (table == "feedback") 2 else 1).single { tableName(it) == table }.let(::createSql)
             assertEquals(first, sql, table)
         }

@@ -55,6 +55,10 @@ import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material.icons.rounded.MusicNote
+import androidx.compose.material.icons.rounded.GraphicEq
+import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -149,6 +153,7 @@ fun SetupScreen(
     val reduceMotion = remember(context) { readReduceMotion(context) }
 
     val uiState by setupViewModel.uiState.collectAsStateWithLifecycle()
+    val novelty by setupViewModel.novelty.collectAsStateWithLifecycle()
     val latestUiState by rememberUpdatedState(uiState)
     val isSpotifyLoggedIn by spotifyViewModel.isLoggedIn.collectAsStateWithLifecycle()
 
@@ -324,6 +329,16 @@ fun SetupScreen(
                                     isLoggedIn = isSpotifyLoggedIn,
                                     clientIdMissing = !spotifyViewModel.hasClientId()
                                 )
+                                SetupPage.Taste -> TastePage(
+                                    entrance = entrance,
+                                    heroHeight = heroHeight,
+                                    level = novelty,
+                                    onLevelSelected = { level ->
+                                        haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                        setupViewModel.setNovelty(level)
+                                    },
+                                    onImportHistory = setupViewModel::requestHistoryImport
+                                )
                                 SetupPage.BackupRestore -> BackupPage(
                                     entrance = entrance,
                                     heroHeight = heroHeight,
@@ -463,6 +478,8 @@ fun SetupScreen(
 private enum class SetupPage {
     Welcome,
     SpotifyLink,
+    /** Familiar / Blend / Discover, and the link to import a listening history (docs/brain-spec.md, 8.10). */
+    Taste,
     BackupRestore,
     ThemeSelection,
     LibraryLayout,
@@ -482,6 +499,7 @@ private fun buildSetupPages(sdkInt: Int): List<SetupPage> {
     val pages = mutableListOf(
         SetupPage.Welcome,
         SetupPage.SpotifyLink,
+        SetupPage.Taste,
         SetupPage.BackupRestore,
         SetupPage.ThemeSelection,
         SetupPage.LibraryLayout,
@@ -641,6 +659,7 @@ private fun rememberSetupAction(
             )
         }
 
+        SetupPage.Taste,
         SetupPage.ThemeSelection,
         SetupPage.LibraryLayout,
         SetupPage.NavBarLayout -> SetupAction(label = continueLabel, onClick = onNext)
@@ -851,6 +870,58 @@ private fun BackupPage(
                 }
             }
         }
+    }
+}
+
+/**
+ * How much new music the picks hold (docs/brain-spec.md, 8.10): Familiar, Blend or Discover, the same three-stop control the queue
+ * header has. No questionnaire; one page after Spotify connects. The link goes to the existing listening-history import.
+ */
+@Composable
+private fun TastePage(
+    entrance: State<Float>,
+    heroHeight: Dp,
+    level: Int,
+    onLevelSelected: (Int) -> Unit,
+    onImportHistory: () -> Unit
+) {
+    SetupPageFrame(
+        entrance = entrance,
+        heroHeight = heroHeight,
+        title = stringResource(R.string.setup_taste_title),
+        body = stringResource(R.string.setup_taste_subtitle),
+        hero = {
+            SetupHeroCluster(
+                centerIcon = androidx.compose.ui.graphics.vector.rememberVectorPainter(Icons.Rounded.MusicNote),
+                satelliteIcons = listOf(
+                    androidx.compose.ui.graphics.vector.rememberVectorPainter(Icons.Rounded.GraphicEq),
+                    androidx.compose.ui.graphics.vector.rememberVectorPainter(Icons.Rounded.Palette)
+                ),
+                entrance = entrance,
+                height = heroHeight,
+                centerShape = 5
+            )
+        }
+    ) {
+        val labels = listOf(
+            stringResource(R.string.brain_novelty_familiar) to stringResource(R.string.setup_taste_familiar_hint),
+            stringResource(R.string.brain_novelty_blend) to stringResource(R.string.setup_taste_blend_hint),
+            stringResource(R.string.brain_novelty_discover) to stringResource(R.string.setup_taste_discover_hint),
+        )
+        Column(modifier = Modifier.fillMaxWidth().selectableGroup(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            labels.forEachIndexed { index, (title, hint) ->
+                SetupToggleCard(
+                    title = title,
+                    subtitle = hint,
+                    checked = level == index,
+                    onCheckedChange = { onLevelSelected(index) }
+                )
+            }
+        }
+        TextButton(onClick = onImportHistory) {
+            Text(stringResource(R.string.setup_taste_import_history))
+        }
+        HintText(stringResource(R.string.setup_taste_footer))
     }
 }
 

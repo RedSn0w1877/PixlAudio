@@ -553,6 +553,21 @@ fun AppNavigation(
                 }
             }
             composable(
+                Screen.MixDetail.route,
+                arguments = listOf(androidx.navigation.navArgument("mixId") { type = androidx.navigation.NavType.StringType }),
+            ) {
+                ScreenWrapper(navController = navController, playerViewModel = playerViewModel, animatedVisibilityScope = this) {
+                    com.theveloper.pixelplay.presentation.screens.MixDetailScreen(playerViewModel = playerViewModel, navController = navController)
+                }
+            }
+            composable(
+                Screen.ArtistPicker.route,
+            ) {
+                ScreenWrapper(navController = navController, playerViewModel = playerViewModel, animatedVisibilityScope = this) {
+                    com.theveloper.pixelplay.presentation.screens.ArtistPickerScreen(navController = navController)
+                }
+            }
+            composable(
                 Screen.BrainData.route,
             ) {
                 ScreenWrapper(navController = navController, playerViewModel = playerViewModel, animatedVisibilityScope = this) {

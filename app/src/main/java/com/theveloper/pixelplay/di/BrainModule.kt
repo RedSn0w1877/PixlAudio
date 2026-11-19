@@ -65,6 +65,8 @@ object BrainModule {
     @Provides fun provideTrackDnaDao(db: MusicBrainDatabase): com.theveloper.pixelplay.data.brain.store.TrackDnaDao = db.trackDnaDao()
     @Provides fun provideArtistDnaDao(db: MusicBrainDatabase): com.theveloper.pixelplay.data.brain.store.ArtistDnaDao = db.artistDnaDao()
     @Provides fun provideSourceMissDao(db: MusicBrainDatabase): com.theveloper.pixelplay.data.brain.store.SourceMissDao = db.sourceMissDao()
+    @Provides fun provideEmbeddingDao(db: MusicBrainDatabase): com.theveloper.pixelplay.data.brain.store.EmbeddingDao = db.embeddingDao()
+    @Provides fun provideIslandDao(db: MusicBrainDatabase): com.theveloper.pixelplay.data.brain.store.IslandDao = db.islandDao()
 
     /** Every stored radio also becomes edges of the persisted graph (3.6). */
     @Provides

@@ -90,7 +90,7 @@ How each `fn` is replayed:
 - `islands.jsonl`: `fit` is `Islands.fit(tracks)` (`emb` is hex, empty for none; `tags` are `"atlasId:q"`; `w` is the weight);
   `match` fits `first`, then fits `second` with the first fit's islands and its `maxId` (`firstMaxId`); the output is the second
   fit. `centroidHash` is FNV-1a 64 over the 8 little-endian bytes of each centroid double, `head` its first numbers. `point` is
-  `Islands.point(emb, tags)`.
+  `Islands.point(emb, tags)`. `name` is `IslandNames.pick(atlas, liftTags)` (two atlas ids).
 - `arms.jsonl`: `ArmRules.isBack`, `simSources`, `adjacentGenres` (needs the atlas; `shares` are the tags the listener plays).
 - `listmixes.jsonl`: `lists` rebuilds one `Affinity.State` by `Affinity.apply(TRACK, rid, r = s[2] / 10, c = 0.5 + s[3] / 2, part 1,
   t)` for each step, then `ListMixes.onRepeat`/`rediscover`/`justDropped` followed by `ListMixes.fill(items, 30, excluded, tieSeed

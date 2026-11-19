@@ -53,6 +53,12 @@ interface RefreshWork {
 
     /** Enriches [targets] from the open-data sources; [gate] false stops it, and what was gathered is still saved. */
     suspend fun enrich(targets: List<DnaTarget>, gate: suspend () -> Boolean): DnaEnricher.Report = DnaEnricher.Report(0, false)
+
+    /**
+     * After the lanes (stage 2b, 2.3 step 9): the embeddings and the taste islands, refitted when they are due (weekly, or after 200
+     * qualified plays). Reads the database only. A no-op by default, so a work without islands runs exactly as before.
+     */
+    suspend fun fitIslands() {}
 }
 
 /**
@@ -187,6 +193,16 @@ class BrainRefreshRunner(
                 }
             }
         }
+        // The embeddings and the islands (2.3 step 9): the part of the job that needs no network, so it runs when the lanes could not.
+        if (allowed() && !playing() && stopped != Stop.OFF && stopped != Stop.PLAYING) {
+            try {
+                work.fitIslands()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                timber.log.Timber.w(e, "brain: fitting the islands failed")
+            }
+        }
         return Report(stopped, radiosFetched, radiosCached, artistsFetched, artistsCached, missed, releasesFetched, releasesCached, dna[0], dna[1], dna[2])
     }
 
@@ -227,6 +243,10 @@ class AppRefreshWork @Inject constructor(
     }
 
     override suspend fun enrich(targets: List<DnaTarget>, gate: suspend () -> Boolean): DnaEnricher.Report = dnaEnricher.enrich(targets, gate)
+
+    override suspend fun fitIslands() {
+        mixes.islandBuilder.ensure()
+    }
 
 
     override suspend fun radioSeeds(): List<RefreshTarget> = targetsOf(mixes.seedsForRefresh())

@@ -64,6 +64,8 @@ fun AutoplayDivider(
             isStation && state.stationIsArtist -> R.string.brain_station_subtitle_artist
             isStation && state.stationSource == com.theveloper.pixelplay.data.brain.Station.SOURCE_ALBUM -> R.string.brain_station_subtitle_album
             isStation && state.stationSource == com.theveloper.pixelplay.data.brain.Station.SOURCE_PLAYLIST -> R.string.brain_station_subtitle_playlist
+            isStation && (state.stationSource == com.theveloper.pixelplay.data.brain.Station.SOURCE_GENRE ||
+                state.stationSource == com.theveloper.pixelplay.data.brain.Station.SOURCE_MOOD) -> R.string.brain_station_subtitle_genre
             isStation -> R.string.brain_station_subtitle_song
             else -> R.string.queue_autoplay_on
         }

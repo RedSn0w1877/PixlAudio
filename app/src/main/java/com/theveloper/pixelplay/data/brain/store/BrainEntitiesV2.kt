@@ -107,6 +107,10 @@ interface GraphEdgeDao {
 
     @Query("SELECT COUNT(*) FROM graph_edge")
     suspend fun count(): Int
+
+    /** Every edge, for the embeddings (stage 2b): a few tens of thousands at most (500 lists of 50). */
+    @Query("SELECT * FROM graph_edge")
+    suspend fun all(): List<GraphEdgeEntity>
 }
 
 @Dao
@@ -122,6 +126,13 @@ interface ServedListDao {
 
     @Query("SELECT COUNT(*) FROM served_list WHERE surface = :surface AND builtAt >= :since")
     suspend fun countSince(surface: Int, since: Long): Int
+
+    /** Stage 2b: several lists share one surface (Daily Mix 1..K, the named mixes); `surfaceId` tells them apart. */
+    @Query("SELECT * FROM served_list WHERE surface = :surface AND surfaceId = :surfaceId AND builtAt >= :since ORDER BY builtAt DESC LIMIT 1")
+    suspend fun latestById(surface: Int, surfaceId: String, since: Long): ServedListEntity?
+
+    @Query("SELECT COUNT(*) FROM served_list WHERE surface = :surface AND surfaceId = :surfaceId AND builtAt >= :since")
+    suspend fun countSinceById(surface: Int, surfaceId: String, since: Long): Int
 
     @Query("DELETE FROM served_list WHERE builtAt < :before")
     suspend fun deleteOlderThan(before: Long): Int
@@ -158,6 +169,14 @@ interface SeedDao {
     )
     suspend fun recentChosen(since: Long, limit: Int): List<RecentTrackRow>
 
+    /** Tracks the listener finished (30 s or more, sounded) since [since], newest first: "More like <album>" (8.1). */
+    @Query(
+        "SELECT rid AS rid, primaryAid AS aid, MAX(startedAtMs) AS lastMs FROM play_event " +
+            "WHERE startedAtMs >= :since AND endReason = 0 AND (flags & 4104) = 0 AND playedMs >= 30000 " +
+            "GROUP BY rid ORDER BY lastMs DESC LIMIT :limit"
+    )
+    suspend fun recentCompleted(since: Long, limit: Int): List<RecentTrackRow>
+
     /** Tracks liked or saved while they played since [since] (flags 64 and 128), newest first. */
     @Query(
         "SELECT rid AS rid, primaryAid AS aid, MAX(startedAtMs) AS lastMs FROM play_event " +
@@ -183,6 +202,14 @@ interface SeedDao {
     /** One page of every healthy list, for the one-time conversion of stage 1's lists into edges (3.6). */
     @Query("SELECT * FROM radio_list WHERE healthy = 1 ORDER BY seedRid, kind, chip LIMIT :limit OFFSET :offset")
     suspend fun healthyPage(limit: Int, offset: Int): List<RadioListEntity>
+
+    /** Plays the listener finished (track done, 30 s or more, sounded) since [since]: the islands refit after 200 (5.4). */
+    @Query("SELECT COUNT(*) FROM play_event WHERE startedAtMs >= :since AND endReason = 0 AND playedMs >= 30000 AND (flags & 4104) = 0")
+    suspend fun qualifiedPlaysSince(since: Long): Int
+
+    /** How many healthy radio lists are cached (the "Getting to know your music" strip, 8.10). */
+    @Query("SELECT COUNT(*) FROM radio_list WHERE healthy = 1")
+    suspend fun healthyListCount(): Int
 
     /** All radios fetched since [since]: the daily request budget the worker shares with the foreground. */
     @Query("SELECT COUNT(*) FROM radio_list WHERE fetchedAt >= :since")

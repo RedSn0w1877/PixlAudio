@@ -4,6 +4,7 @@ import com.theveloper.pixelplay.brain.Affinity
 import com.theveloper.pixelplay.brain.Arm
 import com.theveloper.pixelplay.brain.BrainText
 import com.theveloper.pixelplay.brain.Family
+import com.theveloper.pixelplay.brain.IslandContext
 import com.theveloper.pixelplay.brain.MixPlanner
 import com.theveloper.pixelplay.brain.Repetition
 import com.theveloper.pixelplay.brain.Seeds
@@ -42,6 +43,12 @@ class MixView(
     /** Song ids of the tracks the listener does not have. */
     val novelIds: Set<String>,
     val seedLists: Int,
+    /** Stage 2b: which list this is, its island's number (1..K) and its subtitle. */
+    val spec: MixSpec = MixSpec(kind),
+    val number: Int = 0,
+    val subtitle: String = "",
+    /** By song id: the recording id of each row (the Home page rules and the plan read it). */
+    val rids: Map<String, Long> = emptyMap(),
 ) {
     val isEmpty: Boolean get() = songs.isEmpty()
 }
@@ -60,22 +67,34 @@ class MixView(
  */
 @Singleton
 class BrainMixes @Inject constructor(
-    private val brain: BrainEngine,
-    private val brainRepository: BrainRepository,
-    private val identity: TrackResolver,
-    private val musicRepository: MusicRepository,
-    private val dailyMixManager: DailyMixManager,
-    private val constraints: TasteConstraintAdapter,
-    private val seedDao: SeedDao,
-    private val playEventDao: PlayEventDao,
-    private val states: BrainStateDao,
-    private val served: ServedListStore,
-    private val graphEdges: GraphEdgeStore,
-    private val playableStore: PlayableStore,
-    private val stations: StationStore,
-    private val brainSwitch: BrainSwitch,
-    private val refreshScheduler: com.theveloper.pixelplay.data.worker.BrainRefreshScheduler,
-    private val clock: BrainClock,
+    internal val brain: BrainEngine,
+    internal val brainRepository: BrainRepository,
+    internal val identity: TrackResolver,
+    internal val musicRepository: MusicRepository,
+    internal val dailyMixManager: DailyMixManager,
+    internal val constraints: TasteConstraintAdapter,
+    internal val seedDao: SeedDao,
+    internal val playEventDao: PlayEventDao,
+    internal val states: BrainStateDao,
+    internal val served: ServedListStore,
+    internal val graphEdges: GraphEdgeStore,
+    internal val playableStore: PlayableStore,
+    internal val stations: StationStore,
+    internal val brainSwitch: BrainSwitch,
+    internal val refreshScheduler: com.theveloper.pixelplay.data.worker.BrainRefreshScheduler,
+    internal val clock: BrainClock,
+    /** Stage 2b: the islands, the DNA and the whole library by id (docs/brain-spec.md, 5.4, 6.2, 8.2). */
+    internal val islandStore: IslandStore,
+    internal val islandBuilder: IslandBuilder,
+    internal val candidateDna: CandidateDna,
+    internal val libraryRids: LibraryRids,
+    internal val atlasProvider: AtlasProvider,
+    internal val newReleases: NewReleases,
+    internal val blockedArtists: com.theveloper.pixelplay.data.blocking.BlockedArtistsRepository,
+    internal val tasteAdjustments: com.theveloper.pixelplay.data.recommendation.TasteAdjustmentRepository,
+    internal val trackDnaDao: com.theveloper.pixelplay.data.brain.store.TrackDnaDao,
+    /** "Pick three artists you love" (8.10): seeds for a listener with a thin library. */
+    internal val pickedArtists: PickedArtists,
 ) {
     private val buildLock = Mutex()
     @Volatile private var stateMarked = false
@@ -88,7 +107,8 @@ class BrainMixes @Inject constructor(
 
     /** True when the brain has played tracks to rank by (see [BrainEngineChoice.hasState]). Loads the state on first use. */
     suspend fun hasState(): Boolean {
-        val has = brain.withState { BrainEngineChoice.hasState(it.affinity) }
+        // Three picked artists are something of the listener's own to build from (8.10), before any play.
+        val has = brain.withState { BrainEngineChoice.hasState(it.affinity) } || pickedArtists.hasPicks()
         // Remembered, so that the next app start knows without loading anything.
         if (has && !stateMarked) {
             stateMarked = true
@@ -102,24 +122,44 @@ class BrainMixes @Inject constructor(
      * state: one small read of the served log. Null when there is none, when it is too empty to show, or
      * when it was built without new music and radios are cached now (see [isStale]).
      */
-    suspend fun saved(kind: Int): MixView? = buildLock.withLock {
+    suspend fun saved(kind: Int): MixView? = savedOf(specFor(kind))
+
+    /**
+     * The list a caller that knows only "the Daily Mix" means (the legacy screens, the widgets): with several islands it is Daily
+     * Mix 1, the island of the lowest id among the biggest six; without, the one list of stage 2a.
+     */
+    suspend fun specFor(kind: Int): MixSpec {
+        if (kind != MixKinds.DAILY) return MixSpec(kind)
+        val islands = islandStore.current()
+        return if (islands != null && islands.hasMany) MixSpec(MixKinds.DAILY, islands.dailyIslands().first().id) else MixSpec(MixKinds.DAILY)
+    }
+
+    suspend fun savedOf(spec: MixSpec): MixView? = buildLock.withLock {
         val now = clock.nowMs()
         val tz = tzOffsetMin(now)
-        val stored = served.todays(MixPlanner.surfaceOf(kind), now, tz) ?: return@withLock null
+        val stored = served.todays(spec.surface, now, tz, spec.surfaceId, weekly = spec.kind == MixKinds.FIRST_LISTEN) ?: return@withLock null
         if (isStale(stored, now)) return@withLock null
         materialize(stored, now)
     }
 
     /** The listener removed a song from today's mix: it stays out when the mix is read back. */
-    suspend fun removeItem(kind: Int, songId: String) = buildLock.withLock {
+    suspend fun removeItem(kind: Int, songId: String) = removeItemOf(specFor(kind), songId)
+
+    suspend fun removeItemOf(spec: MixSpec, songId: String) = buildLock.withLock {
         val now = clock.nowMs()
-        val surface = MixPlanner.surfaceOf(kind)
-        val stored = served.todays(surface, now, tzOffsetMin(now)) ?: return@withLock
+        val stored = served.todays(spec.surface, now, tzOffsetMin(now), spec.surfaceId) ?: return@withLock
         val kept = stored.items.filterNot { item ->
             item.songId == songId || (item.songId == null && item.row?.let { EngineTrack.from(it.row, it.rid).songId.toString() } == songId)
         }
         if (kept.size == stored.items.size) return@withLock
-        served.put(surface, surfaceIdOf(kind), stored.copy(items = kept), nuQ = (MixPlanner.nuOf(kind, Novelty.factor(stored.novelty)) * 1000.0).toInt())
+        served.put(spec.surface, spec.surfaceId, stored.copy(items = kept), nuQ = (nuOfSpec(spec, Novelty.factor(stored.novelty)) * 1000.0).toInt())
+    }
+
+    private fun nuOfSpec(spec: MixSpec, multiplier: Double): Double = when {
+        spec.kind == MixKinds.DAILY && spec.islandId > 0 -> MixPlanner.nuOfIsland(multiplier)
+        spec.kind == MixKinds.DAILY || spec.kind == MixKinds.YOUR -> MixPlanner.nuOf(spec.kind, multiplier)
+        spec.kind == MixKinds.ON_REPEAT || spec.kind == MixKinds.REDISCOVER -> 0.0
+        else -> 1.0
     }
 
     /**
@@ -127,20 +167,22 @@ class BrainMixes @Inject constructor(
      * (which is then saved). With [regenerate] a new list is drawn whatever is saved. Null when there is
      * nothing to build a mix from (an empty library and no cached radios).
      */
-    suspend fun today(kind: Int, regenerate: Boolean = false): MixView? = buildLock.withLock {
+    suspend fun today(kind: Int, regenerate: Boolean = false): MixView? = todayOf(specFor(kind), regenerate)
+
+    suspend fun todayOf(spec: MixSpec, regenerate: Boolean = false): MixView? = buildLock.withLock {
         val now = clock.nowMs()
         val tz = tzOffsetMin(now)
-        val surface = MixPlanner.surfaceOf(kind)
+        val surface = spec.surface
         if (!regenerate) {
-            val saved = served.todays(surface, now, tz)
+            val saved = served.todays(surface, now, tz, spec.surfaceId, weekly = spec.kind == MixKinds.FIRST_LISTEN)
             if (saved != null && !isStale(saved, now)) {
                 materialize(saved, now)?.let { return@withLock it }
             }
         }
-        val drawn = if (regenerate) served.buildsToday(surface, now, tz) else 0
+        val drawn = if (regenerate) served.buildsToday(surface, now, tz, spec.surfaceId) else 0
         val startedNanos = System.nanoTime()
         val stored = try {
-            build(kind, now, tz, drawn)
+            build(spec, now, tz, drawn)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -150,7 +192,7 @@ class BrainMixes @Inject constructor(
         PerformanceMetrics.recordTiming("brain_mix_build", (System.nanoTime() - startedNanos) / 1_000_000)
         // The brain has been used: now (and not at app start) the one background job is scheduled.
         refreshScheduler.ensureScheduled()
-        val recId = served.put(surface, surfaceIdOf(kind), stored, nuQ = (MixPlanner.nuOf(kind, Novelty.factor(stored.novelty)) * 1000.0).toInt())
+        val recId = served.put(surface, spec.surfaceId, stored, nuQ = (nuOfSpec(spec, Novelty.factor(stored.novelty)) * 1000.0).toInt())
         materialize(stored, now, recId)
     }
 
@@ -160,6 +202,8 @@ class BrainMixes @Inject constructor(
      * the day's mix and stays.
      */
     private suspend fun isStale(saved: StoredMix, now: Long): Boolean {
+        // Only the lists that take new music from cached radios can be waiting for one; On Repeat and Rediscover never are.
+        if (!MixKinds.usesPlanner(saved.kind) || saved.kind == MixKinds.FIRST_LISTEN) return false
         if (saved.seedLists > 0 || saved.novelCount > 0) return false
         if (now - saved.builtAtMs < REBUILD_MIN_AGE_MS) return false
         return seedDao.fetchedSince(0L) > 0
@@ -167,20 +211,33 @@ class BrainMixes @Inject constructor(
 
     // ---- building ---------------------------------------------------------------------------------
 
-    private suspend fun build(kind: Int, now: Long, tz: Int, regenerate: Int): StoredMix? {
+    private suspend fun build(spec: MixSpec, now: Long, tz: Int, regenerate: Int): StoredMix? {
         runCatching { graphEdges.backfillOnce(now) }
-        val surface = MixPlanner.surfaceOf(kind)
+        if (!MixKinds.usesPlanner(spec.kind)) return buildSimple(spec, now, tz, regenerate)
+        val kind = spec.kind
+        val surface = spec.surface
         val taste = constraints.snapshot(now)
         val level = Novelty.clamp(stations.novelty.value)
         val salt = salt()
-        val library = shortlist(now, tz, salt, taste)
+        val shortlisted = shortlist(now, tz, salt, taste)
+        // Stage 2b: with islands the pool is the whole library (the planner keeps what is close to the island); First Listen's
+        // library part is only unplayed tracks in adjacent genres (arm EDGE, 6.1).
+        val islands = islandStore.current()?.takeIf { !it.isEmpty }
+        val edgeRids = if (kind == MixKinds.FIRST_LISTEN) edgeLibrary(now) else emptyMap()
+        val library = when {
+            kind == MixKinds.FIRST_LISTEN -> edgeRids.values.toList()
+            islands != null -> mergedLibrary(shortlisted, libraryRids.all(now))
+            else -> shortlisted
+        }
         val ignored = runCatching { playEventDao.ignoredThreeTimes(now - SIXTY_DAYS_MS).toHashSet() }.getOrDefault(HashSet())
         val log = served.recent(now)
-        val taken = Repetition.takenOnDay(log, now, tz, exceptSurface = surface)
+        val taken = Repetition.takenOnDay(log, now, tz, exceptSurface = surface, exceptId = spec.surfaceId)
+        // This week's First Listen is held all week (8.2): no other list repeats it.
+        if (kind != MixKinds.FIRST_LISTEN) taken.addAll(firstListenRids(now, tz))
         val times = Repetition.timesServed(log, now)
 
-        val byRid = HashMap<Long, LibraryTrack>(library.size * 2)
-        for (t in library) byRid.putIfAbsent(t.rid, t)
+        val byRid = HashMap<Long, LibraryTrack>(shortlisted.size * 2)
+        for (t in shortlisted) byRid.putIfAbsent(t.rid, t)
         val picked = pickSeeds(now, tz, salt, byRid, taste)
         val seeds = ArrayList<MixSeed>(picked.size)
         for (p in picked) {
@@ -206,9 +263,18 @@ class BrainMixes @Inject constructor(
         if (pool.candidates.isEmpty()) return null
 
         val edges = graphEdges.edgesFor(seeds.map { it.rid } + pool.novel.keys)
+        val (enriched, known) = candidateDna.enrich(pool.candidates)
+        val context = islands?.let { IslandContext(it.islands) }
+        val islandIdx = if (kind == MixKinds.DAILY && spec.islandId > 0 && islands != null) islands.indexOfId(spec.islandId) else -1
+        // A Daily Mix of an island that is gone is the plain Daily Mix: no island to be close to.
+        val useIslands = context != null && !(kind == MixKinds.DAILY && spec.islandId > 0 && islandIdx < 0)
         val request = MixPlanner.Request(
             kind = kind,
-            candidates = pool.candidates,
+            candidates = enriched,
+            islands = if (useIslands) context else null,
+            islandIdx = islandIdx,
+            embeddings = known.embeddings,
+            tagsByRid = known.tags,
             seeds = pool.seedLists,
             nowMs = now,
             tzOffsetMin = tz,
@@ -219,7 +285,21 @@ class BrainMixes @Inject constructor(
             servedTimes = times,
             edges = edges,
         )
-        val plan = brain.withState { MixPlanner.plan(request, it.affinity) }
+        val plan = brain.withState { st ->
+            if (kind != MixKinds.FIRST_LISTEN) return@withState MixPlanner.plan(request, st.affinity)
+            // First Listen: which tracks are adjacent-genre ones, and which artists the listener never played (6.2).
+            val flagged = enriched.map { c ->
+                c.withFlags(edge = c.rid in edgeRids, artistNew = c.aid != 0L && !Affinity.isHeard(st.affinity, Family.ARTIST, c.aid))
+            }
+            MixPlanner.plan(
+                MixPlanner.Request(
+                    kind = kind, candidates = flagged, seeds = request.seeds, nowMs = now, tzOffsetMin = tz, nuMultiplier = request.nuMultiplier,
+                    salt = salt, regenerate = regenerate, excludedRids = request.excludedRids, servedTimes = times, edges = edges,
+                    islands = request.islands, embeddings = known.embeddings, tagsByRid = known.tags,
+                ),
+                st.affinity,
+            )
+        }
         if (plan.picks.isEmpty()) return null
 
         val items = ArrayList<StoredMixItem>(plan.picks.size)
@@ -254,6 +334,10 @@ class BrainMixes @Inject constructor(
             tasteSignature = constraints.signature(),
             seedLists = seeds.count { it.list != null },
             items = items,
+            mixId = spec.surfaceId,
+            islandId = if (useIslands && islandIdx >= 0) spec.islandId else 0,
+            number = if (useIslands && islandIdx >= 0) (islands?.dailyIslands()?.indexOfFirst { it.id == spec.islandId } ?: -1) + 1 else 0,
+            subtitle = if (useIslands && islandIdx >= 0 && islands != null) islandSubtitle(islands.islands[islandIdx], now) else "",
         )
     }
 
@@ -324,7 +408,7 @@ class BrainMixes @Inject constructor(
     )
 
     /** The day's seeds (3.6): the four groups, at most 24, two per artist, the listener's own choices only. */
-    private suspend fun pickSeeds(now: Long, tz: Int, salt: Long, byRid: Map<Long, LibraryTrack>, taste: TasteConstraints): List<PickedSeed> {
+    internal suspend fun pickSeeds(now: Long, tz: Int, salt: Long, byRid: Map<Long, LibraryTrack>, taste: TasteConstraints): List<PickedSeed> {
         val recent = seedDao.recentChosen(now - Seeds.RECENT_WINDOW_MS, 40)
         val saved = seedDao.recentlySaved(now - Seeds.SAVED_WINDOW_MS, 20)
         val day = Repetition.mixDay(now, tz)
@@ -357,7 +441,14 @@ class BrainMixes @Inject constructor(
             aidOf = ::aidOf,
             usable = { rid -> rid != 0L && (byRid[rid]?.let { taste.allows(it.song) } ?: playables.containsKey(rid)) },
         )
-        return Seeds.select(groups).map { s ->
+        val picks = pickedArtists.all().map { p ->
+            val track = EngineTrack.from(p.seed.row, p.seed.rid)
+            PickedSeed(
+                rid = p.seed.rid, aid = identity.resolveArtistNames(listOf(p.name)).firstOrNull() ?: 0L, title = p.seed.row.title,
+                artist = p.name, playable = track.toPlayable(now),
+            )
+        }
+        val selected = Seeds.select(groups).map { s ->
             val track = byRid[s.rid]
             if (track != null) {
                 PickedSeed(s.rid, s.aid, track.song.title, LibraryIndex.primaryArtistName(track.song), song = track.song)
@@ -366,6 +457,9 @@ class BrainMixes @Inject constructor(
                 PickedSeed(s.rid, s.aid, row?.title.orEmpty(), row?.artistDisplay.orEmpty(), playable = row)
             }
         }
+        // The picked artists after the day's seeds, each once.
+        val have = selected.mapTo(HashSet()) { it.rid }
+        return selected + picks.filter { it.rid !in have }
     }
 
     /**
@@ -379,7 +473,7 @@ class BrainMixes @Inject constructor(
 
     @Volatile private var sliceCache: Slice? = null
 
-    private suspend fun shortlist(now: Long, tz: Int, salt: Long, taste: TasteConstraints): List<LibraryTrack> {
+    internal suspend fun shortlist(now: Long, tz: Int, salt: Long, taste: TasteConstraints): List<LibraryTrack> {
         val all = musicRepository.getAllSongsOnce()
         val day = Repetition.mixDay(now, tz)
         val favourites = runCatching { musicRepository.getFavoriteSongIdsOnce() }.getOrDefault(emptySet())
@@ -433,7 +527,7 @@ class BrainMixes @Inject constructor(
         return out
     }
 
-    private suspend fun salt(): Long {
+    internal suspend fun salt(): Long {
         states.get(KEY_SALT)?.let { bytes -> String(bytes, Charsets.UTF_8).toLongOrNull()?.let { return it } }
         val fresh = java.security.SecureRandom().nextLong()
         states.put(BrainStateEntity(KEY_SALT, fresh.toString().toByteArray(Charsets.UTF_8)))
@@ -447,18 +541,20 @@ class BrainMixes @Inject constructor(
      * away is dropped; a track from outside the library is registered in `playable` so that it plays.
      * Null when too little is left to call it a mix: the caller builds a new one.
      */
-    private suspend fun materialize(stored: StoredMix, now: Long, recIdKnown: Long = 0L): MixView? {
+    internal suspend fun materialize(stored: StoredMix, now: Long, recIdKnown: Long = 0L): MixView? {
         val taste = constraints.snapshot(now)
         val libraryIds = stored.items.mapNotNull { it.songId }
         val library = if (libraryIds.isEmpty()) emptyMap() else
             musicRepository.getSongsByIds(libraryIds).first().associateBy { it.id }
-        val surface = MixPlanner.surfaceOf(stored.kind)
+        val spec = MixSpec(stored.kind, stored.islandId)
+        val surface = spec.surface
         val recId = if (recIdKnown != 0L) recIdKnown else ServedListStore.recIdOf(stored.builtAtMs, surface)
         val songs = ArrayList<Song>(stored.items.size)
         val tracks = ArrayList<EngineTrack>()
         val reasons = HashMap<String, MixReason>()
         val tags = HashMap<String, BrainItemTag>(stored.items.size * 2)
         val novel = HashSet<String>()
+        val ridBySong = HashMap<String, Long>(stored.items.size * 2)
         for (item in stored.items) {
             val song: Song
             if (item.songId != null) {
@@ -476,13 +572,14 @@ class BrainMixes @Inject constructor(
                 continue
             }
             songs.add(song)
+            ridBySong[song.id] = item.rid
             val key = WhyLine.nameOf(item.whyKey)
             if (item.whyKey != WhyLine.NONE && (item.whyKey == WhyLine.ON_REPEAT || item.whyName.isNotEmpty())) {
                 reasons[song.id] = MixReason(key, item.whyName)
             }
             tags[song.id] = BrainItemTag(
                 surface = Surface.nameOf(surface),
-                surfaceId = surfaceIdOf(stored.kind),
+                surfaceId = spec.surfaceId,
                 recId = recId,
                 slot = item.slot,
                 arm = Arm.nameOf(item.arm),
@@ -498,7 +595,7 @@ class BrainMixes @Inject constructor(
         // A mix is the same all day: what is left of it is shown, a new list is drawn only when almost nothing is.
         if (songs.size < MIN_SAVED_SONGS) return null
         if (tracks.isNotEmpty()) playableStore.register(tracks, now)
-        return MixView(stored.kind, stored.builtAtMs, recId, songs, reasons, tags, novel, stored.seedLists)
+        return MixView(stored.kind, stored.builtAtMs, recId, songs, reasons, tags, novel, stored.seedLists, spec, stored.number, stored.subtitle, ridBySong)
     }
 
     companion object {

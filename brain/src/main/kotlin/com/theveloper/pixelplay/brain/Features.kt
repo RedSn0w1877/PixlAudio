@@ -39,6 +39,17 @@ class Candidate(
     /** The point of the track in island space (5.4); null when it has neither an embedding nor a tag. */
     val point: DoubleArray? by lazy(LazyThreadSafetyMode.NONE) { Islands.point(emb, tags) }
 
+    /** The same candidate with what the DNA and the embeddings know about it (stage 2b). */
+    fun withDna(emb: ByteArray?, tags: Tags.Vector?, popPermille: Int): Candidate = Candidate(
+        rid, aid, albumKey, inLibrary, liked, fromArtistRadio, boostLn, fromSimilarArtist, actr,
+        tags ?: this.tags, emb ?: this.emb, if (popPermille >= 0) popPermille else this.popPermille,
+        fresh, back, edge, islandIdx, artistNew,
+    )
+
+    /** The same candidate with the arm flags of 6.1 and the First Listen artist flag set. */
+    fun withFlags(fresh: Boolean = this.fresh, back: Boolean = this.back, edge: Boolean = this.edge, artistNew: Boolean = this.artistNew): Candidate =
+        Candidate(rid, aid, albumKey, inLibrary, liked, fromArtistRadio, boostLn, fromSimilarArtist, actr, tags, emb, popPermille, fresh, back, edge, islandIdx, artistNew)
+
     /** The same candidate placed in island [index] of a [Calibration]. */
     fun withIsland(index: Int): Candidate = Candidate(
         rid, aid, albumKey, inLibrary, liked, fromArtistRadio, boostLn, fromSimilarArtist, actr, tags, emb, popPermille,

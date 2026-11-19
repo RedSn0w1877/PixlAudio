@@ -56,6 +56,7 @@ class FakeGraphEdgeDao : GraphEdgeDao {
         return doomed.size
     }
     override suspend fun count() = rows.size
+    override suspend fun all() = rows.values.toList()
 }
 
 class FakeServedListDao : ServedListDao {
@@ -65,6 +66,10 @@ class FakeServedListDao : ServedListDao {
     override suspend fun latest(surface: Int, since: Long) =
         rows.values.filter { it.surface == surface && it.builtAt >= since }.maxByOrNull { it.builtAt }
     override suspend fun countSince(surface: Int, since: Long) = rows.values.count { it.surface == surface && it.builtAt >= since }
+    override suspend fun latestById(surface: Int, surfaceId: String, since: Long) =
+        rows.values.filter { it.surface == surface && it.surfaceId == surfaceId && it.builtAt >= since }.maxByOrNull { it.builtAt }
+    override suspend fun countSinceById(surface: Int, surfaceId: String, since: Long) =
+        rows.values.count { it.surface == surface && it.surfaceId == surfaceId && it.builtAt >= since }
     override suspend fun deleteOlderThan(before: Long): Int {
         val doomed = rows.values.filter { it.builtAt < before }.map { it.recId }
         doomed.forEach(rows::remove)
@@ -98,6 +103,9 @@ class FakeSeedDao(private val radioLists: FakeRadioListDao? = null) : SeedDao {
         radioLists?.rows?.values?.filter { it.healthy }?.sortedWith(compareBy({ it.seedRid }, { it.kind }, { it.chip }))
             ?.drop(offset)?.take(limit).orEmpty()
     override suspend fun fetchedSince(since: Long) = radioLists?.rows?.values?.count { it.fetchedAt >= since } ?: 0
+    override suspend fun qualifiedPlaysSince(since: Long) = 0
+    override suspend fun healthyListCount() = radioLists?.rows?.values?.count { it.healthy } ?: 0
+    override suspend fun recentCompleted(since: Long, limit: Int) = recent.filter { it.lastMs >= since }.take(limit)
 }
 
 class FakeRadioSource : RadioSource {

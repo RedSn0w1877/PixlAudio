@@ -38,7 +38,7 @@ object Repetition {
     }
 
     /** One list the app served: the surface it was for ([Surface]), when it was built, its recordings. */
-    class Served(val surface: Int, val builtAtMs: Long, val rids: LongArray)
+    class Served(val surface: Int, val builtAtMs: Long, val rids: LongArray, val surfaceId: String = "")
 
     /** True for the surfaces whose lists are mixes: a recording may be in only one of them a day. */
     fun isMixSurface(surface: Int): Boolean =
@@ -63,11 +63,15 @@ object Repetition {
      * The recordings that mixes of the same local day as [nowMs] already hold, except the lists of
      * [exceptSurface] (a list that is being rebuilt replaces its own earlier build).
      */
-    fun takenOnDay(lists: List<Served>, nowMs: Long, tzOffsetMin: Int, exceptSurface: Int = -1): HashSet<Long> {
+    fun takenOnDay(lists: List<Served>, nowMs: Long, tzOffsetMin: Int, exceptSurface: Int = -1, exceptId: String? = null): HashSet<Long> {
         val today = mixDay(nowMs, tzOffsetMin)
         val out = HashSet<Long>()
         for (list in lists) {
-            if (!isMixSurface(list.surface) || list.surface == exceptSurface) continue
+            if (!isMixSurface(list.surface)) continue
+            // Stage 2b: with an id, only the very list being rebuilt is skipped; the other lists of its surface count.
+            if (exceptId != null) {
+                if (list.surface == exceptSurface && list.surfaceId == exceptId) continue
+            } else if (list.surface == exceptSurface) continue
             if (mixDay(list.builtAtMs, tzOffsetMin) != today) continue
             for (rid in list.rids) if (rid != 0L) out.add(rid)
         }

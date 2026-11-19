@@ -50,6 +50,23 @@ object MusicBrainMigrations {
         "CREATE INDEX IF NOT EXISTS `index_artist_dna_mbid` ON `artist_dna` (`mbid`)",
         "CREATE TABLE IF NOT EXISTS `source_miss` (`entity` TEXT NOT NULL, `source` INTEGER NOT NULL, `retryAfter` INTEGER NOT NULL, `misses` INTEGER NOT NULL, PRIMARY KEY(`entity`, `source`))",
     )
+    /**
+     * Version 4 to 5 (stage 2b, milestone 2): `node_embedding`, `island` and `island_member`. Nothing existing is
+     * touched. The statements are what Room itself writes for the entities of `BrainEntitiesV5.kt`.
+     */
+    val V4_TO_V5: List<String> = listOf(
+        "CREATE TABLE IF NOT EXISTS `node_embedding` (`nodeId` INTEGER NOT NULL, `embVersion` INTEGER NOT NULL, `vec` BLOB NOT NULL, PRIMARY KEY(`nodeId`))",
+        "CREATE TABLE IF NOT EXISTS `island` (`islandId` INTEGER NOT NULL, `centroid` BLOB NOT NULL, `medoidRid` INTEGER NOT NULL, `topTags` BLOB NOT NULL, `liftTags` BLOB NOT NULL, `topArtists` BLOB NOT NULL, `weightQ` INTEGER NOT NULL, `recentWeightQ` INTEGER NOT NULL, `size` INTEGER NOT NULL, `fitAtMs` INTEGER NOT NULL, PRIMARY KEY(`islandId`))",
+        "CREATE TABLE IF NOT EXISTS `island_member` (`rid` INTEGER NOT NULL, `islandId` INTEGER NOT NULL, PRIMARY KEY(`rid`))",
+        "CREATE INDEX IF NOT EXISTS `index_island_member_islandId` ON `island_member` (`islandId`)",
+    )
+
+    val MIGRATION_4_5: Migration = object : Migration(4, 5) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            for (statement in V4_TO_V5) db.execSQL(statement)
+        }
+    }
+
     val MIGRATION_3_4: Migration = object : Migration(3, 4) {
         override fun migrate(db: SupportSQLiteDatabase) {
             for (statement in V3_TO_V4) db.execSQL(statement)
@@ -69,5 +86,5 @@ object MusicBrainMigrations {
     }
 
     /** Every migration, in order. A new version adds its step here and its schema file next to the others. */
-    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
 }

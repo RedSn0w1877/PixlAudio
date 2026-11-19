@@ -32,6 +32,8 @@ class BrainUi(
     val swiped: (Song) -> Unit = {},
     /** "Refresh picks" on the Autoplay line. */
     val refreshPicks: () -> Unit = {},
+    /** A station from a genre or a mood of the atlas: (kind, atlas id, name). */
+    val startGenreStation: (kind: Int, atlasId: Int, name: String) -> Unit = { _, _, _ -> },
 )
 
 val LocalBrainUi = compositionLocalOf<BrainUi?> { null }

@@ -357,7 +357,8 @@ class MainActivity : ComponentActivity() {
                     moreLikeThis = { song -> playerViewModel.moreLikeThis(song) },
                     dontCount = { song -> playerViewModel.dontCount(song) },
                     swiped = { song -> playerViewModel.swipedEnginePick(song) },
-                    refreshPicks = { playerViewModel.refreshPicks() }
+                    refreshPicks = { playerViewModel.refreshPicks() },
+                    startGenreStation = { kind, id, name -> playerViewModel.startGenreStation(kind, id, name) }
                 )
             }
             val useDarkTheme = when (appThemeMode) {

@@ -57,6 +57,10 @@ data class Station(
         const val SOURCE_ALBUM = 2
         const val SOURCE_PLAYLIST = 3
 
+        /** A station from a genre or a mood of the atlas (8.3, stage 2b): the listener's own songs under the node seed it. */
+        const val SOURCE_GENRE = 4
+        const val SOURCE_MOOD = 5
+
         /** A station from an album ([SOURCE_ALBUM]) or a playlist ([SOURCE_PLAYLIST]): [seedMediaIds] are its seeds, best first. */
         fun fromSource(source: Int, seedMediaIds: List<String>, title: String, nowMs: Long): Station {
             val first = seedMediaIds.first()
@@ -76,7 +80,7 @@ data class Station(
             java.lang.Long.toHexString(
                 BrainHash.fnv1a64(
                     // A song or artist station's id is what it always was; an album or playlist one adds where it came from.
-                    if (source == SOURCE_ALBUM || source == SOURCE_PLAYLIST) "station|$kind|$seedMediaId|$source" else "station|$kind|$seedMediaId"
+                    if (source >= SOURCE_ALBUM) "station|$kind|$seedMediaId|$source" else "station|$kind|$seedMediaId"
                 )
             )
 
@@ -90,7 +94,7 @@ data class Station(
             val seed = parts[1].takeIf { it.isNotEmpty() } ?: return null
             val startedAt = parts[4].toLongOrNull() ?: return null
             if (parts.size == 5) return Station(idOf(kind, seed), kind, seed, parts[2], parts[3], startedAt)
-            val source = parts[5].toIntOrNull()?.takeIf { it in SOURCE_SONG..SOURCE_PLAYLIST } ?: return null
+            val source = parts[5].toIntOrNull()?.takeIf { it in SOURCE_SONG..SOURCE_MOOD } ?: return null
             val ids = parts[6].split(IDS_SEPARATOR).filter { it.isNotEmpty() }.ifEmpty { listOf(seed) }
             return Station(idOf(kind, seed, source), kind, seed, parts[2], parts[3], startedAt, source, ids)
         }

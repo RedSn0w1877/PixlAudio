@@ -95,9 +95,24 @@ class BrainMixesTest {
     private val switch = mockk<BrainSwitch>(relaxed = true)
     private val scheduler = mockk<BrainRefreshScheduler>(relaxed = true)
 
+    // Stage 2b: no islands, no DNA, no picked artists: the mixes are the ones stage 2a built.
+    private val islandStore = mockk<IslandStore> {
+        coEvery { current() } returns null
+        coEvery { tagShares() } returns emptyMap()
+    }
+    private val candidateDna = mockk<CandidateDna> {
+        coEvery { enrich(any()) } answers { firstArg<List<com.theveloper.pixelplay.brain.Candidate>>() to CandidateDna.Known(emptyMap(), null) }
+    }
+    private val pickedArtists = mockk<PickedArtists> {
+        coEvery { hasPicks() } returns false
+        coEvery { all() } returns emptyList()
+    }
+
     private fun mixes(engine: BrainEngine = this.engine) = BrainMixes(
         engine, repository, resolver, music, dailyMixManager, TasteConstraintAdapter(blocked, taste), seedDao, playEvents,
         states, served, graphEdges, playable, stations, switch, scheduler, clock,
+        islandStore, mockk(relaxed = true), candidateDna, mockk(relaxed = true), mockk(relaxed = true), mockk(relaxed = true),
+        blocked, taste, mockk(relaxed = true), pickedArtists,
     )
 
     private suspend fun libraryRid(song: Song): Long =

@@ -2253,6 +2253,25 @@ class PlayerViewModel @Inject constructor(
     fun startPlaylistStation(playlistName: String, songs: List<Song>) =
         brainSession.stations.startPlaylistStation(playlistName, songs, stationPlayer)
 
+    /** A station from a genre or a mood of the atlas (8.3); [onNothing] runs when none of the listener's songs sit under it. */
+    fun startGenreStation(kind: Int, atlasId: Int, name: String, onNothing: () -> Unit = {}) =
+        brainSession.stations.startGenreStation(kind, atlasId, name, stationPlayer, onNothing)
+
+    /** A Search tile: a station when the atlas knows the genre and the listener has songs under it, else [fallback]. */
+    fun startGenreStationByName(name: String, fallback: () -> Unit) {
+        viewModelScope.launch {
+            val id = withContext(kotlinx.coroutines.Dispatchers.Default) { brainSession.genreStations.idForName(name) }
+            if (id == com.theveloper.pixelplay.brain.GenreAtlas.NONE) fallback()
+            else startGenreStation(com.theveloper.pixelplay.data.brain.StationCard.KIND_GENRE, id, name, onNothing = fallback)
+        }
+    }
+
+    /** The Search tiles the atlas knows (8.10): a genre the atlas lacks gets no tile. Null while it is not known yet. */
+    suspend fun knownGenreTiles(names: List<String>): Set<String>? =
+        withContext(kotlinx.coroutines.Dispatchers.Default) {
+            if (!brainSession.brainEngineOn()) null else brainSession.genreStations.knownNames(names)
+        }
+
     /** "More like this": the song's artist is boosted for two weeks. */
     fun moreLikeThis(song: Song) = brainSession.actions.moreLikeThis(song)
 

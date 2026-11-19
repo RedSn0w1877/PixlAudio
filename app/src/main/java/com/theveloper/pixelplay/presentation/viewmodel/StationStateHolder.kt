@@ -41,6 +41,7 @@ class StationStateHolder @Inject constructor(
     private val castStateHolder: CastStateHolder,
     private val brainRepository: com.theveloper.pixelplay.data.brain.BrainRepository,
     private val playableStore: com.theveloper.pixelplay.data.brain.PlayableStore,
+    private val genreStations: com.theveloper.pixelplay.data.brain.GenreStations,
 ) {
     /** What the player does for a station; implemented by the ViewModel that owns the controller. */
     interface Player {
@@ -117,6 +118,33 @@ class StationStateHolder @Inject constructor(
     /** A station from a playlist: five of its songs seed it (6.2). */
     fun startPlaylistStation(playlistName: String, songs: List<Song>, player: Player) =
         startFromSource(Station.SOURCE_PLAYLIST, playlistName, songs, StationSeeds.PLAYLIST_SEEDS, player)
+
+    /**
+     * A station from a genre or a mood of the atlas (8.3, stage 2b): the listener's most played songs under the node seed it.
+     * With none of their songs under it nothing starts and [onNothing] runs (a Search tile then falls back to its text search).
+     */
+    fun startGenreStation(kind: Int, atlasId: Int, name: String, player: Player, onNothing: () -> Unit = {}) {
+        if (name.isBlank()) return
+        player.scope.launch {
+            val songs = try {
+                withContext(Dispatchers.Default) { genreStations.songsFor(kind, atlasId, clock.nowMs()) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Timber.w(e, "station: reading the songs of a genre failed")
+                emptyList()
+            }
+            withContext(Dispatchers.Main.immediate) {
+                if (songs.isEmpty()) {
+                    player.toast(context.getString(R.string.brain_station_genre_nothing, name))
+                    onNothing()
+                } else {
+                    val source = if (kind == com.theveloper.pixelplay.data.brain.StationCard.KIND_MOOD) Station.SOURCE_MOOD else Station.SOURCE_GENRE
+                    startFromSource(source, name, songs, com.theveloper.pixelplay.data.brain.GenreStations.SEEDS, player)
+                }
+            }
+        }
+    }
 
     private fun startFromSource(source: Int, name: String, songs: List<Song>, maxSeeds: Int, player: Player) {
         if (songs.isEmpty() || name.isBlank()) return

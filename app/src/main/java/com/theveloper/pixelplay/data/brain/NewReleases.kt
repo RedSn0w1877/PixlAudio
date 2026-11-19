@@ -437,6 +437,21 @@ class NewReleases @Inject constructor(
         return BrainReleaseRow(BrainReleaseRow.ID, BrainReleaseRow.recIdOf(builtAt), items, artists)
     }
 
+    /**
+     * The cards of "New from artists you play" with their releases, from the saved file only (stage 2b: Just Dropped and
+     * the Home shelf read the same cards). Muted, blocked and already-owned music is left out.
+     */
+    suspend fun cards(blocked: BlockedArtistIndex, adjustments: TasteAdjustments, library: LibraryIndex? = null): List<NewReleaseRules.Card> {
+        val now = clock.nowMs()
+        val file = state()
+        if (file.found.isEmpty()) return emptyList()
+        return NewReleaseRules.cards(file.found, now) { stored ->
+            val song = EngineTrack.from(stored.row, stored.rid).toSong()
+            !blocked.isBlocked(song) && !adjustments.excludes(song) && !adjustments.blocks(song) &&
+                (library == null || library.match(stored.row) == null)
+        }
+    }
+
     /** Every card of [row] must be in `playable` before its media item reaches the player (7.2). */
     fun songsOf(row: BrainReleaseRow): List<Song> = row.items.map { it.song }
 

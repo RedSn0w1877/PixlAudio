@@ -15,7 +15,6 @@ import com.theveloper.pixelplay.data.recommendation.MusicRecommendationEngine
 import com.theveloper.pixelplay.data.recommendation.MusicTasteRepository
 import com.theveloper.pixelplay.data.recommendation.MuselleVariant
 import com.theveloper.pixelplay.data.recommendation.TasteAdjustmentRepository
-import com.theveloper.pixelplay.data.premium.PlusLicenseManager
 import com.theveloper.pixelplay.data.preferences.UserPreferencesRepository
 import com.theveloper.pixelplay.data.repository.MusicRepository
 import com.theveloper.pixelplay.data.worker.SyncManager
@@ -70,6 +69,8 @@ class HomeDiscoveryStateHolder @Inject constructor(
     /** "New from artists you play" (docs/brain-spec.md, 6.3): found by the refresh worker, read from one small file. */
     private val newReleases: com.theveloper.pixelplay.data.brain.NewReleases,
     private val brainSwitch: com.theveloper.pixelplay.data.brain.BrainSwitch,
+    /** Stage 2b: when the brain's Home plan owns the page, this holder does not rank the library at all. */
+    private val plan: HomePlanStateHolder,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     // The ranking/planning passes are pure CPU over the whole library: run them on one Default
@@ -106,6 +107,22 @@ class HomeDiscoveryStateHolder @Inject constructor(
             return
         }
         refreshJob = scope.launch {
+            // The brain's plan owns Home (8.1, stage 2): it is read from its own file and built in the background when due, so the
+            // whole-library ranking below, which used to run on every Home start, does not run at all.
+            try {
+                if (plan.ownsHome()) {
+                    refreshPending = false
+                    val withoutBrainRows = mutableState.value.shelves
+                    if (withoutBrainRows.isNotEmpty() || mutableState.value.mixes.isNotEmpty()) {
+                        mutableState.update { it.copy(mixes = persistentListOf(), shelves = persistentListOf(), isRefreshing = false) }
+                    }
+                    return@launch
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Timber.w(e, "Home: asking the plan failed; the legacy Home runs")
+            }
             mutableState.update { it.copy(isRefreshing = true) }
             try {
                 val enabled = taste.state.first().discoveryEnabled
@@ -179,9 +196,8 @@ class HomeDiscoveryStateHolder @Inject constructor(
                 }
                 val cache = if (enabled) catalog.cached() else HomeCatalogSnapshot()
                 suspend fun publish(snapshot: HomeCatalogSnapshot) {
-                    val variant = if (PlusLicenseManager(context).activeEntitlement().isActive(now)) {
-                        MuselleVariant.PLUS
-                    } else MuselleVariant.BASIC
+                    // Nothing about picks is paid (decision D17): the Muselle 2 gate on Home is gone, every listener gets the full ranking.
+                    val variant = MuselleVariant.PLUS
                     val planned = withContext(planningDispatcher) {
                         HomeRecommendationPlanner.plan(
                             library, favorites, signals, history,
@@ -317,10 +333,33 @@ class HomeDiscoveryStateHolder @Inject constructor(
 @HiltViewModel
 class HomeDiscoveryViewModel @Inject constructor(
     private val holder: HomeDiscoveryStateHolder,
+    private val planHolder: HomePlanStateHolder,
     private val userPreferencesRepository: UserPreferencesRepository,
     private val syncManager: SyncManager
 ) : ViewModel() {
     val state = holder.state
+
+    /** The brain's Home plan (docs/brain-spec.md, 8.1, stage 2); `planState.owned` false means the legacy Home above is the page. */
+    val planState = planHolder.state
+    fun onHomeShown() = planHolder.onHomeShown()
+    fun onArtistsPicked() = planHolder.onArtistsPicked()
+    fun clearPlanMessage() = planHolder.clearMessage()
+    fun playPlanShelf(section: com.theveloper.pixelplay.data.recommendation.HomeMusicSection, start: Song, onReady: (List<Song>, Song) -> Unit) {
+        viewModelScope.launch { planHolder.prepare(section, start, onReady) }
+    }
+    fun playHeroRelease(song: Song, onReady: (List<Song>, Song) -> Unit) {
+        viewModelScope.launch { planHolder.prepareSingle(song, onReady) }
+    }
+    fun playTile(tile: TileUi, onReady: (List<Song>, Song) -> Unit) {
+        viewModelScope.launch {
+            val songs = planHolder.songsOf(tile)
+            if (songs.isNotEmpty()) onReady(songs, songs.first())
+        }
+    }
+    val pendingHistoryImport = userPreferencesRepository.pendingHistoryImportFlow
+    fun clearPendingHistoryImport() {
+        viewModelScope.launch { userPreferencesRepository.setPendingHistoryImport(false) }
+    }
 
     // Home used to build a whole SettingsViewModel (dozens of collectors, an AudioTrack probe)
     // just for this flag and the library refresh below.

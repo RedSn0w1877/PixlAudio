@@ -284,6 +284,7 @@ class PlayerViewModelTest {
                 io.mockk.mockk(relaxed = true),
                 com.theveloper.pixelplay.data.brain.BrainClock { 0L }
             ),
+            io.mockk.mockk<com.theveloper.pixelplay.data.brain.RecentContexts>(relaxed = true),
             mockContext
         )
         // Real controller-sync holder wired to the same mocks, so existing tests

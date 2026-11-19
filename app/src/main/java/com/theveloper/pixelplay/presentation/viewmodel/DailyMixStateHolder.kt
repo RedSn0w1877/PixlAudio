@@ -44,7 +44,6 @@ class DailyMixStateHolder @Inject constructor(
     private val userPreferencesRepository: UserPreferencesRepository,
     private val musicRepository: MusicRepository,
     private val aiWorkerManager: AiWorkerManager,
-    private val musicDiscoveryRepository: com.theveloper.pixelplay.data.recommendation.MusicDiscoveryRepository,
     private val brainMixes: BrainMixes,
     private val brainPlayTags: BrainPlayTags,
     private val brainSwitch: BrainSwitch,
@@ -331,9 +330,10 @@ class DailyMixStateHolder @Inject constructor(
                 if (allSongs.isNotEmpty()) {
                     val favoriteIds = favoriteSongIdsFlow.first()
                     val yourMix = dailyMixManager.regenerateYourMix(allSongs, favoriteIds)
-                    val yourMixWithOnline = augmentWithOnlineDiscovery(yourMix)
-                    _yourMixSongs.value = yourMixWithOnline.toImmutableList()
-                    userPreferencesRepository.saveYourMixSongIds(yourMixWithOnline.map { it.id })
+                    // The eager catalog import (`MusicDiscoveryRepository`) is deleted (docs/brain-spec.md, 13 "Retire", stage 2): new
+                    // music comes through autoplay, stations and the brain's lists, none of which adds a library row unasked.
+                    _yourMixSongs.value = yourMix.toImmutableList()
+                    userPreferencesRepository.saveYourMixSongIds(yourMix.map { it.id })
                 }
             } finally {
                 _isRegeneratingYourMix.value = false
@@ -341,20 +341,6 @@ class DailyMixStateHolder @Inject constructor(
         }
     }
 
-    /** Add catalog discoveries with a bounded request; offline keeps the local result. */
-    private suspend fun augmentWithOnlineDiscovery(
-        baseMix: List<Song>,
-        maxOnlineSongs: Int = 6
-    ): List<Song> {
-        // Switched off with the music brain (docs/brain-spec.md, section 13 "Retire", stage 1): the
-        // augment imported every track it found into the library before anyone asked for it. New
-        // music now comes through autoplay, stations and the "Because you listened to" row, none of
-        // which adds a library row until the listener saves the track.
-        if (!com.theveloper.pixelplay.data.brain.BrainSwitch.LEGACY_EAGER_DISCOVERY) return baseMix
-        val adjustments = runCatching { dailyMixManager.tasteAdjustmentSnapshot() }
-            .getOrDefault(com.theveloper.pixelplay.data.recommendation.TasteAdjustments.NONE)
-        return musicDiscoveryRepository.augment(baseMix, musicRepository.getAllSongsOnce(), maxOnlineSongs, adjustments)
-    }
 
     /**
      * Force update the daily mix regardless of day.

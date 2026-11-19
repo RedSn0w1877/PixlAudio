@@ -296,3 +296,190 @@ One Gradle build at a time with `ANDROID_HOME="C:\Users\Hoa\AppData\Local\Androi
   saw different Room DAOs).
 - An independent Python implementation of `Tags.merge` (written from the spec) reproduced all 360 `merge` cases of `tags.jsonl`.
 - **Not run**: the instrumented tests (`MusicBrainMigrationInstrumentedTest`, including the new 3-to-4 case): no device.
+
+---
+
+# Milestone 2 of 2b: "it knows your music" (islands, arms, mixes, the new Home)
+
+Read this part after the milestone 1 text above. It continues the numbering at **152**. **Nothing here has run on a device.** "Works"
+means unit tests, compiling, and reading the code path end to end.
+
+Milestone 1 was checked first: `./gradlew :brain:test :app:compileDebugKotlin` was BUILD SUCCESSFUL before any change (its `:brain:test`
+result was the cached pass of the milestone 1 run). Nothing needed fixing.
+
+## What was built, per task
+
+### 1. The pure core (`:brain`, golden-tested)
+
+| File | What |
+|---|---|
+| `Embeddings.kt` (`Embeddings`, `FastRp`) | FastRP over the persisted graph: `R` from `splitmix64(fnv1a64(nodeId) xor j)`, three row-normalised passes, `E = N2 + N3`, Int8[64]; `cos_int8` is an exact integer dot over integer norms. `fnv1a64(nodeId)` is the hash of the id's 8 little-endian bytes. |
+| `Ppr.kt` | Personalised PageRank, 4 iterations, truncation to 3,000 (ties by id), `ppr = p / sqrt(weightedDegree)`; every sum in ascending node id order. |
+| `Islands.kt` (`Islands`, `TagProjection`, `IslandNames`) | Weighted spherical k-means as 5.4 (K0 from n, the init, exactly 15 rounds, merge above 0.85, dissolve under 8, one island under 60 tracks), the hashed 32-dim tag projection, medoid, top tags, **lift tags** (the island's name), top artists, greedy id matching (`matchIds`, floor 0.5, ids are never reused: `lastId`). `IslandNames.pick` takes the two highest-lift atlas genres and skips an ancestor or descendant of the first. |
+| `ArmRules.kt` | BACK (5 completions, a year since, not in the library), SIM sources (artist `aff > 0.5` and weight 5), EDGE `adjacentGenres` (siblings, relatives and fusions of the loved genres that are not an ancestor/descendant, not a family root, `share < 0.005`). |
+| `ListMixes.kt` | On Repeat (21-day positive mass, last 30 days), Rediscover (`aff > 0.5`, 90 days, less the 30-day served penalty), Just Dropped (loved artists first), and `fill` (greedy under 6.4's spacing, with a per-artist cap). |
+| `Calibration.kt` (`Calibration`, `SimilarityIndex`) | `calibGain` and the KL of 6.5; `sim` of 5.3 with embeddings and tags. |
+| `Features.kt` | `Candidate` gained `emb`, `popPermille`, `fresh`, `back`, `edge`, `islandIdx`, `artistNew` (all defaulted, so every older call is unchanged); `IslandContext`; features **5, 6, 19, 20, 39** are filled (4 and 24 were milestone 1). Prior weights are the `M0` of 5.8, untouched. |
+| `HomePlanner.kt` | The page rules of 8.1 (a track once, an artist twice a shelf and four a page, two all-new shelves never adjacent, a familiar shelf in the first three, a short shelf hidden, at most seven), `hero`, `daypart`, `planKey`, `distinctContexts`. |
+| `StationPlanner`, `MixPlanner`, `ListBuilder` | `MODE_FIRST_LISTEN`; island floor 0.2 and `nuOfIsland` clip(0.15, 0.40) for a Daily Mix of one island; Your Mix across islands with `Calibration` (kappa 0.4, lambda 0.6); the arm flags set the arm; `maxPerArtist`, `minNewArtistShare` for First Listen. |
+
+New golden files: **`fastrp`, `ppr`, `islands`, `arms`, `listmixes`, `islandfeatures`, `islandmixes`, `homeplan`** (and `README.md`,
+`MANIFEST.sha256`). **No earlier golden file changed and `SPEC_VERSION` is still 2.** Tests: `Stage2bM2Test` (the planted-cluster
+synthetic listeners: islands recover them with purity at least 0.95 for 3, 4, 5 and 6 clusters; ids stay stable when the taste drifts and
+a new cluster gets a new id; Daily Mix tracks are all within the island floor and different islands share at most 3 tracks; Your Mix keeps
+every island and a calibration KL under 0.15; First Listen is unheard, two an artist at most, 40% new artists; the Home rules on 400
+random pages).
+
+### 2. `brain.db` version 5
+
+Tables `node_embedding(nodeId, embVersion, vec)`, `island(...)`, `island_member(rid, islandId)`; real migration `MIGRATION_4_5`, exported
+schema `5.json`, `MusicBrainMigrationsTest` cases (held against Room's own statements) and `migrates4To5...` in the instrumented test
+(**not run: no device**). No destructive fallback. "Enrichment state" is `brain_state` keys (`island_last_id`, `island_tag_shares`, `emb_count`,
+`island_fit_at`), not a table.
+
+### 3. The mixes (8.2)
+
+`MixSpec` (`MixModel.kt`) names a list: Daily Mix of an island (`daily:<islandId>`, or the one `daily` of 2a with fewer than two islands),
+`your`, `first`, `dropped`, `repeat`, `rediscover`. `BrainMixes` builds them (`MadeForYouBuild.kt` has the pieces): saved in the same
+`served_list` format (new optional fields `mixId`, `islandId`, `number`, `subtitle`; a 2a row still reads), the same all day, back after a
+restart without loading the brain, no track in two lists of a day (`Repetition.takenOnDay(exceptId)`), First Listen weekly (Monday 04:00,
+`ServedListStore.weekStart`) and held against every other list all week. Names come from the island: "Daily Mix 2" and a subtitle of the two
+highest-lift atlas genres and the two biggest artists ("Soft pop & R&B · Sabrina Carpenter, Chappell Roan"); an island with no genre
+shows the artists alone. `today(KIND_DAILY)` (the legacy screens, the widgets) returns Daily Mix 1.
+
+### 4. The new Home (8.1)
+
+`HomePlanBuilder` plans (in the background, never at app start): the made-for-you cards, the shelves in the fixed order (Made for you; up to
+two Because you listened to; New from artists you love; On repeat; Rediscover; Stations for you; A step sideways; More like <album>),
+`HomePlanner` applies the page rules, the hero is chosen, `HomePlanStore` saves `files/brain/home_plan.json` (refuses over 50 KB; a full
+plan of 7 shelves of 12 outside tracks is about 25 KB, tested). `HomePlanStateHolder` (a `@Singleton`) reads that file before anything else,
+shows it, plans again when the local day (04:00) or the daypart or the taste adjustments changed, and shows the new plan the **next time Home
+appears**. `HomeDiscoveryStateHolder.refresh` returns at once when the plan owns Home (the whole-library ranking on every Home start is
+gone), and the Muselle 2 gate (`PlusLicenseManager`) is removed from it. UI: date line ("Friday night"), chips For you / Mixes / New (Spatial
+opens the Cloud processing screen), hero, Jump back in (from `RecentContexts`, the last 6 distinct contexts), shelves; no spinner and no empty
+state: with no plan, Jump back in and the library rows. Mix cards open Daily Mix 1 / Your Mix on their own screens and the rest on the new
+`MixDetailScreen`.
+
+### 5. Genre and mood stations, Search tiles (8.3, 8.10)
+
+`GenreStations`: the listener's songs under an atlas node (tags with weight at least 40 of 255, parents included) seed a `Station` with
+source `SOURCE_GENRE` or `SOURCE_MOOD`, which is the album/playlist station machinery. A name the atlas lacks has no tile and no id; a node with
+none of the listener's songs starts nothing (a Search tile then falls back to its old text search).
+
+### 6. Cold start (8.10)
+
+`ColdStart` fetches the day's first eight seed radios once (the same work as lane 1 of the refresh job, same budget and switches) while Home is on
+screen; Home shows "Getting to know your music · 3 of 8". A library under 30 songs with no picks is offered "Pick three artists you love"
+(`ArtistPickerScreen`, search-based: the app's YouTube Music layer has no chart call, so the chart grid is not built); `PickedArtists` runs the
+artist station start for each pick, keeps it as a seed, and counts as "the brain has state", so Your Mix and one Daily Mix can exist before any
+play. Setup has a new page after Spotify, **Familiar / Blend / Discover** with an "Import your listening history" link (Home opens the
+existing import once).
+
+### 7. Retire
+
+`MusicDiscoveryRepository` and its test are deleted (nothing used it but two switched-off paths). `HomeCatalogRepository` **stays**: the legacy
+Home (engine `legacy`, or no brain state) still uses its releases and `playableSongs`; the "Beyond your library" search stays off. The legacy
+engine, `Muselle` and the golden file of the legacy engine are untouched until stage 3.
+
+### 8. Eval
+
+The synthetic planted-cluster listeners (above). `BrainEvalTest` (the real-export command) compiles unchanged: the scorer's new features are
+zero when no `IslandContext` is passed, which `Eval` does not pass, so test 1 on a real export is the same measurement as in 2a. Islands are not
+in `Eval` yet (see "Cut").
+
+## Deviations 152 and on
+
+152. **Embeddings live in `node_embedding`, not in `track_dna.emb`** (spec 3.2): a node can be an artist or a track with no DNA row, and the table is
+     rewritten whole at each fit (`FastRp.VERSION` 1).
+153. **`w_t` of 5.4** is the track's decayed finished-play mass (the affinity's 120-day half-life) plus its pseudo-count from a like or a top
+     list, not `sum c * r * 2^(-age/180)`; the "21-day weight" is the 21-day positive mass. The spec's per-play 180-day form needs the whole
+     log at fit time; the counters already hold the same quantity. Swap it when the replay path feeds the fit.
+154. **Daily Mix 1..K** are the biggest six islands, numbered by ascending stable id (so a mix keeps its number while its island lives; if an
+     island dissolves the numbers above it move down by one). With fewer than two islands there is the one `daily` list of 2a.
+155. **The diversity term uses `sim` with embeddings and tags only in the island-aware mixes** (`SimilarityIndex`); autoplay, stations and every
+     2a golden case keep the `adj` branch, so no earlier output moved.
+156. **Cold start runs 2 radios in parallel, not 6**: the stage 1 `HostBudget` allows 2 at a time.
+157. **Page rules**: a card shelf (made for you, stations) needs 1 and 4 cards, not 6 (`HomePlanner.MIN_MIX_CARDS`, `MIN_STATION_CARDS`); each
+     card is itself a list. Track shelves keep 6.
+158. **The hero's "release from a top-5 artist"** is a card by one of the five artists with the most decayed play weight.
+159. **"More like <album>"** is built from the cached radios of up to three songs of an album finished (3 songs) in the last 14 days, merged by
+     `cooc`; nothing is fetched for it, so an album whose radios are not cached has no shelf.
+160. **EDGE** takes the listener's loved genres from the tag shares of the last island fit and offers only **library** songs with that strongest
+     genre (DNA for tracks outside the library is cut, so a radio row has no tags). **SIM and BACK are in the pure core and the planner (the arm
+     flags set the arm, the golden files cover the rules) but no app code sets them yet**: SIM needs the similar-artist lists cached for the mixes'
+     pool, BACK needs imported-only tracks matched to a YouTube video. The arms are not "live" until a later milestone feeds them.
+161. **The "Spatial" chip opens the Cloud processing screen** (the app has no spatial shelf for Home; the spec says "unchanged").
+162. **A song's overflow on the new mix screen starts a station** from it; the Daily Mix screens keep the full song sheet.
+163. **Jump back in is read live** from `recent_contexts.json` (written by `PlaybackDispatchStateHolder` when a queue starts), not stored in the
+     plan (the spec's `tiles[6]`): its refresh is "live, local".
+164. **The Muselle 2 gate**: `HomeDiscoveryStateHolder` always asks the legacy planner for the full variant. `PremiumSmartPlaylistEngine`,
+     `PremiumInsightEngine` and `PremiumFeatureLimits` are left for stage 3's deletion (Plus keeps stems and spatial only).
+165. **Features 7, 9, 21, 27, 28 stay 0**: nothing feeds the decade counters, playlist counts, mainstreamness, tempo or loudness yet. 5, 6, 19, 20,
+     39 are live where the pool has the data.
+166. **`ServedListDao` got `latestById` / `countSinceById`, `SeedDao` got `qualifiedPlaysSince`, `healthyListCount`, `recentCompleted`,
+     `GraphEdgeDao` got `all`**: queries only, no schema change.
+167. **First Listen's library part is the unplayed library songs of adjacent genres**; its novel part is the radios of the day's seeds; "never
+     played here" is `Affinity.isHeard(TRACK)`, so a song the listener played from the library in the app counts as played.
+168. **The island refit also runs from the Home plan** (when due and the brain has 10 heard tracks), not only at the end of the refresh job:
+     a new listener should not wait a day for islands. It runs off the main thread, after the first seconds.
+
+## Cut or deferred
+
+- **"Popular where you are"** and the **chart grid** of the picker: the YouTube Music layer has no chart call. The picker is search-based.
+- **Assistant-written island names**, the Ask Taizo prompt pill built from the listener's data (the existing quick action stays), the daypart
+  mix (stage 3), the shelf bandit (stage 3), the learner (stage 3).
+- **Seeding radios from each island's medoid and top tracks** (3.6, "stage 2 with islands"): the day's seeds are the 2a four groups.
+- **Co-play edges and same-playlist edges** in the graph (3.6): the embeddings are over the radio edges, the related edges and the
+  track-artist edges only.
+- **Islands in `Eval`** and tests 2 to 4 of section 11: `Eval` still runs tests 1 and 5; the synthetic listeners check the islands themselves.
+- **A Developer screen section for islands** (count, fit age): not added; `brain_island_fit` and `brain_home_plan` are in `PerformanceMetrics`.
+- **SIM and BACK arms are not fed** (160). **`HomeCatalogRepository` is not deleted** (7).
+- **iOS** is not touched (this is the Android milestone).
+
+## For the iOS port (milestone 2)
+
+- Copy the golden folder as it is (`brain/src/test/resources/brain-golden`): **new files `fastrp`, `ppr`, `islands`, `arms`, `listmixes`,
+  `islandfeatures`, `islandmixes`, `homeplan` (+ `README.md`, `MANIFEST.sha256`); no older file changed, `SPEC_VERSION` is 2.** The case formats
+  are in the README. Port, file for file: `Embeddings.kt` (`FastRp`: `fnv1a64` of the 8 little-endian bytes of the id, `UInt64` remainders for
+  `mod 6`), `Ppr.kt` (ordered maps), `Islands.kt` (`TagProjection` uses `splitmix64(splitmix64(id) xor (j + 1000))` and its low bit), `ArmRules.kt`,
+  `ListMixes.kt`, `Calibration.kt` (`SimilarityIndex`), `HomePlanner.kt`, and the changes to `Features.kt`, `StationPlanner.kt`, `MixPlanner.kt`,
+  `ListBuilder.kt`, `Repetition.kt` (`takenOnDay` with `exceptId`).
+- Stores: `node_embedding(nodeId, embVersion, vec[64])`, `island(islandId, centroid 96 doubles big endian, medoid, topTags/liftTags as 4-byte ints,
+  topArtists as 8-byte longs, weightQ, recentWeightQ, size, fitAtMs)`, `island_member(rid, islandId)`. Keys in `brain_state`: `island_last_id`,
+  `island_tag_shares` (`id:share;...`), `emb_count`, `island_fit_at`, `picked_artists`.
+- `served_list.surfaceId` names the list: `daily`, `daily:<islandId>`, `your`, `first`, `dropped`, `repeat`, `rediscover`; `surface` is 1 for the
+  dailies, 2 for your, 3 for the named ones. First Listen is looked up from Monday 04:00 local.
+- `home_plan.json` (`HomePlan` in `HomePlan.kt`): `planVersion`, `generatedAtMs`, `planKey` (`HomePlanner.planKey`), `taste`, `hero`, `mixes[]`,
+  `shelves[]` with `titleKey` / `titleArg` / `subtitleKey` and `items[]` (`rid`, `aid` as a name hash for the page rules, `songId` or the parsed
+  `row`, `arm`, `whyKey`, `whyName`, `slot`). The strings behind the keys are in `strings_brain.xml` (`brain_home_*`, `brain_mix_*`, `home_*`).
+- Page order and rules: `HomePlanBuilder.plan` (the shelf order is the table of 8.1), then `HomePlanner.plan`. The hero, date line and chips follow
+  `HomePlanStateHolder` / `HomeScreen`. Jump back in reads the last 6 distinct queue contexts.
+- Genre and mood stations: songs under an atlas node (tag weight at least 40 of 255) seed an album-style station (source 4 genre, 5 mood).
+  Search tiles: a station when the atlas has the name and the library has songs under it, else the old search; a name the atlas lacks has no tile.
+- Copy: no string says "learning" or any banned word; `BrainCopyTest` covers `strings_brain.xml`.
+
+## Unverified on a device (new in this milestone)
+
+Everything. In particular: how long `IslandBuilder.fit` takes on a phone with a 3,000-song library (`brain_island_fit`), the graph's size after a
+week of radios, whether the islands on a real library are the sides of someone's taste (the synthetic listeners only prove the code recovers
+planted ones); that the Daily Mixes differ and read right; that the home plan is under 50 KB for a real listener with outside tracks; the look of
+the new Home on a phone (hero, chips, tiles, shelves) and that nothing jumps; that a plan built while Home is open waits for the next
+appearance; the 04:00 and daypart rollover; the first-minute strip and the picker (they call YouTube Music); the picker's search results;
+the genre station start and its first batch; the Search tiles; the new setup page and the history-import link; that `MusicBrainMigrationInstrumentedTest.migrates4To5...`
+passes; that the refresh job still shows ONE entry in `dumpsys jobscheduler`.
+
+## How to test on a phone
+
+1. Update the app over a build with brain.db 4: it opens (migration 4 to 5). Developer mode > Brain data is unchanged.
+2. Play 10 different songs and leave Home open for a few seconds. Home should show the plan the next time it appears (leave and return): date
+   line, chips, hero, Jump back in, "Made for you". Kill and reopen: it paints from `home_plan.json` with no wait (`adb shell run-as <pkg> ls files/brain`).
+3. After the first refresh (or `adb shell cmd jobscheduler run -f <pkg> <id of brain_refresh>`), the islands are fitted: Daily Mix 1..K appear with
+   names such as "Soft pop & R&B · Artist, Artist".
+4. Tap a genre card under "Stations for you": a station starts and the queue header says "Station · <genre>". On Search, tap Pop: same.
+5. A fresh install with Spotify connected: the strip "Getting to know your music" counts to 8 and goes. With a library under 30 songs:
+   "Pick three artists you love" appears; pick three; Your Mix exists.
+6. Setup: the new page after Spotify. "Import your listening history" opens the import on first Home.
+
+## What was run, and what it said (milestone 2)
+
+(see the end of this file for the final numbers)

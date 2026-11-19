@@ -56,6 +56,14 @@ sealed class Screen(val route: String) {
     object BlockedArtists : Screen("blocked_artists")
     /** Settings > Developer mode > Brain data (stage 2b). */
     object BrainData : Screen("brain_data")
+
+    /** One made-for-you list (Daily Mix 2..K, First Listen, Just Dropped) opened from Home (docs/brain-spec.md, 8.2). */
+    object MixDetail : Screen("made_for_you/{mixId}") {
+        fun createRoute(mixId: String) = "made_for_you/${java.net.URLEncoder.encode(mixId, "UTF-8")}"
+    }
+
+    /** "Pick three artists you love" (docs/brain-spec.md, 8.10). */
+    object ArtistPicker : Screen("artist_picker")
     object ListeningHistory : Screen("listening_history")
     object TasteChanges : Screen("taste_changes")
     object DelimiterConfig : Screen("delimiter_config")

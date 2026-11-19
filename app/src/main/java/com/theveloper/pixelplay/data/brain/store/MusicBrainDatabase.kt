@@ -29,8 +29,11 @@ import androidx.room.RoomDatabase
         TrackDnaEntity::class,
         ArtistDnaEntity::class,
         SourceMissEntity::class,
+        NodeEmbeddingEntity::class,
+        IslandEntity::class,
+        IslandMemberEntity::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = true,
 )
 abstract class MusicBrainDatabase : RoomDatabase() {
@@ -48,6 +51,8 @@ abstract class MusicBrainDatabase : RoomDatabase() {
     abstract fun trackDnaDao(): TrackDnaDao
     abstract fun artistDnaDao(): ArtistDnaDao
     abstract fun sourceMissDao(): SourceMissDao
+    abstract fun embeddingDao(): EmbeddingDao
+    abstract fun islandDao(): IslandDao
 
     companion object {
         const val FILE_NAME = "brain.db"

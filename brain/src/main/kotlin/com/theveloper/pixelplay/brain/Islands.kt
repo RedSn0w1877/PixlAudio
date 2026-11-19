@@ -69,7 +69,15 @@ object Islands {
         val memberIslandIds: IntArray,
         /** The largest island id ever used: pass it as `nextId - 1` to the next fit so ids are never reused. */
         val maxId: Int,
+        /** Atlas ids the listener's tracks carry, and each one's share of their weighted tag mass; ascending id. */
+        val tagIds: IntArray = IntArray(0),
+        val tagShares: DoubleArray = DoubleArray(0),
     ) {
+        fun tagShare(atlasId: Int): Double {
+            val i = java.util.Arrays.binarySearch(tagIds, atlasId)
+            return if (i >= 0) tagShares[i] else 0.0
+        }
+
         fun islandOf(rid: Long): Int {
             var lo = 0
             var hi = memberRids.size - 1
@@ -242,7 +250,9 @@ object Islands {
             rids[k] = used[order[k]].rid
             owner[k] = idByTempCluster[assign[order[k]]] ?: 0
         }
-        return Fit(islands, rids, owner, maxId)
+        val tagIds = globalMass.keys.toIntArray()
+        val tagShares = DoubleArray(tagIds.size) { if (globalTotal > 0.0) globalMass[tagIds[it]]!! / globalTotal else 0.0 }
+        return Fit(islands, rids, owner, maxId, tagIds, tagShares)
     }
 
     private fun nearest(p: DoubleArray, centres: List<DoubleArray>): Int {
@@ -431,5 +441,34 @@ object TagProjection {
         }
         for (j in 0 until DIM) out[j] *= SCALE
         return out
+    }
+}
+
+/**
+ * The name of an island (docs/brain-spec.md, 8.2): its two tags with the highest lift over the listener's average,
+ * by atlas name. A tag that is an ancestor or a descendant of the first one is skipped (so "pop" does not follow
+ * "dance-pop"). Only real atlas genres are returned: an island with no tags has no name, and the surface shows
+ * "Daily Mix N" and the artists alone.
+ */
+object IslandNames {
+    fun pick(atlas: GenreAtlas, liftTags: IntArray, count: Int = 2): IntArray {
+        val out = ArrayList<Int>(count)
+        for (id in liftTags) {
+            val g = atlas.genre(id) ?: continue
+            if (g.name.isEmpty()) continue
+            var related = false
+            for (chosen in out) {
+                if (atlas.ancestors(chosen).contains(id) || atlas.ancestors(id).contains(chosen)) related = true
+            }
+            if (related) continue
+            out.add(id)
+            if (out.size >= count) break
+        }
+        return out.toIntArray()
+    }
+
+    private fun IntArray.contains(v: Int): Boolean {
+        for (x in this) if (x == v) return true
+        return false
     }
 }

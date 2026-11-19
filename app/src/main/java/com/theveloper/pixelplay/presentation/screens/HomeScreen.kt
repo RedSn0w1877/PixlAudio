@@ -89,6 +89,15 @@ import com.theveloper.pixelplay.presentation.components.HomeGradientTopBar
 import com.theveloper.pixelplay.presentation.components.HomeGreetingCard
 import com.theveloper.pixelplay.presentation.components.HomeDiscoveryMixes
 import com.theveloper.pixelplay.presentation.components.HomeDiscoveryShelf
+import com.theveloper.pixelplay.presentation.components.HomeAllMixes
+import com.theveloper.pixelplay.presentation.components.HomeChip
+import com.theveloper.pixelplay.presentation.components.HomeChipsRow
+import com.theveloper.pixelplay.presentation.components.HomeDateLine
+import com.theveloper.pixelplay.presentation.components.HomeHeroCard
+import com.theveloper.pixelplay.presentation.components.HomeJumpBackIn
+import com.theveloper.pixelplay.presentation.components.HomeKnowingStrip
+import com.theveloper.pixelplay.presentation.components.HomeMixShelf
+import com.theveloper.pixelplay.presentation.components.HomeStationShelf
 import com.theveloper.pixelplay.presentation.components.HomeQuickAction
 import com.theveloper.pixelplay.presentation.components.HomeQuickActionsRow
 import com.theveloper.pixelplay.presentation.components.MiniPlayerHeight
@@ -148,6 +157,18 @@ fun HomeScreen(
     val listeningHistoryStatus by listeningHistoryViewModel.status.collectAsStateWithLifecycle()
     val showListeningHistoryCard = !listeningHistoryStatus.homeCardDismissed && !listeningHistoryStatus.hasSpotifyExport
     val discovery by discoveryViewModel.state.collectAsStateWithLifecycle()
+    // The brain's Home plan (docs/brain-spec.md, 8.1, stage 2): read from its file before anything else; `owned` false is the legacy page.
+    val planUi by discoveryViewModel.planState.collectAsStateWithLifecycle()
+    var homeChip by rememberSaveable { mutableStateOf(HomeChip.FOR_YOU) }
+    LaunchedEffect(Unit) { discoveryViewModel.onHomeShown() }
+    // "Import your listening history" from the setup page: the existing import opens once, as soon as Home is here.
+    val pendingHistoryImport by discoveryViewModel.pendingHistoryImport.collectAsStateWithLifecycle(initialValue = false)
+    LaunchedEffect(pendingHistoryImport) {
+        if (pendingHistoryImport) {
+            discoveryViewModel.clearPendingHistoryImport()
+            navController.navigateSafely(Screen.ListeningHistory.route)
+        }
+    }
     val discoverySnackbar = remember { SnackbarHostState() }
     LaunchedEffect(homeMixPreviewSongs.isNotEmpty()) { discoveryViewModel.refresh() }
     val discoveryRefreshScope = rememberCoroutineScope()
@@ -161,6 +182,7 @@ fun HomeScreen(
                 pendingStartRefresh = discoveryRefreshScope.launch {
                     delay(HomeDiscoveryStartRefreshDelayMs)
                     discoveryViewModel.refresh()
+                    discoveryViewModel.onHomeShown()
                 }
             }
         }
@@ -398,6 +420,9 @@ fun HomeScreen(
                 ),
                 verticalArrangement = Arrangement.spacedBy(24.dp)
             ) {
+                if (planUi.owned && planUi.dateLine.isNotBlank()) {
+                    item(key = "home_date_line", contentType = "home_date_line") { HomeDateLine(planUi.dateLine) }
+                }
                 item(
                     key = "home_greeting",
                     contentType = "home_greeting"
@@ -446,7 +471,50 @@ fun HomeScreen(
                     }
                 }
 
-                if (discovery.mixes.isNotEmpty()) {
+                // 8.10: while the first radios are fetched, Home says so; it never shows a spinner or an empty state for it.
+                if (planUi.knowingTotal > 0) {
+                    item(key = "home_knowing", contentType = "home_knowing") { HomeKnowingStrip(planUi.knowingDone, planUi.knowingTotal) }
+                }
+                if (planUi.offerPicker) {
+                    item(key = "home_artist_picker", contentType = "home_artist_picker") {
+                        HomeArtistPickerCard(
+                            onPick = { navController.navigateSafely(Screen.ArtistPicker.route) },
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = greetingHorizontalPadding),
+                        )
+                    }
+                }
+                if (planUi.owned) {
+                    item(key = "home_chips", contentType = "home_chips") {
+                        HomeChipsRow(
+                            selected = homeChip,
+                            onSelect = { chip ->
+                                if (chip == HomeChip.SPATIAL) navController.navigateSafely(Screen.CloudProcessing.route) else homeChip = chip
+                            },
+                        )
+                    }
+                }
+                if (planUi.owned || planUi.tiles.isNotEmpty()) {
+                    homePlanItems(
+                        planUi = planUi,
+                        chip = homeChip,
+                        currentSongId = currentSong?.id,
+                        onOpenMix = { card -> openMix(navController, card) },
+                        onStartStation = { card -> playerViewModel.startGenreStation(card.kind, card.atlasId, card.name) },
+                        onPlayShelf = { section, song ->
+                            discoveryViewModel.playPlanShelf(section, song) { songs, start -> playerViewModel.showAndPlaySong(start, songs, section.title) }
+                        },
+                        onHero = { hero ->
+                            val song = hero.song
+                            if (song != null) discoveryViewModel.playHeroRelease(song) { songs, start -> playerViewModel.showAndPlaySong(start, songs, hero.title) }
+                            else openMixById(navController, hero.mixId)
+                        },
+                        onTile = { tile ->
+                            if (tile.mixId.isNotEmpty()) openMixById(navController, tile.mixId)
+                            else discoveryViewModel.playTile(tile) { songs, start -> playerViewModel.showAndPlaySong(start, songs, tile.title) }
+                        },
+                    )
+                }
+                if (!planUi.owned && discovery.mixes.isNotEmpty()) {
                     item(key = "home_adaptive_mixes", contentType = "home_adaptive_mixes") {
                         HomeDiscoveryMixes(
                             mixes = discovery.mixes,
@@ -462,7 +530,9 @@ fun HomeScreen(
                     }
                 }
 
-                if (yourMixSongs.isEmpty()) {
+                if (planUi.owned) {
+                    // The plan's "Made for you" shelf holds Your Mix: the legacy block, its placeholders included, is not drawn.
+                } else if (yourMixSongs.isEmpty()) {
                     item(
                         key = "your_mix_placeholder",
                         contentType = "your_mix_placeholder"
@@ -528,7 +598,7 @@ fun HomeScreen(
                     }
                 }
 
-                discovery.shelves.forEach { section ->
+                (if (planUi.owned) emptyList() else discovery.shelves).forEach { section ->
                     item(key = "home_discovery_${section.id}", contentType = "home_discovery_shelf") {
                         HomeDiscoveryShelf(
                             section = section,
@@ -870,3 +940,93 @@ fun SongListItemFavsWrapper(
 
 /** A little longer than the 350 ms shared-axis pop into Home. */
 private const val HomeDiscoveryStartRefreshDelayMs = 450L
+
+/** A card of "Made for you" was tapped (8.2): Daily Mix 1 and Your Mix have their own screens, the others open the list. */
+private fun openMix(navController: NavController, card: com.theveloper.pixelplay.presentation.viewmodel.MixCardUi) {
+    when {
+        card.mixId == "your" -> navController.navigateSafely(Screen.YourMixScreen.route)
+        card.mixId == "daily" || (card.kind == com.theveloper.pixelplay.data.brain.MixKinds.DAILY && card.number == 1) ->
+            navController.navigateSafely(Screen.DailyMixScreen.route)
+        else -> navController.navigateSafely(Screen.MixDetail.createRoute(card.mixId))
+    }
+}
+
+private fun openMixById(navController: NavController, mixId: String) {
+    when {
+        mixId.isEmpty() -> Unit
+        mixId == "your" -> navController.navigateSafely(Screen.YourMixScreen.route)
+        mixId == "daily" -> navController.navigateSafely(Screen.DailyMixScreen.route)
+        else -> navController.navigateSafely(Screen.MixDetail.createRoute(mixId))
+    }
+}
+
+/**
+ * The new Home's rows (8.1): the hero, Jump back in, then the shelves of the plan in the plan's order; the chips pick what shows. Every
+ * item is keyed. Without a plan only Jump back in is drawn, and the library rows below it carry the page.
+ */
+private fun androidx.compose.foundation.lazy.LazyListScope.homePlanItems(
+    planUi: com.theveloper.pixelplay.presentation.viewmodel.HomePlanUi,
+    chip: HomeChip,
+    currentSongId: String?,
+    onOpenMix: (com.theveloper.pixelplay.presentation.viewmodel.MixCardUi) -> Unit,
+    onStartStation: (com.theveloper.pixelplay.presentation.viewmodel.StationCardUi) -> Unit,
+    onPlayShelf: (com.theveloper.pixelplay.data.recommendation.HomeMusicSection, Song) -> Unit,
+    onHero: (com.theveloper.pixelplay.presentation.viewmodel.HeroUi) -> Unit,
+    onTile: (com.theveloper.pixelplay.presentation.viewmodel.TileUi) -> Unit,
+) {
+    fun shelves(list: List<com.theveloper.pixelplay.presentation.viewmodel.HomeShelfUi>) {
+        for (shelf in list) {
+            item(key = "home_plan_${shelf.id}", contentType = when (shelf) {
+                is com.theveloper.pixelplay.presentation.viewmodel.HomeShelfUi.Tracks -> "home_discovery_shelf"
+                is com.theveloper.pixelplay.presentation.viewmodel.HomeShelfUi.Mixes -> "home_plan_mixes"
+                is com.theveloper.pixelplay.presentation.viewmodel.HomeShelfUi.Stations -> "home_plan_stations"
+            }) {
+                when (shelf) {
+                    is com.theveloper.pixelplay.presentation.viewmodel.HomeShelfUi.Tracks ->
+                        HomeDiscoveryShelf(section = shelf.section, currentSongId = currentSongId, preparingSection = null, onPlay = onPlayShelf)
+                    is com.theveloper.pixelplay.presentation.viewmodel.HomeShelfUi.Mixes -> HomeMixShelf(shelf, onOpenMix)
+                    is com.theveloper.pixelplay.presentation.viewmodel.HomeShelfUi.Stations -> HomeStationShelf(shelf, onStartStation)
+                }
+            }
+        }
+    }
+    if (!planUi.owned) {
+        item(key = "home_jump_back_in", contentType = "home_jump_back_in") { HomeJumpBackIn(planUi.tiles, onTile) }
+        return
+    }
+    when (chip) {
+        HomeChip.MIXES -> {
+            item(key = "home_all_mixes", contentType = "home_all_mixes") { HomeAllMixes(planUi.allMixes, onOpenMix) }
+        }
+        HomeChip.NEW -> shelves(planUi.newShelves)
+        else -> {
+            planUi.hero?.let { hero ->
+                item(key = "home_hero", contentType = "home_hero") { HomeHeroCard(hero, onClick = { onHero(hero) }) }
+            }
+            item(key = "home_jump_back_in", contentType = "home_jump_back_in") { HomeJumpBackIn(planUi.tiles, onTile) }
+            shelves(planUi.shelves)
+        }
+    }
+}
+
+/** "Pick three artists you love" (8.10): offered to a thin library. */
+@androidx.compose.runtime.Composable
+private fun HomeArtistPickerCard(onPick: () -> Unit, modifier: Modifier = Modifier) {
+    androidx.compose.material3.Card(
+        onClick = onPick,
+        modifier = modifier,
+        colors = androidx.compose.material3.CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(28.dp),
+    ) {
+        androidx.compose.foundation.layout.Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            androidx.compose.material3.Text(
+                androidx.compose.ui.res.stringResource(com.theveloper.pixelplay.R.string.pick_artists_title),
+                style = MaterialTheme.typography.titleLarge,
+            )
+            androidx.compose.material3.Text(
+                androidx.compose.ui.res.stringResource(com.theveloper.pixelplay.R.string.home_artist_picker_card),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        }
+    }
+}

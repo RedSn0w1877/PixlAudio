@@ -26,9 +26,11 @@ class ServedListStore @Inject constructor(
     private val clock: BrainClock,
 ) {
     /** The mix of [surface] built on the local day of [nowMs], newest build, or null. */
-    suspend fun todays(surface: Int, nowMs: Long, tzOffsetMin: Int): StoredMix? {
+    suspend fun todays(surface: Int, nowMs: Long, tzOffsetMin: Int, surfaceId: String? = null, weekly: Boolean = false): StoredMix? {
+        val since = if (weekly) weekStart(nowMs, tzOffsetMin) else dayStart(nowMs, tzOffsetMin)
         val row = try {
-            dao.latest(surface, dayStart(nowMs, tzOffsetMin)) ?: return null
+            (if (surfaceId == null) dao.latest(surface, since)
+            else dao.latestById(surface, surfaceId, since)) ?: return null
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -41,8 +43,11 @@ class ServedListStore @Inject constructor(
     }
 
     /** How many lists [surface] already got today: the draw number of the next "Regenerate". */
-    suspend fun buildsToday(surface: Int, nowMs: Long, tzOffsetMin: Int): Int =
-        runCatching { dao.countSince(surface, dayStart(nowMs, tzOffsetMin)) }.getOrDefault(0)
+    suspend fun buildsToday(surface: Int, nowMs: Long, tzOffsetMin: Int, surfaceId: String? = null): Int =
+        runCatching {
+            if (surfaceId == null) dao.countSince(surface, dayStart(nowMs, tzOffsetMin))
+            else dao.countSinceById(surface, surfaceId, dayStart(nowMs, tzOffsetMin))
+        }.getOrDefault(0)
 
     /** Every list of the last [Repetition.RETENTION_MS], as the budget reads them. */
     suspend fun recent(nowMs: Long): List<Repetition.Served> {
@@ -57,7 +62,7 @@ class ServedListStore @Inject constructor(
         val out = ArrayList<Repetition.Served>(rows.size)
         for (row in rows) {
             val mix = MixCodec.decode(row.itemsBlob) ?: continue
-            out.add(Repetition.Served(row.surface, row.builtAt, LongArray(mix.items.size) { mix.items[it].rid }))
+            out.add(Repetition.Served(row.surface, row.builtAt, LongArray(mix.items.size) { mix.items[it].rid }, row.surfaceId))
         }
         return out
     }
@@ -87,6 +92,12 @@ class ServedListStore @Inject constructor(
         /** The start of the local day [nowMs] is in; a day starts at 04:00 (10.3, rule 12). */
         fun dayStart(nowMs: Long, tzOffsetMin: Int): Long =
             Repetition.mixDay(nowMs, tzOffsetMin) * Repetition.DAY_MS - tzOffsetMin * 60_000L + 14_400_000L
+
+        /** The start of the week (Monday 04:00 local) [nowMs] is in: First Listen is built then and fixed all week (8.2). */
+        fun weekStart(nowMs: Long, tzOffsetMin: Int): Long {
+            val weekday = com.theveloper.pixelplay.brain.HomePlanner.weekday(nowMs - 14_400_000L, tzOffsetMin)
+            return dayStart(nowMs, tzOffsetMin) - weekday * Repetition.DAY_MS
+        }
 
         /** `(builtAtMs << 8) | surface`: unique per build, time-ordered, like an event id. */
         fun recIdOf(builtAtMs: Long, surface: Int): Long = (builtAtMs shl 8) or (0xA0 + surface).toLong()

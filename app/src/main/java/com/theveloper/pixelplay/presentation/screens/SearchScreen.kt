@@ -1,5 +1,6 @@
 package com.theveloper.pixelplay.presentation.screens
 
+import com.theveloper.pixelplay.presentation.screens.search.components.DefaultSearchCategories
 import com.theveloper.pixelplay.presentation.components.AdaptiveClickableSurface
 import com.theveloper.pixelplay.presentation.components.AdaptiveClickableCard
 
@@ -272,6 +273,13 @@ fun SearchScreen(
     }.collectAsStateWithLifecycle(initialValue = SearchUiSlice())
     val currentFilter = searchUiState.selectedSearchFilter
     val genres by playerViewModel.genres.collectAsStateWithLifecycle()
+    // The Browse tiles the atlas knows (8.10): a genre it lacks has no tile. Null (every tile, as before) with the legacy engine or no atlas.
+    val brainTiles by androidx.compose.runtime.produceState<Set<String>?>(null, playerViewModel) {
+        value = playerViewModel.knownGenreTiles(DefaultSearchCategories.map { it.name })
+    }
+    val tileCategories = remember(brainTiles) {
+        brainTiles?.let { known -> DefaultSearchCategories.filter { it.name in known } } ?: DefaultSearchCategories
+    }
     val playbackRowState = rememberPlaybackRowState(playerViewModel.stablePlayerState)
     val favoriteSongIds by playerViewModel.favoriteSongIds.collectAsStateWithLifecycle()
     val selectedSongForInfo by playerViewModel.selectedSongForInfo.collectAsStateWithLifecycle()
@@ -439,10 +447,14 @@ fun SearchScreen(
                                 // sale es una selección viva y no las mismas canciones ya
                                 // importadas.
                                 onCategoryClick = { category ->
-                                    navController.navigateSafely(
-                                        Screen.SpotifyBrowse.createRoute(category.query)
-                                    )
+                                    val browse: () -> Unit = {
+                                        navController.navigateSafely(Screen.SpotifyBrowse.createRoute(category.query))
+                                    }
+                                    // With the brain engine on a tile is a station when the atlas knows the genre and the
+                                    // listener has songs under it (8.3); otherwise it is the live search it always was.
+                                    if (brainTiles != null) playerViewModel.startGenreStationByName(category.name, browse) else browse()
                                 },
+                                categories = tileCategories,
                                 playerViewModel = playerViewModel,
                                 modifier = Modifier.padding(top = 12.dp),
                                 isSelectionMode = isGenreSelectionMode,
