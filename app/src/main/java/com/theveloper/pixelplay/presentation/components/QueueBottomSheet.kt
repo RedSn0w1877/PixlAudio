@@ -102,6 +102,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.rememberUpdatedState
@@ -327,7 +328,10 @@ fun QueueBottomSheet(
     }
 
     // Set notes (docs/brain-spec.md, 9.3): one line before a group of upcoming songs, made from the queue itself with no model call.
-    val setNotes = remember(queue, currentSongIndex) { SetNoteLines.forQueue(queue, currentSongIndex).bySongId }
+    val heardSongIds by produceState<Set<String>?>(null, queue, currentSongIndex) {
+        value = viewModel.brainSession.setNoteHistory.heardSongIds(SetNoteLines.window(queue, currentSongIndex))
+    }
+    val setNotes = remember(queue, currentSongIndex, heardSongIds) { SetNoteLines.forQueue(queue, currentSongIndex, heardSongIds).byIndex }
 
     // Offset to convert display indices to queue indices when history is hidden.
     val queueIndexOffset = if (showQueueHistory || currentSongIndex < 0) 0 else currentSongIndex
@@ -950,7 +954,7 @@ fun QueueBottomSheet(
                                             onRefreshPicks = if (hasUpcomingEngineItems) brainUi?.refreshPicks else null
                                         )
                                     }
-                                    setNotes[song.id]?.let { note -> if (canReorder || index == currentSongDisplayIndex) SetNoteRowLabel(note) }
+                                    setNotes[index + queueIndexOffset]?.let { note -> if (canReorder || index == currentSongDisplayIndex) SetNoteRowLabel(note) }
                                     val why = queueWhy[song.id]
                                     val whyText = if (why != null) whyLineText(why.key, why.arg) else null
                                     QueuePlaylistSongItem(

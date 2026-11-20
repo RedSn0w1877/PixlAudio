@@ -198,9 +198,11 @@ class TaizoMusicToolsTest {
         val b = backend.add(yt(2), "Good Luck, Babe!", "Chappell Roan", 2024)
         backend.mixTracks = listOf(a, b)
         grounding.noteTrack(a)
+        // Genre ids the model may use are the ones lookup_genre returned in this chat: 5 and 7 were, 9 was not.
+        grounding.noteToolResult("""{"found":true,"kind":"genre","id":5,"name":"Soul","parents":[{"id":7,"name":"R&B"}]}""")
         val out = run(
             TaizoTools.BUILD_MIX,
-            """{"title":"  Late   drive\n","seed_refs":["${yt(1)}","${yt(99)}"],"genre_ids":[5,5,0,7],"mood_ids":[],"year_from":2024,"year_to":2000,
+            """{"title":"  Late   drive\n","seed_refs":["${yt(1)}","${yt(99)}"],"genre_ids":[5,5,0,7,9],"mood_ids":[],"year_from":2024,"year_to":2000,
                 "energy":"lower","tempo":"slow","novelty_share_pct":150,"length":500,"exclude_artist_refs":[]}""".replace("\n", " "),
         )
         val q = backend.mixQueries.single()
@@ -216,6 +218,7 @@ class TaizoMusicToolsTest {
         assertThat(out["mix_id"]!!.jsonPrimitive.content).isEqualTo("m1")
         assertThat(out["total"]!!.jsonPrimitive.intOrNull).isEqualTo(2)
         assertThat(out["refs_ignored"]!!.jsonArray.map { it.jsonPrimitive.content }).containsExactly(yt(99))
+        assertThat(out["ids_ignored"]!!.jsonArray.map { it.jsonPrimitive.content }).containsExactly("genre 9")
         assertThat(out["note"]!!.jsonPrimitive.content).contains("mix:m1")
         // Both tracks were returned, so both may be named; one nobody returned may not.
         assertThat(grounding.check("[[Espresso]] and [[Good Luck, Babe!]]", "(?)").ok).isTrue()
@@ -321,6 +324,7 @@ class TaizoMusicToolsTest {
 
     @Test
     fun `explain_track lists what it does not know and invents none of it`() {
+        grounding.noteTrack(backend.add(yt(1), "Song", "Artist"))
         backend.explanation = TrackExplanation(
             ref = yt(1), title = "Song", artist = "Artist", arm = null, whyKey = null, whyArgs = emptyList(), factors = null,
             genres = null, year = 0, plays = null, completionRate = null,
@@ -339,6 +343,7 @@ class TaizoMusicToolsTest {
 
     @Test
     fun `explain_track reports factors by name and direction only, with the real numbers it has`() {
+        grounding.noteTrack(backend.add(yt(1), "Song", "Artist"))
         backend.explanation = TrackExplanation(
             ref = yt(1), title = "Song", artist = "Artist", arm = "RADIO", whyKey = "radio_fans", whyArgs = listOf("Sabrina Carpenter"),
             factors = listOf(AssistantRules.Factor("you play this artist", true), AssistantRules.Factor("it is far from what you usually play", false)),
@@ -354,6 +359,34 @@ class TaizoMusicToolsTest {
         assertThat(out["unknown"]!!.jsonArray).isEmpty()
         assertThat(grounding.check("You played it 12 times and finished 75% of them.", "(?)").ok).isTrue()
         assertThat(grounding.check("You played it 30 times.", "(?)").ok).isFalse()
+    }
+
+    @Test
+    fun `explain_track and steer_session refuse a ref no tool returned in this chat`() {
+        backend.explanation = TrackExplanation(
+            ref = yt(1), title = "Song", artist = "Artist", arm = null, whyKey = null, whyArgs = emptyList(), factors = null,
+            genres = null, year = 0, plays = null, completionRate = null,
+        )
+        val explain = run(TaizoTools.EXPLAIN_TRACK, """{"ref":"${yt(1)}"}""")
+        assertThat(explain["found"]!!.jsonPrimitive.content).isEqualTo("false")
+        val steer = run(TaizoTools.STEER_SESSION, """{"change":"less_artist","target":"${yt(1)}","scope":"session"}""")
+        assertThat(steer["applied"]!!.jsonPrimitive.content).isEqualTo("false")
+        assertThat(backend.steerCalls).isEmpty()
+    }
+
+    @Test
+    fun `a confirmation names the artist or genre, not an id, and a station after a web page asks too`() {
+        grounding.noteTrack(backend.add(yt(1), "Espresso", "Sabrina Carpenter, Chappell Roan", 2024))
+        grounding.noteToolResult("""{"found":true,"kind":"genre","id":417,"name":"Trap"}""")
+        val artist = tools.confirmationFor(TaizoTools.STEER_SESSION, json("""{"change":"less_artist","target":"${yt(1)}","scope":"always"}"""), untrusted = false)
+        assertThat(artist).contains("Sabrina Carpenter")
+        assertThat(artist).doesNotContain("yt:")
+        val genre = tools.confirmationFor(TaizoTools.STEER_SESSION, json("""{"change":"more_genre","target":"417","scope":"always"}"""), untrusted = false)
+        assertThat(genre).contains("Trap")
+        assertThat(genre).doesNotContain("417")
+        val station = json("""{"seed_ref":"Radiohead","seed_kind":"artist","mode":"blend"}""")
+        assertThat(tools.confirmationFor(TaizoTools.START_STATION, station, untrusted = false)).isNull()
+        assertThat(tools.confirmationFor(TaizoTools.START_STATION, station, untrusted = true)).contains("Radiohead")
     }
 
     @Test
@@ -405,6 +438,9 @@ class TaizoMusicToolsTest {
         backend.similar = SimilarArtists((1..40).map { SimilarArtist("Artist $it", yt(it), 1.0 - it / 100.0, listOf("radio")) })
         val s = run(TaizoTools.SIMILAR_ARTISTS, """{"artist":"X","count":50,"only_unplayed":false}""")
         assertThat(s["artists"]!!.jsonArray).hasSize(25)
+        // A position, never a percentage: the best neighbour of a weak graph would be "100".
+        assertThat(s["artists"]!!.jsonArray[0].jsonObject["rank"]!!.jsonPrimitive.intOrNull).isEqualTo(1)
+        assertThat(s["artists"]!!.jsonArray[0].jsonObject["score"]).isNull()
         assertThat(s["artists"]!!.jsonArray[0].jsonObject["ref"]!!.jsonPrimitive.content).isEqualTo(yt(1))
         backend.releases = ReleaseList((1..30).map { ReleaseInfo("Album $it", "Artist", "album", 2026, yt(it)) })
         val r = run(TaizoTools.NEW_RELEASES, """{"scope":"my_artists","count":10}""")

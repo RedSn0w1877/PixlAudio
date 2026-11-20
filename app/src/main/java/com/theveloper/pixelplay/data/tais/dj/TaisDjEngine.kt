@@ -29,7 +29,8 @@ sealed interface TaizoTurn {
      * so a slow model never holds the result card back.
      */
     data class Media(val intent: DjIntent, val result: DjRouteResult, val aiIntro: String? = null) : TaizoTurn
-    data class Conversation(val text: String) : TaizoTurn
+    /** [facts] is the library text the phone's model was shown (names and numbers it may say back); empty when the answer used none. */
+    data class Conversation(val text: String, val facts: String = "") : TaizoTurn
 
     /** "Start a station from [name]": read by rules, so it works with no connection (docs/brain-spec.md, 14 stage 4). The chat starts it. */
     data class Station(val name: String) : TaizoTurn
@@ -72,9 +73,10 @@ class TaisDjEngine @Inject constructor(
 
         return try {
             val onDevice = forceOnDevice || aiHandler.currentRoute() is AiRoute.OnDevice
+            var facts = ""
             val reply = withTimeoutOrNull(CHAT_TIMEOUT_MS) {
                 if (onDevice) {
-                    answerOnDevice(prompt, memory)
+                    answerOnDevice(prompt, memory) { facts = it }
                 } else {
                     aiHandler.generateContent(prompt = prompt, type = AiSystemPromptType.TAIZO_CHAT)
                 }
@@ -82,7 +84,7 @@ class TaisDjEngine @Inject constructor(
                 context.getString(if (onDevice) R.string.ai_on_device_error_slow else R.string.taizo_cloud_too_slow)
             )
             if (reply.isBlank()) TaizoTurn.Error(context.getString(R.string.taizo_empty_reply))
-            else TaizoTurn.Conversation(reply.trim())
+            else TaizoTurn.Conversation(reply.trim(), facts)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -135,8 +137,9 @@ class TaisDjEngine @Inject constructor(
         }.onFailure { if (it is CancellationException) throw it }
     }
 
-    private suspend fun answerOnDevice(question: String, memory: TaizoMemory?): String {
+    private suspend fun answerOnDevice(question: String, memory: TaizoMemory?, onFacts: (String) -> Unit = {}): String {
         val facts = TokenBudget.clamp(libraryLookup.factsFor(question), OnDevicePrompts.TAIZO_FACTS_TOKENS)
+        onFacts(facts)
         val recent = memory?.render().orEmpty()
         val prompt = buildString {
             if (facts.isNotBlank()) append("<library_facts>\n").append(facts).append("\n</library_facts>\n")

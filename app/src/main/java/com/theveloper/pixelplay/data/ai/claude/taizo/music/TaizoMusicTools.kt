@@ -79,6 +79,8 @@ class TaizoMusicTools(
         val next = backend.adjustMix(mixId, chip) ?: return null
         for (p in next.tracks) notePick(p)
         grounding.noteName(next.title)
+        // The card takes the new list in place of the old one: the old record goes, so chips never push another card out.
+        synchronized(builtMixes) { builtMixes.remove(mixId) }
         remember(next)
         return MixCard.of(next)
     }
@@ -115,12 +117,15 @@ class TaizoMusicTools(
         TaizoTools.STEER_SESSION -> {
             val change = input.str("change").orEmpty()
             val scope = input.str("scope").orEmpty()
+            val what = describeChange(change, input.str("target").orEmpty())
             when {
-                scope == "always" -> "Keep this for good: ${describeChange(change, input.str("target").orEmpty())}? You can undo it in Settings."
-                untrusted -> "${describeChange(change, input.str("target").orEmpty()).replaceFirstChar { it.uppercase() }} for this queue?"
+                scope == "always" -> "Keep this for good: $what? You can undo it in Settings."
+                untrusted -> "${what.replaceFirstChar { it.uppercase() }} for this queue?"
                 else -> null
             }
         }
+        // A station that starts after text from a web page or lyrics asks too: the page's say-so is not the listener's.
+        TaizoTools.START_STATION -> if (untrusted) "Start a station from ${describeSeed(input.str("seed_kind").orEmpty(), input.str("seed_ref").orEmpty())}?" else null
         else -> null
     }
 
@@ -190,8 +195,9 @@ class TaizoMusicTools(
     private suspend fun recommend(input: JsonObject): JsonObject {
         val unknown = ArrayList<String>()
         val seeds = grounding.known(input.strings("seed_refs"), unknown)
+        val unknownIds = ArrayList<String>()
         val query = AssistantRules.normalize(
-            title = "", seedRefs = seeds, genreIds = input.ints("genre_ids"), moodIds = emptyList(),
+            title = "", seedRefs = seeds, genreIds = grounding.knownGenreIds(input.ints("genre_ids"), unknownIds), moodIds = emptyList(),
             yearFrom = input.int("year_from"), yearTo = input.int("year_to"), energy = input.str("energy"), tempo = null,
             novelty = input.str("novelty"), noveltySharePct = -1, count = input.int("count"), excludeArtistRefs = emptyList(),
             minCount = 1, maxCount = AssistantRules.MAX_RECOMMEND, defaultCount = AssistantRules.DEFAULT_RESULTS,
@@ -204,8 +210,10 @@ class TaizoMusicTools(
             putJsonArray("picks") { picks.forEach { add(pickJson(it)) } }
             put("count", picks.size)
             putFilters(rec.unsupportedFilters)
+            putSeedsNotUsed(rec.seedsNotUsed)
             if (rec.coldStart) put("note", "PixlAudio has little of the listener's history yet; these follow the radios' own order, not their taste.")
             putUnknownRefs(unknown)
+            putUnknownIds(unknownIds)
         }
     }
 
@@ -213,8 +221,10 @@ class TaizoMusicTools(
         val unknown = ArrayList<String>()
         val seeds = grounding.known(input.strings("seed_refs"), unknown)
         val excluded = grounding.known(input.strings("exclude_artist_refs"), unknown)
+        val unknownIds = ArrayList<String>()
         val query = AssistantRules.normalize(
-            title = input.str("title"), seedRefs = seeds, genreIds = input.ints("genre_ids"), moodIds = input.ints("mood_ids"),
+            title = input.str("title"), seedRefs = seeds,
+            genreIds = grounding.knownGenreIds(input.ints("genre_ids"), unknownIds), moodIds = grounding.knownMoodIds(input.ints("mood_ids"), unknownIds),
             yearFrom = input.int("year_from"), yearTo = input.int("year_to"), energy = input.str("energy"), tempo = input.str("tempo"),
             novelty = null, noveltySharePct = input.intOr("novelty_share_pct", -1), count = input.intOr("length", AssistantRules.DEFAULT_MIX),
             excludeArtistRefs = excluded, minCount = AssistantRules.MIN_MIX, maxCount = AssistantRules.MAX_MIX, defaultCount = AssistantRules.DEFAULT_MIX,
@@ -224,12 +234,14 @@ class TaizoMusicTools(
                 put("built", false)
                 put("note", "PixlAudio has nothing to build this from yet (no songs and no cached radios). Say so; do not make a list yourself.")
                 putUnknownRefs(unknown)
+                putUnknownIds(unknownIds)
             }
         remember(mix)
         val json = mixJson(mix)
         return buildJsonObject {
             json.forEach { (k, v) -> put(k, v) }
             putUnknownRefs(unknown)
+            putUnknownIds(unknownIds)
         }
     }
 
@@ -245,6 +257,7 @@ class TaizoMusicTools(
             put("total", mix.tracks.size)
             putJsonArray("tracks") { shown.forEach { add(pickJson(it)) } }
             putFilters(mix.unsupportedFilters)
+            putSeedsNotUsed(mix.seedsNotUsed)
             put("note", "The app shows this mix as a card with Play and Save. To play it from chat, call play_songs with song_ids [\"mix:${mix.mixId}\"].")
         }
     }
@@ -273,7 +286,15 @@ class TaizoMusicTools(
     }
 
     private suspend fun steer(input: JsonObject, player: TaizoPlayer?): JsonObject {
-        val outcome = backend.steer(input.str("change").orEmpty(), input.str("target").orEmpty().trim(), input.str("scope").orEmpty(), player)
+        val target = input.str("target").orEmpty().trim()
+        if (AssistantRules.parseRef(target) != null && !grounding.isKnownRef(target)) {
+            return buildJsonObject {
+                put("applied", false)
+                put("tail_changed", 0)
+                put("note", "That ref was not returned by a tool in this chat. Call resolve_tracks first.")
+            }
+        }
+        val outcome = backend.steer(input.str("change").orEmpty(), target, input.str("scope").orEmpty(), player)
         grounding.noteCount(outcome.tailChanged)
         return buildJsonObject {
             put("applied", outcome.applied)
@@ -286,6 +307,12 @@ class TaizoMusicTools(
 
     private suspend fun explainTrack(input: JsonObject, player: TaizoPlayer?): JsonObject {
         val ref = input.str("ref").orEmpty().trim()
+        if (AssistantRules.parseRef(ref) != null && !grounding.isKnownRef(ref)) {
+            return buildJsonObject {
+                put("found", false)
+                put("note", "That ref was not returned by a tool in this chat. Call resolve_tracks first; do not guess why.")
+            }
+        }
         val e = backend.explainTrack(ref, player)
             ?: return buildJsonObject {
                 put("found", false)
@@ -294,7 +321,8 @@ class TaizoMusicTools(
         grounding.noteName(e.title)
         grounding.noteArtists(e.artist)
         e.whyArgs.forEach(grounding::noteName)
-        noteNamed(AssistantCards.NAMED_ARTIST, e.artist.substringBefore(", "))
+        // The credited primary artist, not a comma split of the display line ("Tyler, The Creator" is one artist).
+        noteNamed(AssistantCards.NAMED_ARTIST, e.primaryArtist.ifBlank { e.artist.substringBefore(", ") })
         e.genres?.forEach { noteNamed(AssistantCards.NAMED_GENRE, it) }
         val unknown = ArrayList<String>()
         val rate = e.completionRate
@@ -319,6 +347,7 @@ class TaizoMusicTools(
                 if (genres != null) {
                     genres.forEach(grounding::noteName)
                     putJsonArray("genres") { genres.forEach { add(it) } }
+                    if (e.genresSuggested) put("genres_note", "These genres were suggested by the assistant for a song no source knew; say they are a suggestion, not a fact.")
                 } else unknown.add("genres")
                 if (e.year > 0) put("year", e.year) else unknown.add("year")
                 if (e.plays != null) {
@@ -400,11 +429,12 @@ class TaizoMusicTools(
         grounding.noteCount(artists.size)
         return buildJsonObject {
             putJsonArray("artists") {
-                artists.forEach { a ->
+                artists.forEachIndexed { index, a ->
                     add(buildJsonObject {
                         put("name", a.name)
                         if (a.ref.isNotEmpty()) put("ref", a.ref)
-                        put("score", (a.score * 100.0 + 0.5).toInt().coerceIn(0, 100))
+                        // A position, not a percentage: the closest one found is always first, and its edge may be a weak one.
+                        put("rank", index + 1)
                         putJsonArray("sources") { a.sources.forEach { add(it) } }
                     })
                 }
@@ -474,6 +504,18 @@ class TaizoMusicTools(
         put("filters_note", "PixlAudio has no data for these filters yet, so they were not applied. Tell the user.")
     }
 
+    private fun JsonObjectBuilder.putSeedsNotUsed(refs: List<String>) {
+        if (refs.isEmpty()) return
+        putJsonArray("seeds_not_used") { refs.forEach { add(it) } }
+        put("seeds_note", "PixlAudio could not get songs similar to these seeds right now (offline, or today's lookups are used up), so the picks do not follow them. Tell the user; do not say the list is like them.")
+    }
+
+    private fun JsonObjectBuilder.putUnknownIds(unknown: List<String>) {
+        if (unknown.isEmpty()) return
+        putJsonArray("ids_ignored") { unknown.forEach { add(it) } }
+        put("ids_note", "These genre or mood ids were not returned by lookup_genre in this chat, so they were left out. Call lookup_genre for the id first.")
+    }
+
     private fun JsonObjectBuilder.putUnknownRefs(unknown: List<String>) {
         if (unknown.isEmpty()) return
         putJsonArray("refs_ignored") { unknown.forEach { add(it) } }
@@ -485,13 +527,32 @@ class TaizoMusicTools(
         put("reason", reason)
     }
 
+    /** A ref, a genre id or a typed name, as the listener would read it: the artist of a ref, the name of a genre id. */
+    private fun describeSeed(kind: String, seed: String): String {
+        val t = seed.trim()
+        if (t.isEmpty()) return "this"
+        if (AssistantRules.parseRef(t) != null) {
+            val track = grounding.trackOf(t)
+            return if (track == null) "this song" else if (kind == "artist") artistOf(track.artist) else "${track.title} by ${artistOf(track.artist)}"
+        }
+        return t.toIntOrNull()?.let { grounding.genreName(it) } ?: t
+    }
+
+    private fun artistOf(display: String): String = TaizoGrounding.splitCredits(display).firstOrNull() ?: display
+
     private fun describeChange(change: String, target: String): String {
-        val name = target.ifBlank { "this" }
+        val t = target.trim()
+        val isRef = AssistantRules.parseRef(t) != null
+        val name = when {
+            t.isEmpty() -> "this"
+            isRef -> grounding.trackOf(t)?.let { artistOf(it.artist) } ?: "this artist"
+            else -> t.toIntOrNull()?.let { grounding.genreName(it) } ?: t
+        }
         return when (change) {
             "more_artist" -> "play more of $name"
             "less_artist" -> "play less of $name"
-            "more_genre" -> "play more of genre $name"
-            "less_genre" -> "play less of genre $name"
+            "more_genre" -> "play more of $name"
+            "less_genre" -> "play less of $name"
             "energy_up" -> "turn the energy up"
             "energy_down" -> "turn the energy down"
             "more_familiar" -> "play more of what you know"
@@ -505,7 +566,7 @@ class TaizoMusicTools(
         const val MAX_LOOKUPS_PER_TURN = 40
 
         /** Mixes kept so their cards can still play, save and change. */
-        const val MAX_MIXES = 8
+        const val MAX_MIXES = 16
 
         private fun JsonObject.str(key: String): String? = (this[key] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
         private fun JsonObject.int(key: String): Int = intOr(key, 0)

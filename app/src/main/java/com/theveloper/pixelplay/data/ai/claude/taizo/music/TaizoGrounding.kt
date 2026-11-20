@@ -1,5 +1,6 @@
 package com.theveloper.pixelplay.data.ai.claude.taizo.music
 
+import com.theveloper.pixelplay.brain.AssistantRules
 import com.theveloper.pixelplay.brain.Grounding
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.serialization.json.Json
@@ -7,6 +8,7 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.intOrNull
 
 /**
  * What one Ask Taizo conversation really held, for the grounding rule (docs/brain-spec.md, 1 principle 9, 9.4): every name a tool returned,
@@ -21,6 +23,13 @@ import kotlinx.serialization.json.JsonPrimitive
 class TaizoGrounding {
     @Volatile private var registry = Grounding.Registry()
     private val refs = ConcurrentHashMap<String, TrackInfo>()
+
+    /** Refs a tool result of this conversation held (also those of an older chat's history), whose track details were not kept. */
+    private val seenRefs: MutableSet<String> = ConcurrentHashMap.newKeySet()
+
+    /** The genre and mood ids lookup_genre returned (id to name): an id the model writes from memory is not one of them. */
+    private val genreNames = ConcurrentHashMap<Int, String>()
+    private val moodNames = ConcurrentHashMap<Int, String>()
     @Volatile private var seeded = false
     private val userLog = StringBuilder()
     private val seenContexts = HashSet<Long>()
@@ -33,6 +42,9 @@ class TaizoGrounding {
     fun reset() {
         registry = Grounding.Registry()
         refs.clear()
+        seenRefs.clear()
+        genreNames.clear()
+        moodNames.clear()
         seeded = false
         synchronized(userLog) { userLog.setLength(0) }
         synchronized(seenContexts) { seenContexts.clear() }
@@ -127,12 +139,29 @@ class TaizoGrounding {
 
     fun trackOf(ref: String): TrackInfo? = refs[ref]
 
-    fun isKnownRef(ref: String): Boolean = refs.containsKey(ref)
+    fun isKnownRef(ref: String): Boolean = refs.containsKey(ref) || seenRefs.contains(ref)
+
+    /** The name of a genre id lookup_genre returned in this conversation, or null. */
+    fun genreName(id: Int): String? = genreNames[id]
+
+    /** The genre ids of [list] that lookup_genre returned in this conversation; the others are added to [unknown] as "genre 12". */
+    fun knownGenreIds(list: List<Int>, unknown: MutableList<String>? = null): List<Int> {
+        val out = ArrayList<Int>(list.size)
+        for (id in list) if (id <= 0 || genreNames.containsKey(id)) out.add(id) else unknown?.add("genre $id")
+        return out
+    }
+
+    /** Same for mood ids (a mood and a genre share numbers: an id of one list is not an id of the other). */
+    fun knownMoodIds(list: List<Int>, unknown: MutableList<String>? = null): List<Int> {
+        val out = ArrayList<Int>(list.size)
+        for (id in list) if (id <= 0 || moodNames.containsKey(id)) out.add(id) else unknown?.add("mood $id")
+        return out
+    }
 
     /** The refs of [list] that were issued in this conversation, in order; the others are returned in [unknown]. */
     fun known(list: List<String>, unknown: MutableList<String>? = null): List<String> {
         val out = ArrayList<String>(list.size)
-        for (ref in list) if (refs.containsKey(ref)) out.add(ref) else unknown?.add(ref)
+        for (ref in list) if (isKnownRef(ref)) out.add(ref) else unknown?.add(ref)
         return out
     }
 
@@ -142,7 +171,7 @@ class TaizoGrounding {
 
     /** Checks [reply] against what this conversation held; everything the listener wrote in it counts as theirs. */
     fun check(reply: String, placeholder: String): Grounding.Verdict =
-        Grounding.check(reply, registry, synchronized(userLog) { userLog.toString() }, placeholder, dropUngroundedNumbers = true)
+        Grounding.check(reply, registry, synchronized(userLog) { userLog.toString() }, placeholder, dropUngroundedNumbers = true, scanUnmarked = true)
 
     // ---- helpers -------------------------------------------------------------------------------------------
 
@@ -153,7 +182,16 @@ class TaizoGrounding {
                 registry.addNumber(element.size)
                 element.forEach(::walk)
             }
-            is JsonObject -> element.values.forEach(::walk)
+            is JsonObject -> {
+                (element["ref"] as? JsonPrimitive)?.takeIf { it.isString }?.content?.let { if (AssistantRules.parseRef(it) != null) seenRefs.add(it) }
+                val idPrimitive = element["id"] as? JsonPrimitive
+                val id = if (idPrimitive != null && !idPrimitive.isString) idPrimitive.intOrNull else null
+                val name = (element["name"] as? JsonPrimitive)?.takeIf { it.isString }?.content
+                if (id != null && id > 0 && !name.isNullOrBlank()) {
+                    if ((element["kind"] as? JsonPrimitive)?.content == "mood") moodNames[id] = name else genreNames[id] = name
+                }
+                element.values.forEach(::walk)
+            }
             else -> Unit
         }
     }

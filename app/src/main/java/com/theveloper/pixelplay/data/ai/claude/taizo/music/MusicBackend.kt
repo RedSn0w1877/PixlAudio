@@ -79,6 +79,8 @@ class Recommendation(
     val unsupportedFilters: List<String>,
     /** True when the engine had nothing of the listener's to rank (a thin history): the picks are the radios' own order. */
     val coldStart: Boolean = false,
+    /** Refs of the seeds the request named that no similar tracks could be had for: the picks do not follow them. */
+    val seedsNotUsed: List<String> = emptyList(),
 )
 
 class BuiltMix(
@@ -93,9 +95,13 @@ class BuiltMix(
     val topArtistName: String = "",
     val topGenreId: Int = 0,
     val topGenreName: String = "",
+    /** Refs of the seeds the request named that no similar tracks could be had for: the mix does not follow them. */
+    val seedsNotUsed: List<String> = emptyList(),
+    /** The filters whose chips are not offered: the ones the request set that no data answers, and the tempo or energy no track of the pool has. */
+    val chipUnsupported: List<String> = unsupportedFilters,
 )
 
-class StationOutcome(val started: Boolean, val firstTrack: TrackInfo?, val reason: String = "")
+class StationOutcome(val started: Boolean, val firstTrack: TrackInfo?, val reason: String = "", val title: String = "")
 
 class SteerOutcome(val applied: Boolean, val tailChanged: Int, val note: String = "")
 
@@ -117,6 +123,10 @@ class TrackExplanation(
     val plays: Int?,
     /** Share of those plays that were finished, 0.0 to 1.0; null with fewer than [MIN_PLAYS_FOR_RATE]. */
     val completionRate: Double?,
+    /** True when the genres come from the assistant's own batch job (a guess checked against the atlas), not from a source. */
+    val genresSuggested: Boolean = false,
+    /** The track's primary credited artist (one name), for the one-tap "Less X". */
+    val primaryArtist: String = "",
 ) {
     companion object {
         const val MIN_PLAYS_FOR_RATE = 3

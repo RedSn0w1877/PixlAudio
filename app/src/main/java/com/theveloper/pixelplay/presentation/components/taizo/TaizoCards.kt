@@ -118,6 +118,14 @@ internal fun MixCardBubble(
                 }
             }
         }
+        if (card.seedsNotUsed > 0) {
+            Spacer(Modifier.height(6.dp))
+            Text(
+                text = stringResource(R.string.brain_taizo_mix_seed_not_used),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
         if (card.notApplied.isNotEmpty()) {
             Spacer(Modifier.height(6.dp))
             Text(

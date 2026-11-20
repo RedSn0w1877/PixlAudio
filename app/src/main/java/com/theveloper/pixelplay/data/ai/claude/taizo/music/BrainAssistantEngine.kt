@@ -84,6 +84,7 @@ class BrainAssistantEngine @Inject constructor(
     private val feedback: BrainFeedback,
     private val playTags: BrainPlayTags,
     private val servedFactors: com.theveloper.pixelplay.data.brain.ServedFactors,
+    private val assistCache: com.theveloper.pixelplay.data.brain.AssistCache,
 ) : MusicBackend {
 
     // ---- what this process issued -----------------------------------------------------------------------
@@ -252,7 +253,10 @@ class BrainAssistantEngine @Inject constructor(
                 bestScore = s
             }
         }
-        val hit = best?.takeIf { bestScore >= TrackMatcher.MIN_ACCEPT_SCORE && isVideoId(it.videoId) } ?: return Lookup(null)
+        // The matcher's bar was set for playback, where the song's length adds up to 0.30. Here the length is not known, so a candidate must make
+        // it up with the title: with an exact artist, a title that is at least 92 percent the same (not "Love" for "Lose").
+        val bar = if (artist.isBlank()) TrackMatcher.MIN_ACCEPT_SCORE else MIN_SCORE_NO_DURATION
+        val hit = best?.takeIf { bestScore >= bar && isVideoId(it.videoId) } ?: return Lookup(null)
         val keys = Ids.TrackKeys(videoId = hit.videoId, nameKey = Ids.nameKey(hit.artist, hit.title))
         val duration = ((hit.durationSeconds ?: 0) * 1000L).coerceIn(0L, Int.MAX_VALUE.toLong())
         val rid = runCatching { mixes.identity.resolveTrack(keys, duration.toInt()) }.getOrDefault(0L)
@@ -302,6 +306,7 @@ class BrainAssistantEngine @Inject constructor(
 
     private suspend fun planFor(query: AssistantRules.Query, bump: Int): Pair<AssistantPlan, List<SeedMaterial>>? {
         val seeds = query.seedRefs.mapNotNull { materialOf(it) }
+        val unmaterialised = query.seedRefs.filter { ref -> seeds.none { it.ref == ref } }
         val excluded = HashSet<String>()
         for (ref in query.excludeArtistRefs) {
             val known = issued[ref]
@@ -309,10 +314,11 @@ class BrainAssistantEngine @Inject constructor(
             if (!name.isNullOrBlank()) excluded.add(BrainText.fold(name))
         }
         val plan = mixer.plan(query, seeds, excluded, AssistantMixer.regenOf(query, bump)) ?: return null
+        if (unmaterialised.isNotEmpty()) plan.seedsNotUsed = unmaterialised + plan.seedsNotUsed
         return plan to seeds
     }
 
-    private suspend fun picksOf(plan: AssistantPlan, surfaceId: String, now: Long): List<PickInfo> {
+    private suspend fun picksOf(plan: AssistantPlan, surfaceId: String, now: Long, songsOut: MutableList<Song>? = null): List<PickInfo> {
         val recId = (now shl 8) or ASSISTANT_REC_TAG
         val out = ArrayList<PickInfo>(plan.picks.size)
         for ((slot, p) in plan.picks.withIndex()) {
@@ -338,6 +344,7 @@ class BrainAssistantEngine @Inject constructor(
             val info = infoOfSong(p.song, p.track, p.rid, tag, p.servedX, p.year) ?: continue
             val whyKey = if (p.arm == Arm.ASK) WhyLine.nameOf(WhyLine.ASKED) else if (p.whyKey != WhyLine.NONE && p.whyName.isNotEmpty()) WhyLine.nameOf(p.whyKey) else ""
             out.add(PickInfo(info, whyKey, if (p.whyName.isNotEmpty()) listOf(p.whyName) else emptyList()))
+            songsOut?.add(p.song)
         }
         return out
     }
@@ -345,7 +352,7 @@ class BrainAssistantEngine @Inject constructor(
     override suspend fun recommend(query: AssistantRules.Query): Recommendation = withContext(Dispatchers.IO) {
         val (plan, _) = planFor(query, 0) ?: return@withContext Recommendation(emptyList(), emptyList(), coldStart = !mixes.hasState())
         val picks = picksOf(plan, "assistant", mixes.clock.nowMs())
-        Recommendation(picks.take(query.count), plan.unsupported, plan.coldStart)
+        Recommendation(picks.take(query.count), plan.unsupported, plan.coldStart, plan.seedsNotUsed)
     }
 
     override suspend fun buildMix(query: AssistantRules.Query): BuiltMix? = withContext(Dispatchers.IO) {
@@ -353,12 +360,13 @@ class BrainAssistantEngine @Inject constructor(
         if (plan.picks.isEmpty()) return@withContext null
         val now = mixes.clock.nowMs()
         val mixId = java.lang.Long.toHexString(BrainHash.fnv1a64("assistant|${query.title}|$now|${plan.picks.firstOrNull()?.rid}"))
-        val picks = picksOf(plan, mixId, now)
+        // The songs Play and Save use are exactly the picks the card shows (a pick with no resolvable track is in neither).
+        val songs = ArrayList<Song>(plan.picks.size)
+        val picks = picksOf(plan, mixId, now, songs)
         if (picks.isEmpty()) return@withContext null
         // Tracks from outside the library go into `playable` now, so Play and Save work from the card.
         val engineTracks = plan.picks.mapNotNull { it.track }
         if (engineTracks.isNotEmpty()) runCatching { mixes.playableStore.register(engineTracks, now) }
-        val songs = plan.picks.map { it.song }
         synchronized(builtMixes) { builtMixes[mixId] = BuiltRecord(query, songs) }
         built(mixId, query, plan, picks)
     }
@@ -377,6 +385,10 @@ class BrainAssistantEngine @Inject constructor(
         return BuiltMix(
             mixId = mixId, title = query.title.ifBlank { "Made for you" }, tracks = picks, unsupportedFilters = plan.unsupported, query = query,
             topArtistRef = topArtistRef, topArtistName = topArtistName, topGenreId = topGenreId, topGenreName = atlas?.genre(topGenreId)?.name.orEmpty(),
+            seedsNotUsed = plan.seedsNotUsed,
+            chipUnsupported = (plan.unsupported + listOfNotNull(
+                AssistantRules.FILTER_TEMPO.takeIf { !plan.tempoKnown }, AssistantRules.FILTER_ENERGY.takeIf { !plan.energyKnown },
+            )).distinct(),
         )
     }
 
@@ -388,11 +400,16 @@ class BrainAssistantEngine @Inject constructor(
             if (plan.picks.isEmpty()) return@withContext null
             val now = mixes.clock.nowMs()
             val id = java.lang.Long.toHexString(BrainHash.fnv1a64("assistant|${next.title}|$now|${plan.picks.firstOrNull()?.rid}"))
-            val picks = picksOf(plan, id, now)
+            val songs = ArrayList<Song>(plan.picks.size)
+            val picks = picksOf(plan, id, now, songs)
             if (picks.isEmpty()) return@withContext null
             val engineTracks = plan.picks.mapNotNull { it.track }
             if (engineTracks.isNotEmpty()) runCatching { mixes.playableStore.register(engineTracks, now) }
-            synchronized(builtMixes) { builtMixes[id] = BuiltRecord(next, plan.picks.map { it.song }) }
+            // The card now shows the new list: it takes the old one's place, so a card never loses its record to the chips of another.
+            synchronized(builtMixes) {
+                builtMixes.remove(mixId)
+                builtMixes[id] = BuiltRecord(next, songs)
+            }
             built(id, next, plan, picks)
         }
     }
@@ -415,7 +432,9 @@ class BrainAssistantEngine @Inject constructor(
                 "song" -> songForRef(seedRef)?.let { song ->
                     Station.song(song.id, song.title, LibraryIndex.primaryArtistName(song), now) to song
                 }
-                "artist" -> artistSeed(seedRef)?.let { song -> Station.artist(song.id, seedRef.trim(), now) to song }
+                "artist" -> artistSeed(seedRef, allowNetwork = true)?.let { song -> Station.artist(song.id, seedRef.trim(), now) to song }
+                // The listener's own artists only: no search is made (the offline sentence path asks this first).
+                "library_artist" -> artistSeed(seedRef, allowNetwork = false)?.let { song -> Station.artist(song.id, LibraryIndex.primaryArtistName(song), now) to song }
                 "genre" -> genreSeed(seedRef, now)
                 "album" -> sourceSeed(Station.SOURCE_ALBUM, seedRef, now)
                 "playlist" -> sourceSeed(Station.SOURCE_PLAYLIST, seedRef, now)
@@ -433,15 +452,16 @@ class BrainAssistantEngine @Inject constructor(
             startsStation = true,
         )
         withContext(Dispatchers.Main) { player.playSongs(listOf(seed), seed, queueName) }
-        return StationOutcome(true, info)
+        return StationOutcome(true, info, title = station.title)
     }
 
     /** The listener's most played song by [artistName], else a track from the artist's own page radio (one budgeted lookup). */
-    private suspend fun artistSeed(artistName: String): Song? {
+    private suspend fun artistSeed(artistName: String, allowNetwork: Boolean): Song? {
         val key = BrainText.fold(artistName)
         if (key.isEmpty()) return null
         val index = LibraryIndex(mixes.musicRepository.getAllSongsOnce())
         index.byPrimaryArtist(key).firstOrNull()?.let { return it }
+        if (!allowNetwork) return null
         val started = mixes.brainRepository.beginArtistStation(artistName) ?: return null
         val track = EngineTrack.from(started.seedRow, started.seedRid)
         mixes.playableStore.register(listOf(track), mixes.clock.nowMs())
@@ -545,9 +565,13 @@ class BrainAssistantEngine @Inject constructor(
                 SteerOutcome(changed, 0, if (changed) "Boosted $name in what PixlAudio picks (undo in Settings)." else "That change could not be stored.")
             }
             "more_genre", "less_genre" -> {
+                if (target.isBlank()) return@withContext SteerOutcome(false, 0, "Which genre? Pass its id from lookup_genre.")
                 val atlas = mixes.atlasProvider.atlas()
-                val name = target.toIntOrNull()?.let { atlas?.genre(it)?.name } ?: target.takeIf { it.isNotBlank() }
-                    ?: return@withContext SteerOutcome(false, 0, "Which genre? Pass its id from lookup_genre.")
+                // Only a genre of the atlas is stored (a made-up name would be saved and never match a track).
+                val name = if (atlas == null) target
+                else target.toIntOrNull()?.let { atlas.genre(it)?.name }
+                    ?: atlas.idForName(target).takeIf { it != com.theveloper.pixelplay.brain.GenreAtlas.NONE }?.let { atlas.genre(it)?.name }
+                    ?: return@withContext SteerOutcome(false, 0, "That is not a genre in PixlAudio's atlas, so nothing was changed. Look it up with lookup_genre first.")
                 val id = feedback.adjustGenre(name, more = change == "more_genre")
                 SteerOutcome(id != null, 0, if (id != null) "Changed how much $name PixlAudio picks (undo in Settings)." else "That change could not be stored.")
             }
@@ -605,6 +629,9 @@ class BrainAssistantEngine @Inject constructor(
             factors = factors, genres = genres,
             year = dna?.firstYear?.takeIf { it > 0 } ?: song?.year ?: 0,
             plays = plays, completionRate = rate,
+            // The genres of a recording the optional batch job tagged were suggested by the assistant, not read from a source.
+            genresSuggested = runCatching { rid in assistCache.read().tagRids }.getOrDefault(false),
+            primaryArtist = song?.let { LibraryIndex.primaryArtistName(it) } ?: known?.primaryArtist ?: artist.substringBefore(", "),
         )
     }
 
@@ -761,7 +788,7 @@ class BrainAssistantEngine @Inject constructor(
             val ref = v.third.let { rid -> rows[rid]?.let { r -> r.ytAudioIds.split(',').firstOrNull { isVideoId(it) }?.let(AssistantRules::youTubeRef) ?: r.spotifyId?.takeIf(::isRealSpotifyId)?.let(AssistantRules::spotifyRef) } }.orEmpty()
             SimilarArtist(name, ref, (v.first / best).coerceIn(0.0, 1.0), v.second.toList())
         }
-        SimilarArtists(out, if (out.isEmpty()) "Nobody close to them is known yet." else "Scores are relative to the closest one found, from the radios PixlAudio has cached.")
+        SimilarArtists(out, if (out.isEmpty()) "Nobody close to them is known yet." else "Listed closest first, from the radios PixlAudio has cached. There is no percentage: do not give one.")
     }
 
     // ---- new_releases -----------------------------------------------------------------------------------
@@ -791,8 +818,9 @@ class BrainAssistantEngine @Inject constructor(
 
     private companion object {
         const val MAX_ISSUED = 4_000
-        const val MAX_MIXES = 8
+        const val MAX_MIXES = 16
         const val SEARCH_LIMIT = 8
+        const val MIN_SCORE_NO_DURATION = 0.62f
         const val SEED_TRACKS = 6
         const val STEER_COUNT = 5
         const val EXPLAIN_ROWS = 8

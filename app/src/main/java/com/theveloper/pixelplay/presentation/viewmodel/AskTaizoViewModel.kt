@@ -22,6 +22,7 @@ import com.theveloper.pixelplay.data.ai.claude.taizo.TaizoProfile
 import com.theveloper.pixelplay.data.ai.claude.taizo.TaizoSource
 import com.theveloper.pixelplay.data.ai.claude.taizo.TaizoToolExecutor
 import com.theveloper.pixelplay.data.ai.claude.taizo.TaizoTools
+import com.theveloper.pixelplay.data.ai.claude.taizo.music.StationOutcome
 import com.theveloper.pixelplay.data.ai.claude.taizo.music.MixCard
 import com.theveloper.pixelplay.data.ai.claude.taizo.music.MixCardChip
 import com.theveloper.pixelplay.brain.AssistantCards
@@ -464,7 +465,8 @@ class AskTaizoViewModel @Inject constructor(
             val now = System.currentTimeMillis()
             if (!force && now - lastPublish < STREAM_PUBLISH_MS) return
             lastPublish = now
-            val snapshot = synchronized(streamed) { streamed.toString() }.replace("[[", "").replace("]]", "")
+            // What the listener reads while it streams is checked like the final reply: a name no tool returned never shows, even for a moment.
+            val snapshot = streamingText(synchronized(streamed) { streamed.toString() }) ?: return
             updateAssistant(assistant.id) { it.copy(text = snapshot) }
         }
 
@@ -585,13 +587,14 @@ class AskTaizoViewModel @Inject constructor(
         when (val turn = djEngine.respond(text, memory, forceOnDevice = forceOnDevice)) {
             is TaizoTurn.Media -> {
                 removeItem(assistant.id)
-                val media = TaizoChatItem.Media(nextId(), turn.result, turn.aiIntro)
+                toolExecutor.grounding.noteUser(text)
+                val media = TaizoChatItem.Media(nextId(), turn.result, turn.aiIntro?.let(::introOrNull))
                 appendItem(media)
                 memory.add(text, mediaNote(turn.result))
                 if (turn.aiIntro == null && turn.result !is DjRouteResult.NoResults) {
                     viewModelScope.launch {
                         val intro = runCatching { djEngine.introFor(text, turn.result, forceOnDevice = forceOnDevice) }
-                            .getOrNull() ?: return@launch
+                            .getOrNull()?.let(::introOrNull) ?: return@launch
                         _uiState.update { state ->
                             state.copy(items = state.items.map { if (it.id == media.id && it is TaizoChatItem.Media) it.copy(intro = intro) else it })
                         }
@@ -599,13 +602,20 @@ class AskTaizoViewModel @Inject constructor(
                 }
             }
             is TaizoTurn.Conversation -> {
-                updateAssistant(assistant.id) { it.copy(text = turn.text, streaming = false, activityRes = null) }
-                memory.add(text, turn.text)
+                // The phone's model and the plain cloud route name things too: the same rule holds. What it was shown (the library facts) and
+                // what the listener wrote are the names and numbers it may say.
+                toolExecutor.grounding.noteUser(text)
+                toolExecutor.grounding.noteContext(turn.facts)
+                val checked = groundedReply(turn.text)
+                updateAssistant(assistant.id) { it.copy(text = checked, streaming = false, activityRes = null) }
+                memory.add(text, checked)
             }
             is TaizoTurn.Station -> {
                 // No model and no connection needed: the name is looked up in the library and the genre atlas on the phone.
-                val started = startStationFromSentence(turn.name)
-                val reply = if (started) context.getString(R.string.brain_taizo_station_started, turn.name)
+                val outcome = startStationFromSentence(turn.name)
+                val started = outcome?.started == true
+                // The reply names what was matched, not the lowercased words the listener typed.
+                val reply = if (started) context.getString(R.string.brain_taizo_station_started, outcome?.title?.takeIf { it.isNotBlank() } ?: turn.name)
                 else context.getString(R.string.brain_taizo_station_not_found, turn.name)
                 updateAssistant(assistant.id) { it.copy(text = reply, streaming = false, activityRes = null, isError = !started) }
                 memory.add(text, reply)
@@ -628,16 +638,43 @@ class AskTaizoViewModel @Inject constructor(
         if (!verdict.ok) {
             Timber.tag(TAG).w("Reply held ${verdict.ungroundedNames.size} unverified names and ${verdict.ungroundedNumbers.size} unverified numbers")
         }
-        return verdict.cleaned.ifBlank { raw.replace("[[", "").replace("]]", "") }
+        // Nothing left once the unverified sentences are gone: say so. The raw text is never shown in its place.
+        return verdict.cleaned.ifBlank { context.getString(R.string.taizo_unverified_reply) }
+    }
+
+    /**
+     * The text of a reply that is still being written, checked the same way ([groundedReply]): an unclosed mark and the word being typed are held
+     * back (a half-written name cannot be judged), the rest goes through the grounding check. Null when it cannot be checked right now (the
+     * update is skipped, the last shown text stays).
+     */
+    private fun streamingText(raw: String): String? {
+        var hold = raw
+        val open = hold.lastIndexOf("[[")
+        if (open >= 0 && hold.indexOf("]]", open) < 0) hold = hold.substring(0, open)
+        val lastBreak = hold.indexOfLast { it.isWhitespace() }
+        hold = if (lastBreak >= 0) hold.substring(0, lastBreak + 1) else ""
+        if (hold.isBlank()) return ""
+        return try {
+            toolExecutor.grounding.check(hold, context.getString(R.string.taizo_unverified_name)).cleaned
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /** An AI-written intro line for a result card, or null when it names anything no tool or the listener gave (the card keeps its plain text). */
+    private fun introOrNull(raw: String): String? {
+        val verdict = toolExecutor.grounding.check(raw, context.getString(R.string.taizo_unverified_name))
+        return if (verdict.ok) verdict.cleaned.takeIf { it.isNotBlank() } else null
     }
 
     /**
      * "Start a station from X" offline: X is tried as an artist, a genre, a playlist and an album of the listener's, in that order, through the
      * same call the chat's `start_station` tool makes (so the first track plays at once and the engine continues from the cached pools).
      */
-    private suspend fun startStationFromSentence(name: String): Boolean {
-        val player = toolExecutor.player ?: return false
-        for (kind in listOf("artist", "genre", "playlist", "album")) {
+    private suspend fun startStationFromSentence(name: String): StationOutcome? {
+        val player = toolExecutor.player ?: return null
+        // The listener's own things first, free and offline; an artist the phone does not know is searched last.
+        for (kind in listOf("library_artist", "genre", "playlist", "album", "artist")) {
             val outcome = try {
                 assistantEngine.startStation(name, kind, "blend", player)
             } catch (e: CancellationException) {
@@ -646,9 +683,9 @@ class AskTaizoViewModel @Inject constructor(
                 Timber.tag(TAG).d(e, "A station from a sentence could not start as $kind")
                 continue
             }
-            if (outcome.started) return true
+            if (outcome.started) return outcome
         }
-        return false
+        return null
     }
 
     private suspend fun profileBlock(): String {

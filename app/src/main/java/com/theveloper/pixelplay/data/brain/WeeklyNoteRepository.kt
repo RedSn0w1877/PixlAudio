@@ -43,12 +43,14 @@ class WeeklyNoteRepository @Inject constructor(
 ) {
     @Serializable
     private class Stored(
-        /** The week's list (its `builtAtMs`): a new list is a new week. */
+        /** The calendar week ([weekOf]) the note belongs to: a rebuilt list inside the same week is not a new week. */
         val week: Long = 0L,
         /** The cloud call of this week was made (or tried): no second one. */
         val asked: Boolean = false,
         val cloudHash: Long = 0L,
         val cloudText: String = "",
+        /** The new-music share the cloud text was written with (-1 unknown): the text is dropped when the share has moved on. */
+        val cloudShare: Int = -1,
     )
 
     private val mutex = Mutex()
@@ -61,16 +63,19 @@ class WeeklyNoteRepository @Inject constructor(
             val template = WeeklyNote.template(evidence)
             if (template.isEmpty()) return@withContext null
             mutex.withLock {
-                val hash = WeeklyNote.evidenceHash(evidence)
-                var stored = read()?.takeIf { it.week == view.builtAtMs } ?: Stored(week = view.builtAtMs)
-                if (stored.cloudText.isNotEmpty() && stored.cloudHash == hash) return@withLock stored.cloudText
+                // The share of new music moves every day: it is left out of the hash (the list's own facts decide whether the text still fits)
+                // and checked on its own against the figure the text was written with.
+                val hash = WeeklyNote.evidenceHash(stable(evidence))
+                val week = weekOf(System.currentTimeMillis())
+                var stored = read()?.takeIf { it.week == week } ?: Stored(week = week)
+                if (stored.cloudText.isNotEmpty() && stored.cloudHash == hash && shareStillFits(stored.cloudShare, evidence.newSharePct)) return@withLock stored.cloudText
                 if (!stored.asked && mayAsk()) {
                     // Counted before the call: a crash or a double tap cannot make a second one this week.
-                    stored = Stored(view.builtAtMs, asked = true)
+                    stored = Stored(week, asked = true)
                     write(stored)
                     val text = ask(evidence)
                     if (text != null) {
-                        stored = Stored(view.builtAtMs, asked = true, cloudHash = hash, cloudText = text)
+                        stored = Stored(week, asked = true, cloudHash = hash, cloudText = text, cloudShare = evidence.newSharePct)
                         write(stored)
                         return@withLock text
                     }
@@ -84,6 +89,12 @@ class WeeklyNoteRepository @Inject constructor(
             null
         }
     }
+
+    /** The evidence without the rolling figure: what stays the same while the same list is shown. */
+    private fun stable(e: WeeklyNote.Evidence) = WeeklyNote.Evidence(e.tracks, e.newSongs, e.artists, e.genre, e.island, -1)
+
+    /** True while the text's figure is still near today's (a few points), or when neither is known. */
+    private fun shareStillFits(written: Int, now: Int): Boolean = if (written < 0 || now < 0) written == now else Math.abs(written - now) <= SHARE_TOLERANCE
 
     /** The assistant's own consent and switches (the automatic route), the monthly budget and a working connection. */
     private suspend fun mayAsk(): Boolean = aiHandler.currentRoute() is AiRoute.Claude && claude.canUseNow()
@@ -148,6 +159,11 @@ class WeeklyNoteRepository @Inject constructor(
         const val FILE = "weekly_note.json"
         private const val ADJACENT_KEY = "adjacent_genre"
         private const val MAX_TOKENS = 320L
+        private const val SHARE_TOLERANCE = 3
+        private const val WEEK_MS = 7L * 24 * 60 * 60 * 1000
+
+        /** The week a moment belongs to: one cloud call a week, however often the list is rebuilt. */
+        internal fun weekOf(nowMs: Long): Long = nowMs / WEEK_MS
 
         /** The instruction. It never names the vendor or the model; the evidence rows follow as the user turn. */
         internal val SYSTEM = """

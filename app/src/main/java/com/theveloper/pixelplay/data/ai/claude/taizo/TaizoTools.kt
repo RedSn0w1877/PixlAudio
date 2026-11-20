@@ -358,7 +358,7 @@ object TaizoTools {
             },
             tool(
                 SIMILAR_ARTISTS,
-                "Artists close to one the user names, from the similarity graph PixlAudio built, with how sure it is.",
+                "Artists close to one the user names, from the similarity graph PixlAudio built, closest first (a rank, not a percentage), with where each link came from.",
                 strict = false,
             ) {
                 stringProp("artist", "The artist's name.")

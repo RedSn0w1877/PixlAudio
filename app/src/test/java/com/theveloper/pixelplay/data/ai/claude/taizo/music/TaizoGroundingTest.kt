@@ -96,4 +96,19 @@ class TaizoGroundingTest {
         assertThat(TaizoGrounding.splitCredits("Tyler, The Creator")).containsExactly("Tyler", "The Creator").inOrder()
         assertThat(Json.parseToJsonElement("{}")).isNotNull()
     }
+
+    @Test
+    fun `a name with no mark is caught, and refs and genre ids come back from a result or an older chat`() {
+        g.noteName("Espresso")
+        assertThat(g.check("You could also try Radiohead.", placeholder).ungroundedNames).containsExactly("Radiohead")
+        assertThat(g.check("Espresso is a good place to start.", placeholder).ok).isTrue()
+        // A result's own refs and ids are known without the track details being kept.
+        g.noteToolResult("""{"results":[{"ref":"yt:abcdefghijk","title":"Espresso"}],"id":12,"name":"Trap"}""")
+        assertThat(g.isKnownRef("yt:abcdefghijk")).isTrue()
+        assertThat(g.isKnownRef("yt:zzzzzzzzzzz")).isFalse()
+        val unknown = ArrayList<String>()
+        assertThat(g.knownGenreIds(listOf(12, 13), unknown)).containsExactly(12)
+        assertThat(unknown).containsExactly("genre 13")
+        assertThat(g.genreName(12)).isEqualTo("Trap")
+    }
 }

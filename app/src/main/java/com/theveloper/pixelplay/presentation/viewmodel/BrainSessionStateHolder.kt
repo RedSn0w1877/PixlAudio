@@ -53,6 +53,8 @@ class BrainSessionStateHolder @Inject constructor(
     private val brainSwitch: BrainSwitch,
     private val playableStore: PlayableStore,
     private val engineTrackSaver: EngineTrackSaver,
+    /** Which queue songs have a recorded play, for the set notes. */
+    val setNoteHistory: com.theveloper.pixelplay.data.brain.SetNoteHistory,
     private val eventExport: com.theveloper.pixelplay.data.brain.BrainEventExport,
     private val stationStore: StationStore,
     /** "Start station": the seed and the hand-over to the player. */

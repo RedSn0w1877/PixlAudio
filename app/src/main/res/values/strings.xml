@@ -386,5 +386,6 @@
     <string name="taizo_activity_similar">Looking for similar artists…</string>
     <string name="taizo_activity_releases">Checking new releases…</string>
     <string name="taizo_unverified_name">(a name I could not check)</string>
+    <string name="taizo_unverified_reply">I cannot say that from what PixlAudio has recorded.</string>
     <string name="taizo_activity_thinking">Thinking…</string>
 </resources>

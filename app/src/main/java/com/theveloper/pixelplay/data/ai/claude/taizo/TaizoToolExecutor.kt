@@ -459,15 +459,18 @@ class TaizoToolExecutor @Inject constructor(
         if (resolved.songs.isEmpty() && (input.strings("song_ids").isNotEmpty() || input.strings("queries").isNotEmpty())) {
             throw IllegalStateException(notFoundMessage(resolved))
         }
-        saveEngineTracks(resolved.songs)
+        val unsaved = saveEngineTracks(resolved.songs)
+        val usable = resolved.songs.filter { it.id !in unsaved }
+        if (usable.isEmpty() && resolved.songs.isNotEmpty()) throw IllegalStateException(NOT_SAVED_MESSAGE)
         val playlist = withContext(Dispatchers.IO) {
-            playlists.createPlaylist(name = name, songIds = resolved.songs.map { it.id }, isAiGenerated = true)
+            playlists.createPlaylist(name = name, songIds = usable.map { it.id }, isAiGenerated = true)
         }
         return buildJsonObject {
             put("ok", true)
             put("playlist_id", playlist.id)
             put("name", playlist.name)
-            put("songs", resolved.songs.size)
+            put("songs", usable.size)
+            putNotSaved(resolved.songs.filter { it.id in unsaved })
             putMissing(resolved)
         }.toString()
     }
@@ -481,12 +484,15 @@ class TaizoToolExecutor @Inject constructor(
             ?: throw IllegalArgumentException("No playlist called \"$wanted\". Playlists: ${all.take(30).joinToString(", ") { it.name }}")
         val resolved = resolve(input.strings("song_ids"), input.strings("queries"))
         if (resolved.songs.isEmpty()) throw IllegalStateException(notFoundMessage(resolved))
-        saveEngineTracks(resolved.songs)
-        withContext(Dispatchers.IO) { playlists.addSongsToPlaylist(target.id, resolved.songs.map { it.id }) }
+        val unsaved = saveEngineTracks(resolved.songs)
+        val usable = resolved.songs.filter { it.id !in unsaved }
+        if (usable.isEmpty()) throw IllegalStateException(NOT_SAVED_MESSAGE)
+        withContext(Dispatchers.IO) { playlists.addSongsToPlaylist(target.id, usable.map { it.id }) }
         return buildJsonObject {
             put("ok", true)
             put("playlist", target.name)
-            put("added", resolved.songs.size)
+            put("added", usable.size)
+            putNotSaved(resolved.songs.filter { it.id in unsaved })
             putMissing(resolved)
         }.toString()
     }
@@ -622,7 +628,8 @@ class TaizoToolExecutor @Inject constructor(
             }
             val song = when {
                 // An engine ref (resolve_tracks, recommend, build_mix, ...): played through the `playable` path, never imported into the library.
-                isEngineRef(id) -> musicEngine.songForRef(id)
+                // Only a ref a tool returned in this chat: one the model wrote from memory (or another chat issued) is reported missing.
+                isEngineRef(id) -> if (grounding.isKnownRef(id)) musicEngine.songForRef(id) else null
                 id.startsWith(SPOTIFY_PREFIX) -> spotifySong(id.removePrefix(SPOTIFY_PREFIX))
                 else -> byId[id] ?: librarySong(id)
             }
@@ -661,14 +668,36 @@ class TaizoToolExecutor @Inject constructor(
      */
     suspend fun saveMix(mixId: String): Int? {
         val (title, songs) = music.songsOfMix(mixId) ?: return null
-        saveEngineTracks(songs)
+        // All or nothing: a playlist that says "Saved" with songs missing from it would be a lie. The card shows that it did not work.
+        if (saveEngineTracks(songs).isNotEmpty()) return null
         withContext(Dispatchers.IO) { playlists.createPlaylist(name = title, songIds = songs.map { it.id }, isAiGenerated = true) }
         return songs.size
     }
 
-    private suspend fun saveEngineTracks(songs: List<Song>) {
+    /**
+     * Saves the tracks of [songs] that are not in the library yet, then checks that each one really has a library row. Returns the ids that
+     * still have none (offline, an import error): the caller does not put those in a playlist and says so.
+     */
+    private suspend fun saveEngineTracks(songs: List<Song>): Set<String> {
         val outside = songs.filter { EngineTrack.isEngineOnly(it) }.map { it.id }
-        if (outside.isNotEmpty()) withContext(Dispatchers.IO) { engineTrackSaver.saveAll(outside) }
+        if (outside.isEmpty()) return emptySet()
+        return withContext(Dispatchers.IO) {
+            try {
+                engineTrackSaver.saveAll(outside)
+                val present = musicRepository.getSongsByIds(outside).first().mapTo(HashSet()) { it.id }
+                outside.filter { it !in present }.toSet()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                outside.toSet()
+            }
+        }
+    }
+
+    private fun kotlinx.serialization.json.JsonObjectBuilder.putNotSaved(songs: List<Song>) {
+        if (songs.isEmpty()) return
+        putJsonArray("not_saved") { songs.forEach { add(it.title) } }
+        put("not_saved_note", "These songs could not be saved to the library just now (offline, or the import failed), so they are not in the playlist. Tell the user.")
     }
 
     private fun isEngineRef(id: String): Boolean = AssistantRules.parseRef(id) != null
@@ -755,6 +784,7 @@ class TaizoToolExecutor @Inject constructor(
     companion object {
         const val SPOTIFY_PREFIX = "spotify:track:"
         const val MIX_PREFIX = "mix:"
+        private const val NOT_SAVED_MESSAGE = "None of those songs could be saved to the library just now (offline, or the import failed), so nothing was added."
         const val QUEUE_NAME = "Taizo"
         const val LYRICS_TOOL_MAX_CHARS = 6_000
 

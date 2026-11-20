@@ -60,7 +60,13 @@ class AssistantPlan(
     val control: Boolean,
     val modelVersion: Int,
     val seedListCount: Int,
-)
+    /** False when no candidate of the pool has a tempo (or an energy) on record: a chip for that filter changes nothing and is not offered. */
+    val tempoKnown: Boolean = true,
+    val energyKnown: Boolean = true,
+) {
+    /** The refs of the seeds the request named that the plan could not use (no radio on the phone and none could be fetched). */
+    var seedsNotUsed: List<String> = emptyList()
+}
 
 /**
  * The engine's answer to a `recommend` or `build_mix` request (docs/brain-spec.md, 9.3): the SAME pool, scorer and list builder a Your Mix
@@ -91,11 +97,16 @@ class AssistantMixer @Inject constructor(
 
         // The seeds the request named; none named means the day's own seeds (the ones a Your Mix uses), from the cache only.
         val mixSeeds = ArrayList<MixSeed>()
+        val notUsed = ArrayList<String>()
         for (s in seeds) {
             val list = mixes.brainRepository.cachedRadio(s.rid)
                 ?: s.radioSeed?.let { runCatching { mixes.brainRepository.radioFor(it, allowNetwork = true) }.getOrNull() }
             val artistRows = mixes.brainRepository.cachedArtistRadio(s.rid)
-            if (list == null && artistRows.isEmpty()) continue
+            if (list == null && artistRows.isEmpty()) {
+                // Nothing similar to this seed can be had right now (offline, the day's lookups spent, a failed fetch): said, never hidden.
+                notUsed.add(s.ref)
+                continue
+            }
             mixSeeds.add(MixSeed(s.rid, s.aid, s.title, s.primaryArtist, list, artistRows))
         }
         if (mixSeeds.isEmpty()) {
@@ -228,8 +239,8 @@ class AssistantMixer @Inject constructor(
         }
         return AssistantPlan(
             out, unsupported, coldStart = !mixes.hasState(), control = control, modelVersion = model,
-            seedListCount = mixSeeds.count { it.list != null },
-        )
+            seedListCount = mixSeeds.count { it.list != null }, tempoKnown = ctx.tempoKnown, energyKnown = ctx.energyKnown,
+        ).also { it.seedsNotUsed = notUsed }
     }
 
     /** The atlas ids of a track's genres, ancestors included, or none when the DNA has no tags. Unknown stays unknown. */

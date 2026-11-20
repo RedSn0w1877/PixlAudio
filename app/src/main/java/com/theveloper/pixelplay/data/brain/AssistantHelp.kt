@@ -53,6 +53,7 @@ class AssistantHelp @Inject constructor(
     private val assistant: BrainAssistantEngine,
     private val playableStore: PlayableStore,
     private val clock: BrainClock,
+    private val brain: BrainEngine,
 ) {
     class Report(val islandsNamed: Int, val tracksTagged: Int, val songsSuggested: Int, val calls: Int, val tagsTakenBack: Int)
 
@@ -138,6 +139,9 @@ class AssistantHelp @Inject constructor(
     private class TagTrack(val index: Int, val rid: Long, val title: String, val artist: String, val shortlist: IntArray, val key: String)
 
     private suspend fun tagTracks(atlas: GenreAtlas): Pair<Int, Int> {
+        // A call that failed is not repeated on every run: tagging waits for the next week.
+        val failKey = cache.keyOf("tagfail", "week=${clock.nowMs() / WEEK_MS}")
+        if (cache.read().ask.containsKey(failKey)) return 0 to 0
         val listenerGenres = runCatching { yourSound.get().load().genres.map { it.atlasId } }.getOrDefault(emptyList())
         var calls = 0
         var tagged = 0
@@ -185,7 +189,10 @@ class AssistantHelp @Inject constructor(
                     }
                 }
             }
-            if (text == null) continue
+            if (text == null) {
+                cache.update { d -> AssistCache.Data(d.islands, d.tags, d.ask + (failKey to emptyList()), d.askLatest, d.tagRids) }
+                break
+            }
             val kept = AssistBatch.validateTags(batch.map { it.shortlist }, answers).groupBy { it.index }
             val now = clock.nowMs()
             val written = ArrayList<Long>()
@@ -265,6 +272,8 @@ class AssistantHelp @Inject constructor(
         }
         val knownArtists = HashSet<String>()
         for (i in inputs) for (a in i.artists) knownArtists.add(BrainText.fold(a).trim())
+        // Every artist the listener really has a play of counts as known, not only the three shown per island.
+        for (a in playedArtistNames()) knownArtists.add(a)
         val wanted = ArrayList<Pair<String, String>>()
         for (el in objectsOf(text, "islands")) {
             val picks = (el["picks"] as? JsonArray).orEmpty().mapNotNull { it as? JsonObject }
@@ -287,6 +296,16 @@ class AssistantHelp @Inject constructor(
         }
         cache.update { d -> AssistCache.Data(d.islands, d.tags, d.ask + (key to kept), key, d.tagRids) }
         return 1 to kept.size
+    }
+
+    /** The folded names of the artists the listener has a recorded play of (bounded): an artist they know is never "suggested". */
+    private suspend fun playedArtistNames(): Set<String> = try {
+        val aids = brain.withState { st -> st.affinity.sortedKeys(com.theveloper.pixelplay.brain.Family.ARTIST).take(PLAYED_ARTISTS) }
+        if (aids.isEmpty()) emptySet() else artistDnaDao.getAll(aids).mapTo(HashSet()) { BrainText.fold(it.name).trim() }
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        emptySet()
     }
 
     // ---- the call ---------------------------------------------------------------------------------------------
@@ -317,6 +336,7 @@ class AssistantHelp @Inject constructor(
         private const val ASK_PER_ISLAND_LOOKUPS = 4
         private const val ASK_LOOKUPS_PER_RUN = 12
         private const val ASK_MIN_ROOM = 6
+        private const val PLAYED_ARTISTS = 300
         private const val TAG_TRACKS_PER_RUN = 100
         private const val TAG_SCAN_PAGE = 200
         private const val TAG_SCAN_LIMIT = 5_000

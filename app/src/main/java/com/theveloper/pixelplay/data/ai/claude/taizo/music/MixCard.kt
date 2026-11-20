@@ -25,12 +25,14 @@ class MixCard(
     val preview: List<MixCardTrack>,
     /** Filters the request asked for that the data could not answer ("tempo"), so the card can say they were not applied. */
     val notApplied: List<String>,
+    /** How many of the songs the mix was asked to follow could not be used (nothing similar to them could be had right now). */
+    val seedsNotUsed: Int = 0,
 ) {
     companion object {
         const val PREVIEW_TRACKS = 4
 
         fun of(mix: BuiltMix): MixCard {
-            val chips = AssistantCards.allChips(mix.query, mix.topArtistRef, mix.topGenreId, mix.unsupportedFilters).mapNotNull { chip ->
+            val chips = AssistantCards.allChips(mix.query, mix.topArtistRef, mix.topGenreId, mix.chipUnsupported).mapNotNull { chip ->
                 val label = AssistantCards.chipLabel(chip, mix.topArtistName, mix.topGenreName)
                 if (label.isEmpty()) null else MixCardChip(chip, label)
             }
@@ -41,6 +43,7 @@ class MixCard(
                 chips = chips,
                 preview = mix.tracks.take(PREVIEW_TRACKS).map { MixCardTrack(it.track.title, it.track.artist) },
                 notApplied = mix.unsupportedFilters,
+                seedsNotUsed = mix.seedsNotUsed.size,
             )
         }
     }
