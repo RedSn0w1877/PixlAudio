@@ -157,9 +157,9 @@ class LearnerEngineTest {
         engine.withState { st ->
             // Switch the gate on by hand (the unit tests of Gate cover how it decides).
             st.learner.gate = Gate.State(useLearned = true, winStreak = 2, atMs = now)
-            var control = 0L
+            var control = 1L
             while (!Ranker.isControlSession(control)) control++
-            var normal = 0L
+            var normal = 1L
             while (Ranker.isControlSession(normal)) normal++
             assertNull(st.ranking(control), "a control session is ranked with the prior")
             val source = st.ranking(normal)
