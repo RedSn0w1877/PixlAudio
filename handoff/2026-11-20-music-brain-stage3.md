@@ -134,7 +134,7 @@ the list seed layout (length prefixed, in `listseed.jsonl`), the origin one-hot 
 5. **Control sessions.** One session in ten is picked with the standard recipe; after 300 plays there the finish rates are shown side by side.
 6. **Reset what I've learned.** Controls > Reset: picks go back to the standard recipe now; "Your sound" says so; after the next rebuild it still does (only plays from now on are
    learned from). Your plays, blocked artists and taste changes are still there.
-7. **Genres.** In "Your sound", tap a genre: a page with the atlas's facts (origin, paragraph when the atlas has one, comes from / branches / close to / shaped by); "Play station" starts a genre station.
+7. **Genres.** In "Your sound", tap a genre: a page with the atlas facts (origin, paragraph when the atlas has one, comes from / branches / close to / shaped by) and, from the completion pass, the listener's own sections (see "Review pass" at the end); "Play station" starts a genre station.
 8. **Nothing at start, one job.** `adb shell dumpsys jobscheduler | grep -c brain_refresh` still shows one entry; app start does no brain work.
 
 ## What nobody has verified on a device
@@ -273,3 +273,71 @@ exploration slots feel right and the audit ever fires; what the learned appetite
 `LaunchedEffect` in each shelf item counts "on screen for a second" the way a listener would; that a visit is settled (the log lookup of the first play after a tap) and the order is really frozen per daypart on a phone; the size
 and pruning of `impression` over months; Your sound's Lately (two passes over a large log: time not measured), the genre tree and the island dialog; the genre page's key artists on a real atlas and DNA coverage; the effect of a genre
 More / Less on picks (it only reaches Spotify tracks through the tag pseudo-count); a backup export and restore of "Music picks" on a device; the platform backup rules. **There is still no real-data number for the learner.**
+
+---
+
+# Review pass (two independent reviews, verified against the code, then fixed)
+
+Two reviews read stage 3 (first pass, and the completion pass). Every finding was checked against the code; the table says what was real. Deviations continue from 202.
+**Pure-core behaviour changed: golden files `novelty.jsonl`, `posteriors.jsonl` and `shelfbandit.jsonl` (and `MANIFEST.sha256`) were regenerated. The iOS port must copy `brain/src/test/resources/brain-golden/`
+again and port the three changes below (the appetite's discount anchor, the shelf bandit's forced exposure and its update floor, the live watermark). `Brain.SPEC_VERSION` is still 2 and `LearnReplay.VERSION` is still 1.**
+
+## Findings, one by one
+
+| # | Finding | Result |
+|---|---|---|
+| R1-1 | watermark is a wall-clock id: one play stamped by a clock a day ahead stops the learner | Real. Fixed: a LIVE play is applied under `LearnReplay.liveId(eventId, watermark)` (its own id when it is above the watermark, else the watermark + 1), for the ranker and the posteriors. A replay still uses the real ids. Tests: `a play stamped by a clock that was a day ahead...` (Stage3bTest). |
+| R1-2, R2-2 | the control draw uses a session id that does not exist when a list is built (0, or the last session's) | Real. Fixed in the engine: `Loaded.controlKey` draws on one key per gap (the time the gap was first seen) when the session id is 0 or the session has expired, and on the session id otherwise; a new session starts a fresh gap. So about one list in ten built before the first play is a control. Test: `a list built before the first play is drawn on its own key...`. Deviation 202. |
+| R1-3 | control vs learned finish rates compare different periods; the learned side has no minimum | Real. Fixed: both rates are over the same span (from the first play ranked with the weights in use) and are shown only when BOTH sides have 300 plays in it; otherwise the "waiting" line. Copy says "over the same weeks" and "the picks made with the weights in use". |
+| R1-4 | sections appear with one play of data | Real. Fixed in `YourSound` (pure): `ISLANDS_MIN_PLAYS` 20 mapped plays and half of the plays in the window; `GENRES_MIN_PLAYS` 50 tagged plays and 60% coverage (genres and the tree); `ERAS_MIN_PLAYS` 50 (and the existing 60% coverage); `DAYPART_MIN_PLAYS` 10; `MONTH_MIN_PLAYS` 5; `NOVELTY_MIN_PLAYS` 20; "Lately" needs `LATELY_MIN_BASELINE_PLAYS` 50 plays from before the cutoff. The functions default to no minimum; the app passes the constants. The numbers are not in the spec (deviation 203). "mostly" became "most often" (a plurality, not a majority). Test: `a section needs more than a play or two to say anything`. |
+| R1-5 | the accuracy and the gate are measured on features the ranker does not see (graph, tags, islands, ...) | Real, and a limit of the design (5.9 allows it). Not closed in code: the event does not log the serve-time feature vector. Closed in words: every accuracy line now says "On plays I could check" and the prior's "of the same plays". **Deferred**: log the serve-time score with the event (needs an event field), then gate on it. |
+| R1-6 | catch-up trains with an empty session and a stale favourites set; rids not merged; liked capped at 20,000 | Partly real. Fixed: the catch-up builds a session from the caught-up plays (begin and apply), and the cap now logs a warning. **Deferred**: favourites changed since the last rebuild (a like on Tuesday is feature 8 = 0 for Wednesday's live update until the next rebuild); mapping rids through `track_merge` in the live update (the log holds the rid resolved at write time, a merge happens at a rebuild). Both heal at the next rebuild. |
+| R1-7 | Your sound misses imported history, merged rids, and reads imported timestamps as UTC | Real. Fixed: it reads the same merged stream a rebuild reads (`ReplayMerger.merged`, a function split out of `rebuild`: log plus de-duplicated imports, survivors, "Don't count this"), drops Spotify imports when "Use my Spotify music" is off, and buckets a play with no timezone in the device's offset at that time. |
+| R1-8 | an unnamed island is looked up again for every row | Real. Fixed: each island is named once (null is remembered); the screen shows a progress indicator while it loads. |
+| R1-9 | the weekly rebuild, replay and gate start at first brain use, not from the refresh worker | Real. Fixed: `StateRebuilder.isUrgent()` (the tables are missing or stale, the import changed, the Spotify switch flipped) is all first use may start; `isNeeded()` (adds the learner's replay and the weekly facts) is asked by the refresh worker through `RefreshWork.rebuildBrain()` (load the state, ask for the due rebuild, wait for it). A phone whose refresh switch is off, or whose worker never runs, does not train the learner and says "standard recipe". Deviation 204. |
+| R1-10 | the genre page is blank when the facts do not load | Real. Fixed: a spinner while loading, "Nothing to show for this genre." after. |
+| R1-11 | reset copy, plural strings | Real. Fixed: "The weights go back to the standard recipe, and what you played still counts."; plurals for the three counts (the copy test reads plurals now); the reset row is hidden while the weights have not moved a single time (`modelUpdates == 0`). |
+| R2-1 | the novelty appetite's F and N stop being discounted after 30 days | Real. Fixed in `NoveltyAppetite.onPlay`: the anchor moves to the play's day (as `ArmBandit.update` does). Test: `the appetite posteriors keep being discounted...`. Golden `novelty` and `posteriors` regenerated. |
+| R2-2 | (see R1-2) | |
+| R2-3 | the learned appetite is applied to control sessions | Real. Fixed: a new session's `nuSession` is the standard 0.25 when its id is a control one (recorder), and a new gap's list is drawn with the standard share too (`newSession`). Test: `a control session is also given the standard share of new music`. |
+| R2-4 | the shelf reward goes to any play within 2 minutes of a tap | Real. Fixed in part: private and silent plays are skipped, plays the queue started by itself (auto advance, autoplay, restore) are skipped, one play rewards one shelf, the window is 10 minutes (a card opens a page first). **Deferred**: matching the play to the shelf's own list (a shelf id and a list id do not match yet). |
+| R2-5 | Reset leaves saved mixes, Home rows and the Home plan ranked with the learned weights | Real. Fixed: a saved mix whose model is "learned" and that was built before the reset is stale (`BrainMixes.builtBeforeReset`, read from the reset mark the engine already stores); the saved Home rows that carry the learned model are dropped (`BrainHomeRows.dropLearned`) and the plan file is deleted. Test: `a mix the learned weights ranked is built again after Reset...`. |
+| R2-6 | Lately shows "Up" with no baseline | Real. Fixed (R1-4's baseline floor). |
+| R2-7 | impressions are marked settled before the state is saved; "rebuild from impressions" cannot work | Real. Fixed: the state is saved first, then the visits are marked (a death between counts a visit twice, never loses one); the KDocs now say the posteriors cannot be rebuilt from the rows (the reward is not stored). |
+| R2-8 | a never-seen shelf type is never forced; the exposure is spent when the order is drawn | Real. Fixed in `ShelfBandit.order`: a never-seen type is the longest unseen; the exposure is spent only when a visit shows the shelf (`visit` sets the day), so a shelf the planner drops is forced again. `MIN_UPDATES` 20 became 100 (about 15 visits; the spec gives no number: deviation 205). Golden `shelfbandit` regenerated. |
+| R2-9 | a visit older than 30 minutes is settled while on screen | Real. Fixed: a visit ends after 30 minutes without a signal (`lastTouchMs`), not 30 minutes after it began; the page on screen is not settled while it is being touched. |
+| R2-10 | genre pages show listener data and third-party tag sections | Real. Fixed: key artists (from the tag votes the open-data sources filled in) are shown only while Deezer, MusicBrainz and ListenBrainz are all switched on, and the read is bounded to 20,000 rows. "From your library" and "You and this genre" are the listener's own data. The "atlas facts only" lines of this file are corrected. Deviation 206. |
+| R2-11 | backup restore clears feedback before inserting, without a transaction | Real. Fixed: everything that can fail to read is read first; the restored rows are inserted (same id replaces), then the others removed (`FeedbackDao.deleteNotIn`), then the taste changes. A stop in between loses nothing. |
+| R2-12 | Your sound cache race after Reset | Real. Fixed: a counter is read before and after the computation; a result computed across a reset is shown once and not cached. |
+| R2-13 | no tests for the cases the control change breaks | Added: session id 0, a control session's share, a 60-day appetite discount, Reset and a saved mix, the live watermark, the section minimums, the plural copy. |
+
+## Deviations 202 and on
+
+202. **The control draw for a list built outside a session** is taken on a per-gap key (the time the gap was first seen) instead of a session id. A session that begins with a play still draws on its own id (its first play's start time), so a gap's lists and the session that follows can differ:
+     some plays of a session carry the flag of the list that served them, which is what the recorder reads. About one list in ten, and about one session in ten, is a control; a listener is not a control for a whole day.
+203. **Minimums for Your sound's sections** (R1-4) are invented: the spec gives only the 60% coverage for Eras. They are constants in `YourSound` and each is one line to change.
+204. **First use starts only an urgent rebuild** (R1-9). The learner's replay (and so the gate's weekly decision) is run by the refresh worker. A listener who never gets the worker (switch off, no network or power conditions) does not train the learner.
+205. **`ShelfBandit.MIN_UPDATES` is 100** (was 20) and a never-seen shelf type is forced. Both are values the spec does not give.
+206. **Key artists** on a genre page are hidden unless Deezer, MusicBrainz and ListenBrainz are all allowed. The artist rows do not say which source a tag came from, so one switch off hides the list. Turn it off per source in the owner's terms review.
+
+## Third-party data terms (owner decision, for the record)
+
+Each open-data source has its own switch (Developer mode > Brain data, and the remote flag `BrainRemoteFlags`): Deezer (non-commercial API terms; album genres, popularity, tempo; run time only), MusicBrainz (core CC0, tag votes CC BY-NC-SA; run time only, never bundled),
+ListenBrainz (derived from MusicBrainz tags, CC BY-NC-SA votes), Wikidata and the CC0 genre atlas (the only thing bundled). Spotify content is never used to train a model: the learner trains on the listener's own plays only. Switch Deezer, MusicBrainz and ListenBrainz off before charging
+anyone; the genre pages' key artists then disappear too.
+
+## How to test on a phone (this pass)
+
+1. **Update over the last build, open Your sound.** It shows a spinner, then only the sections that have data (islands from 20 mapped plays in 28 days; genres from 50 tagged plays and 60% coverage; "Lately" only with 50 plays older than two weeks). A new install shows "Play some music...".
+2. **Imported history.** With a Spotify or YouTube Music import and no listening in the app, "Over months" and "Genres" are filled; a play made at 22:00 UTC+7 is under "Nights", not "Afternoons".
+3. **The control group.** After a restart, open Home and play the first row, repeat on ten starts: about one in ten has flag 32 on its first plays (Developer mode, "Export play events"). With the gate on, the control sessions use the standard 0.25 share of new music.
+4. **Weekly work.** With the app killed overnight and the worker allowed, `adb shell cmd jobscheduler run -f <pkg> <brain_refresh id>` on the charger runs the replay (Developer mode > Brain data shows the time of the last rebuild). Open the app first thing: Home does not wait for a replay.
+5. **Reset.** Controls > Reset (the row appears only after the weights have moved): a Daily Mix built earlier with the learned weights is built again, Home rows and the plan follow, "Your sound" says "standard recipe".
+6. **Backup.** Export, change a taste change, restore: the change comes back and the exclusions are all there; kill the app during a restore (hard to do): nothing is lost.
+7. **Genre page.** A genre the atlas does not know shows "Nothing to show for this genre." after a spinner. Switch Deezer off (Developer mode > Brain data): the key artists section is gone.
+8. **Clock.** Set the phone a day ahead, play one track, set it back, play five more: the picks keep learning (Developer mode shows the model's play count growing).
+
+## Still unverified (this pass)
+
+Everything on a device. The 15-minute Gradle compile of `:app` was the only check of the new app code beyond the unit tests. Not run: the instrumented tests (the 5 to 6 migration test is unchanged from the completion pass); the replay time on a real log;
+the cost of Your sound reading the merged stream (log plus imports) on 100,000 plays; whether a worker that runs once a day is often enough for the gate's two-week rule on a real phone; the shelf reward's matching by tap; the control draw's share (tested on the key, not on a real queue). **There is still no real-data number for the learner.**
