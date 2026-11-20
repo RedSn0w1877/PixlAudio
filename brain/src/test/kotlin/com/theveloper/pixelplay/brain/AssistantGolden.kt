@@ -222,6 +222,7 @@ object AssistantGolden {
                 "[[Son Tung M-TP]] has [[Chung Ta Cua Hien Tai]], and you have 1,240 plays in total. Version 2.5 of nothing. 3rd place.", true,
             ),
             Case(emptyList(), emptyList(), "", "No names here, and 30 songs is all I need to say. 2024 was a year.", false),
+            Case(listOf("Espresso"), emptyList(), "something like Espresso or Please Please Please", "[[Espresso]] and [[Please Please Please]] you named, but not [[Please Please]] and not [[A]].", false),
             Case(emptyList(), emptyList(), "30 songs please", "I made 30 songs for you. [[ ]] [[unclosed and \"also unclosed", false),
         )
         for (c in cases) {
@@ -254,6 +255,6 @@ object AssistantGolden {
           `topFactors`: `AssistantRules.topFactors(x, Ranker.weights(p0))`, each factor `[name, 1 up | 0 down]`.
           `grounding`: a `Grounding.Registry` with `addName` for each of `names` and `addText` for each of `texts`, then `Grounding.check(reply,
           registry, user, "(unverified)", drop)`. `numbers`: `Grounding.numbersIn(text)` and the tokens of `Grounding.listenerNumbers(text)`.
-          No regular expressions anywhere: a Swift port scans UTF-16 units, as the Kotlin does.
+          A marked name that is a whole-word run of the user's own words (two letters or more) is grounded too. No regular expressions anywhere: a Swift port scans UTF-16 units, as the Kotlin does.
     """
 }

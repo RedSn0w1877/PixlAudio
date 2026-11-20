@@ -279,6 +279,17 @@ class AssistantTest {
     }
 
     @Test
+    fun `a marked name the listener typed is theirs, as whole words only`() {
+        val reg = registry(listOf("Espresso"))
+        assertTrue(check("[[Please Please Please]] is the one you named.", reg, user = "something like Please Please Please").ok)
+        assertTrue(check("[[Espresso]] and [[sabrina carpenter]].", reg, user = "Sabrina Carpenter, please").ok)
+        // A name that is only part of a longer word of the user's, or a single letter, is not theirs.
+        assertFalse(check("[[Sabrina]].", reg, user = "Sabrinas Mix").ok)
+        assertFalse(check("[[A]].", reg, user = "a song").ok)
+        assertFalse(check("[[Taylor Swift]].", reg, user = "something new").ok)
+    }
+
+    @Test
     fun `an unclosed mark and an empty mark are not names`() {
         val reg = registry()
         assertTrue(check("[[ ]] and [[unclosed", reg).ok)

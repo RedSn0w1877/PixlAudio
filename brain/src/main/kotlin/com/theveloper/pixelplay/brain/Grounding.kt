@@ -16,6 +16,8 @@ object Grounding {
     const val MAX_SPAN = 120
     const val MIN_QUOTED = 2
     const val MAX_QUOTED = 80
+    /** A marked name must be at least this long to be accepted as one the user typed (a one-letter word is in every sentence). */
+    const val MIN_USER_NAME = 2
 
     /** Everything the conversation really held. */
     class Registry {
@@ -138,6 +140,9 @@ object Grounding {
         if (!marked) {
             if (registry.inText(folded)) return true
             if (userText.isNotEmpty() && BrainText.fold(userText).contains(folded)) return true
+        } else if (userText.isNotEmpty() && folded.length >= MIN_USER_NAME) {
+            // A name the listener typed is theirs: the assistant may say it back ("Espresso is a good place to start"). Whole words only.
+            if ((" " + BrainText.fold(userText) + " ").contains(" $folded ")) return true
         }
         // Several names in one mark: every part must be a returned name.
         var raw = listOf(inner)

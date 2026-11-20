@@ -156,4 +156,4 @@ How each `fn` is replayed:
   `topFactors`: `AssistantRules.topFactors(x, Ranker.weights(p0))`, each factor `[name, 1 up | 0 down]`.
   `grounding`: a `Grounding.Registry` with `addName` for each of `names` and `addText` for each of `texts`, then `Grounding.check(reply,
   registry, user, "(unverified)", drop)`. `numbers`: `Grounding.numbersIn(text)` and the tokens of `Grounding.listenerNumbers(text)`.
-  No regular expressions anywhere: a Swift port scans UTF-16 units, as the Kotlin does.
+  A marked name that is a whole-word run of the user's own words (two letters or more) is grounded too. No regular expressions anywhere: a Swift port scans UTF-16 units, as the Kotlin does.
