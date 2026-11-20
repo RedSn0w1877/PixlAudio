@@ -1,10 +1,18 @@
 package com.theveloper.pixelplay.presentation.songtap
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.os.Build
+import android.provider.Settings
 import android.view.HapticFeedbackConstants
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -19,19 +27,21 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.PhonelinkRing
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MotionScheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
@@ -43,6 +53,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -52,9 +63,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -63,6 +77,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
 import com.theveloper.pixelplay.R
+import com.theveloper.pixelplay.data.songtap.ble.BleStatus
 import com.theveloper.pixelplay.presentation.utils.LocalAppHapticsConfig
 import com.theveloper.pixelplay.presentation.utils.performAppHapticFeedback
 import com.theveloper.pixelplay.presentation.viewmodel.SongTapNotice
@@ -73,11 +88,14 @@ import com.theveloper.pixelplay.songtap.Phase
 import com.theveloper.pixelplay.songtap.Role
 
 /**
- * Song Tap's full screen. This milestone is the working route, in plain Material 3: Send shows a code for the
- * song that is playing, Receive scans one, and a card says what happened (Add / Not now the first time,
- * then Undo). It is armed only while the screen is on screen and in the foreground.
+ * Song Tap's full screen. Armed only while it is on screen and in the foreground.
+ *
+ * Send: the song that is playing, large; touch the backs of the two phones together and it flies off the top of
+ * this screen into the other phone. Receive: wait, and a card with the song enters from the top. A glow at the
+ * top edge grows as the other phone comes close. A code (shown or scanned) does the same job without Bluetooth
+ * and is one tap away on both sides.
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun SongTapScreen(
     navController: NavController,
@@ -85,60 +103,131 @@ fun SongTapScreen(
 ) {
     val ui by viewModel.ui.collectAsStateWithLifecycle()
     var mode by rememberSaveable { mutableStateOf(Role.SEND) }
+    var useCode by rememberSaveable { mutableStateOf(false) }
     val view = LocalView.current
+    val context = LocalContext.current
     val hapticsConfig = LocalAppHapticsConfig.current
+    val motion = remember { MotionScheme.expressive() }
+    val rootHeight = remember { mutableIntStateOf(0) }
+
+    val bluetoothLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+        viewModel.bluetoothChanged()
+    }
+    val requestBluetooth = { bluetoothLauncher.launch(bluetoothPermissions()) }
 
     LaunchedEffect(viewModel) { viewModel.attach() }
-    LaunchedEffect(viewModel, view, hapticsConfig) {
-        viewModel.haptics.collect { cue -> view.performAppHapticFeedback(hapticsConfig, hapticConstant(cue)) }
-    }
-    // Armed only while this screen is resumed: leaving the app or the screen stops everything.
+    val perform: (HapticCue) -> Unit = { cue -> view.performAppHapticFeedback(hapticsConfig, hapticConstant(cue)) }
+    LaunchedEffect(viewModel, view, hapticsConfig) { viewModel.haptics.collect { perform(it) } }
+    // Armed only while this screen is resumed: leaving the app or the screen stops everything, radio and sensor included.
     LifecycleResumeEffect(ui.allowed, viewModel) {
         if (ui.allowed) viewModel.arm(mode)
         onPauseOrDispose { viewModel.disarm() }
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(stringResource(R.string.songtap_title)) },
-                navigationIcon = {
-                    IconButton(onClick = { navController.popBackStack() }) {
-                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = stringResource(R.string.common_back))
-                    }
-                },
-            )
-        },
-    ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .padding(horizontal = 16.dp)
-                .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            if (!ui.allowed) {
-                TurnOnCard(onTurnOn = { viewModel.allow(true) })
-            } else {
-                ModeSwitch(mode = mode, onChange = { mode = it; viewModel.switchRole(it) })
-                ResultCard(
-                    ui = ui,
-                    onAdd = viewModel::accept,
-                    onNotNow = viewModel::decline,
-                    onUndo = viewModel::undo,
-                    onOk = viewModel::dismiss,
+    val beamTime = rememberBeamTime(ui.beamRole, ui.beamStartMs, ui.beamReduced, perform)
+    val approach = viewModel.glow.collectAsStateWithLifecycle()
+    val pulse = remember { Animatable(0f) }
+    LaunchedEffect(ui.phase) {
+        // The moment of contact: the glow flares once.
+        if ((ui.phase == Phase.OFFERED || ui.phase == Phase.TRANSFERRING) && ui.session.peer != 0 && !ui.beamReduced) {
+            pulse.snapTo(1f)
+            pulse.animateTo(0f, motion.slowEffectsSpec())
+        }
+    }
+
+    Box(
+        Modifier
+            .fillMaxSize()
+            .onSizeChanged { rootHeight.intValue = it.height },
+    ) {
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = { Text(stringResource(R.string.songtap_title)) },
+                    navigationIcon = {
+                        IconButton(onClick = { navController.popBackStack() }) {
+                            Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = stringResource(R.string.common_back))
+                        }
+                    },
                 )
-                if (mode == Role.SEND) {
-                    SendContent(ui = ui, onShow = viewModel::showCode, onHide = viewModel::hideCode)
+            },
+        ) { padding ->
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+                    .padding(horizontal = 16.dp)
+                    .verticalScroll(rememberScrollState()),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                if (!ui.allowed) {
+                    TurnOnCard(onTurnOn = {
+                        viewModel.allow(true)
+                        // The one place Bluetooth is asked for: the moment Song Tap is turned on.
+                        requestBluetooth()
+                    })
                 } else {
-                    ReceiveContent(onScanned = viewModel::onScanned)
+                    ModeSwitch(mode = mode, onChange = { mode = it; useCode = false; viewModel.switchRole(it) })
+                    BluetoothCard(
+                        status = ui.bluetooth,
+                        onAllow = { requestBluetooth() },
+                        onOpenSettings = { context.startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) },
+                    )
+                    ResultCard(
+                        ui = ui,
+                        onAdd = viewModel::accept,
+                        onNotNow = viewModel::decline,
+                        onUndo = viewModel::undo,
+                        onOk = viewModel::dismiss,
+                    )
+                    if (mode == Role.SEND) {
+                        SendContent(
+                            ui = ui,
+                            useCode = useCode,
+                            time = beamTime,
+                            rootHeight = rootHeight,
+                            onShowCode = { useCode = true; viewModel.showCode() },
+                            onHideCode = { useCode = false; viewModel.hideCode() },
+                        )
+                    } else {
+                        ReceiveContent(ui = ui, onScanned = viewModel::onScanned)
+                    }
                 }
+                Spacer(Modifier.height(24.dp))
             }
-            Spacer(Modifier.height(24.dp))
+        }
+
+        SongTapGlow(approach = approach, time = beamTime, role = ui.beamRole, reduced = ui.beamReduced, pulse = pulse.asState())
+
+        val card = ui.card
+        AnimatedVisibility(
+            visible = ui.beamRole == Role.RECEIVE && card != null,
+            enter = fadeIn(motion.fastEffectsSpec()),
+            exit = fadeOut(motion.fastEffectsSpec()),
+            modifier = Modifier.align(Alignment.Center),
+        ) {
+            if (card != null) {
+                ReceiveBeamCard(
+                    card = card,
+                    phase = ui.phase,
+                    alreadyHad = ui.session.alreadyHad,
+                    time = beamTime,
+                    reduced = ui.beamReduced,
+                    rootHeight = rootHeight,
+                    onUndo = viewModel::undo,
+                )
+            }
         }
     }
 }
+
+private fun bluetoothPermissions(): Array<String> =
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_ADVERTISE, Manifest.permission.BLUETOOTH_CONNECT)
+    } else {
+        arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
+    }
 
 private fun hapticConstant(cue: HapticCue): Int = when (cue) {
     HapticCue.TICK -> HapticFeedbackConstants.CLOCK_TICK
@@ -183,8 +272,53 @@ private fun ModeSwitch(mode: Role, onChange: (Role) -> Unit) {
     }
 }
 
+/** What is wrong with Bluetooth, and the one button that fixes it. Nothing when it works; the code route is always there. */
 @Composable
-private fun SendContent(ui: SongTapUiState, onShow: () -> Unit, onHide: () -> Unit) {
+private fun BluetoothCard(status: BleStatus, onAllow: () -> Unit, onOpenSettings: () -> Unit) {
+    val text = when (status) {
+        BleStatus.NO_PERMISSION -> R.string.songtap_bt_permission
+        BleStatus.BLUETOOTH_OFF -> R.string.songtap_bt_off
+        BleStatus.UNSUPPORTED -> R.string.songtap_bt_unsupported
+        else -> return
+    }
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer),
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(stringResource(text), style = MaterialTheme.typography.bodyMedium)
+            when (status) {
+                BleStatus.NO_PERMISSION -> Button(onClick = onAllow) { Text(stringResource(R.string.songtap_bt_allow)) }
+                BleStatus.BLUETOOTH_OFF -> Button(onClick = onOpenSettings) { Text(stringResource(R.string.songtap_bt_open_settings)) }
+                else -> Unit
+            }
+        }
+    }
+}
+
+@Composable
+private fun statusLine(ui: SongTapUiState): String? {
+    if (ui.bluetooth != BleStatus.ACTIVE) return null
+    val id = when {
+        ui.phase == Phase.SAVED && ui.role == Role.SEND -> R.string.songtap_status_sent
+        ui.phase == Phase.ARMED -> R.string.songtap_status_looking
+        ui.phase == Phase.FOUND -> R.string.songtap_status_found
+        ui.phase == Phase.NEAR -> R.string.songtap_status_near
+        else -> return null
+    }
+    return stringResource(id)
+}
+
+@Composable
+private fun SendContent(
+    ui: SongTapUiState,
+    useCode: Boolean,
+    time: androidx.compose.runtime.State<Float>,
+    rootHeight: androidx.compose.runtime.IntState,
+    onShowCode: () -> Unit,
+    onHideCode: () -> Unit,
+) {
     val playing = ui.nowPlaying
     if (playing == null) {
         Text(
@@ -194,10 +328,43 @@ private fun SendContent(ui: SongTapUiState, onShow: () -> Unit, onHide: () -> Un
         )
         return
     }
-    Text(stringResource(R.string.songtap_send_now_playing), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-    SongRow(title = playing.title, artist = playing.artist, artUrl = playing.artUrl)
+    BeamArtwork(
+        url = playing.artUrl,
+        role = ui.beamRole,
+        time = time,
+        reduced = ui.beamReduced,
+        rootHeight = rootHeight,
+        modifier = Modifier.padding(top = 8.dp).size(248.dp),
+    )
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(playing.title, style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
+        Text(
+            playing.artist,
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center,
+        )
+    }
+    if (!playing.canSend) {
+        Text(
+            stringResource(R.string.songtap_send_cant),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        return
+    }
+    val status = statusLine(ui)
+    Text(
+        status ?: stringResource(R.string.songtap_send_hint),
+        style = MaterialTheme.typography.titleSmall,
+        color = if (status != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+        textAlign = TextAlign.Center,
+        modifier = Modifier.animateContentSize(),
+    )
     val code = ui.code
-    if (code != null) {
+    if (useCode && code != null) {
         val image = rememberQrImage(code)
         Box(
             modifier = Modifier
@@ -222,20 +389,44 @@ private fun SendContent(ui: SongTapUiState, onShow: () -> Unit, onHide: () -> Un
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        OutlinedButton(onClick = onHide, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.songtap_hide_code)) }
-    } else if (!playing.canSend) {
-        Text(
-            stringResource(R.string.songtap_send_cant),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        OutlinedButton(onClick = onHideCode, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.songtap_back_to_tap)) }
     } else {
-        Button(onClick = onShow, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.songtap_show_code)) }
+        TextButton(onClick = onShowCode) { Text(stringResource(R.string.songtap_use_code)) }
     }
 }
 
 @Composable
-private fun ReceiveContent(onScanned: (String) -> Unit) {
+private fun ReceiveContent(ui: SongTapUiState, onScanned: (String) -> Unit) {
+    var scanning by rememberSaveable { mutableStateOf(false) }
+    if (scanning) {
+        Scanner(onScanned = onScanned)
+        OutlinedButton(onClick = { scanning = false }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.songtap_back_to_tap)) }
+        return
+    }
+    Box(
+        modifier = Modifier
+            .padding(top = 24.dp)
+            .size(184.dp)
+            .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(Icons.Rounded.PhonelinkRing, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(72.dp))
+    }
+    val status = statusLine(ui)
+    Text(
+        status ?: stringResource(R.string.songtap_receive_hint),
+        style = MaterialTheme.typography.titleSmall,
+        color = if (status != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+        textAlign = TextAlign.Center,
+        modifier = Modifier.animateContentSize(),
+    )
+    TextButton(onClick = { scanning = true }) { Text(stringResource(R.string.songtap_scan_code)) }
+}
+
+/** The camera, behind its permission: asked for the first time the listener chooses to scan a code, and nowhere else. */
+@Composable
+private fun Scanner(onScanned: (String) -> Unit) {
     val context = LocalContext.current
     var granted by remember {
         mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED)
@@ -262,7 +453,6 @@ private fun ReceiveContent(onScanned: (String) -> Unit) {
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        // The camera is asked for here, the first time the listener chooses to scan, and nowhere else.
         Button(onClick = { launcher.launch(Manifest.permission.CAMERA) }, modifier = Modifier.fillMaxWidth()) {
             Text(stringResource(R.string.songtap_allow_camera))
         }
@@ -281,30 +471,32 @@ private fun SongRow(title: String, artist: String, artUrl: String?) {
         ) {
             if (artUrl != null) {
                 AsyncImage(model = artUrl, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-            } else {
-                Icon(Icons.Rounded.MusicNote, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
         Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+            Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(
                 artist,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
-                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                overflow = TextOverflow.Ellipsis,
             )
         }
     }
 }
 
-/** What happened, in one card: the question the first time, the song that was added, or why not. */
+/**
+ * What happened, in one plain card, when the beam is not showing it: the question the first time (Add / Not now),
+ * a result that came without a beam (a code, a slow save), or why it did not work.
+ */
 @Composable
 private fun ResultCard(ui: SongTapUiState, onAdd: () -> Unit, onNotNow: () -> Unit, onUndo: () -> Unit, onOk: () -> Unit) {
     val card = ui.card
     val phase = ui.phase
     val receiving = ui.role == Role.RECEIVE
-    val showsSong = card != null && receiving && (phase == Phase.OFFERED || phase == Phase.TRANSFERRING || phase == Phase.SAVED)
+    val beamShowsIt = ui.beamRole == Role.RECEIVE
+    val showsSong = card != null && receiving && !beamShowsIt && (phase == Phase.OFFERED || phase == Phase.TRANSFERRING || phase == Phase.SAVED)
     val showsText = phase == Phase.FAILED || phase == Phase.DECLINED || phase == Phase.CANCELLED || (ui.notice == SongTapNotice.INVALID_CODE && phase == Phase.ARMED)
     if (!showsSong && !showsText) return
 

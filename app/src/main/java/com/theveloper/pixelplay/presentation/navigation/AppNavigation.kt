@@ -635,6 +635,13 @@ fun AppNavigation(
                 }
             }
             composable(
+                Screen.SongTapDiagnostics.route,
+            ) {
+                ScreenWrapper(navController = navController, playerViewModel = playerViewModel, animatedVisibilityScope = this) {
+                    com.theveloper.pixelplay.presentation.songtap.SongTapDiagnosticsScreen(navController = navController)
+                }
+            }
+            composable(
                 Screen.DeviceCapabilities.route,
             ) {
                 ScreenWrapper(navController = navController, playerViewModel = playerViewModel, animatedVisibilityScope = this) {

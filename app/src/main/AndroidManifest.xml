@@ -14,6 +14,8 @@
     <!-- Song Tap: Bluetooth advertising while its screen is open, and the camera to read a code. Both are asked for
          at the moment the listener uses them, never at start. Neither is required to install the app. -->
     <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />
+    <!-- Android 11 (the minimum) needs this one, and the location permission already declared below, to scan and advertise. -->
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.bluetooth_le" android:required="false" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />

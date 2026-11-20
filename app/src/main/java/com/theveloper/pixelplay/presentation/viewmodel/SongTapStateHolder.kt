@@ -10,6 +10,9 @@ import com.theveloper.pixelplay.data.songtap.SongTapSender
 import com.theveloper.pixelplay.data.songtap.SongTapSettings
 import com.theveloper.pixelplay.data.songtap.SongTapTransport
 import com.theveloper.pixelplay.data.songtap.TransportEvent
+import com.theveloper.pixelplay.data.songtap.ble.BleStatus
+import com.theveloper.pixelplay.data.songtap.ble.BleTransport
+import com.theveloper.pixelplay.data.songtap.ble.SongTapDiagnostics
 import com.theveloper.pixelplay.di.AppScope
 import com.theveloper.pixelplay.songtap.FailReason
 import com.theveloper.pixelplay.songtap.HapticCue
@@ -23,6 +26,7 @@ import com.theveloper.pixelplay.songtap.SessionState
 import com.theveloper.pixelplay.songtap.SongTapPayload
 import com.theveloper.pixelplay.songtap.SongTapPayloads
 import com.theveloper.pixelplay.songtap.SongTapSession
+import com.theveloper.pixelplay.songtap.SongTapTimeline
 import com.theveloper.pixelplay.songtap.SongTapSigning
 import com.theveloper.pixelplay.songtap.TimeoutTag
 import javax.inject.Inject
@@ -67,6 +71,10 @@ data class SongTapUiState(
     /** When the animation of the current beam starts on this phone's clock, and which side it plays (0 when none). */
     val beamStartMs: Long = 0L,
     val beamRole: Role? = null,
+    /** The current beam plays the short cross-fade (animations are off on this phone), not the flight. */
+    val beamReduced: Boolean = false,
+    /** Whether Bluetooth is running, and if not why. The code route works either way. */
+    val bluetooth: BleStatus = BleStatus.IDLE,
 ) {
     val phase: Phase get() = session.phase
     val role: Role get() = session.role
@@ -86,6 +94,8 @@ class SongTapStateHolder @Inject constructor(
     private val receiver: SongTapReceiver,
     private val sender: SongTapSender,
     private val qr: QrTransport,
+    private val ble: BleTransport,
+    private val diagnostics: SongTapDiagnostics,
     private val playback: PlaybackStateHolder,
     @AppScope private val scope: CoroutineScope,
 ) {
@@ -100,6 +110,16 @@ class SongTapStateHolder @Inject constructor(
     /** The vibrations the screen performs (it owns the View and the user's haptics setting). */
     val haptics: SharedFlow<HapticCue> = _haptics.asSharedFlow()
 
+    /** The approach glow for the screen edge, 0..500 permille; read in the draw phase, so it is a flow of its own. */
+    val glow: StateFlow<Int> get() = ble.glow
+
+    /** The numbers behind the tap detector, for the Developer mode diagnostics screen. */
+    val diag: SongTapDiagnostics get() = diagnostics
+
+    /** True when the phone's animations are off (animator scale 0): the beam then cross-fades instead of flying. Replaceable in tests. */
+    internal var reducedMotion: () -> Boolean = { !android.animation.ValueAnimator.areAnimatorsEnabled() }
+
+    private var beamJob: Job? = null
     private var observing: Job? = null
     private val timeouts = HashMap<TimeoutTag, Job>()
     private var dismissJob: Job? = null
@@ -124,12 +144,15 @@ class SongTapStateHolder @Inject constructor(
             }
             launch { qr.code.collect { code -> _ui.update { it.copy(code = code) } } }
             launch { qr.events.collect { handle(it) } }
+            launch { ble.events.collect { handle(it) } }
+            launch { ble.status.collect { status -> _ui.update { it.copy(bluetooth = status) } } }
         }
     }
 
     /** Called when the screen closes for good (not on a configuration change). */
     fun detach() {
         disarm()
+        diagnostics.setEnabled(false)
         observing?.cancel()
         observing = null
     }
@@ -148,6 +171,12 @@ class SongTapStateHolder @Inject constructor(
             dispatch(SessionEvent.Arm(role, settings.doesFirstBeamAsk()))
         }
     }
+
+    /** The Bluetooth permission was just granted, or Bluetooth was turned on: try the radio again. */
+    fun bluetoothChanged() = ble.restart()
+
+    /** Developer mode diagnostics: write the current signal into the log under [label] ("touching", "1 cm"...). */
+    fun mark(label: String) = ble.mark(label)
 
     fun disarm() {
         dispatch(SessionEvent.Disarm)
@@ -204,15 +233,19 @@ class SongTapStateHolder @Inject constructor(
 
     private fun dispatch(event: SessionEvent) {
         val effects: List<SessionEffect>
+        val before: Phase
         synchronized(lock) {
+            before = session.phase
             val r = SongTapSession.reduce(session, event)
             session = r.state
             effects = r.effects
             publish(event)
         }
         for (effect in effects) perform(effect)
-        // A code is up only while an offer is on the table.
-        if (session.phase != Phase.OFFERED) qr.withdrawOffer()
+        // A code is up, and an offer readable over Bluetooth, only while an offer is on the table.
+        if (session.phase != Phase.OFFERED) { qr.withdrawOffer(); ble.withdrawOffer() }
+        // Back to waiting after a result: the phone that is close has to be announced again to be tappable.
+        if (before != Phase.ARMED && before != Phase.IDLE && session.phase == Phase.ARMED) ble.resync()
         watchTerminal()
     }
 
@@ -225,6 +258,14 @@ class SongTapStateHolder @Inject constructor(
                 notice = if (event is SessionEvent.Dismiss || event is SessionEvent.Arm || event is SessionEvent.Disarm) null else current.notice,
             )
         }
+        // A beam belongs to a session that is sending or saving; anything else (a failure, a cancel, Undo) ends it at once.
+        if (session.phase != Phase.TRANSFERRING && session.phase != Phase.SAVED) clearBeam()
+    }
+
+    private fun clearBeam() {
+        beamJob?.cancel()
+        beamJob = null
+        _ui.update { if (it.beamRole == null) it else it.copy(beamRole = null, beamStartMs = 0L) }
     }
 
     private fun handle(event: TransportEvent) {
@@ -235,10 +276,15 @@ class SongTapStateHolder @Inject constructor(
             is TransportEvent.PeerFar -> dispatch(SessionEvent.PeerFar(event.peer))
             is TransportEvent.PeerRole -> dispatch(SessionEvent.PeerRole(event.peer, event.role))
             is TransportEvent.Tap -> scope.launch {
-                val song = playback.stablePlayerState.value.currentSong
-                val payload = song?.let { sender.payloadFor(it, now()) }
-                pendingOffer = payload
-                dispatch(SessionEvent.TapDetected(event.peer, payload?.songKey ?: ""))
+                if (session.role == Role.RECEIVE) {
+                    // The receiver sends nothing: the tap only means "read the offer now".
+                    dispatch(SessionEvent.TapDetected(event.peer, ""))
+                } else {
+                    val song = playback.stablePlayerState.value.currentSong
+                    val payload = song?.let { sender.payloadFor(it, now()) }
+                    pendingOffer = payload
+                    dispatch(SessionEvent.TapDetected(event.peer, payload?.songKey ?: ""))
+                }
             }
             is TransportEvent.Offer -> {
                 val decoded = SongTapPayloads.decode(event.payload)
@@ -261,12 +307,13 @@ class SongTapStateHolder @Inject constructor(
 
     private fun cardOf(p: SongTapPayload) = SongTapCard(videoId = p.ytVideoId ?: "", songId = "", title = p.title, artist = p.artist, artUrl = p.artUrl)
 
-    private fun transportFor(peer: Int): SongTapTransport = qr
+    /** A code has no peer (0); a phone found over Bluetooth has a number. */
+    private fun transportFor(peer: Int): SongTapTransport = if (peer == 0) qr else ble
 
     private fun perform(effect: SessionEffect) {
         when (effect) {
-            is SessionEffect.StartTransport -> qr.start(effect.role)
-            SessionEffect.StopTransport -> { qr.stop(); cancelJobs() }
+            is SessionEffect.StartTransport -> { qr.start(effect.role); ble.start(effect.role) }
+            SessionEffect.StopTransport -> { qr.stop(); ble.stop(); cancelJobs() }
             is SessionEffect.PublishOffer -> pendingOffer?.let { p ->
                 SongTapPayloads.encode(p)?.let { transportFor(effect.peer).publishOffer(effect.peer, it) }
             }
@@ -275,10 +322,11 @@ class SongTapStateHolder @Inject constructor(
             is SessionEffect.SendGo -> transportFor(effect.peer).sendGo(effect.peer, effect.startMs)
             is SessionEffect.SendDecline -> transportFor(effect.peer).sendDecline(effect.peer)
             is SessionEffect.AbortTransfer -> transportFor(effect.peer).abort(effect.peer)
-            is SessionEffect.StartBeam -> _ui.update { it.copy(beamStartMs = effect.startMs, beamRole = effect.role) }
+            is SessionEffect.StartBeam -> startBeam(effect.role, effect.startMs)
             is SessionEffect.SaveSong -> startSave()
             is SessionEffect.UndoSave -> startUndo(effect.videoId)
-            is SessionEffect.Haptic -> _haptics.tryEmit(effect.cue)
+            // While a beam plays, its own cue list (timeline) does the vibrating; the session's "success" would double it.
+            is SessionEffect.Haptic -> if (!(effect.cue == HapticCue.SUCCESS && _ui.value.beamRole != null)) _haptics.tryEmit(effect.cue)
             is SessionEffect.ScheduleTimeout -> schedule(effect.tag, effect.afterMs)
             is SessionEffect.Notice -> _ui.update { it.copy(notice = noticeOf(effect.reason)) }
             SessionEffect.NoticeInvalidCode -> {
@@ -304,6 +352,21 @@ class SongTapStateHolder @Inject constructor(
         FailReason.LIMIT -> SongTapNotice.LIMIT
         FailReason.DUPLICATE -> SongTapNotice.DUPLICATE
         FailReason.MUTED -> SongTapNotice.MUTED
+    }
+
+    // ── The beam ──────────────────────────────────────────────────────────────────────
+
+    private fun startBeam(role: Role, startMs: Long) {
+        val reduced = reducedMotion()
+        beamJob?.cancel()
+        _ui.update { it.copy(beamStartMs = startMs, beamRole = role, beamReduced = reduced) }
+        beamJob = scope.launch {
+            delay((startMs + SongTapTimeline.totalMs(role, reduced) - now()).coerceAtLeast(0L))
+            // The sender's beam is the whole send: when it is over, the session is done. The receiver's card
+            // is over when the Undo window is, which is also when the saved result is put away.
+            if (role == Role.SEND) dispatch(SessionEvent.BeamFinished) else dispatch(SessionEvent.Dismiss)
+            clearBeam()
+        }
     }
 
     // ── Save, undo ────────────────────────────────────────────────────────────────────
@@ -355,6 +418,8 @@ class SongTapStateHolder @Inject constructor(
         val terminal = phase == Phase.SAVED || phase == Phase.DECLINED || phase == Phase.FAILED || phase == Phase.CANCELLED
         if (!terminal) { dismissJob?.cancel(); dismissJob = null; return }
         if (dismissJob?.isActive == true) return
+        // A saved card that came with a beam is put away by the beam's own end (its Undo chip lives inside it).
+        if (phase == Phase.SAVED && _ui.value.beamRole == Role.RECEIVE) return
         val stay = if (phase == Phase.SAVED) com.theveloper.pixelplay.songtap.SongTapSession.UNDO_WINDOW_MS else RESULT_MS
         dismissJob = scope.launch {
             delay(stay)

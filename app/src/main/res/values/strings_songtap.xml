@@ -25,6 +25,24 @@
     <string name="songtap_mode_send">Send</string>
     <string name="songtap_mode_receive">Receive</string>
 
+    <!-- Status while two phones find each other -->
+    <string name="songtap_status_looking">Looking for the other phone</string>
+    <string name="songtap_status_found">Phone nearby. Hold the backs together.</string>
+    <string name="songtap_status_near">Almost there. Touch the phones together.</string>
+    <string name="songtap_status_sent">Sent</string>
+    <string name="songtap_send_hint">Touch the backs of the two phones together.</string>
+    <string name="songtap_receive_hint">Touch the back of your phone to the one playing the song.</string>
+    <string name="songtap_use_code">Use a code instead</string>
+    <string name="songtap_scan_code">Scan a code instead</string>
+    <string name="songtap_back_to_tap">Back to touching phones</string>
+
+    <!-- Bluetooth -->
+    <string name="songtap_bt_permission">Song Tap needs Bluetooth to find the other phone.</string>
+    <string name="songtap_bt_allow">Allow Bluetooth</string>
+    <string name="songtap_bt_off">Bluetooth is off. Turn it on to find the other phone.</string>
+    <string name="songtap_bt_open_settings">Bluetooth settings</string>
+    <string name="songtap_bt_unsupported">This phone can\'t use Bluetooth for Song Tap. A code still works.</string>
+
     <!-- Send -->
     <string name="songtap_send_now_playing">Now playing</string>
     <string name="songtap_send_nothing">Play a song to send it.</string>
@@ -63,5 +81,21 @@
     <string name="songtap_notice_invalid_offer">That song couldn\'t be read.</string>
     <string name="songtap_notice_nothing">Play a song to send it.</string>
     <string name="songtap_declined">Not added</string>
+    <string name="songtap_beam_art">Artwork of the song being sent</string>
     <string name="songtap_cancelled">Cancelled</string>
+
+    <!-- Developer mode: Song Tap diagnostics -->
+    <string name="songtap_diag_title">Song Tap diagnostics</string>
+    <string name="songtap_diag_settings_subtitle">Live signal, baseline and jerk, to tune the tap on real phones</string>
+    <string name="songtap_diag_need_on">Turn on Song Tap to see live numbers.</string>
+    <string name="songtap_diag_signal">Signal</string>
+    <string name="songtap_diag_motion">Motion</string>
+    <string name="songtap_diag_detector">Detector</string>
+    <string name="songtap_diag_marks">Mark the signal</string>
+    <string name="songtap_diag_marks_hint">Hold the phones at a distance, then press the matching button. The numbers go into the log.</string>
+    <string name="songtap_diag_events">Last 20 events</string>
+    <string name="songtap_diag_copy">Copy log</string>
+    <string name="songtap_diag_copied">Copied</string>
+    <string name="songtap_diag_clear">Clear</string>
+    <string name="songtap_diag_tuning">Thresholds</string>
 </resources>

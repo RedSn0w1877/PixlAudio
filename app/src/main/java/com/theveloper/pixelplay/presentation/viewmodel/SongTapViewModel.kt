@@ -18,6 +18,12 @@ class SongTapViewModel @Inject constructor(
     val ui = holder.ui
     val haptics = holder.haptics
 
+    /** The approach glow, 0..500 permille. */
+    val glow = holder.glow
+
+    /** The numbers behind the tap detector (Developer mode diagnostics). */
+    val diag = holder.diag
+
     fun attach() = holder.attach()
     fun allow(on: Boolean) = holder.allow(on)
     fun arm(role: Role) = holder.arm(role)
@@ -30,6 +36,8 @@ class SongTapViewModel @Inject constructor(
     fun decline() = holder.decline()
     fun undo() = holder.undo()
     fun dismiss() = holder.dismiss()
+    fun bluetoothChanged() = holder.bluetoothChanged()
+    fun mark(label: String) = holder.mark(label)
 
     override fun onCleared() {
         holder.detach()

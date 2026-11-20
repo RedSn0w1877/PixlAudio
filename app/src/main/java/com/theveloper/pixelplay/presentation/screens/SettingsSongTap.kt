@@ -14,6 +14,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
 import com.theveloper.pixelplay.R
 import com.theveloper.pixelplay.presentation.navigation.Screen
+import com.theveloper.pixelplay.presentation.model.LocalDeveloperMode
 import com.theveloper.pixelplay.presentation.navigation.navigateSafely
 import com.theveloper.pixelplay.presentation.viewmodel.SongTapSettingsViewModel
 
@@ -43,6 +44,16 @@ fun SettingsSongTap(
                 trailingIcon = { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, null) },
                 onClick = { navController.navigateSafely(Screen.SongTap.route) },
             )
+            // Calibration numbers for the tap detector: only with Developer mode on.
+            if (LocalDeveloperMode.current) {
+                SettingsItem(
+                    title = stringResource(R.string.songtap_diag_title),
+                    subtitle = stringResource(R.string.songtap_diag_settings_subtitle),
+                    leadingIcon = { Icon(Icons.Rounded.PhonelinkRing, null, tint = MaterialTheme.colorScheme.secondary) },
+                    trailingIcon = { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, null) },
+                    onClick = { navController.navigateSafely(Screen.SongTapDiagnostics.route) },
+                )
+            }
         }
     }
 }
