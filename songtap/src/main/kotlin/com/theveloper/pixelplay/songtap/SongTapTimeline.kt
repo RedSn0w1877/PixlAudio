@@ -31,6 +31,29 @@ data class BeamFrame(
     fun describe(): String = "glow=$glow scale=$scale ty=$translateY alpha=$alpha shadow=$shadow card=$cardAlpha text=$textAlpha undo=$undoAlpha"
 }
 
+/**
+ * The same eight numbers as [BeamFrame], mutable, so a draw loop can ask for a frame 60 or 120 times a second
+ * without allocating: [SongTapTimeline.frameInto] fills it in place.
+ */
+class BeamFrameBuffer {
+    @JvmField var glow = 0
+    @JvmField var scale = 1000
+    @JvmField var translateY = 0
+    @JvmField var alpha = 1000
+    @JvmField var shadow = 0
+    @JvmField var cardAlpha = 0
+    @JvmField var textAlpha = 0
+    @JvmField var undoAlpha = 0
+
+    fun set(glow: Int, scale: Int, translateY: Int, alpha: Int, shadow: Int, cardAlpha: Int, textAlpha: Int, undoAlpha: Int): BeamFrameBuffer {
+        this.glow = glow; this.scale = scale; this.translateY = translateY; this.alpha = alpha
+        this.shadow = shadow; this.cardAlpha = cardAlpha; this.textAlpha = textAlpha; this.undoAlpha = undoAlpha
+        return this
+    }
+
+    fun toFrame(): BeamFrame = BeamFrame(glow, scale, translateY, alpha, shadow, cardAlpha, textAlpha, undoAlpha)
+}
+
 data class TimedCue(val tMs: Long, val cue: HapticCue) {
     fun describe(): String = "$tMs:${cue.code}"
 }
@@ -99,7 +122,13 @@ object SongTapTimeline {
     // ── Frames ───────────────────────────────────────────────────────────────────────
 
     fun frame(role: Role, tMs: Long, reducedMotion: Boolean): BeamFrame =
-        if (role == Role.SEND) sender(tMs, reducedMotion) else receiver(tMs, reducedMotion)
+        frameInto(role, tMs, reducedMotion, BeamFrameBuffer()).toFrame()
+
+    /** [frame] without the allocation: fills [out] and returns it. */
+    fun frameInto(role: Role, tMs: Long, reducedMotion: Boolean, out: BeamFrameBuffer): BeamFrameBuffer {
+        if (role == Role.SEND) sender(tMs, reducedMotion, out) else receiver(tMs, reducedMotion, out)
+        return out
+    }
 
     fun totalMs(role: Role, reducedMotion: Boolean): Long = when {
         reducedMotion && role == Role.SEND -> REDUCED_FADE_MS
@@ -108,38 +137,39 @@ object SongTapTimeline {
         else -> RECEIVE_TOTAL_MS
     }
 
-    private fun sender(tMs: Long, reduced: Boolean): BeamFrame {
-        if (reduced) return BeamFrame(0, 1000, 0, 1000, 0, 0, 0, 0)
+    private fun sender(tMs: Long, reduced: Boolean, out: BeamFrameBuffer) {
+        if (reduced) { out.set(0, 1000, 0, 1000, 0, 0, 0, 0); return }
         val g = glow(tMs)
-        return when {
-            tMs <= 0L -> BeamFrame(g, 1000, 0, 1000, 0, 0, 0, 0)
+        when {
+            tMs <= 0L -> out.set(g, 1000, 0, 1000, 0, 0, 0, 0)
             tMs < LIFT_MS -> {
                 val e = easeOutCubic(progress(tMs, 0L, LIFT_MS))
-                BeamFrame(g, lerp(1000, 920, e), 0, 1000, lerp(0, 1000, e), 0, 0, 0)
+                out.set(g, lerp(1000, 920, e), 0, 1000, lerp(0, 1000, e), 0, 0, 0)
             }
             tMs < LIFT_MS + FLY_MS -> {
                 val p = progress(tMs, LIFT_MS, FLY_MS)
                 val fade = smooth(progress(tMs, LIFT_MS + FLY_MS / 2, FLY_MS / 2))
-                BeamFrame(g, lerp(920, 400, smooth(p)), lerp(0, OFF_TOP, easeInCubic(p)), lerp(1000, 0, fade), 1000, 0, 0, 0)
+                out.set(g, lerp(920, 400, smooth(p)), lerp(0, OFF_TOP, easeInCubic(p)), lerp(1000, 0, fade), 1000, 0, 0, 0)
             }
-            tMs < SEND_RETURN_START_MS -> BeamFrame(g, 400, OFF_TOP, 0, 1000, 0, 0, 0)
+            tMs < SEND_RETURN_START_MS -> out.set(g, 400, OFF_TOP, 0, 1000, 0, 0, 0)
             tMs < SEND_RETURN_START_MS + SEND_RETURN_MS -> {
                 val e = easeOutCubic(progress(tMs, SEND_RETURN_START_MS, SEND_RETURN_MS))
-                BeamFrame(g, lerp(940, 1000, e), 0, lerp(0, 1000, e), 0, 0, 0, 0)
+                out.set(g, lerp(940, 1000, e), 0, lerp(0, 1000, e), 0, 0, 0, 0)
             }
-            else -> BeamFrame(g, 1000, 0, 1000, 0, 0, 0, 0)
+            else -> out.set(g, 1000, 0, 1000, 0, 0, 0, 0)
         }
     }
 
-    private fun receiver(tMs: Long, reduced: Boolean): BeamFrame {
+    private fun receiver(tMs: Long, reduced: Boolean, out: BeamFrameBuffer) {
         if (reduced) {
             val inFade = easeOutCubic(progress(tMs, 0L, REDUCED_FADE_MS))
             val outFade = 1000 - smooth(progress(tMs, REDUCED_FADE_MS + CARD_REST_MS, REDUCED_FADE_MS))
             val a = if (tMs < REDUCED_FADE_MS + CARD_REST_MS) inFade else outFade
-            return BeamFrame(0, 1000, 0, a, 0, a, a, a)
+            out.set(0, 1000, 0, a, 0, a, a, a)
+            return
         }
         val g = glow(tMs)
-        if (tMs <= 0L) return BeamFrame(g, 400, OFF_TOP, 0, 0, 0, 0, 0)
+        if (tMs <= 0L) { out.set(g, 400, OFF_TOP, 0, 0, 0, 0, 0); return }
         val enter = progress(tMs, 0L, RECEIVE_ENTER_MS)
         val alphaIn = easeOutCubic(progress(tMs, 0L, 150L))
         val ty = lerp(OFF_TOP, 0, easeOutCubic(enter))
@@ -148,11 +178,11 @@ object SongTapTimeline {
         val card = smooth(progress(tMs, 500L, 300L))
         val text = smooth(progress(tMs, RECEIVE_TEXT_START_MS, 300L))
         val undo = smooth(progress(tMs, RECEIVE_UNDO_START_MS, 250L))
-        if (tMs <= RECEIVE_REST_END_MS) return BeamFrame(g, scale, ty, alphaIn, 0, card, text, undo)
-        val out = progress(tMs, RECEIVE_REST_END_MS, SLIDE_AWAY_MS)
-        val slide = easeInCubic(out)
-        val fade = 1000 - smooth(out)
-        return BeamFrame(g, 1000, lerp(0, OFF_TOP, slide), fade, 0, card.coerceAtMost(fade), text.coerceAtMost(fade), undo.coerceAtMost(fade))
+        if (tMs <= RECEIVE_REST_END_MS) { out.set(g, scale, ty, alphaIn, 0, card, text, undo); return }
+        val away = progress(tMs, RECEIVE_REST_END_MS, SLIDE_AWAY_MS)
+        val slide = easeInCubic(away)
+        val fade = 1000 - smooth(away)
+        out.set(g, 1000, lerp(0, OFF_TOP, slide), fade, 0, card.coerceAtMost(fade), text.coerceAtMost(fade), undo.coerceAtMost(fade))
     }
 }
 

@@ -19,7 +19,7 @@ object GoldenGenerator {
     const val GOLDEN_DIR = "src/test/resources/songtap-golden"
     const val MANIFEST = "MANIFEST.sha256"
     const val SPEC_VERSION_FILE = "SPEC_VERSION"
-    const val SPEC_VERSION = 1
+    const val SPEC_VERSION = 2
 
     @JvmStatic
     fun main(args: Array<String>) {
@@ -47,6 +47,7 @@ object GoldenGenerator {
         files["timeline.jsonl"] = timeline()
         files["haptics.jsonl"] = haptics()
         files["handshake.jsonl"] = handshake()
+        files["wire.jsonl"] = wire()
         files["README.md"] = README
         val manifest = StringBuilder()
         for ((name, content) in files) {
@@ -684,6 +685,62 @@ object GoldenGenerator {
         return sb.toString()
     }
 
+    // ── wire.jsonl ───────────────────────────────────────────────────────────────────
+
+    private fun wire(): String {
+        val sb = StringBuilder()
+        sb.append(line("constants", { }, {
+            str("sendService", SongTapWire.SERVICE_SEND); str("receiveService", SongTapWire.SERVICE_RECEIVE)
+            str("info", SongTapWire.CHAR_INFO); str("offer", SongTapWire.CHAR_OFFER)
+            str("control", SongTapWire.CHAR_CONTROL); str("event", SongTapWire.CHAR_EVENT)
+            int("notReady", SongTapWire.ERROR_NOT_READY); int("mtu", SongTapWire.WANTED_MTU)
+        }))
+        for (age in longArrayOf(-1L, 0L, 1L, 150L, 4_999L, 5_000L, 5_001L, 1_000_000L)) {
+            sb.append(line("infoEncode", { long("age", age) }, { hex("hex", SongTapWire.encodeInfo(age)) }))
+        }
+        val infos = listOf(
+            "0100000000", "0100001388", "0100001389", "01ffffffff", "0200000000", "00", "", "010000", "010000000000", "01000000ff",
+        )
+        for (h in infos) {
+            sb.append(line("infoDecode", { str("hex", h) }, { val v = SongTapWire.decodeInfo(fromHex(h)); if (v == null) bool("ok", false) else { bool("ok", true); long("age", v) } }))
+        }
+        val challenge = ByteArray(16) { (it * 17 + 3).toByte() }
+        sb.append(line("helloEncode", { hex("challenge", challenge) }, { hex("hex", SongTapWire.encodeHello(challenge)) }))
+        sb.append(line("helloEncode", { hex("challenge", ByteArray(15)) }, { hex("hex", SongTapWire.encodeHello(ByteArray(15))) }))
+        sb.append(line("ackEncode", { }, { hex("hex", SongTapWire.encodeAck()) }))
+        sb.append(line("declineEncode", { }, { hex("hex", SongTapWire.encodeDecline()) }))
+        sb.append(line("goEncode", { }, { hex("hex", SongTapWire.encodeGo()) }))
+        for (age in longArrayOf(-1L, 0L, 250L, 5_000L, 5_001L)) {
+            sb.append(line("tapEncode", { long("age", age) }, { hex("hex", SongTapWire.encodeTap(age)) }))
+        }
+        val controls = listOf(
+            "01" + toHex(challenge), "01" + toHex(challenge) + "00", "0100", "02", "0200", "03", "0300", "0400000000fa", "0400000000", "04ffffffff",
+            "0400001389", "05", "00", "", "ff", "04000000", "0400000000fa00",
+        )
+        for (h in controls) {
+            sb.append(line("controlDecode", { str("hex", h) }, {
+                when (val m = SongTapWire.decodeControl(fromHex(h))) {
+                    null -> str("kind", "none")
+                    is SongTapWire.ControlMessage.Hello -> { str("kind", "hello"); hex("challenge", m.challenge) }
+                    SongTapWire.ControlMessage.Ack -> str("kind", "ack")
+                    SongTapWire.ControlMessage.Decline -> str("kind", "decline")
+                    is SongTapWire.ControlMessage.Tap -> { str("kind", "tap"); long("age", m.ageMs) }
+                }
+            }))
+        }
+        for (h in listOf("01", "00", "02", "0101", "")) {
+            sb.append(line("isGo", { str("hex", h) }, { bool("go", SongTapWire.isGo(fromHex(h))) }))
+        }
+        for (u in listOf(SongTapWire.SERVICE_SEND, SongTapWire.SERVICE_RECEIVE, SongTapWire.CHAR_INFO, "B7F3A1C0-5D2E-4C9A-8E61-3F4D7A2B9C01")) {
+            sb.append(line("roleOfService", { str("uuid", u) }, { strOrNull("role", SongTapWire.roleOfService(u)?.code) }))
+        }
+        return sb.toString()
+    }
+
+    private fun toHex(b: ByteArray): String = b.joinToString("") { "%02x".format(it) }
+
+    private fun fromHex(h: String): ByteArray = ByteArray(h.length / 2) { h.substring(it * 2, it * 2 + 2).toInt(16).toByte() }
+
     private val README = """
         # Song Tap golden vectors
 
@@ -717,6 +774,9 @@ object GoldenGenerator {
         - ratelimit.jsonl: `limits`: ops `admit,now,videoId,key`, `accepted,now,videoId`, `undone,now,key`
           from an empty `RateLimits`; out `verdicts` (`-` for the two that return no verdict).
         - timeline.jsonl: `ease`, `frame` (role, t, reduced), `total`.
+        - wire.jsonl: the Bluetooth wire format (`SongTapWire`): `constants` (the UUIDs), `infoEncode`, `infoDecode`,
+          `helloEncode`, `ackEncode`, `declineEncode`, `goEncode`, `tapEncode`, `controlDecode` (`kind` hello, ack, decline,
+          tap or none), `isGo`, `roleOfService` (case sensitive).
         - haptics.jsonl: `cues`. handshake.jsonl: `senderStart`, `receiverStart`, `impulseAge`, `peerImpulse`.
     """.trimIndent() + "\n"
 }
