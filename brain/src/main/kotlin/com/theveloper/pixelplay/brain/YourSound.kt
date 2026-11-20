@@ -16,6 +16,22 @@ object YourSound {
     /** The eras section needs a year for at least this share of the plays (permille). */
     const val ERAS_MIN_COVERAGE_PERMILLE = 600
 
+    /**
+     * What a section needs before it says anything (a section is shown only when its data exist; a share of one play is not data). The app passes
+     * these to the functions below; the functions themselves default to no minimum.
+     */
+    const val ISLANDS_MIN_PLAYS = 20
+    const val ISLANDS_MIN_COVERAGE_PERMILLE = 500
+    const val GENRES_MIN_PLAYS = 50
+    const val GENRES_MIN_COVERAGE_PERMILLE = 600
+    const val ERAS_MIN_PLAYS = 50
+    const val DAYPART_MIN_PLAYS = 10
+    const val MONTH_MIN_PLAYS = 5
+    const val NOVELTY_MIN_PLAYS = 20
+
+    /** "Lately" compares with two weeks ago: it needs this many plays from before then, or "up" has no baseline. */
+    const val LATELY_MIN_BASELINE_PLAYS = 50
+
     /** One counted play. [first] is true for the listener's first play of that recording (computed by [withFirsts]). */
     class Play(
         val rid: Long,
@@ -50,14 +66,23 @@ object YourSound {
     }
 
     /** The islands of the plays that started within [RIGHT_NOW_DAYS] days before [nowMs], largest first (ties: smaller id). */
-    fun islands(plays: List<Play>, islandOf: (Long) -> Int, nowMs: Long, top: Int = 3): List<IslandShare> {
+    fun islands(
+        plays: List<Play>,
+        islandOf: (Long) -> Int,
+        nowMs: Long,
+        top: Int = 3,
+        minPlays: Int = 0,
+        minCoveragePermille: Int = 0,
+    ): List<IslandShare> {
         val from = nowMs - RIGHT_NOW_DAYS.toLong() * BrainMath.DAY_MS
         val counts = HashMap<Int, Int>()
         val byArtist = HashMap<Int, HashMap<Long, Int>>()
         val byTrack = HashMap<Int, HashMap<Long, Int>>()
         var total = 0
+        var inWindow = 0
         for (p in plays) {
             if (p.startedAtMs < from || p.startedAtMs > nowMs) continue
+            inWindow++
             val id = islandOf(p.rid)
             if (id < 0) continue
             total++
@@ -65,6 +90,8 @@ object YourSound {
             if (p.aid != 0L) byArtist.getOrPut(id) { HashMap() }.merge(p.aid, 1, Int::plus)
             byTrack.getOrPut(id) { HashMap() }.merge(p.rid, 1, Int::plus)
         }
+        // Shares are over the plays an island could be found for: too few of them, or too small a part of the plays, and there is nothing to say.
+        if (total == 0 || total < minPlays || permille(total, inWindow) < minCoveragePermille) return emptyList()
         val ids = counts.keys.sortedWith { a, b -> if (counts[a] != counts[b]) counts[b]!!.compareTo(counts[a]!!) else a.compareTo(b) }
         return ids.map { id ->
             IslandShare(id, permille(counts[id]!!, total), counts[id]!!, topKeys(byArtist[id], top), topKeys(byTrack[id], top))
@@ -78,7 +105,7 @@ object YourSound {
     }
 
     /** For each of the four dayparts: how many plays, and the island that led it (-1 when none of its plays belong to an island). */
-    fun dayparts(plays: List<Play>, islandOf: (Long) -> Int): List<Daypart> {
+    fun dayparts(plays: List<Play>, minPlays: Int = 0, islandOf: (Long) -> Int): List<Daypart> {
         val counts = IntArray(4)
         val perIsland = Array(4) { HashMap<Int, Int>() }
         for (p in plays) {
@@ -90,7 +117,7 @@ object YourSound {
         return (0 until 4).map { d ->
             val m = perIsland[d]
             val lead = m.keys.sortedWith { a, b -> if (m[a] != m[b]) m[b]!!.compareTo(m[a]!!) else a.compareTo(b) }.firstOrNull() ?: -1
-            Daypart(d, counts[d], lead)
+            Daypart(d, counts[d], if (counts[d] < minPlays) -1 else lead)
         }
     }
 
@@ -109,7 +136,7 @@ object YourSound {
     }
 
     /** The last [MAX_MONTHS] months with plays, oldest first: each month's island shares (permille), largest first. */
-    fun months(plays: List<Play>, islandOf: (Long) -> Int): List<Month> {
+    fun months(plays: List<Play>, minPlays: Int = 0, islandOf: (Long) -> Int): List<Month> {
         val perMonth = java.util.TreeMap<Int, HashMap<Int, Int>>()
         val totals = HashMap<Int, Int>()
         for (p in plays) {
@@ -118,7 +145,7 @@ object YourSound {
             val id = islandOf(p.rid)
             if (id >= 0) perMonth.getOrPut(month) { HashMap() }.merge(id, 1, Int::plus)
         }
-        val months = totals.keys.sorted().let { if (it.size > MAX_MONTHS) it.subList(it.size - MAX_MONTHS, it.size) else it }
+        val months = totals.keys.filter { (totals[it] ?: 0) >= minPlays }.sorted().let { if (it.size > MAX_MONTHS) it.subList(it.size - MAX_MONTHS, it.size) else it }
         return months.map { month ->
             val m = perMonth[month] ?: HashMap()
             val ids = m.keys.sortedWith { a, b -> if (m[a] != m[b]) m[b]!!.compareTo(m[a]!!) else a.compareTo(b) }
@@ -143,7 +170,7 @@ object YourSound {
      * The decades of the plays whose year is known ([yearOf] gives 0 for unknown), largest share first by decade. Empty until a year is
      * known for [ERAS_MIN_COVERAGE_PERMILLE] of the plays.
      */
-    fun decades(plays: List<Play>, yearOf: (Long) -> Int): List<Decade> {
+    fun decades(plays: List<Play>, minPlays: Int = 0, yearOf: (Long) -> Int): List<Decade> {
         val counts = java.util.TreeMap<Int, Int>()
         var known = 0
         for (p in plays) {
@@ -153,12 +180,12 @@ object YourSound {
             val decade = (y / 10) * 10
             counts[decade] = (counts[decade] ?: 0) + 1
         }
-        if (plays.isEmpty() || permille(known, plays.size) < ERAS_MIN_COVERAGE_PERMILLE) return emptyList()
+        if (plays.isEmpty() || known < minPlays || permille(known, plays.size) < ERAS_MIN_COVERAGE_PERMILLE) return emptyList()
         return counts.map { Decade(it.key, permille(it.value, known)) }
     }
 
     /** The genres of the plays, heaviest first: each play gives its track's top tag one count (unknown genres are absent). */
-    fun genres(plays: List<Play>, top: Int = 8, topTagOf: (Long) -> Int): List<Pair<Int, Int>> {
+    fun genres(plays: List<Play>, top: Int = 8, minPlays: Int = 0, minCoveragePermille: Int = 0, topTagOf: (Long) -> Int): List<Pair<Int, Int>> {
         val counts = HashMap<Int, Int>()
         var known = 0
         for (p in plays) {
@@ -167,6 +194,7 @@ object YourSound {
             known++
             counts[t] = (counts[t] ?: 0) + 1
         }
+        if (known == 0 || known < minPlays || permille(known, plays.size) < minCoveragePermille) return emptyList()
         val ids = counts.keys.sortedWith { a, b -> if (counts[a] != counts[b]) counts[b]!!.compareTo(counts[a]!!) else a.compareTo(b) }
         return ids.take(top).map { it to permille(counts[it]!!, known) }
     }
@@ -229,7 +257,14 @@ object YourSound {
      * ([rootOf] gives the root family of a genre, the genre itself for a root). Families heaviest first (ties: smaller id), each with its
      * genres heaviest first. Shares are permille of the plays whose genre is known. Unknown genres are absent.
      */
-    fun genreTree(plays: List<Play>, top: Int = 8, topTagOf: (Long) -> Int, rootOf: (Int) -> Int): List<GenreFamily> {
+    fun genreTree(
+        plays: List<Play>,
+        top: Int = 8,
+        topTagOf: (Long) -> Int,
+        rootOf: (Int) -> Int,
+        minPlays: Int = 0,
+        minCoveragePermille: Int = 0,
+    ): List<GenreFamily> {
         val perGenre = HashMap<Int, Int>()
         val perRoot = HashMap<Int, Int>()
         val under = HashMap<Int, HashMap<Int, Int>>()
@@ -243,6 +278,7 @@ object YourSound {
             perRoot[root] = (perRoot[root] ?: 0) + 1
             under.getOrPut(root) { HashMap() }.merge(t, 1, Int::plus)
         }
+        if (known == 0 || known < minPlays || permille(known, plays.size) < minCoveragePermille) return emptyList()
         val roots = perRoot.keys.sortedWith { a, b -> if (perRoot[a] != perRoot[b]) perRoot[b]!!.compareTo(perRoot[a]!!) else a.compareTo(b) }
         return roots.take(top).map { root ->
             val m = under[root]!!

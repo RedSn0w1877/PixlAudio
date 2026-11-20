@@ -229,6 +229,50 @@ class Stage3bTest {
     }
 
     @Test
+    fun `the appetite posteriors keep being discounted after the first thirty days`() {
+        val s = NoveltyAppetite.newState(day0)
+        val finished = graded(event(1L, day0 * BrainMath.DAY_MS))
+        for (k in 0 until 40) NoveltyAppetite.onPlay(s, event(100L + k, day0 * BrainMath.DAY_MS), finished, true, true, day0)
+        val excess0 = s.nAlpha - NoveltyAppetite.PRIOR
+        assertTrue(excess0 > 10.0)
+        // A play that is not from a recommender surface moves nothing but the clock: 60 days on, then 60 days more.
+        val other = event(900L, (day0 + 60) * BrainMath.DAY_MS)
+        NoveltyAppetite.onPlay(s, other, finished, true, false, day0 + 60)
+        val excess1 = s.nAlpha - NoveltyAppetite.PRIOR
+        val capped = Math.pow(NoveltyAppetite.DISCOUNT, NoveltyAppetite.MAX_FORGET_RUNS.toDouble())
+        assertEquals(excess0 * capped, excess1, 1e-9)
+        NoveltyAppetite.onPlay(s, event(901L, (day0 + 120) * BrainMath.DAY_MS), finished, true, false, day0 + 120)
+        val excess2 = s.nAlpha - NoveltyAppetite.PRIOR
+        assertEquals(excess1 * capped, excess2, 1e-9, "the second gap is discounted as well")
+    }
+
+    @Test
+    fun `a play stamped by a clock that was a day ahead does not stop the learning of the plays after it`() {
+        val now = day0 * BrainMath.DAY_MS + 10L * 3_600_000L
+        val model = Ranker.newModel(day0)
+        val posteriors = Posteriors.newState(day0)
+        val affinity = Affinity.State()
+        val session = SessionState()
+        // The phone said it was a day later than it was: this play's id is a day in the future.
+        val ahead = event((now + BrainMath.DAY_MS) shl 16, now + BrainMath.DAY_MS)
+        val first = LearnReplay.applyLive(model, ahead, graded(ahead), false, affinity, session, now + 2_000L, posteriors)
+        assertEquals(Ranker.UPDATE_APPLIED, first)
+        // The clock is corrected: the next plays have ids far below the first.
+        val a = event((now + 1_000L) shl 16, now + 1_000L, rid = 11L)
+        val b = event((now + 2_000L) shl 16, now + 2_000L, rid = 12L)
+        assertEquals(Ranker.UPDATE_APPLIED, LearnReplay.applyLive(model, a, graded(a), false, affinity, session, now + 3_000L, posteriors))
+        assertEquals(Ranker.UPDATE_APPLIED, LearnReplay.applyLive(model, b, graded(b), false, affinity, session, now + 4_000L, posteriors))
+        assertEquals(3L, model.updates)
+        assertEquals(3L, posteriors.arms.updates)
+        // The watermark only moves forward, by one for a play that is below it.
+        assertEquals(ahead.eventId + 2L, model.lastEventId)
+        // In order, nothing changes: the real id is used.
+        assertEquals(10L, LearnReplay.liveId(10L, 5L))
+        assertEquals(6L, LearnReplay.liveId(3L, 5L))
+        assertEquals(Long.MAX_VALUE, LearnReplay.liveId(3L, Long.MAX_VALUE))
+    }
+
+    @Test
     fun `a liked novel track adds 0 01 that fades over 30 days and is capped at 0 10`() {
         val s = NoveltyAppetite.newState(day0)
         val t = day0 * BrainMath.DAY_MS
@@ -470,15 +514,28 @@ class Stage3bTest {
         val types = intArrayOf(HomePlanner.MADE_FOR_YOU, HomePlanner.BECAUSE_LISTENED, HomePlanner.ON_REPEAT, HomePlanner.REDISCOVER)
         // The listener used Made for you every time; Rediscover was last seen on day0.
         ShelfBandit.visit(s, 0, intArrayOf(HomePlanner.REDISCOVER), 0, -1, day0)
-        for (k in 0 until 30) ShelfBandit.visit(s, 0, types.copyOfRange(0, 3), 2, 0, day0 + 1 + k.toLong() / 10L)
+        for (k in 0 until 40) ShelfBandit.visit(s, 0, types.copyOfRange(0, 3), 2, 0, day0 + 1 + k.toLong() / 10L)
         val today = day0 + 20
         val order = ShelfBandit.order(s, 5L, 0, types, 1L, today)!!
         assertEquals(HomePlanner.REDISCOVER, order[0])
+        // The exposure is spent when a visit shows the shelf, not when the order is drawn: a plan that leaves it out forces it again.
+        assertEquals(day0, s.lastSeenDay[HomePlanner.REDISCOVER])
+        assertEquals(HomePlanner.REDISCOVER, ShelfBandit.order(s, 6L, 0, types, 1L, today)!![0])
+        ShelfBandit.visit(s, 0, order, lastSeen = 0, used = -1, today = today)
         assertEquals(today, s.lastSeenDay[HomePlanner.REDISCOVER])
         // The next plan 3 days later does not force it again.
-        val later = ShelfBandit.order(s, 6L, 0, types, 1L, today + 3)!!
+        val later = ShelfBandit.order(s, 7L, 0, types, 1L, today + 3)!!
         assertTrue(later.indexOf(HomePlanner.REDISCOVER) >= 0)
-        assertFalse(later[0] == HomePlanner.REDISCOVER && s.lastSeenDay[HomePlanner.REDISCOVER] != today)
+    }
+
+    
+    fun `a shelf type that was never on screen is forced to the top once there is data`() {
+        val s = ShelfBandit.newState()
+        val types = intArrayOf(HomePlanner.MADE_FOR_YOU, HomePlanner.BECAUSE_LISTENED, HomePlanner.ON_REPEAT)
+        // Only the first two have ever been shown.
+        for (k in 0 until 60) ShelfBandit.visit(s, 0, types.copyOfRange(0, 2), 1, 0, day0)
+        assertEquals(Long.MIN_VALUE, s.lastSeenDay[HomePlanner.ON_REPEAT])
+        assertEquals(HomePlanner.ON_REPEAT, ShelfBandit.order(s, 1L, 0, types, 1L, day0)!![0])
     }
 
     @Test

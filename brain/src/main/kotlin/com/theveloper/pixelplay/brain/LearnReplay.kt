@@ -64,12 +64,24 @@ object LearnReplay {
         val t = if (e.startedAtMs > nowMs) nowMs else e.startedAtMs
         val x = DoubleArray(Ranker.D)
         val p0 = Affinity.p0(affinity, t)
-        if (posteriors != null) PosteriorUpdate.onPlay(posteriors, e, g, !Affinity.isHeard(affinity, Family.TRACK, e.rid), t)
+        if (posteriors != null) {
+            PosteriorUpdate.onPlay(posteriors, e, g, !Affinity.isHeard(affinity, Family.TRACK, e.rid), t, liveId(e.eventId, posteriors.lastEventId))
+        }
         featuresOf(e, liked, affinity, session, t, p0, x)
         val originIndex = originIndexOf(e.origin)
         if (originIndex >= 0) x[originIndex] = 1.0
-        return Ranker.applyEvent(model, x, g.r, g.c, Ranker.biasOf(p0), dayOf(e, t), e.eventId)
+        return Ranker.applyEvent(model, x, g.r, g.c, Ranker.biasOf(p0), dayOf(e, t), liveId(e.eventId, model.lastEventId))
     }
+
+    /**
+     * The id a LIVE play is applied under. An event id carries the phone's clock (`startedAtMs << 16`), so one play written while the clock
+     * was a day ahead would leave a watermark that every later, correctly stamped play sits below, and the learner would skip them all until
+     * real time caught up. A live play is new by construction (the recorder stores it once, and a rebuild's catch-up skips what the replay
+     * read), so when its id is not above the watermark it is applied under the next id after the watermark: the watermark only moves
+     * forward, by one. A replay walks the log in id order and uses the real ids.
+     */
+    fun liveId(eventId: Long, watermark: Long): Long =
+        if (eventId > watermark) eventId else if (watermark == Long.MAX_VALUE) watermark else watermark + 1L
 
     private fun originIndexOf(origin: Int): Int = when (origin) {
         Origin.IMPORT_SPOTIFY -> ORIGIN_BASE

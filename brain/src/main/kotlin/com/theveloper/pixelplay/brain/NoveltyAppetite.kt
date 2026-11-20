@@ -159,6 +159,10 @@ object NoveltyAppetite {
      */
     fun onPlay(state: State, e: PlayEvent, g: Reward.Graded, novel: Boolean, recommender: Boolean, day: Long): Boolean {
         advance(state, day)
+        // The discount counts from the last day a play was applied, as [ArmBandit.update] does. Without moving the anchor, a gap of 30 days
+        // or more spends all 30 runs once and F and N are never discounted again.
+        state.anchorDay = day
+        state.forgetDone = 0
         if (!(g.c > 0.0) || e.has(EventFlags.LEARN_EXCLUDED) || e.has(EventFlags.NEVER_AUDIBLE)) return false
         var counts = state.days[day]
         if (counts == null) {

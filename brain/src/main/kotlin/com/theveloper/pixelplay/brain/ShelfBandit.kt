@@ -9,7 +9,8 @@ package com.theveloper.pixelplay.brain
  * - The order is drawn once per daypart and then frozen ([order]); a shelf type unseen for [FORCE_DAYS] days gets one forced exposure.
  * - With no data the fixed order of stage 2 stays: [order] answers null until [MIN_UPDATES] shelf updates have been seen.
  *
- * The posteriors are a cache of the impressions: [rebuild] makes the same state from the impression rows. The learned order is used only
+ * [rebuild] makes the same state from visit rows that carry the reward (tests and the iOS port); the app keeps the posteriors themselves,
+ * because it does not store the reward in its impression rows. The learned order is used only
  * while the gate has the learned weights on and is reset by "Reset what I've learned" (the caller).
  */
 object ShelfBandit {
@@ -22,8 +23,11 @@ object ShelfBandit {
     /** A shelf type not seen for this many days is shown once at the top ("a forced exposure"). */
     const val FORCE_DAYS = 14
 
-    /** Below this many shelf updates (all types and dayparts together) the stage 2 order stays. */
-    const val MIN_UPDATES = 20
+    /**
+     * Below this many shelf updates (all types and dayparts together) the stage 2 order stays. The spec gives no number; a visit updates up to
+     * seven shelves, so 100 is about fifteen visits, enough that three visits cannot reorder the page from the priors.
+     */
+    const val MIN_UPDATES = 100
 
     /** A play counts as the shelf's reward from this long. */
     const val REWARD_PLAY_MS = 30_000L
@@ -122,8 +126,9 @@ object ShelfBandit {
      * The order of the shelf types [types] (given in stage 2's fixed order) for the page of [planKey]: drawn once per daypart and then frozen
      * in [state], so a shelf does not move while the listener is on it. Null while there is no data ([hasData]), meaning "keep the fixed
      * order". A type in [types] the frozen order does not know goes where it stands in the fixed order; one it holds that is not in
-     * [types] is dropped. A type last seen [FORCE_DAYS] or more days ago (and seen at some time) is moved to the top once, and counted as
-     * seen from [today] so it is not forced again for another [FORCE_DAYS] days.
+     * [types] is dropped. A type last seen [FORCE_DAYS] or more days ago, or never seen, is moved to the top (the one unseen the longest, never
+     * seen first). It counts as seen only when a visit shows it ([visit]), so a shelf the planner left out of the page is not spent: it is forced
+     * again at the next plan.
      */
     fun order(state: State, planKey: Long, daypart: Int, types: IntArray, seed: Long, today: Long): IntArray? {
         if (!hasData(state)) return null
@@ -138,12 +143,12 @@ object ShelfBandit {
             }
             val drawn = ArrayList<Int>(types.size)
             for (i in idx) drawn.add(types[i])
-            // One forced exposure: the type unseen the longest (and seen once), if it is 14 days or more.
+            // One forced exposure: the type unseen the longest (a type never seen is the longest), if it is 14 days or more.
             var forced = -1
             var oldest = Long.MAX_VALUE
             for (t in types) {
                 val seen = state.lastSeenDay[t]
-                if (seen == Long.MIN_VALUE || today - seen < FORCE_DAYS) continue
+                if (seen != Long.MIN_VALUE && today - seen < FORCE_DAYS) continue
                 if (seen < oldest) {
                     oldest = seen
                     forced = t
@@ -152,7 +157,6 @@ object ShelfBandit {
             if (forced >= 0) {
                 drawn.remove(forced)
                 drawn.add(0, forced)
-                state.lastSeenDay[forced] = today
             }
             state.frozenKey = planKey
             state.frozenOrder = drawn.toIntArray()

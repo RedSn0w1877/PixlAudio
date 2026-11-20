@@ -26,8 +26,8 @@ object PosteriorUpdate {
      * is true when it was the first play of the track (computed from the tables BEFORE the play is applied). An event at or below the
      * watermark changes nothing. Returns true when the event was applied.
      */
-    fun onPlay(p: Posteriors, e: PlayEvent, g: Reward.Graded, novel: Boolean, nowMs: Long): Boolean {
-        if (e.eventId <= p.lastEventId) return false
+    fun onPlay(p: Posteriors, e: PlayEvent, g: Reward.Graded, novel: Boolean, nowMs: Long, eventId: Long = e.eventId): Boolean {
+        if (eventId <= p.lastEventId) return false
         val t = if (e.startedAtMs > nowMs) nowMs else e.startedAtMs
         val day = LearnReplay.dayOf(e, t)
         val family = ArmBandit.familyOf(e.surface)
@@ -40,7 +40,7 @@ object PosteriorUpdate {
             p.arms.forgetDone = 0
         }
         NoveltyAppetite.onPlay(p.appetite, e, g, novel, recommender, day)
-        p.lastEventId = e.eventId
+        p.lastEventId = eventId
         return true
     }
 

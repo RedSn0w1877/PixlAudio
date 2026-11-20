@@ -79,6 +79,33 @@ class YourSoundTest {
         assertTrue(YourSound.genres(plays) { GenreAtlas.NONE }.isEmpty())
     }
 
+    @Test
+    fun `a section needs more than a play or two to say anything`() {
+        // Islands: five plays are no picture, and a handful mapped out of a hundred is not one either.
+        val few = (1L..5L).map { play(it, 0, day) }
+        assertTrue(YourSound.islands(few, { 7 }, now, minPlays = YourSound.ISLANDS_MIN_PLAYS).isEmpty())
+        val many = (1L..40L).map { play(it, 0, day) }
+        assertEquals(1, YourSound.islands(many, { 7 }, now, minPlays = YourSound.ISLANDS_MIN_PLAYS, minCoveragePermille = YourSound.ISLANDS_MIN_COVERAGE_PERMILLE).size)
+        assertTrue(YourSound.islands(many, { if (it <= 22L) -1 else 7 }, now, minPlays = YourSound.ISLANDS_MIN_PLAYS, minCoveragePermille = YourSound.ISLANDS_MIN_COVERAGE_PERMILLE).isEmpty(), "under half of the plays could be placed")
+        // Genres: three tagged plays out of a thousand do not make "Pop 67%".
+        val thousand = (1L..1000L).map { play(it, 0, day) }
+        assertTrue(YourSound.genres(thousand, 8, YourSound.GENRES_MIN_PLAYS, YourSound.GENRES_MIN_COVERAGE_PERMILLE) { if (it <= 3L) 12 else GenreAtlas.NONE }.isEmpty())
+        assertEquals(1, YourSound.genres(thousand, 8, YourSound.GENRES_MIN_PLAYS, YourSound.GENRES_MIN_COVERAGE_PERMILLE) { 12 }.size)
+        assertTrue(YourSound.genreTree(thousand, 8, { if (it <= 3L) 12 else GenreAtlas.NONE }, { it }, YourSound.GENRES_MIN_PLAYS, YourSound.GENRES_MIN_COVERAGE_PERMILLE).isEmpty())
+        // Dayparts: a morning play or two is not "mostly" anything.
+        val morning = now - (now % day) + 8 * 3_600_000L
+        val dp = YourSound.dayparts(listOf(YourSound.Play(1, 0, morning, 0, false)), YourSound.DAYPART_MIN_PLAYS) { 5 }
+        assertEquals(-1, dp[HomePlanner.DAYPART_MORNING].leadingIslandId)
+        val ten = (0 until 10).map { YourSound.Play(1, 0, morning + it, 0, false) }
+        assertEquals(5, YourSound.dayparts(ten, YourSound.DAYPART_MIN_PLAYS) { 5 }[HomePlanner.DAYPART_MORNING].leadingIslandId)
+        // Months: a month of two plays is not a row.
+        val oneMonth = (0 until 2).map { YourSound.Play(1, 0, morning + it, 0, false) } + (0 until 6).map { YourSound.Play(1, 0, morning - 40 * day + it, 0, false) }
+        assertEquals(1, YourSound.months(oneMonth, YourSound.MONTH_MIN_PLAYS) { 5 }.size)
+        // Eras need 50 plays with a year, as well as 60% coverage.
+        val ten2 = (1L..10L).map { play(it, 0, day) }
+        assertTrue(YourSound.decades(ten2, YourSound.ERAS_MIN_PLAYS) { 1994 }.isEmpty())
+    }
+
     private fun summary(total: Int, accLearned: Double, accPrior: Double, before: Double?) =
         Gate.Summary(minOf(total, Gate.WINDOW), total, 0.5, 0.55, accLearned, accPrior, before, null)
 
