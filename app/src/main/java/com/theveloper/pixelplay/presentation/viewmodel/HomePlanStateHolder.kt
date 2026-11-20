@@ -564,6 +564,7 @@ class HomePlanStateHolder @Inject constructor(
         control = shelf.control,
         modelVersion = shelf.model,
         explore = item.explore,
+        servedX = item.sx.takeIf { it.isNotEmpty() },
     )
 
     // ---- playing a shelf ----------------------------------------------------------------------

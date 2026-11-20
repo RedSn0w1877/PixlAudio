@@ -361,6 +361,7 @@ class BrainMixes @Inject constructor(
                     StoredMixItem(
                         rid = pick.rid, row = novel.stored, arm = pick.arm, slot = items.size, whyKey = whyKey,
                         whyArg = pick.whyArg, whyName = whyName, retrQ = pick.retrQ, radioRank = novel.radioRank.takeIf { it > 0 } ?: -1, explore = pick.explore,
+                        sx = pick.servedX?.let(com.theveloper.pixelplay.brain.ServedVector::toHex).orEmpty(),
                     )
                 )
             } else {
@@ -369,6 +370,7 @@ class BrainMixes @Inject constructor(
                     StoredMixItem(
                         rid = pick.rid, songId = track.song.id, arm = pick.arm, slot = items.size, whyKey = whyKey,
                         whyArg = pick.whyArg, whyName = whyName, retrQ = pick.retrQ, radioRank = pick.radioRank, explore = pick.explore,
+                        sx = pick.servedX?.let(com.theveloper.pixelplay.brain.ServedVector::toHex).orEmpty(),
                     )
                 )
             }
@@ -644,6 +646,7 @@ class BrainMixes @Inject constructor(
                 control = stored.control,
                 modelVersion = stored.model,
                 explore = item.explore,
+                servedX = item.sx.takeIf { it.isNotEmpty() },
             )
         }
         // A mix is the same all day: what is left of it is shown, a new list is drawn only when almost nothing is.

@@ -120,6 +120,7 @@ interface BrainStore {
             radioRank = e.radioRank,
             pServedQ = e.pServedQ,
             modelVersion = e.modelVersion,
+            servedX = e.servedX,
         )
 
         fun eventOf(row: PlayEventEntity): PlayEvent = PlayEvent(
@@ -151,6 +152,7 @@ interface BrainStore {
             radioRank = row.radioRank,
             pServedQ = row.pServedQ,
             modelVersion = row.modelVersion,
+            servedX = row.servedX,
         )
     }
 }

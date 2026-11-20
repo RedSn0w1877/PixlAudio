@@ -119,9 +119,11 @@ class BrainEngine @Inject constructor(
         /**
          * [ranking] together with what the plays of the list must say about it (5.12 point 8): decided ONCE, when the list is built,
          * and carried with each queue entry, so the control completion rate is measured on what was really ranked with the prior.
+         * A control exists only while the gate has the learned weights on (stage 4, deviation 207): before that EVERY list is ranked with the
+         * prior, so there is nothing to compare it with, and a control flag would only mix eras in the comparison (as on iOS).
          */
         fun rankingChoice(sessionId: Long, seed: Long? = null): RankingChoice {
-            val control = Ranker.isControlSession(controlKey(sessionId))
+            val control = learner.useLearned && Ranker.isControlSession(controlKey(sessionId))
             if (!learner.useLearned || control) return RankingChoice(null, control, 0)
             return RankingChoice(Ranker.WeightSource(learner.model, true, seed), false, BrainEventRecorder.MODEL_LEARNED)
         }
@@ -173,7 +175,7 @@ class BrainEngine @Inject constructor(
             session = SessionState()
             // A new gap before the next play: its lists are drawn on a fresh key (see [controlKey]), and a control draw keeps the standard share.
             pendingFor = -1L
-            session.nuSession = if (Ranker.isControlSession(controlKey(0L, nowMs))) Session.NU_DEFAULT else sessionNu(nowMs)
+            session.nuSession = if (learner.useLearned && Ranker.isControlSession(controlKey(0L, nowMs))) Session.NU_DEFAULT else sessionNu(nowMs)
             anchors.clear()
             direction = Direction()
         }
@@ -377,7 +379,9 @@ class BrainEngine @Inject constructor(
     /** The learner a finished replay gives: its model, the gate's new decision on its predictions, the figures Your sound shows. */
     private fun learnerOf(result: LearnReplay.Result, previous: Learner, liked: Set<Long>, nowMs: Long): Learner {
         val summary = Gate.summarize(result.predictions, nowMs)
-        val gate = Gate.decide(previous.gate, summary, nowMs)
+        // From 2,000 graded plays a week counts only when the bootstrap interval of test 6 is above zero too (the gain is not noise).
+        val above = summary.playsTotal < LearnReplay.TEST6_MIN_PLAYS || LearnReplay.test6(result.predictions).gainLow > 0.0
+        val gate = Gate.decide(previous.gate, summary, nowMs, intervalAboveZero = above)
         return Learner(result.model, gate, summary, LearnReplay.VERSION, nowMs, liked, result.posteriors)
     }
 

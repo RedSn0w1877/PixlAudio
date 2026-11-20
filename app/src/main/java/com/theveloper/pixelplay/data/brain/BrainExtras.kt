@@ -47,13 +47,18 @@ data class BrainItemTag(
     val modelVersion: Int = -1,
     /** The pick filled a novel slot the arm bandit drew (5.10): an exploration slot, logged with `EventFlags.EXPLORE_SLOT` (5.12 point 3). */
     val explore: Boolean = false,
+    /**
+     * The feature vector the pick was served with (`ServedVector`, 204 lower-case hex characters); null for a track the scorer did not serve.
+     * It rides with the queue entry and goes into the play event, so the learner trains on what the ranker saw (stage 4).
+     */
+    val servedX: String? = null,
 ) {
     val isEngineOwned: Boolean get() = !chosen && arm != null && Arm.codeOf(arm) != Arm.NONE
 
     val isEmpty: Boolean
         get() = surface == null && surfaceId == null && recId == 0L && slot < 0 && arm == null &&
             whyKey == null && whyArg == null && primaryArtist == null && !chosen && retrQ < 0 && radioRank < 0 &&
-            !control && modelVersion < 0 && !explore
+            !control && modelVersion < 0 && !explore && servedX == null
 }
 
 object BrainExtras {
@@ -73,6 +78,9 @@ object BrainExtras {
 
     /** True on a pick that filled a novel slot the arm bandit drew (5.10). */
     const val EXPLORE = "brain.explore"
+
+    /** The served feature vector, as hex (stage 4): see [BrainItemTag.servedX]. */
+    const val SERVED_X = "brain.sx"
 
     /** The name of the artist the pick is explained by ("Fans of X also play this"); display only. */
     const val WHY_ARG = "brain.whyArg"
@@ -105,6 +113,7 @@ object BrainExtras {
             control = extras.getBoolean(CONTROL, false),
             modelVersion = extras.getInt(MODEL, -1),
             explore = extras.getBoolean(EXPLORE, false),
+            servedX = extras.getString(SERVED_X)?.takeIf { it.length == com.theveloper.pixelplay.brain.ServedVector.BYTES * 2 },
         )
         return tag.takeUnless { it.isEmpty }
     }
@@ -125,6 +134,7 @@ object BrainExtras {
         if (tag.control) extras.putBoolean(CONTROL, true)
         if (tag.modelVersion >= 0) extras.putInt(MODEL, tag.modelVersion)
         if (tag.explore) extras.putBoolean(EXPLORE, true)
+        tag.servedX?.takeIf { it.length == com.theveloper.pixelplay.brain.ServedVector.BYTES * 2 }?.let { extras.putString(SERVED_X, it) }
     }
 
     /**

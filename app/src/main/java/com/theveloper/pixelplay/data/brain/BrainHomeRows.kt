@@ -49,6 +49,8 @@ data class StoredHomeItem(
     val retrQ: Int = -1,
     val radioRank: Int = -1,
     val explore: Boolean = false,
+    /** The feature vector the pick was served with (hex, stage 4); empty for none. */
+    val sx: String = "",
 )
 
 @Serializable
@@ -79,6 +81,7 @@ class BrainHomeItem(
     val retrQ: Int,
     val radioRank: Int,
     val explore: Boolean = false,
+    val servedX: String? = null,
 )
 
 /** A "Because you listened to X" row (docs/brain-spec.md, 8.1). */
@@ -112,6 +115,7 @@ class BrainHomeRow(
                 control = control,
                 modelVersion = model,
                 explore = item.explore,
+                servedX = item.servedX,
             )
         }
         return out
@@ -339,7 +343,7 @@ class BrainHomeRows @Inject constructor(
             val items = ArrayList<StoredHomeItem>(plan.picks.size)
             for (pick in plan.picks) {
                 val i = byRid[pick.rid] ?: continue
-                items.add(StoredHomeItem(rows[i], pick.arm, items.size, pick.retrQ, ranks[i], pick.explore))
+                items.add(StoredHomeItem(rows[i], pick.arm, items.size, pick.retrQ, ranks[i], pick.explore, sx = pick.servedX?.let(com.theveloper.pixelplay.brain.ServedVector::toHex).orEmpty()))
                 usedRids.add(pick.rid)
             }
             out.add(StoredHomeRow(anchor, recId = (now shl 8) or (HOME_REC_TAG + rowIndex).toLong(), items = items, control = choice.control, model = choice.modelVersion))
@@ -369,7 +373,7 @@ class BrainHomeRows @Inject constructor(
             if (now - row.anchor.heardAtMs !in 0 until HomeAnchorStore.MAX_AGE_MS) continue
             val items = row.items.map { item ->
                 val track = EngineTrack.from(item.stored.row, item.stored.rid)
-                BrainHomeItem(track, track.toSong(), item.arm, item.slot, item.retrQ, item.radioRank, item.explore)
+                BrainHomeItem(track, track.toSong(), item.arm, item.slot, item.retrQ, item.radioRank, item.explore, item.sx.takeIf { it.isNotEmpty() })
             }
             if (items.size >= MIN_CARDS) out.add(BrainHomeRow(BrainHomeRow.idOf(row.anchor.rid), row.anchor, row.recId, items, row.control, row.model))
         }

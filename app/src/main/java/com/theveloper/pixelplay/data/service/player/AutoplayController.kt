@@ -1358,6 +1358,7 @@ class AutoplayController @Inject constructor(
                 control = choice?.control == true,
                 modelVersion = choice?.modelVersion ?: 0,
                 explore = pick?.explore == true,
+                servedX = pick?.servedX?.let(com.theveloper.pixelplay.brain.ServedVector::toHex),
             )
         )
         extras.putInt(BrainExtras.RETR_Q, pick?.retrQ ?: -1)

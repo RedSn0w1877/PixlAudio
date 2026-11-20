@@ -40,6 +40,8 @@ data class PlanItem(
     val slot: Int = -1,
     /** The slot was an exploration slot (5.10): carried into the play's tag. */
     val explore: Boolean = false,
+    /** The feature vector the pick was served with (hex, stage 4); empty for none. */
+    val sx: String = "",
 )
 
 /** A made-for-you list as a card; the list itself is a `served_list` row, read by [MixSpec.of] with [mixId]. */

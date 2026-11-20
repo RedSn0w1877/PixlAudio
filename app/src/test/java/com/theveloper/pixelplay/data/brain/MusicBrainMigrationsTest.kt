@@ -70,7 +70,7 @@ class MusicBrainMigrationsTest {
 
     @Test
     fun `there is one migration for every version step and no destructive path`() {
-        assertEquals(5, MusicBrainMigrations.ALL.size)
+        assertEquals(6, MusicBrainMigrations.ALL.size)
         for ((i, m) in MusicBrainMigrations.ALL.withIndex()) {
             assertEquals(i + 1, m.startVersion)
             assertEquals(i + 2, m.endVersion)
@@ -179,9 +179,32 @@ class MusicBrainMigrationsTest {
     }
 
     @Test
-    fun `the history tables are the same in every version`() {
+    fun `version 7 adds one nullable column to play_event and changes nothing else`() {
+        assertEquals(7, schema(7)["database"]!!.jsonObject["version"]!!.jsonPrimitive.int)
+        val v6 = entities(6).associateBy(::tableName)
+        val v7 = entities(7).associateBy(::tableName)
+        assertEquals(v6.keys, v7.keys, "no table is added or removed")
+        for ((name, old) in v6) {
+            if (name == "play_event") continue
+            assertEquals(createSql(old), createSql(v7[name]!!), "table $name is untouched")
+            assertEquals(indexSql(old, name), indexSql(v7[name]!!, name), "indices of $name are untouched")
+        }
+        val before = createSql(v6.getValue("play_event"))
+        val after = createSql(v7.getValue("play_event"))
+        // The new column is the last one, a nullable BLOB: the old statement with it spliced in before the primary key.
+        assertEquals(before.replace(", PRIMARY KEY(`eventId`))", ", `servedX` BLOB, PRIMARY KEY(`eventId`))"), after)
+        assertEquals(indexSql(v6.getValue("play_event"), "play_event"), indexSql(v7.getValue("play_event"), "play_event"))
+    }
+
+    @Test
+    fun `the version 7 statement is exactly an add column of what Room wrote`() {
+        assertEquals(listOf("ALTER TABLE `play_event` ADD COLUMN `servedX` BLOB"), MusicBrainMigrations.V6_TO_V7)
+    }
+
+    @Test
+    fun `the history tables only ever grew by nullable columns`() {
         for (table in listOf("play_event", "track_alias", "track_merge", "artist_alias", "feedback")) {
-            val sql = entities( 6).single { tableName(it) == table }.let(::createSql)
+            val sql = entities(6).single { tableName(it) == table }.let(::createSql)
             val first = entities(if (table == "feedback") 2 else 1).single { tableName(it) == table }.let(::createSql)
             assertEquals(first, sql, table)
         }

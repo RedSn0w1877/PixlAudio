@@ -35,6 +35,8 @@ data class StoredMixItem(
     val radioRank: Int = -1,
     /** The slot was an exploration slot: the arm bandit drew its arm (5.10). */
     val explore: Boolean = false,
+    /** The feature vector the pick was served with (hex, stage 4); empty for none. */
+    val sx: String = "",
 ) {
     val isOutsideLibrary: Boolean get() = songId == null
 }

@@ -156,9 +156,38 @@ class MusicBrainMigrationInstrumentedTest {
         db.close()
     }
 
+    @Test
+    fun migrates6To7KeepingEveryPlayAndAddingTheServedVectorColumn() {
+        helper.createDatabase(DB_V6, 6).apply {
+            execSQL(
+                "INSERT INTO play_event (eventId, schema, origin, rid, primaryAid, otherAids, keyAtWrite, startedAtMs, tzOffsetMin, " +
+                    "playedMs, durationMs, startReason, endReason, flags, surface, surfaceId, recId, slot, arm, sessionId, posInSession, " +
+                    "passiveRun, route, retrQ, radioRank, pServedQ, modelVersion) VALUES (1, 1, 0, 42, 7, '', 'n:x', 1000, 0, " +
+                    "190000, 200000, 0, 0, 0, 7, '', 0, -1, 9, 1, 0, 0, 0, -1, -1, 0, 0)"
+            )
+            close()
+        }
+
+        val db = helper.runMigrationsAndValidate(DB_V6, 7, true, *MusicBrainMigrations.ALL)
+
+        // The row survived and its served vector is NULL (a play from before version 7 keeps the reduced vector).
+        db.query("SELECT rid, servedX FROM play_event WHERE eventId = 1").use {
+            assertTrue(it.moveToFirst())
+            assertEquals(42L, it.getLong(0))
+            assertTrue(it.isNull(1))
+        }
+        db.execSQL("UPDATE play_event SET servedX = x'0102' WHERE eventId = 1")
+        db.query("SELECT length(servedX) FROM play_event WHERE eventId = 1").use {
+            assertTrue(it.moveToFirst())
+            assertEquals(2, it.getInt(0))
+        }
+        db.close()
+    }
+
     private companion object {
         const val DB_V4 = "brain-migration-test-v4.db"
         const val DB_V5 = "brain-migration-test-v5.db"
+        const val DB_V6 = "brain-migration-test-v6.db"
         const val DB = "brain-migration-test.db"
         const val DB_V3 = "brain-migration-test-v3.db"
         const val DB_V2 = "brain-migration-test-v2.db"

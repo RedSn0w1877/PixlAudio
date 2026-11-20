@@ -125,6 +125,7 @@ class HomePlanBuilder @Inject constructor(
                     rid = item.track.rid, aid = nameHash(artist), row = StoredRadioRow(item.track.toRadioRow(), item.track.rid),
                     arm = item.arm, whyKey = if (artistMore) WhyLine.ARTIST_MORE else WhyLine.RADIO_FANS,
                     whyName = if (artistMore) artist.orEmpty() else row.anchor.primaryArtist, slot = slot, explore = item.explore,
+                    sx = item.servedX.orEmpty(),
                 )
             }
             addShelf(PlanShelf(HomePlanner.BECAUSE_LISTENED, row.id, "because_listened", row.anchor.title, "because_listened_subtitle", items, recId = row.recId, control = row.control, model = row.model))
@@ -224,6 +225,7 @@ class HomePlanBuilder @Inject constructor(
                 PlanItem(
                     rid = rid, aid = nameHash(if (row != null) row.row.artists.firstOrNull()?.name else LibraryIndex.primaryArtistName(song)),
                     songId = if (row == null) song.id else null, row = row, arm = stored.arm, slot = items.size, explore = stored.explore,
+                    sx = stored.sx,
                 )
             )
         }

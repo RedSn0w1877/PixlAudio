@@ -153,7 +153,7 @@ class ReplayMerger(private val store: BrainStore) {
         durationMs = durationMs, startReason = startReason, endReason = endReason, flags = flags, surface = surface,
         surfaceId = surfaceId, recId = recId, slot = slot, arm = arm, sessionId = sessionId,
         posInSession = posInSession, passiveRun = passiveRun, route = route, retrQ = retrQ, radioRank = radioRank,
-        pServedQ = pServedQ, modelVersion = modelVersion, schema = schema,
+        pServedQ = pServedQ, modelVersion = modelVersion, servedX = servedX, schema = schema,
     )
 
     companion object {

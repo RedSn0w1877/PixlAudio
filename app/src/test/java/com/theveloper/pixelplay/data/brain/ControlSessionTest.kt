@@ -139,6 +139,22 @@ class ControlSessionTest {
     }
 
     @Test
+    fun `no control session is drawn while the gate has the prior on`() = runTest {
+        engine.withState { st ->
+            // Every list is ranked with the prior then: there is nothing to compare it with, and a control flag would only mix eras (iOS does the same).
+            st.learner.gate = Gate.State()
+            val choice = st.rankingChoice(session(true))
+            assertNull(choice.source)
+            assertFalse(choice.control, "a session whose key would be a control is not one while the gate is off")
+            assertEquals(0, choice.modelVersion)
+            // Once the gate has the learned weights on, the same session is a control again.
+            st.learner.gate = Gate.State(useLearned = true, winStreak = 2, atMs = now)
+            st.learner.learnVersion = LearnReplay.VERSION
+            assertTrue(st.rankingChoice(session(true)).control)
+        }
+    }
+
+    @Test
     fun `a control session is also given the standard share of new music`() = runTest {
         engine.withState { st ->
             st.learner.gate = Gate.State(useLearned = true, winStreak = 2, atMs = now)

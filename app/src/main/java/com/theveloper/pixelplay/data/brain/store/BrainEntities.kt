@@ -47,6 +47,11 @@ data class PlayEventEntity(
     val radioRank: Int = -1,
     val pServedQ: Int = 0,
     val modelVersion: Int = 0,
+    /**
+     * Stage 4 (brain.db version 7): the feature vector the pick was served with, 51 quantised 16-bit values (`ServedVector`); null for a play
+     * the scorer did not serve and for every row written before version 7.
+     */
+    @ColumnInfo(typeAffinity = ColumnInfo.BLOB) val servedX: ByteArray? = null,
 )
 
 /**

@@ -30,6 +30,8 @@ data class PlaybackQueueItemSnapshot(
     val brainControl: Boolean? = null,
     val brainModel: Int? = null,
     val brainExplore: Boolean? = null,
+    // The feature vector the pick was served with (hex, stage 4), so a restored queue still trains the learner on what the ranker saw.
+    val brainServedX: String? = null,
 ) {
     /** The item's brain context, or null when it has none (a track the listener chose, an old snapshot). */
     fun brainTag(): BrainItemTag? {
@@ -48,6 +50,7 @@ data class PlaybackQueueItemSnapshot(
             control = brainControl == true,
             modelVersion = brainModel ?: -1,
             explore = brainExplore == true,
+            servedX = brainServedX,
         )
         return tag.takeUnless { it.isEmpty }
     }
@@ -68,6 +71,7 @@ data class PlaybackQueueItemSnapshot(
             brainControl = if (tag.control) true else null,
             brainModel = tag.modelVersion.takeIf { it >= 0 },
             brainExplore = if (tag.explore) true else null,
+            brainServedX = tag.servedX,
         )
 }
 

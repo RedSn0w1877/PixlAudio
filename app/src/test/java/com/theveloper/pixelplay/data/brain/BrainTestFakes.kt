@@ -45,7 +45,7 @@ class MemoryBrainStore : BrainStore {
                 e.eventId, e.origin, e.rid, e.primaryAid, e.otherAids, e.keyAtWrite, e.startedAtMs, e.tzOffsetMin,
                 e.playedMs, e.durationMs, e.startReason, e.endReason, next, e.surface, e.surfaceId, e.recId, e.slot,
                 e.arm, e.sessionId, e.posInSession, e.passiveRun, e.route, e.retrQ, e.radioRank, e.pServedQ,
-                e.modelVersion, e.schema,
+                e.modelVersion, e.servedX, e.schema,
             )
         }
         return eventIds.size

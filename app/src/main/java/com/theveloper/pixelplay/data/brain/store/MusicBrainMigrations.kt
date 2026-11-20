@@ -71,6 +71,20 @@ object MusicBrainMigrations {
         "CREATE INDEX IF NOT EXISTS `index_impression_shownAtMs` ON `impression` (`shownAtMs`)",
     )
 
+    /**
+     * Version 6 to 7 (stage 4): `play_event.servedX`, the feature vector a pick was served with (`ServedVector`, 102 bytes, nullable). One column added,
+     * nothing rewritten: every row written before keeps NULL and the learner reads it with the reduced vector it always used.
+     */
+    val V6_TO_V7: List<String> = listOf(
+        "ALTER TABLE `play_event` ADD COLUMN `servedX` BLOB",
+    )
+
+    val MIGRATION_6_7: Migration = object : Migration(6, 7) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            for (statement in V6_TO_V7) db.execSQL(statement)
+        }
+    }
+
     val MIGRATION_5_6: Migration = object : Migration(5, 6) {
         override fun migrate(db: SupportSQLiteDatabase) {
             for (statement in V5_TO_V6) db.execSQL(statement)
@@ -102,5 +116,5 @@ object MusicBrainMigrations {
     }
 
     /** Every migration, in order. A new version adds its step here and its schema file next to the others. */
-    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
 }

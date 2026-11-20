@@ -188,7 +188,7 @@ class BrainEventRecorder @Inject constructor(
             // control session (5.12 point 8) is ranked with the standard recipe, and that includes its share of new music.
             if (newSession) {
                 state.session.nuSession =
-                    if (Ranker.isControlSession(stamp.sessionId)) Session.NU_DEFAULT else state.sessionNu(play.startedAtMs)
+                    if (state.learner.useLearned && Ranker.isControlSession(stamp.sessionId)) Session.NU_DEFAULT else state.sessionNu(play.startedAtMs)
             }
             // One session in ten is ranked with the prior and flagged (5.12 point 8). Which weights ranked a list, and whether it was a
             // control, was decided when the list was BUILT and travels with the queue entry (`brain.ctrl`, `brain.model`): it is read
@@ -224,6 +224,7 @@ class BrainEventRecorder @Inject constructor(
                 retrQ = context.retrQ,
                 radioRank = context.radioRank,
                 modelVersion = if (tag != null && tag.modelVersion >= 0) tag.modelVersion else 0,
+                servedX = com.theveloper.pixelplay.brain.ServedVector.fromHex(tag?.servedX),
             )
             val graded = engine.applyLocked(state, event) ?: return@withState null
             // A play the listener chose and heard out, or a pick they acted on, may head a Home row.
@@ -283,6 +284,7 @@ class BrainEventRecorder @Inject constructor(
         w.long("recId", c.tag?.recId ?: 0L).int("slot", c.tag?.slot ?: -1).string("arm", c.tag?.arm.orEmpty())
         w.int("retrQ", c.retrQ).int("radioRank", c.radioRank).bool("shuffle", c.shuffle).bool("repeatOne", c.repeatOne)
         w.int("route", c.route)
+        c.tag?.servedX?.let { w.string("sx", it) }
         return w.endObject().toString()
     }
 
@@ -299,6 +301,7 @@ class BrainEventRecorder @Inject constructor(
             recId = long("recId"),
             slot = int("slot", -1),
             arm = str("arm").ifEmpty { null },
+            servedX = str("sx").ifEmpty { null },
         ).takeUnless { it.isEmpty }
         return FinishedPlay(
             songId = songId,
