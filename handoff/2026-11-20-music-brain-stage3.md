@@ -253,3 +253,23 @@ Copy `brain/src/test/resources/brain-golden/` again: NEW `bandit.jsonl`, `novelt
 `nuOverride`, `HomePlanner.reorder` and `DAYPART_MIX`, `LearnReplay` (`posteriors`, the extra `applyLive` argument), `Replay.applyFacts` for a TAG adjustment, and `YourSound.lately` / `genreTree` / `genreHistory` (no golden file holds
 those three; port the tests of `Stage3bTest`). The app side to copy by behaviour: deviations 189 to 200 (the item carries the ranking record; the arm picker only while the learned weights are on; the
 impression visit and its settlement; the daypart shelf; Your sound's Lately and genre tree; the genre page's sections; the backup module's contents).
+
+## What was run in the second pass, and what it said
+
+`ANDROID_HOME` set to the SDK, one Gradle at a time.
+
+- `./gradlew :brain:generateGolden :brain:test`: five NEW golden files (`bandit`, `novelty`, `context`, `shelfbandit`, `posteriors`), `MANIFEST.sha256` and `README.md` changed, no earlier file changed. The golden test failed once in the
+  same invocation because the test read the resource folder before the task had refreshed it; a plain `:brain:test` afterwards passed.
+- Final: `./gradlew --continue :brain:test :app:testDebugUnitTest :app:assembleDebug`: **BUILD SUCCESSFUL**. `:brain:test` 245 tests, 0 failures, 1 skipped (`RealExportTest6`, which needs a file);
+  `:app:testDebugUnitTest` 2,404 tests, 0 failures, 2 skipped; `:app:assembleDebug` built. `RecommendationGoldenEqualityTest` and the rest of `data/recommendation` passed untouched.
+- Tests changed in this pass besides the new ones: `LearnerEngineTest` (the reset test no longer asserts that the summary is still null right after the reset: the forced rebuild can already have replaced it, a race that
+  was in the first pass), `BackupSectionTest` (13 sections), `SettingsBackupSectionsTest` ("Music picks" is a plain section), `MusicBrainMigrationsTest` (five migrations, version 6), and three fakes that gained the new DAO methods.
+- **Not run**: the instrumented tests (`MusicBrainMigrationInstrumentedTest` has a new 5 to 6 case that was written, not run); nothing on a phone.
+
+## What nobody has verified on a device (second pass)
+
+Everything above, and in particular: that the control flag and model version really arrive on events from every surface (read in code and unit-tested at the recorder, never seen in a real queue); that the arm bandit's
+exploration slots feel right and the audit ever fires; what the learned appetite does to a mix over weeks; the context table on a real log (time of a play over 100,000 events, the daypart shelf's content and title); that the
+`LaunchedEffect` in each shelf item counts "on screen for a second" the way a listener would; that a visit is settled (the log lookup of the first play after a tap) and the order is really frozen per daypart on a phone; the size
+and pruning of `impression` over months; Your sound's Lately (two passes over a large log: time not measured), the genre tree and the island dialog; the genre page's key artists on a real atlas and DNA coverage; the effect of a genre
+More / Less on picks (it only reaches Spotify tracks through the tag pseudo-count); a backup export and restore of "Music picks" on a device; the platform backup rules. **There is still no real-data number for the learner.**
