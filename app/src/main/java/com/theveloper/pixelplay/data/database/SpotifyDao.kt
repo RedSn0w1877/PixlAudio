@@ -223,6 +223,10 @@ interface SpotifyDao {
     @Query("SELECT matched_video_id FROM spotify_songs WHERE spotify_id = :spotifyId AND matched_video_id IS NOT NULL LIMIT 1")
     suspend fun getMatchedVideoId(spotifyId: String): String?
 
+    /** Song Tap: is a song with this video already in the library, whichever row (or id) it came in under? */
+    @Query("SELECT spotify_id FROM spotify_songs WHERE matched_video_id = :videoId LIMIT 1")
+    suspend fun getSpotifyIdForVideo(videoId: String): String?
+
     /**
      * Devuelve a la cola las pistas que se dieron por perdidas.
      *

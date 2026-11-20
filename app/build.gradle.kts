@@ -437,6 +437,13 @@ dependencies {
     implementation(libs.mlkit.translate)
     implementation(libs.mlkit.language.id)
 
+    // Song Tap's code route: CameraX for the scanner, zxing core to draw and to read the QR code.
+    implementation(libs.androidx.camera.core)
+    implementation(libs.androidx.camera.camera2)
+    implementation(libs.androidx.camera.lifecycle)
+    implementation(libs.androidx.camera.view)
+    implementation(libs.zxing.core)
+
     // UI Utilities & Extra
     implementation(libs.timber)
     implementation(libs.generativeai)
@@ -484,6 +491,8 @@ dependencies {
     implementation(project(":shared"))
     // The music brain's pure logic (docs/brain-spec.md): Kotlin JVM, no Android dependency.
     implementation(project(":brain"))
+    // Song Tap's pure logic (handoff/2026-11-20-song-tap.md): Kotlin JVM, no Android dependency.
+    implementation(project(":songtap"))
 
     // Testing (Unit)
     testImplementation(libs.junit.jupiter.api)
