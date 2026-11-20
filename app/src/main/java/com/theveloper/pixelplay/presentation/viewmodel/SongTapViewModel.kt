@@ -24,7 +24,7 @@ class SongTapViewModel @Inject constructor(
     /** The numbers behind the tap detector (Developer mode diagnostics). */
     val diag = holder.diag
 
-    fun attach() = holder.attach()
+    fun attach() = holder.attach(this)
     fun allow(on: Boolean) = holder.allow(on)
     fun arm(role: Role) = holder.arm(role)
     fun disarm() = holder.disarm()
@@ -40,7 +40,7 @@ class SongTapViewModel @Inject constructor(
     fun mark(label: String) = holder.mark(label)
 
     override fun onCleared() {
-        holder.detach()
+        holder.detach(this)
     }
 }
 

@@ -17,6 +17,8 @@ import com.theveloper.pixelplay.presentation.viewmodel.StablePlayerState
 import com.theveloper.pixelplay.songtap.HapticCue
 import com.theveloper.pixelplay.songtap.Phase
 import com.theveloper.pixelplay.songtap.Role
+import com.theveloper.pixelplay.songtap.SongTapLink
+import com.theveloper.pixelplay.songtap.SongTapPayloads
 import com.theveloper.pixelplay.songtap.SongTapTimeline
 import com.theveloper.pixelplay.songtap.SongTapWire
 import io.mockk.coEvery
@@ -245,6 +247,59 @@ class TwoPhonesTest {
         // The sender's receiver left while an offer stood: lost peer on the sender.
         assertThat(p.sender.phase).isEqualTo(Phase.FAILED)
         assertThat(p.sender.holder.ui.value.notice).isEqualTo(SongTapNotice.PEER_LOST)
+    }
+
+    @Test
+    fun `the first beam's Add still saves the song after the phones came apart`() = runTest {
+        val p = pair(firstBeamAsks = true)
+        p.settle()
+        p.touch()
+        passTime(1_000)
+        assertThat(p.receiver.phase).isEqualTo(Phase.OFFERED)
+        p.sender.radio.drop()
+        passTime(100)
+        // Pulling the phones apart after a tap is normal: the card is still there and Add still works.
+        assertThat(p.receiver.phase).isEqualTo(Phase.OFFERED)
+        p.receiver.holder.accept()
+        passTime(1_000)
+        assertThat(p.receiver.library.videos).containsExactly("dQw4w9WgXcQ")
+        assertThat(p.receiver.phase).isEqualTo(Phase.SAVED)
+        assertThat(p.receiver.library.removed).isEmpty()
+    }
+
+    @Test
+    fun `a code scanned while a card waits for Add does not replace the card or what Undo would remove`() = runTest {
+        val p = pair(firstBeamAsks = true)
+        p.settle()
+        p.touch()
+        passTime(1_000)
+        assertThat(p.receiver.phase).isEqualTo(Phase.OFFERED)
+        val other = SongTapPayloads.make(
+            nowMs = System.currentTimeMillis(), ytVideoId = "aaaaaaaaaaa", spotifyId = null, isrc = null,
+            title = "Another song", artist = "Someone", durationMs = 200_000L, artUrl = null,
+        )!!
+        p.receiver.holder.onScanned(SongTapLink.encode(SongTapPayloads.encode(other)!!))
+        passTime(100)
+        assertThat(p.receiver.holder.ui.value.card!!.title).isEqualTo("Never Gonna Give You Up")
+        p.receiver.holder.accept()
+        passTime(1_000)
+        assertThat(p.receiver.library.videos).containsExactly("dQw4w9WgXcQ")
+        p.receiver.holder.undo()
+        passTime(100)
+        assertThat(p.receiver.library.removed).containsExactly("dQw4w9WgXcQ")
+    }
+
+    @Test
+    fun `an arm that is overtaken by a disarm leaves nothing running`() = runTest {
+        val clock = TestClock()
+        val a = Phone(this, "A", clock, song("1"))
+        a.holder.attach()
+        a.holder.arm(Role.SEND)
+        a.holder.disarm() // before the arm's settings reads have run
+        testScheduler.runCurrent()
+        assertThat(a.phase).isEqualTo(Phase.IDLE)
+        assertThat(a.radio.calls).doesNotContain("start")
+        assertThat(a.impulses.running).isFalse()
     }
 
     @Test

@@ -65,7 +65,10 @@ class AndroidBleRadio @Inject constructor(
     private var running = false
     private var stateReceiver: BroadcastReceiver? = null
 
-    private val devices = HashMap<String, BluetoothDevice>()
+    /** Scanned phones by address. Bounded: a flood of made-up addresses pushes out the one used longest ago. */
+    private val devices = object : LinkedHashMap<String, BluetoothDevice>(16, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, BluetoothDevice>?): Boolean = size > MAX_DEVICES
+    }
     private val clients = HashMap<String, ClientConnection>()
     private val serverClients = HashMap<String, BluetoothDevice>()
     private val offerCache = java.util.concurrent.ConcurrentHashMap<String, ByteArray>()
@@ -625,6 +628,7 @@ class AndroidBleRadio @Inject constructor(
     }
 
     private companion object {
+        const val MAX_DEVICES = 32
         val CCCD: UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
         val U_INFO: UUID = UUID.fromString(SongTapWire.CHAR_INFO)
         val U_OFFER: UUID = UUID.fromString(SongTapWire.CHAR_OFFER)

@@ -332,13 +332,96 @@ class BleTransportTest {
     fun `ack and decline from the receiver reach the session, and go is sent to that receiver`() = runTest {
         val rig = sender()
         val peer = rig.of<TransportEvent.PeerFound>().last().peer
+        rig.transport.publishOffer(0, payloadBytes)
         rig.transport.serverControl("c", SongTapWire.encodeHello(ByteArray(16))!!)
+        assertThat(rig.transport.serverOffer("c")).isNotNull()
         rig.transport.serverControl("c", SongTapWire.encodeAck())
         assertThat(rig.of<TransportEvent.Ack>().single().peer).isEqualTo(peer)
         rig.transport.sendGo(peer, 5L)
         assertThat(rig.radio.goNotifications).containsExactly("c")
         rig.transport.serverControl("c", SongTapWire.encodeDecline())
         assertThat(rig.of<TransportEvent.Declined>().single().peer).isEqualTo(peer)
+    }
+
+    @Test
+    fun `ack, decline and go belong to the phone that read the offer and nobody else`() = runTest {
+        val rig = sender()
+        val peer = rig.of<TransportEvent.PeerFound>().last().peer
+        rig.transport.publishOffer(0, payloadBytes)
+        rig.transport.serverControl("reader", SongTapWire.encodeHello(ByteArray(16) { 1 })!!)
+        rig.transport.serverControl("stranger", SongTapWire.encodeHello(ByteArray(16) { 2 })!!)
+        assertThat(rig.transport.serverOffer("reader")).isNotNull()
+        // Once somebody has read it, nobody else is given it, and nobody else can answer for it.
+        assertThat(rig.transport.serverOffer("stranger")).isNull()
+        rig.transport.serverControl("stranger", SongTapWire.encodeAck())
+        rig.transport.serverControl("stranger", SongTapWire.encodeDecline())
+        assertThat(rig.of<TransportEvent.Ack>()).isEmpty()
+        assertThat(rig.of<TransportEvent.Declined>()).isEmpty()
+        rig.transport.sendGo(peer, 0L)
+        assertThat(rig.radio.goNotifications).isEmpty()
+        rig.transport.serverControl("reader", SongTapWire.encodeAck())
+        assertThat(rig.of<TransportEvent.Ack>()).hasSize(1)
+        rig.transport.sendGo(peer, 0L)
+        assertThat(rig.radio.goNotifications).containsExactly("reader")
+    }
+
+    @Test
+    fun `a late ack from the last offer's receiver is not an ack for the next offer`() = runTest {
+        val rig = sender()
+        rig.transport.publishOffer(0, payloadBytes)
+        rig.transport.serverControl("first", SongTapWire.encodeHello(ByteArray(16) { 1 })!!)
+        assertThat(rig.transport.serverOffer("first")).isNotNull()
+        rig.transport.withdrawOffer() // timed out
+        rig.transport.publishOffer(0, payloadBytes)
+        rig.transport.serverControl("first", SongTapWire.encodeAck())
+        assertThat(rig.of<TransportEvent.Ack>()).isEmpty()
+        rig.transport.serverControl("second", SongTapWire.encodeHello(ByteArray(16) { 3 })!!)
+        assertThat(rig.transport.serverOffer("second")).isNotNull()
+        rig.transport.serverControl("second", SongTapWire.encodeAck())
+        assertThat(rig.of<TransportEvent.Ack>()).hasSize(1)
+    }
+
+    @Test
+    fun `when a phone told the sender it tapped, only that phone is given the offer`() = runTest {
+        val rig = sender()
+        rig.touch("R", Role.RECEIVE, samples = 3)
+        rig.transport.serverControl("tapper", SongTapWire.encodeTap(30))
+        assertThat(rig.of<TransportEvent.Tap>()).isNotEmpty()
+        rig.transport.publishOffer(0, payloadBytes)
+        rig.transport.serverControl("tapper", SongTapWire.encodeHello(ByteArray(16) { 1 })!!)
+        rig.transport.serverControl("other", SongTapWire.encodeHello(ByteArray(16) { 2 })!!)
+        assertThat(rig.transport.serverOffer("other")).isNull()
+        assertThat(rig.transport.serverOffer("tapper")).isNotNull()
+    }
+
+    @Test
+    fun `another phone's jump does not make a receiver's tap message count`() = runTest {
+        val rig = sender()
+        rig.settle("Q", Role.RECEIVE, rssi = -90)
+        rig.touch("Q", Role.RECEIVE, rssi = -66, samples = 4) // Q jumps; R, the phone being followed, does not
+        rig.transport.serverControl("c", SongTapWire.encodeTap(30))
+        assertThat(rig.of<TransportEvent.Tap>()).isEmpty()
+    }
+
+    @Test
+    fun `a jerk the other phone claims shortens the hold only when it is close`() = runTest {
+        val close = BleRig(this)
+        close.transport.start(Role.RECEIVE)
+        close.settle("S", Role.SEND, rssi = -62)
+        close.radio.listener.onConnected("S", true)
+        close.touch("S", Role.SEND, rssi = -40, samples = 2)
+        close.radio.listener.onInfoRead("S", SongTapWire.encodeInfo(0))
+        close.touch("S", Role.SEND, rssi = -40, samples = 2)
+        assertThat(close.of<TransportEvent.Tap>()).hasSize(1) // 200 ms into the jump, the dwell is 400
+
+        val far = BleRig(this)
+        far.transport.start(Role.RECEIVE)
+        far.settle("S", Role.SEND, rssi = -90)
+        far.radio.listener.onConnected("S", true)
+        far.touch("S", Role.SEND, rssi = -66, samples = 2)
+        far.radio.listener.onInfoRead("S", SongTapWire.encodeInfo(0))
+        far.touch("S", Role.SEND, rssi = -66, samples = 4)
+        assertThat(far.of<TransportEvent.Tap>()).isEmpty()
     }
 
     @Test

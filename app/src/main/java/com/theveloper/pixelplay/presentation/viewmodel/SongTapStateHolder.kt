@@ -126,20 +126,45 @@ class SongTapStateHolder @Inject constructor(
     private var refreshJob: Job? = null
     private var saveJob: Job? = null
     private var pendingOffer: SongTapPayload? = null
+
+    /** The offer the session accepted and is acting on (set only when the session took it, never by a mere arrival). */
     private var incoming: SongTapPayload? = null
+
+    /** An offer that has arrived and is being offered to the session: it becomes [incoming] only if the session takes it. */
+    private var candidate: SongTapPayload? = null
+
+    /** The video the last successful save added, so Undo takes back exactly that. */
+    private var savedKey: String = ""
+    private var savedVideoId: String = ""
+
+    /** Set synchronously by [arm] and cleared by [disarm]: an arm that was overtaken by a disarm must not start the radio. */
+    @Volatile private var wanted = false
+    private val owners = HashSet<Any>()
     private var lastScanText: String? = null
     private var lastScanAtMs = 0L
 
     private fun now() = System.currentTimeMillis()
 
-    /** Called by the screen when it opens: starts watching the settings, the playing song and the transports. */
-    fun attach() {
-        if (observing?.isActive == true) return
+    /**
+     * Called by a screen when it opens: starts watching the settings, the playing song and the transports. Two screens
+     * (the Song Tap screen and the diagnostics) may be open at once, and one closing must not stop the other's observers,
+     * so each is counted by [owner] and the observers go only when the last one leaves.
+     */
+    fun attach(owner: Any = this) {
+        synchronized(owners) {
+            owners.add(owner)
+            if (observing?.isActive == true) return
+        }
         observing = scope.launch {
             launch { settings.allowed.collect { on -> _ui.update { it.copy(allowed = on) }; if (!on) disarm() } }
             launch {
                 playback.stablePlayerState.map { it.currentSong }.distinctUntilChanged { a, b -> a?.id == b?.id }.collectLatest { song ->
                     _ui.update { it.copy(nowPlaying = song?.let(::nowPlayingOf)) }
+                    // A code that is up is for the song that plays: when the track changes, the code changes with it.
+                    if (session.role == Role.SEND && session.phase == Phase.OFFERED && session.peer == 0 && qr.code.value != null) {
+                        hideCode()
+                        showCode()
+                    }
                 }
             }
             launch { qr.code.collect { code -> _ui.update { it.copy(code = code) } } }
@@ -149,8 +174,12 @@ class SongTapStateHolder @Inject constructor(
         }
     }
 
-    /** Called when the screen closes for good (not on a configuration change). */
-    fun detach() {
+    /** Called when a screen closes for good (not on a configuration change). */
+    fun detach(owner: Any = this) {
+        synchronized(owners) {
+            owners.remove(owner)
+            if (owners.isNotEmpty()) return
+        }
         disarm()
         diagnostics.setEnabled(false)
         observing?.cancel()
@@ -166,9 +195,13 @@ class SongTapStateHolder @Inject constructor(
     }
 
     fun arm(role: Role) {
+        wanted = true
         scope.launch {
             if (!settings.isAllowed()) return@launch
-            dispatch(SessionEvent.Arm(role, settings.doesFirstBeamAsk()))
+            val askFirst = settings.doesFirstBeamAsk()
+            // The settings reads suspend: if the screen paused meanwhile, the arm is dropped (checked again inside dispatch).
+            if (!wanted) return@launch
+            dispatch(SessionEvent.Arm(role, askFirst))
         }
     }
 
@@ -179,6 +212,7 @@ class SongTapStateHolder @Inject constructor(
     fun mark(label: String) = ble.mark(label)
 
     fun disarm() {
+        wanted = false
         dispatch(SessionEvent.Disarm)
         cancelJobs()
     }
@@ -200,7 +234,7 @@ class SongTapStateHolder @Inject constructor(
             val payload = song?.let { sender.payloadFor(it, now()) }
             pendingOffer = payload
             dispatch(SessionEvent.QrShown(payload?.songKey ?: ""))
-            if (payload != null) startRefresh(song)
+            if (payload != null) startRefresh()
         }
     }
 
@@ -235,10 +269,25 @@ class SongTapStateHolder @Inject constructor(
         val effects: List<SessionEffect>
         val before: Phase
         synchronized(lock) {
+            // An Arm that lost the race against a Disarm does nothing.
+            if (event is SessionEvent.Arm && !wanted) return
             before = session.phase
+            val previous = session
             val r = SongTapSession.reduce(session, event)
             session = r.state
             effects = r.effects
+            // The offer on the table is written down only now that the session has taken it: an offer the session ignored
+            // (one already being asked about, or being saved) must not replace the card or the song that Undo would remove.
+            if (event is SessionEvent.OfferReceived) {
+                val offered = candidate
+                candidate = null
+                val taken = offered != null && offered.songKey == event.videoId && previous.videoId != event.videoId &&
+                    session.videoId == event.videoId && (session.phase == Phase.OFFERED || session.phase == Phase.TRANSFERRING)
+                if (taken) {
+                    incoming = offered
+                    _ui.update { it.copy(card = cardOf(offered!!)) }
+                }
+            }
             publish(event)
         }
         for (effect in effects) perform(effect)
@@ -296,8 +345,7 @@ class SongTapStateHolder @Inject constructor(
                 val fresh = decoded is PayloadDecode.Ok &&
                     SongTapSigning.isFresh(decoded.payload.ts, now(), if (event.peer == 0) SongTapSigning.QR_WINDOW_MS else SongTapSigning.OFFER_WINDOW_MS)
                 if (decoded is PayloadDecode.Ok && fresh) {
-                    incoming = decoded.payload
-                    _ui.update { it.copy(card = cardOf(decoded.payload)) }
+                    synchronized(lock) { candidate = decoded.payload }
                     dispatch(SessionEvent.OfferReceived(event.peer, decoded.payload.songKey, event.senderKey, now()))
                 } else {
                     dispatch(SessionEvent.OfferRejected)
@@ -365,6 +413,9 @@ class SongTapStateHolder @Inject constructor(
     private fun startBeam(role: Role, startMs: Long) {
         val reduced = reducedMotion()
         beamJob?.cancel()
+        // From here the beam owns the end of the result (the receiver's card goes with the beam's own end).
+        dismissJob?.cancel()
+        dismissJob = null
         _ui.update { it.copy(beamStartMs = startMs, beamRole = role, beamReduced = reduced) }
         beamJob = scope.launch {
             delay((startMs + SongTapTimeline.totalMs(role, reduced) - now()).coerceAtLeast(0L))
@@ -387,6 +438,8 @@ class SongTapStateHolder @Inject constructor(
             when (result) {
                 is SongTapSaveResult.Saved -> {
                     if (!stillWanted) { receiver.undo(result.card.videoId); return@launch }
+                    savedKey = payload.songKey
+                    savedVideoId = result.card.videoId
                     _ui.update { it.copy(card = result.card) }
                     dispatch(SessionEvent.SaveResult(SaveOutcome.SAVED, now()))
                 }
@@ -403,8 +456,10 @@ class SongTapStateHolder @Inject constructor(
 
     private fun startUndo(songKey: String) {
         saveJob?.cancel()
-        val card = _ui.value.card
-        val videoId = card?.videoId?.takeIf { it.isNotEmpty() } ?: incoming?.ytVideoId ?: songKey
+        // What this session's save added, by the session's own song key; never whatever the card happens to show.
+        val videoId = savedVideoId.takeIf { savedKey == songKey && it.isNotEmpty() }
+            ?: incoming?.takeIf { it.songKey == songKey }?.ytVideoId
+            ?: songKey
         scope.launch { receiver.undo(videoId) }
     }
 
@@ -426,19 +481,27 @@ class SongTapStateHolder @Inject constructor(
         if (dismissJob?.isActive == true) return
         // A saved card that came with a beam is put away by the beam's own end (its Undo chip lives inside it).
         if (phase == Phase.SAVED && _ui.value.beamRole == Role.RECEIVE) return
-        val stay = if (phase == Phase.SAVED) com.theveloper.pixelplay.songtap.SongTapSession.UNDO_WINDOW_MS else RESULT_MS
+        val stay = if (phase == Phase.SAVED) SongTapSession.UNDO_WINDOW_MS else RESULT_MS
+        // Over Bluetooth the receiver saves first and the sender's go (which starts the beam) arrives a moment later: the
+        // Undo window must not begin before the beam does, or the card would be taken away in the middle of it.
+        val waitForBeam = phase == Phase.SAVED && session.role == Role.RECEIVE && session.peer != 0
         dismissJob = scope.launch {
+            if (waitForBeam) {
+                delay(GO_GRACE_MS)
+                if (_ui.value.beamRole != null) return@launch
+            }
             delay(stay)
             dispatch(SessionEvent.Dismiss)
         }
     }
 
-    /** A code expires after five minutes; while it is up, make a fresh one every four. */
-    private fun startRefresh(song: Song?) {
+    /** A code expires after five minutes; while it is up, make a fresh one every four, for the song that plays at that moment. */
+    private fun startRefresh() {
         refreshJob?.cancel()
         refreshJob = scope.launch {
             while (isActive) {
                 delay(QR_REFRESH_MS)
+                val song = playback.stablePlayerState.value.currentSong
                 if (session.phase != Phase.OFFERED || song == null) return@launch
                 val fresh = sender.payloadFor(song, now()) ?: return@launch
                 pendingOffer = fresh
@@ -461,5 +524,8 @@ class SongTapStateHolder @Inject constructor(
         const val INVALID_NOTICE_MS = 2_500L
         const val QR_REFRESH_MS = 240_000L
         const val SAME_SCAN_MS = 10_000L
+
+        /** After a save over Bluetooth, how long to wait for the sender's go before the Undo window starts without a beam. */
+        const val GO_GRACE_MS = 3_000L
     }
 }
