@@ -1252,7 +1252,7 @@ private fun LyricsControlCluster(
                 LyricsSyncControls(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(bottom = 8.dp),
+                        .padding(bottom = LyricsPillGap),
                     offsetMillis = lyricsSyncOffset,
                     onOffsetChange = onLyricsSyncOffsetChange,
                     backgroundColor = chrome.container,

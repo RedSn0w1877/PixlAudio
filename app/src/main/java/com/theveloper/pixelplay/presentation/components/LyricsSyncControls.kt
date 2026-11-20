@@ -36,14 +36,16 @@ fun LyricsSyncControls(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .height(52.dp)
+            // New UI split-pill language: same 68 dp height and 8 dp inner padding as the
+            // toolbar's big pill below it, so the buttons are the same 52 dp as its toggles.
+            .height(LyricsPillHeight)
             .background(
                 color = backgroundColor,
                 shape = CircleShape
             )
-            .padding(4.dp),
+            .padding(LyricsPillInnerPadding),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp)
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         // -0.5s
         SyncButton(
