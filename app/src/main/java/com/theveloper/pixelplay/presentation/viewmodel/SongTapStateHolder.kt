@@ -255,7 +255,12 @@ class SongTapStateHolder @Inject constructor(
             current.copy(
                 session = session,
                 card = if (clearCard) null else current.card,
-                notice = if (event is SessionEvent.Dismiss || event is SessionEvent.Arm || event is SessionEvent.Disarm) null else current.notice,
+                notice = when {
+                    event is SessionEvent.Dismiss || event is SessionEvent.Arm || event is SessionEvent.Disarm -> null
+                    // A failure the session reports without a notice of its own (a lost peer, a timeout) is worded from its reason.
+                    session.phase == Phase.FAILED && session.fail != null -> noticeOf(session.fail!!)
+                    else -> current.notice
+                },
             )
         }
         // A beam belongs to a session that is sending or saving; anything else (a failure, a cancel, Undo) ends it at once.
@@ -325,8 +330,9 @@ class SongTapStateHolder @Inject constructor(
             is SessionEffect.StartBeam -> startBeam(effect.role, effect.startMs)
             is SessionEffect.SaveSong -> startSave()
             is SessionEffect.UndoSave -> startUndo(effect.videoId)
-            // While a beam plays, its own cue list (timeline) does the vibrating; the session's "success" would double it.
-            is SessionEffect.Haptic -> if (!(effect.cue == HapticCue.SUCCESS && _ui.value.beamRole != null)) _haptics.tryEmit(effect.cue)
+            // A beam (playing, or about to: any phone found over Bluetooth) does its own vibrating from the timeline's cue
+            // list; the session's "success" would buzz twice.
+            is SessionEffect.Haptic -> if (!(effect.cue == HapticCue.SUCCESS && (_ui.value.beamRole != null || session.peer != 0))) _haptics.tryEmit(effect.cue)
             is SessionEffect.ScheduleTimeout -> schedule(effect.tag, effect.afterMs)
             is SessionEffect.Notice -> _ui.update { it.copy(notice = noticeOf(effect.reason)) }
             SessionEffect.NoticeInvalidCode -> {

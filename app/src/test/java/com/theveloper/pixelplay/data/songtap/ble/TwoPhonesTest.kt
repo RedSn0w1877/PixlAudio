@@ -291,7 +291,7 @@ class TwoPhonesTest {
         val p = Duo(a, b, clock, this)
         p.settle()
         p.touch()
-        passTime(5_000)
+        passTime(2_000)
         assertThat(a.holder.ui.value.notice).isEqualTo(SongTapNotice.NOTHING_TO_SEND)
         assertThat(b.library.videos).isEmpty()
         assertThat(b.phase).isNotEqualTo(Phase.SAVED)

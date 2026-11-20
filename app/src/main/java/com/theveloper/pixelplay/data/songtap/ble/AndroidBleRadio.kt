@@ -52,8 +52,10 @@ class AndroidBleRadio @Inject constructor(
     @ApplicationContext private val context: Context,
 ) : BleRadio {
 
+    // Lock order: this lock is never held while calling the listener (the transport takes its own lock and calls back
+    // into this class), so every call to [listener] is made after the lock is released.
     private val lock = Any()
-    private var listener: BleRadioListener? = null
+    @Volatile private var listener: BleRadioListener? = null
     private var role = Role.SEND
     private var adapter: BluetoothAdapter? = null
     private var advertiser: BluetoothLeAdvertiser? = null
@@ -66,7 +68,7 @@ class AndroidBleRadio @Inject constructor(
     private val devices = HashMap<String, BluetoothDevice>()
     private val clients = HashMap<String, ClientConnection>()
     private val serverClients = HashMap<String, BluetoothDevice>()
-    private val offerCache = HashMap<String, ByteArray?>()
+    private val offerCache = java.util.concurrent.ConcurrentHashMap<String, ByteArray>()
 
     // ── Start and stop ────────────────────────────────────────────────────────────────
 
@@ -143,17 +145,20 @@ class AndroidBleRadio @Inject constructor(
             override fun onReceive(c: Context, intent: Intent) {
                 if (intent.action != BluetoothAdapter.ACTION_STATE_CHANGED) return
                 when (intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR)) {
-                    BluetoothAdapter.STATE_OFF -> synchronized(lock) {
-                        val l = listener
-                        stopRadiosOnlyLocked()
-                        l?.onStatus(BleStatus.BLUETOOTH_OFF)
+                    BluetoothAdapter.STATE_OFF -> {
+                        synchronized(lock) { stopRadiosOnlyLocked() }
+                        listener?.onStatus(BleStatus.BLUETOOTH_OFF)
                     }
-                    BluetoothAdapter.STATE_ON -> synchronized(lock) {
-                        val manager = context.getSystemService(BluetoothManager::class.java)
-                        val a = manager?.adapter
-                        if (listener != null && manager != null && a != null && !running) {
-                            if (startRadiosLocked(manager, a) == BleStatus.ACTIVE) listener?.onStatus(BleStatus.ACTIVE)
+                    BluetoothAdapter.STATE_ON -> {
+                        var up = false
+                        synchronized(lock) {
+                            val manager = context.getSystemService(BluetoothManager::class.java)
+                            val a = manager?.adapter
+                            if (listener != null && manager != null && a != null && !running) {
+                                up = startRadiosLocked(manager, a) == BleStatus.ACTIVE
+                            }
                         }
+                        if (up) listener?.onStatus(BleStatus.ACTIVE)
                     }
                 }
             }
@@ -264,14 +269,16 @@ class AndroidBleRadio @Inject constructor(
 
     private val serverCallback = object : BluetoothGattServerCallback() {
         override fun onServiceAdded(status: Int, service: BluetoothGattService) {
+            var failure: BleStatus? = null
             synchronized(lock) {
                 if (!running || role != Role.SEND) return
                 if (status == BluetoothGatt.GATT_SUCCESS) {
-                    try { startAdvertisingLocked() } catch (e: SecurityException) { listener?.onStatus(BleStatus.NO_PERMISSION) }
+                    try { startAdvertisingLocked() } catch (e: SecurityException) { failure = BleStatus.NO_PERMISSION }
                 } else {
-                    listener?.onStatus(BleStatus.UNSUPPORTED)
+                    failure = BleStatus.UNSUPPORTED
                 }
             }
+            failure?.let { listener?.onStatus(it) }
         }
 
         override fun onConnectionStateChange(device: BluetoothDevice, status: Int, newState: Int) {
@@ -279,13 +286,9 @@ class AndroidBleRadio @Inject constructor(
             if (newState == BluetoothProfile.STATE_CONNECTED) {
                 synchronized(lock) { serverClients[address] = device }
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
-                val l: BleRadioListener?
-                synchronized(lock) {
-                    serverClients.remove(address)
-                    offerCache.remove(address)
-                    l = listener
-                }
-                l?.serverClientGone(address)
+                synchronized(lock) { serverClients.remove(address) }
+                offerCache.remove(address)
+                listener?.serverClientGone(address)
             }
         }
 
@@ -294,9 +297,15 @@ class AndroidBleRadio @Inject constructor(
             val l = listener
             val full: ByteArray? = when (characteristic.uuid) {
                 U_INFO -> l?.serverInfo()
-                U_OFFER -> synchronized(lock) {
+                U_OFFER -> {
                     // A long read comes as several requests with growing offsets: sign once, on the first.
-                    if (offset == 0) { val f = l?.serverOffer(address); offerCache[address] = f; f } else offerCache[address]
+                    if (offset == 0) {
+                        val f = l?.serverOffer(address)
+                        if (f != null) offerCache[address] = f else offerCache.remove(address)
+                        f
+                    } else {
+                        offerCache[address]
+                    }
                 }
                 else -> null
             }
