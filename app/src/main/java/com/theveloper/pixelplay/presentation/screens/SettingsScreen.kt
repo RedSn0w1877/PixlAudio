@@ -64,7 +64,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -507,16 +506,13 @@ fun ExpressiveCategoryItem(
     category: SettingsCategory,
     onClick: () -> Unit,
     shape: androidx.compose.ui.graphics.Shape = RoundedCornerShape(24.dp),
-    customColors: Pair<Color, Color>? = null,
-    /** Greys the row out and stops it opening, showing this note under the subtitle ("Broken, fix soon"). */
-    lockedNote: String? = null
+    customColors: Pair<Color, Color>? = null
 ) {
     AdaptivePressSurface(
         onClick = onClick,
-        enabled = lockedNote == null,
         shape = shape,
         color = MaterialTheme.colorScheme.surfaceContainer,
-        modifier = Modifier.fillMaxWidth().height(88.dp).alpha(if (lockedNote == null) 1f else 0.55f)
+        modifier = Modifier.fillMaxWidth().height(88.dp)
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -563,18 +559,8 @@ fun ExpressiveCategoryItem(
                     overflow = TextOverflow.Ellipsis,
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
-                    maxLines = if (lockedNote == null) 2 else 1
+                    maxLines = 2
                 )
-                if (lockedNote != null) {
-                    Text(
-                        text = lockedNote,
-                        overflow = TextOverflow.Ellipsis,
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.error,
-                        maxLines = 1
-                    )
-                }
             }
             
             Spacer(modifier = Modifier.width(8.dp))
