@@ -188,3 +188,81 @@ All on Windows, `ANDROID_HOME` set, one Gradle at a time (the machine was busy: 
 5. Open First Listen on a Monday build with Wi-Fi: a "This week" note of two or three sentences appears under the title; airplane mode: the template text. Open it again: the same text, no new call.
 6. Settings > AI features: "Let Taizo help the engine" is OFF. Turn it on, leave the phone charging idle until the refresh worker has run; Your sound may show assistant-written island names; turn it off: the atlas names come back and the genres the job added are taken out at the next run.
 7. Airplane mode: "start a station from Radiohead" (an artist in your library) starts a station.
+
+# Review fixes (Android): what an independent reviewer found, and what was done
+
+A reviewer read the whole stage 4 diff and reported 16 findings. Each was checked against the code. All were real in some part; the fixes are below, with what was deliberately not done.
+
+## What changed
+
+1. **Grounding, the second pass (pure core).** `Grounding.check(..., scanUnmarked = true)` now also looks at runs of capitalised words outside every mark and quote (`Grounding.unmarkedNames`): "You might also try Radiohead or OK Computer" is caught. A sentence opener that is one capitalised word is skipped, the first word of a longer run may be grammar ("Try Radiohead"), the app's own words, days and months are never names (`NOT_NAMES`), and a part of a returned name counts ("Good Luck" of "Good Luck, Babe!"). Quotes now include curly and straight single quotes (at a word start) and guillemets. A registered free text matches **whole words** only (`"Sia"` is not inside `"asia"`), and so does the listener's own text. The default of `scanUnmarked` is false (the weekly note's check and every older golden line are unchanged); Ask Taizo turns it on. **Not found:** a name written in lower case, a sentence opener that is a name ("Radiohead are good."), numbers written as words ("twelve plays"), numbers with no unit word.
+2. **Where the check runs.** The reply shown while it streams is checked on every publish (an unclosed `[[` and the word being typed are held back), so Stop keeps checked text. A reply whose sentences all drop is replaced by a fixed line ("I cannot say that from what PixlAudio has recorded."), never by the raw text. The phone's model and the plain cloud route (`TaizoTurn.Conversation`) go through the same check, with the library facts the phone's model was shown registered as what it may say; the media intro line is dropped (the plain "Found N songs" stays) when it names anything unverified.
+3. **Refs and ids.** `explain_track`, `steer_session` targets and `play_songs` engine refs must be refs a tool returned in this chat (refs inside an older chat's tool results count when it is opened again). Genre and mood ids in `recommend` / `build_mix` must be ids `lookup_genre` returned in this chat (reported as `ids_ignored`). Steering a genre for good stores only a genre of the atlas.
+4. **`resolve_tracks`.** With an artist given and no length known, the matcher's bar is 0.62, not 0.55 (a title at least 92 percent the same; "Love" is not "Lose").
+5. **Seeds.** A seed whose radio could not be had is reported (`seeds_not_used` in the tool result, a line on the card). The Slower / Calmer chip is offered only when some track of the pool has a tempo / an energy. A chip takes the old record's place (the engine keeps 16 mixes). Play and Save use exactly the songs the card shows.
+6. **Factor words.** A negative affinity is said as a skip ("you often skip this artist"), never as "you play this artist" held back; a skip with a weight of the other sign is not reported. `AssistantRules.NEGATIVE_NAMES`.
+7. **"Less X".** Offered only when exactly one named genre or artist is a whole-word mention of the question and none has love / like / enjoy / adore / favourite / into / want in the three words before it. The artist of an explained track is its primary credited artist, not a comma split.
+8. **Save.** All or nothing: after the import every engine track must have a library row, or no playlist is made and the card shows "That did not work. Try again." (`create_playlist` and `add_to_playlist` skip the unsaved tracks and say so in `not_saved`).
+9. **Confirmations.** They name the artist or the genre, never an id. A station started after text from a web page or lyrics asks too.
+10. **Set notes.** "Your side" is a song with a recorded play; "something new" is an engine track with none (`SetNoteHistory`, read off the main thread, no note until it is loaded). A library song nobody played is neither. Notes are keyed by queue position.
+11. **Weekly note.** One call per calendar week (not per rebuild of the list). The cloud text is kept while the list's own facts are unchanged and the new-music share is within 3 points of what it said.
+12. **Tagging job.** A failed call is not repeated until next week; "known artists" are every artist with a recorded play, not three per island; `explain_track` says when the genres were suggested by the assistant (`genres_note`); the Settings copy no longer says the whole job runs once a week.
+13. **`similar_artists`** gives a rank, not a score (the best neighbour of a thin graph was always 100).
+14. **The offline sentence** tries your own artists, then genres, playlists and albums, and only then searches for an artist; the reply names what was matched.
+
+## Not done (and why)
+
+- **"All ten tools strict"** is not possible: a request may hold 20 strict tools (deviation 222). Unchanged.
+- **The Why sheet's weights use the current p0**, not the p0 the pick was served with: p0 is not stored with the event, and storing it is a brain.db change. The factor words are still true of the vector, and approximately of the weights.
+- **The weekly note's own check does not scan for unmarked names** (the model is told to mark them; a capitalised "First Listen" would trip a scan and send every note to the template).
+- **Model replies are not rewritten for the forbidden words**; only app-written text is checked by `BrainCopyTest`.
+- The distinct "this mix expired" message: the failed line is now generic ("That did not work. Try again.").
+
+## Golden files: iOS must re-sync
+
+`assistant.jsonl` (topFactors lines now read negative affinities; four `grounding2` lines are new) and `assistantcards.jsonl` (three new `lessTarget` lines, and the rule changed), plus `MANIFEST.sha256` and `README.md`. Port: `Grounding.unmarkedNames` and the `scanUnmarked` argument, the single-quote and guillemet spans, whole-word `inText` (padded with a space on both sides), `AssistantRules.NEGATIVE_NAMES`, `AssistantCards.lessTarget` (exactly one remaining name; the liking words; a name inside a longer match is the same mention). `Char.isUpperCase` / `isLetterOrDigit` decide a capital and a word character: the Swift port must use the same Unicode properties on UTF-16 units.
+
+
+## The findings, one by one
+
+| # | Finding | Verdict |
+|---|---|---|
+| 1 | One-sentence reply with an invented number shown raw | Real. Fixed (`groundedReply`: a blank result becomes a fixed "cannot say that" line, never the raw text). |
+| 2 | Validator sees only marked or double-quoted spans | Real. Fixed in part: unmarked capitalised runs, single quotes and guillemets are checked, `inText` is whole-word. Still open: lower-case names, a sentence opener that is a name, numbers written as words (see "Not done"). |
+| 3 | A stopped turn keeps unchecked streamed text | Real. Fixed (`streamingText` checks every publish; an unclosed mark and the word being typed are held back). |
+| 4 | `resolve_tracks` accepts a near title from the same artist | Real. Fixed (bar 0.62 when an artist is given and no length is known). |
+| 5 | A seed with no radio is dropped silently | Real. Fixed (`seeds_not_used`, a card line). |
+| 6 | Negative affinities read as the opposite | Real. Fixed (skip wording, `NEGATIVE_NAMES`). The p0 used for the weights is still today's, not the served one (needs a brain.db column; deferred). |
+| 7 | "Less X" can target a genre the listener likes | Real. Fixed (`lessTarget`: exactly one named target, liking words block it, primary credited artist). |
+| 8 | Save reports success when the import failed | Real. Fixed (all or nothing, `not_saved`). |
+| 9 | Confirmation shows ids; station after web text asks nothing | Real. Fixed. |
+| 10 | Genre ids and several refs unchecked | Real. Fixed (`ids_ignored`, refs must come from this chat). |
+| 11 | Set notes can be untrue, keyed by song id | Real. Fixed (`SetNoteHistory`, keyed by position). |
+| 12 | Weekly note keyed to build time; cloud text dropped | Real. Fixed (calendar week; text kept while the facts hold). |
+| 13 | Tagging job not weekly, failures retried, guessed genres look known | Real. Fixed (failure gated for a week, real known artists, `genres_note`). |
+| 14 | `similar_artists` score is always 100 for the best | Real. Fixed (rank, no score). |
+| 15 | Mix records evicted at 8; Slower chip offered with no tempo | Real. Fixed (chip replaces the record, 16 kept, chips from data). The distinct "mix expired" line is not done. |
+| 16 | The sentence-to-station path searches the network first | Real. Fixed (own artists, genres, playlists, albums, then the network). |
+
+"All ten tools strict" is not met and cannot be: a request holds at most 20 strict tools (deviation 222); the other five are checked locally by `ToolInputValidator`.
+
+## How to test on a phone, whole stage 3 and 4 (for Hoa)
+
+Stage 3 (the learner), see the two lists in `2026-11-20-music-brain-stage3.md` ("How to test on a phone (stage 3 done means)" and "(this pass)"). In short:
+1. Update over the last build; Your sound says "Still getting to know you" under 300 graded plays and nothing says "learning" before the model is in use.
+2. After first use the rebuild runs once in the background; app start does no brain work; `dumpsys jobscheduler | grep -c brain_refresh` shows one job.
+3. The learned weights turn on only after two weekly rebuilds in which they predicted at least 1 percent better, with the test 6 interval above zero from 2,000 plays; until then the screen says "standard recipe".
+4. One session in ten is a control session, and none while the gate is off.
+5. Controls > Reset returns to the standard recipe within one rebuild; plays, blocked artists and taste changes stay.
+6. Export and restore a backup.
+
+Stage 4 (Taizo): see "How to test on a phone (for Hoa)" at the end of milestone 2 above, and these checks for the review fixes:
+7. Ask "something like Espresso but slower" with the YouTube budget spent or offline: the card says which seed was not used, never a plain "Like Espresso".
+8. Ask "why do I keep getting pop? I love rock": no "Less rock" chip.
+9. Tap Stop in the middle of an answer: what stays on screen has no invented names.
+10. Save a mix offline: "That did not work. Try again." and no playlist.
+11. Open a queue of tracks you never played: no "your X side" note.
+
+## What nobody has verified on a device
+
+Everything on screen (card, chips, Less X, factors, set notes, weekly note, Settings switch); a chip's rebuild over the real tables; Play from a card reaching the event log with surface assistant and arm ASK; how often the model marks names with `[[ ]]` and how often the grounding check or the weekly check turns a reply down; the batch jobs end to end, their cost, and whether source-10 tags move a track; the set-note line under the player title shifting the hero layout; an offline artist station's start time; the replay time on a real log; the gate on a real listener. There is still no real-data number anywhere. The iOS side was not read or run here.
