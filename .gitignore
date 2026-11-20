@@ -69,3 +69,4 @@ app/src/main/assets/tais/*.onnx
 
 # The music brain module (pure JVM)
 brain/build/
+songtap/build/
