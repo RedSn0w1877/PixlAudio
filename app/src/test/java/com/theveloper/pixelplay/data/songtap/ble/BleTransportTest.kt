@@ -461,7 +461,12 @@ class BleTransportTest {
         assertThat(rig.of<TransportEvent.PeerLost>()).isEmpty()
 
         rig.transport.serverControl("c", SongTapWire.encodeHello(ByteArray(16))!!)
+        rig.transport.serverControl("bystander", SongTapWire.encodeHello(ByteArray(16))!!)
         rig.transport.publishOffer(0, payloadBytes)
+        assertThat(rig.transport.serverOffer("c")).isNotNull()
+        // A connection that never read the offer is not the receiver: its leaving is nothing.
+        rig.transport.serverClientGone("bystander")
+        assertThat(rig.of<TransportEvent.PeerLost>()).isEmpty()
         rig.transport.serverClientGone("c")
         assertThat(rig.of<TransportEvent.PeerLost>()).hasSize(1)
     }
