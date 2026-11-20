@@ -376,5 +376,15 @@
     <string name="taizo_activity_like">Liking the song…</string>
     <string name="taizo_activity_taste">Reading your taste…</string>
     <string name="taizo_activity_taste_change">Updating your taste changes…</string>
+    <string name="taizo_activity_resolve">Finding those songs…</string>
+    <string name="taizo_activity_recommend">Picking songs for you…</string>
+    <string name="taizo_activity_mix">Building your mix…</string>
+    <string name="taizo_activity_station">Starting your station…</string>
+    <string name="taizo_activity_steer">Changing your queue…</string>
+    <string name="taizo_activity_explain">Looking at why…</string>
+    <string name="taizo_activity_genre">Checking the genre atlas…</string>
+    <string name="taizo_activity_similar">Looking for similar artists…</string>
+    <string name="taizo_activity_releases">Checking new releases…</string>
+    <string name="taizo_unverified_name">(a name I could not check)</string>
     <string name="taizo_activity_thinking">Thinking…</string>
 </resources>

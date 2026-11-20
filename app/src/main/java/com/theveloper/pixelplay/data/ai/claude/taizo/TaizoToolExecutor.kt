@@ -1,5 +1,11 @@
 package com.theveloper.pixelplay.data.ai.claude.taizo
 
+import com.theveloper.pixelplay.brain.AssistantRules
+import com.theveloper.pixelplay.data.ai.claude.taizo.music.BrainAssistantEngine
+import com.theveloper.pixelplay.data.ai.claude.taizo.music.TaizoGrounding
+import com.theveloper.pixelplay.data.ai.claude.taizo.music.TaizoMusicTools
+import com.theveloper.pixelplay.data.brain.EngineTrack
+import com.theveloper.pixelplay.data.brain.EngineTrackSaver
 import com.theveloper.pixelplay.data.model.Song
 import com.theveloper.pixelplay.data.network.spotify.SpotifyTrack
 import com.theveloper.pixelplay.data.preferences.PlaylistPreferencesRepository
@@ -51,7 +57,15 @@ class TaizoToolExecutor @Inject constructor(
     private val library: TaizoLibraryAccess,
     private val profileProvider: TasteProfileProvider,
     private val tasteAdjustments: TasteAdjustmentRepository,
+    private val musicEngine: BrainAssistantEngine,
+    private val engineTrackSaver: EngineTrackSaver,
 ) : TaizoToolRunner {
+
+    /** What this chat's tools returned: the refs a later call may use, and the names a reply may say (the grounding rule, 9.4). */
+    val grounding = TaizoGrounding()
+
+    /** The ten music tools (docs/brain-spec.md, 9.3). */
+    private val music = TaizoMusicTools(musicEngine, grounding)
 
     @Volatile
     var player: TaizoPlayer? = null
@@ -83,7 +97,14 @@ class TaizoToolExecutor @Inject constructor(
         turnAdjustments = 0
         untrustedContentSeen = false
         turnSideEffects = 0
+        music.beginTurn()
     }
+
+    /** A new chat starts with a clean slate: no refs, no returned names. */
+    fun newConversation() = grounding.reset()
+
+    /** Web text reached the model: its numbers and short strings are things the model may have read, not things a tool returned. */
+    override fun noteServerResult(text: String) = grounding.noteContext(text)
 
     override fun noteUntrustedContent() {
         untrustedContentSeen = true
@@ -111,6 +132,14 @@ class TaizoToolExecutor @Inject constructor(
             } else {
                 null
             }
+            in TaizoTools.musicToolNames -> {
+                val p = player
+                when {
+                    name == TaizoTools.START_STATION && p != null && p.currentSong() != null && p.queue().size > 1 ->
+                        "Replace your queue (${p.queue().size} songs) with a station?"
+                    else -> music.confirmationFor(name, input, untrustedContentSeen)
+                }
+            }
             TaizoTools.PLAY_SONGS -> {
                 val p = player ?: return null
                 val queueSize = p.queue().size
@@ -135,6 +164,8 @@ class TaizoToolExecutor @Inject constructor(
         if (name == TaizoTools.GET_LYRICS) untrustedContentSeen = true
         val result = runTool(name, input)
         if (name in SIDE_EFFECT_TOOLS) turnSideEffects++
+        // Every name and number a tool returned is something the reply may say; nothing else is (docs/brain-spec.md, 9.4).
+        grounding.noteToolResult(result)
         return result
     }
 
@@ -155,6 +186,7 @@ class TaizoToolExecutor @Inject constructor(
         TaizoTools.ADJUST_TASTE -> adjustTaste(input)
         TaizoTools.LIST_TASTE_ADJUSTMENTS -> listTasteAdjustments()
         TaizoTools.REMOVE_TASTE_ADJUSTMENT -> removeTasteAdjustment(input)
+        in TaizoTools.musicToolNames -> music.run(name, input, player)
         else -> throw IllegalArgumentException("Unknown tool: $name")
     }
 
@@ -368,6 +400,8 @@ class TaizoToolExecutor @Inject constructor(
         val resolved = resolve(input.strings("song_ids"), input.strings("queries"))
         if (resolved.songs.isEmpty()) throw IllegalStateException(notFoundMessage(resolved))
         val start = resolved.songs[(input.int("start_index") ?: 0).coerceIn(0, resolved.songs.lastIndex)]
+        // The picks carry the surface, the arm and the vector they were served with into the event log.
+        musicEngine.expectTags(QUEUE_NAME, resolved.songs)
         withContext(Dispatchers.Main) { p.playSongs(resolved.songs, start, QUEUE_NAME) }
         return buildJsonObject {
             put("ok", true)
@@ -382,6 +416,7 @@ class TaizoToolExecutor @Inject constructor(
         val resolved = resolve(input.strings("song_ids"), input.strings("queries"))
         if (resolved.songs.isEmpty()) throw IllegalStateException(notFoundMessage(resolved))
         val playNext = input.bool("play_next") ?: false
+        musicEngine.expectTags(QUEUE_NAME, resolved.songs)
         withContext(Dispatchers.Main) {
             if (p.currentSong() == null) p.playSongs(resolved.songs, resolved.songs.first(), QUEUE_NAME)
             else p.addToQueue(resolved.songs, playNext)
@@ -424,6 +459,7 @@ class TaizoToolExecutor @Inject constructor(
         if (resolved.songs.isEmpty() && (input.strings("song_ids").isNotEmpty() || input.strings("queries").isNotEmpty())) {
             throw IllegalStateException(notFoundMessage(resolved))
         }
+        saveEngineTracks(resolved.songs)
         val playlist = withContext(Dispatchers.IO) {
             playlists.createPlaylist(name = name, songIds = resolved.songs.map { it.id }, isAiGenerated = true)
         }
@@ -445,6 +481,7 @@ class TaizoToolExecutor @Inject constructor(
             ?: throw IllegalArgumentException("No playlist called \"$wanted\". Playlists: ${all.take(30).joinToString(", ") { it.name }}")
         val resolved = resolve(input.strings("song_ids"), input.strings("queries"))
         if (resolved.songs.isEmpty()) throw IllegalStateException(notFoundMessage(resolved))
+        saveEngineTracks(resolved.songs)
         withContext(Dispatchers.IO) { playlists.addSongsToPlaylist(target.id, resolved.songs.map { it.id }) }
         return buildJsonObject {
             put("ok", true)
@@ -574,10 +611,21 @@ class TaizoToolExecutor @Inject constructor(
         val wantedIds = cleanIds.take(TaizoTools.MAX_IDS_PER_CALL)
         val wantedQueries = cleanQueries.take(TaizoTools.MAX_QUERIES_PER_CALL)
         // One lookup for all the library ids (a 200-song playlist is one query, not 200).
-        val libraryIds = wantedIds.filter { !it.startsWith(SPOTIFY_PREFIX) }
+        val libraryIds = wantedIds.filter { !it.startsWith(SPOTIFY_PREFIX) && !isEngineRef(it) }
         val byId = if (libraryIds.isEmpty()) emptyMap() else musicRepository.getSongsByIds(libraryIds).first().associateBy { it.id }
         for (id in wantedIds) {
-            val song = if (id.startsWith(SPOTIFY_PREFIX)) spotifySong(id.removePrefix(SPOTIFY_PREFIX)) else byId[id] ?: librarySong(id)
+            if (id.startsWith(MIX_PREFIX)) {
+                // A mix built in this chat (build_mix): its songs, in order.
+                val mix = musicEngine.songsForMix(id.removePrefix(MIX_PREFIX))
+                if (mix.isNullOrEmpty()) missing += id else songs += mix
+                continue
+            }
+            val song = when {
+                // An engine ref (resolve_tracks, recommend, build_mix, ...): played through the `playable` path, never imported into the library.
+                isEngineRef(id) -> musicEngine.songForRef(id)
+                id.startsWith(SPOTIFY_PREFIX) -> spotifySong(id.removePrefix(SPOTIFY_PREFIX))
+                else -> byId[id] ?: librarySong(id)
+            }
             if (song != null) songs += song else missing += id
         }
         for (query in wantedQueries) {
@@ -591,6 +639,14 @@ class TaizoToolExecutor @Inject constructor(
             ignored = (cleanIds.size - wantedIds.size) + (cleanQueries.size - wantedQueries.size),
         )
     }
+
+    /** A playlist holds library songs: a track from outside the library is saved first, as "Add to playlist" does in the app. */
+    private suspend fun saveEngineTracks(songs: List<Song>) {
+        val outside = songs.filter { EngineTrack.isEngineOnly(it) }.map { it.id }
+        if (outside.isNotEmpty()) withContext(Dispatchers.IO) { engineTrackSaver.saveAll(outside) }
+    }
+
+    private fun isEngineRef(id: String): Boolean = AssistantRules.parseRef(id) != null
 
     private suspend fun librarySong(id: String): Song? =
         musicRepository.getSongsByIds(listOf(id)).first().firstOrNull()
@@ -673,6 +729,7 @@ class TaizoToolExecutor @Inject constructor(
 
     companion object {
         const val SPOTIFY_PREFIX = "spotify:track:"
+        const val MIX_PREFIX = "mix:"
         const val QUEUE_NAME = "Taizo"
         const val LYRICS_TOOL_MAX_CHARS = 6_000
 
@@ -686,6 +743,8 @@ class TaizoToolExecutor @Inject constructor(
             TaizoTools.LIKE_SONG,
             TaizoTools.ADJUST_TASTE,
             TaizoTools.REMOVE_TASTE_ADJUSTMENT,
+            TaizoTools.START_STATION,
+            TaizoTools.STEER_SESSION,
         )
         const val MAX_ADJUSTMENTS_PER_TURN = 40
 

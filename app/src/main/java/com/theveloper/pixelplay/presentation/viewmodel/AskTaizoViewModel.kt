@@ -249,6 +249,7 @@ class AskTaizoViewModel @Inject constructor(
             persist()
             chatId = UUID.randomUUID().toString()
             history = emptyList()
+            toolExecutor.newConversation()
             profile = null
             lastNowSignature = null
             memory.clear()
@@ -265,6 +266,7 @@ class AskTaizoViewModel @Inject constructor(
             val chat = chatStore.load().firstOrNull { it.id == id } ?: return@launch
             chatId = chat.id
             history = TaizoChatStore.historyFrom(chat.messages)
+            toolExecutor.newConversation()
             profile = null
             lastNowSignature = null
             memory.clear()
@@ -315,7 +317,7 @@ class AskTaizoViewModel @Inject constructor(
             val now = System.currentTimeMillis()
             if (!force && now - lastPublish < STREAM_PUBLISH_MS) return
             lastPublish = now
-            val snapshot = synchronized(streamed) { streamed.toString() }
+            val snapshot = synchronized(streamed) { streamed.toString() }.replace("[[", "").replace("]]", "")
             updateAssistant(assistant.id) { it.copy(text = snapshot) }
         }
 
@@ -353,7 +355,13 @@ class AskTaizoViewModel @Inject constructor(
         }
 
         try {
-            val system = ClaudeService.systemBlocks(TaizoContext.INSTRUCTIONS, profileBlock())
+            val profileText = profileBlock()
+            val system = ClaudeService.systemBlocks(TaizoContext.INSTRUCTIONS, profileText)
+            // What the model is shown (the profile, what is playing) and what earlier turns of this chat returned are things it may say back.
+            val grounding = toolExecutor.grounding
+            if (!grounding.isSeeded) grounding.noteHistory(history)
+            grounding.noteContext(profileText)
+            grounding.noteUser(text)
             val result = agent.run(
                 history = TaizoAgent.trimHistory(history),
                 userContent = userContent(text),
@@ -367,14 +375,14 @@ class AskTaizoViewModel @Inject constructor(
             if (result.outcome != TaizoAgent.Outcome.REFUSED) lastNowSignature = pendingNowSignature
             // A taste change makes the cached profile (and its digest) stale: rebuild it for the next turn.
             if (toolExecutor.consumeTasteChanged()) profile = null
-            val finalText = synchronized(streamed) { streamed.toString().trim() }
+            val finalText = groundedReply(synchronized(streamed) { streamed.toString().trim() })
             when (result.outcome) {
                 TaizoAgent.Outcome.REFUSED -> updateAssistant(assistant.id) {
                     it.copy(text = context.getString(R.string.taizo_refusal), streaming = false, activityRes = null, isError = true)
                 }
                 else -> updateAssistant(assistant.id) {
                     it.copy(
-                        text = finalText.ifBlank { result.reply.trim() },
+                        text = finalText.ifBlank { groundedReply(result.reply.trim()) },
                         streaming = false,
                         activityRes = null,
                         sources = result.sources,
@@ -395,7 +403,7 @@ class AskTaizoViewModel @Inject constructor(
             if (toolExecutor.ranSideEffectsThisTurn()) {
                 // Tools already acted (played, queued, made a playlist...): asking the phone again would do it
                 // twice. Keep what Claude wrote and say why it stopped.
-                val partial = synchronized(streamed) { streamed.toString().trim() }
+                val partial = groundedReply(synchronized(streamed) { streamed.toString().trim() })
                 updateAssistant(assistant.id) {
                     it.copy(
                         text = partial.ifBlank { context.getString(R.string.taizo_error_generic) },
@@ -448,6 +456,21 @@ class AskTaizoViewModel @Inject constructor(
         }
     }
 
+    /**
+     * The grounding rule (docs/brain-spec.md, 1 principle 9, 9.4): the reply may name a track, an album or an artist only when a tool returned it
+     * in this chat (or the listener said it), and may state a number about the listener only when a tool returned it. A name that fails is replaced,
+     * a sentence with a number that fails is left out, and the marks the model put around names are taken off. The saved history keeps what the
+     * model wrote; only what the listener reads is cleaned.
+     */
+    private fun groundedReply(raw: String): String {
+        if (raw.isEmpty()) return raw
+        val verdict = toolExecutor.grounding.check(raw, context.getString(R.string.taizo_unverified_name))
+        if (!verdict.ok) {
+            Timber.tag(TAG).w("Reply held ${verdict.ungroundedNames.size} unverified names and ${verdict.ungroundedNumbers.size} unverified numbers")
+        }
+        return verdict.cleaned.ifBlank { raw.replace("[[", "").replace("]]", "") }
+    }
+
     private suspend fun profileBlock(): String {
         val p = profile ?: contextProvider.profile().also { profile = it }
         return TaizoContext.profileBlock(p)
@@ -464,6 +487,7 @@ class AskTaizoViewModel @Inject constructor(
         pendingNowSignature = signature
         val time = LocalDateTime.now().format(DateTimeFormatter.ofPattern("EEEE d MMMM yyyy, HH:mm", Locale.ENGLISH))
         val nowBlock = TaizoContext.nowPlayingBlock(now, upNext, includeDetails, time)
+        toolExecutor.grounding.noteContext(nowBlock)
         return buildJsonArray {
             add(buildJsonObject {
                 put("type", "text")
@@ -500,6 +524,15 @@ class AskTaizoViewModel @Inject constructor(
         TaizoTools.LIBRARY_OVERVIEW -> R.string.taizo_activity_library
         TaizoTools.TASTE_PROFILE -> R.string.taizo_activity_taste
         TaizoTools.ADJUST_TASTE, TaizoTools.LIST_TASTE_ADJUSTMENTS, TaizoTools.REMOVE_TASTE_ADJUSTMENT -> R.string.taizo_activity_taste_change
+        TaizoTools.RESOLVE_TRACKS -> R.string.taizo_activity_resolve
+        TaizoTools.RECOMMEND -> R.string.taizo_activity_recommend
+        TaizoTools.BUILD_MIX -> R.string.taizo_activity_mix
+        TaizoTools.START_STATION -> R.string.taizo_activity_station
+        TaizoTools.STEER_SESSION -> R.string.taizo_activity_steer
+        TaizoTools.EXPLAIN_TRACK, TaizoTools.EXPLAIN_TASTE -> R.string.taizo_activity_explain
+        TaizoTools.LOOKUP_GENRE -> R.string.taizo_activity_genre
+        TaizoTools.SIMILAR_ARTISTS -> R.string.taizo_activity_similar
+        TaizoTools.NEW_RELEASES -> R.string.taizo_activity_releases
         else -> R.string.taizo_activity_thinking
     }
 

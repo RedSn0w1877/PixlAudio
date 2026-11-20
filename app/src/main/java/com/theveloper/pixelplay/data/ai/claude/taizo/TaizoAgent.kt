@@ -31,6 +31,9 @@ interface TaizoToolRunner {
      */
     fun noteUntrustedContent() {}
 
+    /** The text of a web search or fetch result, so numbers and names the model read there are not mistaken for ones it invented. */
+    fun noteServerResult(text: String) {}
+
     /** The question to ask before running this call (a big playlist, replacing the queue), or null to run it now. */
     suspend fun confirmationFor(name: String, input: JsonObject): String?
 
@@ -127,7 +130,10 @@ class TaizoAgent(
                             tools.noteUntrustedContent()
                             listener.onActivity(block.str("name").orEmpty(), isServerTool = true)
                         }
-                        "web_search_tool_result", "web_fetch_tool_result" -> tools.noteUntrustedContent()
+                        "web_search_tool_result", "web_fetch_tool_result" -> {
+                            tools.noteUntrustedContent()
+                            tools.noteServerResult(block.toString())
+                        }
                         "tool_use" -> listener.onActivity(block.str("name").orEmpty(), isServerTool = false)
                     }
                 },

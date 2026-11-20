@@ -1,5 +1,6 @@
 package com.theveloper.pixelplay.data.ai.claude.taizo
 
+import com.theveloper.pixelplay.brain.AssistantRules
 import com.theveloper.pixelplay.data.ai.claude.ClaudeConfig
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -36,6 +37,33 @@ object TaizoTools {
     const val LIST_TASTE_ADJUSTMENTS = "list_taste_adjustments"
     const val REMOVE_TASTE_ADJUSTMENT = "remove_taste_adjustment"
 
+    // Stage 4 (docs/brain-spec.md, 9.3): the music tools. Appended after the first 16 in this order, never reordered, so the cached prefix of the
+    // older tools stays valid. Every parameter is required and "no value" is an explicit sentinel, so they are strict and spend none of the 24
+    // optional parameters a strict grammar allows.
+    const val RESOLVE_TRACKS = "resolve_tracks"
+    const val RECOMMEND = "recommend"
+    const val BUILD_MIX = "build_mix"
+    const val START_STATION = "start_station"
+    const val STEER_SESSION = "steer_session"
+    const val EXPLAIN_TRACK = "explain_track"
+    const val EXPLAIN_TASTE = "explain_taste"
+    const val LOOKUP_GENRE = "lookup_genre"
+    const val SIMILAR_ARTISTS = "similar_artists"
+    const val NEW_RELEASES = "new_releases"
+
+    /** The ten music tools, in the order they are sent. */
+    val musicToolNames: List<String> = listOf(
+        RESOLVE_TRACKS, RECOMMEND, BUILD_MIX, START_STATION, STEER_SESSION,
+        EXPLAIN_TRACK, EXPLAIN_TASTE, LOOKUP_GENRE, SIMILAR_ARTISTS, NEW_RELEASES,
+    )
+
+    /** The 16 tools of stages before 4: a cached prompt prefix mirrored on iOS. Their order is part of the contract. */
+    val legacyToolNames: List<String> = listOf(
+        SEARCH_LIBRARY, SEARCH_SPOTIFY, PLAY_SONGS, ADD_TO_QUEUE, PLAYBACK_CONTROL,
+        CREATE_PLAYLIST, ADD_TO_PLAYLIST, LISTENING_INSIGHTS, GET_LYRICS, START_SING, LIKE_SONG,
+        LIBRARY_OVERVIEW, TASTE_PROFILE, ADJUST_TASTE, LIST_TASTE_ADJUSTMENTS, REMOVE_TASTE_ADJUSTMENT,
+    )
+
     /** Playlists bigger than this ask for a tap before they are created. */
     const val CONFIRM_PLAYLIST_SIZE = 50
 
@@ -47,11 +75,7 @@ object TaizoTools {
     const val MAX_ADJUSTMENTS_PER_CALL = 20
     const val CONFIRM_ADJUSTMENT_TARGETS = 5
 
-    val clientToolNames: List<String> = listOf(
-        SEARCH_LIBRARY, SEARCH_SPOTIFY, PLAY_SONGS, ADD_TO_QUEUE, PLAYBACK_CONTROL,
-        CREATE_PLAYLIST, ADD_TO_PLAYLIST, LISTENING_INSIGHTS, GET_LYRICS, START_SING, LIKE_SONG,
-        LIBRARY_OVERVIEW, TASTE_PROFILE, ADJUST_TASTE, LIST_TASTE_ADJUSTMENTS, REMOVE_TASTE_ADJUSTMENT,
-    )
+    val clientToolNames: List<String> = legacyToolNames + musicToolNames
 
     /**
      * The one tool that is not `strict`. Anthropic compiles strict schemas into a grammar and allows 24
@@ -233,6 +257,119 @@ object TaizoTools {
                 booleanProp("all", "True to remove every taste change.")
                 required("user_asked")
             },
+            tool(
+                RESOLVE_TRACKS,
+                "Look up tracks you know by name, to get refs (sp:<id> or yt:<id>) the other tools take. Call this before you " +
+                    "put any song you thought of yourself in a mix, a station or a reply: drop whatever comes back not_found. " +
+                    "Results are in the order given, up to ${AssistantRules.MAX_RESOLVE_ITEMS}. Use \"\" for an artist you don't know.",
+            ) {
+                objectArrayProp("items", "The tracks to look up, up to ${AssistantRules.MAX_RESOLVE_ITEMS}.") {
+                    stringProp("title", "The track's title.")
+                    stringProp("artist", "Its artist, or \"\" when unknown.")
+                    required("title", "artist")
+                }
+                required("items")
+            },
+            tool(
+                RECOMMEND,
+                "Picks for the user from PixlAudio's own engine (their taste, the radios, new music), filtered by what you pass. " +
+                    "Do not rank or reorder the result. Genre ids come from lookup_genre; seed refs come from resolve_tracks or earlier " +
+                    "results. Sentinels: [] for no seeds or genres, 0 for no year bound, \"any\" for no preference.",
+            ) {
+                stringArrayProp("seed_refs", "Refs of tracks the picks should be close to, up to ${AssistantRules.MAX_SEED_REFS}, or [].")
+                intArrayProp("genre_ids", "Genre ids from lookup_genre; a pick passes when it has any of them, or [].")
+                integerProp("year_from", "Only music from this year on, or 0.")
+                integerProp("year_to", "Only music up to this year, or 0.")
+                enumProp("energy", "Calmer or livelier than the seeds, or any.", AssistantRules.ENERGY)
+                enumProp("novelty", "familiar = music they already know, new = music they have not played, or any.", AssistantRules.NOVELTY)
+                integerProp("count", "How many picks, 1-${AssistantRules.MAX_RECOMMEND}.")
+                required("seed_refs", "genre_ids", "year_from", "year_to", "energy", "novelty", "count")
+            },
+            tool(
+                BUILD_MIX,
+                "Build a saved mix from a request, e.g. \"something like Espresso but slower for a late drive\". The engine fills it; " +
+                    "you do not pick tracks. The app shows it as a card with Play and Save. Genre and mood ids come from lookup_genre; " +
+                    "seed refs from resolve_tracks. Sentinels: [] for none, 0 for no year bound, \"any\" for no preference, -1 for " +
+                    "novelty_share_pct when the user did not say (0 means no new music at all).",
+            ) {
+                stringProp("title", "A short name for the mix, in the user's words, up to ${AssistantRules.MAX_TITLE} characters.")
+                stringArrayProp("seed_refs", "Refs of tracks the mix should be close to, up to ${AssistantRules.MAX_SEED_REFS}, or [].")
+                intArrayProp("genre_ids", "Genre ids from lookup_genre, or [].")
+                intArrayProp("mood_ids", "Mood ids from lookup_genre, or [].")
+                integerProp("year_from", "Only music from this year on, or 0.")
+                integerProp("year_to", "Only music up to this year, or 0.")
+                enumProp("energy", "Calmer or livelier than the seeds, or any.", AssistantRules.ENERGY)
+                enumProp("tempo", "slow, mid or fast, or any.", AssistantRules.TEMPO)
+                integerProp("novelty_share_pct", "Share of new music, 0-100, or -1 when not said.")
+                integerProp("length", "How many songs, ${AssistantRules.MIN_MIX}-${AssistantRules.MAX_MIX}.")
+                stringArrayProp("exclude_artist_refs", "Refs of artists to leave out, or [].")
+                required(
+                    "title", "seed_refs", "genre_ids", "mood_ids", "year_from", "year_to", "energy", "tempo",
+                    "novelty_share_pct", "length", "exclude_artist_refs",
+                )
+            },
+            tool(
+                START_STATION,
+                "Start an endless station from a seed and play it now. The app may ask the user to confirm replacing their queue.",
+            ) {
+                stringProp("seed_ref", "A track ref (sp:<id> or yt:<id>) for song, an artist name for artist, a genre id for genre, " +
+                    "or the name for album and playlist.")
+                enumProp("seed_kind", "What the seed is.", AssistantRules.SEED_KINDS)
+                enumProp("mode", "familiar = mostly what they know, blend, discover = mostly new.", AssistantRules.STATION_MODES)
+                required("seed_ref", "seed_kind", "mode")
+            },
+            tool(
+                STEER_SESSION,
+                "Change what plays next in the current queue, or (scope always) what PixlAudio recommends from now on. Only when the " +
+                    "user asked for it in their latest message. scope always asks the user to confirm.",
+            ) {
+                enumProp("change", "What to change.", AssistantRules.STEER_CHANGES)
+                stringProp("target", "A ref or an artist name for the artist changes, a genre id for the genre changes, otherwise \"\".")
+                enumProp("scope", "session = this queue only, always = a lasting taste change.", AssistantRules.STEER_SCOPES)
+                required("change", "target", "scope")
+            },
+            tool(
+                EXPLAIN_TRACK,
+                "Why a pick was served: the arm, the reason line, the strongest factors (names only, no weights) and facts " +
+                    "(genres, year, plays, completion rate). Report only what it returns; a field listed in unknown is unknown.",
+            ) {
+                stringProp("ref", "The track's ref (sp:<id> or yt:<id>) from an earlier result, or \"now\" for the song playing.")
+                required("ref")
+            },
+            tool(
+                EXPLAIN_TASTE,
+                "Part of the user's Your sound page: what their plays say, with real numbers, and what is not known yet. " +
+                    "Call this for \"why do I keep getting X\" and \"what is my taste\". Report only what it returns.",
+            ) {
+                enumProp("scope", "Which part.", AssistantRules.EXPLAIN_SCOPES)
+                required("scope")
+            },
+            tool(
+                LOOKUP_GENRE,
+                "Look a genre or mood up in PixlAudio's genre atlas: id, description, parents, children, related, region, era. " +
+                    "Use it to get ids for recommend and build_mix; never guess an id. A name it lacks returns the nearest names.",
+            ) {
+                stringProp("query", "A genre or mood name, or an id.")
+                required("query")
+            },
+            tool(
+                SIMILAR_ARTISTS,
+                "Artists close to one the user names, from the similarity graph PixlAudio built, with how sure it is.",
+            ) {
+                stringProp("artist", "The artist's name.")
+                integerProp("count", "How many, 1-${AssistantRules.DEFAULT_RESULTS}.")
+                booleanProp("only_unplayed", "True for only artists the user has not played.")
+                required("artist", "count", "only_unplayed")
+            },
+            tool(
+                NEW_RELEASES,
+                "New releases PixlAudio has found for the user's artists (my_artists), for artists next to them (adjacent), or for " +
+                    "their country (country). It only knows what its last refresh found.",
+            ) {
+                enumProp("scope", "Whose releases.", AssistantRules.RELEASE_SCOPES)
+                integerProp("count", "How many, 1-${AssistantRules.DEFAULT_RESULTS}.")
+                required("scope", "count")
+            },
         )
     }
 
@@ -269,6 +406,14 @@ object TaizoTools {
 
         fun booleanProp(name: String, description: String) {
             properties[name] = buildJsonObject { put("type", "boolean"); put("description", description) }
+        }
+
+        fun intArrayProp(name: String, description: String) {
+            properties[name] = buildJsonObject {
+                put("type", "array")
+                put("description", description)
+                putJsonObject("items") { put("type", "integer") }
+            }
         }
 
         fun stringArrayProp(name: String, description: String) {
