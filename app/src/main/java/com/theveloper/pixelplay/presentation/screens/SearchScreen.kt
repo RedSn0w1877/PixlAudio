@@ -1,6 +1,18 @@
 package com.theveloper.pixelplay.presentation.screens
 
 import com.theveloper.pixelplay.presentation.screens.search.components.DefaultSearchCategories
+import com.theveloper.pixelplay.presentation.screens.search.components.SearchHistoryPanel
+import com.theveloper.pixelplay.presentation.screens.search.components.SearchHistoryPrivateHint
+import com.theveloper.pixelplay.presentation.screens.search.components.SearchHistorySuggestions
+import com.theveloper.pixelplay.presentation.screens.search.components.SearchRecentStrip
+import com.theveloper.pixelplay.data.searchhistory.SearchHistoryKind
+import com.theveloper.pixelplay.data.searchhistory.SearchHistoryRules
+import androidx.compose.material3.MotionScheme
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
+import androidx.compose.ui.platform.LocalFocusManager
 import com.theveloper.pixelplay.presentation.components.AdaptiveClickableSurface
 import com.theveloper.pixelplay.presentation.components.AdaptiveClickableCard
 
@@ -175,13 +187,16 @@ import androidx.compose.ui.res.stringResource
 
 private const val MAX_ALBUM_MULTI_SELECTION = 6
 
+/** What the area under the title shows: the genre grid, the recent searches (the empty field has focus), or results. */
+private enum class SearchPane { Browse, History, Results }
+
 private data class SearchUiSlice(
     val selectedSearchFilter: SearchFilterType = SearchFilterType.ALL,
     val searchResults: ImmutableList<SearchResultItem> = persistentListOf()
 )
 
 @androidx.annotation.OptIn(UnstableApi::class)
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class, ExperimentalLayoutApi::class)
 @Composable
 fun SearchScreen(
     paddingValues: PaddingValues,
@@ -196,11 +211,12 @@ fun SearchScreen(
     // The result list only needs the query when a row is tapped, so it gets a stable reader instead
     // of the String: typing no longer changes anything the list (and its rows) are passed.
     val searchQueryProvider: () -> String = remember(playerViewModel) { { playerViewModel.searchQuery } }
-    val onSearchResultSelected: () -> Unit = remember(playerViewModel) {
-        {
+    // A result was tapped: remember the typed query together with what it opened (nothing is written in a private session).
+    val onSearchResultSelected: (SearchHistoryKind?, String?, String?, String?) -> Unit = remember(playerViewModel) {
+        { kind, targetId, targetTitle, imageUrl ->
             val query = playerViewModel.searchQuery
             if (query.isNotBlank()) {
-                playerViewModel.onSearchQuerySubmitted(query)
+                playerViewModel.onSearchResultOpened(query, kind, targetId, targetTitle, imageUrl)
             }
         }
     }
@@ -316,6 +332,107 @@ fun SearchScreen(
         showSongInfoBottomSheet = true
     }
 
+    // --- Search history (one behaviour on both apps) ---------------------------------------------------------------
+    // Loaded once when the screen appears and again after every write, never while typing; filtering is in memory.
+    LaunchedEffect(playerViewModel) { playerViewModel.loadSearchHistory() }
+    val history by playerViewModel.searchHistory.collectAsStateWithLifecycle()
+    val privateOn by playerViewModel.brainSession.privateSessionActive.collectAsStateWithLifecycle()
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
+    val historySnackbar = remember { SnackbarHostState() }
+    val removedMessage = stringResource(R.string.search_history_removed)
+    val clearedMessage = stringResource(R.string.search_history_cleared)
+    val undoLabel = stringResource(R.string.common_undo)
+    val motionScheme = remember { MotionScheme.expressive() }
+
+    // Which pane shows. Read through a derived state, so only a flip recomposes the swap, not each keystroke.
+    val pane by remember(playerViewModel) {
+        derivedStateOf {
+            when {
+                playerViewModel.searchQuery.isNotBlank() -> SearchPane.Results
+                playerViewModel.searchFieldFocused && !privateOn && history.isNotEmpty() -> SearchPane.History
+                else -> SearchPane.Browse
+            }
+        }
+    }
+    // Up to 5 remembered searches that start with what is typed, above the live results.
+    val historySuggestions by remember(playerViewModel) {
+        derivedStateOf {
+            if (privateOn) emptyList() else SearchHistoryRules.suggest(history, playerViewModel.searchQuery)
+        }
+    }
+    val recentStripItems = remember(history) { history.take(SearchHistoryRules.RECENT_STRIP_LIMIT) }
+
+    val runHistoryQuery: (String) -> Unit = { query ->
+        playerViewModel.updateSearchQuery(query)
+        playerViewModel.onSearchQuerySubmitted(query)
+        keyboardController?.hide()
+    }
+    val removeHistoryItem: (com.theveloper.pixelplay.data.model.SearchHistoryItem) -> Unit = { item ->
+        playerViewModel.deleteSearchHistoryItem(item.key)
+        scope.launch {
+            historySnackbar.currentSnackbarData?.dismiss()
+            val result = historySnackbar.showSnackbar(
+                message = removedMessage,
+                actionLabel = undoLabel,
+                duration = SnackbarDuration.Short
+            )
+            if (result == SnackbarResult.ActionPerformed) playerViewModel.undoSearchHistoryRemoval()
+        }
+    }
+    val clearHistory: () -> Unit = {
+        playerViewModel.clearSearchHistory()
+        scope.launch {
+            historySnackbar.currentSnackbarData?.dismiss()
+            val result = historySnackbar.showSnackbar(
+                message = clearedMessage,
+                actionLabel = undoLabel,
+                duration = SnackbarDuration.Short
+            )
+            if (result == SnackbarResult.ActionPerformed) playerViewModel.undoSearchHistoryRemoval()
+        }
+    }
+    val openHistoryItem: (com.theveloper.pixelplay.data.model.SearchHistoryItem) -> Unit = { item ->
+        val kind = item.openKind
+        val targetId = item.targetId
+        if (kind == null || targetId == null) {
+            runHistoryQuery(item.query)
+        } else {
+            focusManager.clearFocus()
+            keyboardController?.hide()
+            // Using it again moves it back to the top of the history.
+            playerViewModel.onSearchResultOpened(item.query, kind, targetId, item.targetTitle, item.imageUrl)
+            when (kind) {
+                SearchHistoryKind.ALBUM -> targetId.toLongOrNull()?.let {
+                    navController.navigateSafelyReplacing(
+                        route = Screen.AlbumDetail.createRoute(it),
+                        patternToPop = Screen.AlbumDetail.route
+                    )
+                } ?: runHistoryQuery(item.query)
+                SearchHistoryKind.ARTIST -> targetId.toLongOrNull()?.let {
+                    navController.navigateSafelyReplacing(
+                        route = Screen.ArtistDetail.createRoute(it),
+                        patternToPop = Screen.ArtistDetail.route
+                    )
+                } ?: runHistoryQuery(item.query)
+                SearchHistoryKind.PLAYLIST -> navController.navigateSafely(Screen.PlaylistDetail.createRoute(targetId))
+                SearchHistoryKind.SONG -> scope.launch {
+                    val song = playerViewModel.getSongs(listOf(targetId)).firstOrNull()
+                    if (song != null) {
+                        playerViewModel.showAndPlaySong(song, listOf(song), "Search: ${item.query}")
+                    } else {
+                        runHistoryQuery(item.query)
+                    }
+                }
+                SearchHistoryKind.QUERY -> runHistoryQuery(item.query)
+            }
+        }
+    }
+    val imeTargetBottom = with(LocalDensity.current) { WindowInsets.imeAnimationTarget.getBottom(this).toDp() }
+    val hasMiniPlayer by remember(playerViewModel) {
+        playerViewModel.stablePlayerState.map { it.currentSong != null }.distinctUntilChanged()
+    }.collectAsStateWithLifecycle(initialValue = false)
+
     val searchbarCornerRadius = 28.dp
 
     val dm = LocalPixelPlayDarkTheme.current
@@ -350,6 +467,7 @@ fun SearchScreen(
     DisposableEffect(Unit) {
         onDispose {
             onSearchBarActiveChange(false)
+            playerViewModel.updateSearchFieldFocused(false)
         }
     }
 
@@ -401,25 +519,54 @@ fun SearchScreen(
                 }
             }
 
-            val showGenreBrowse by remember(searchQuery) { derivedStateOf { searchQuery.isBlank() } }
             AnimatedContent(
-                targetState = showGenreBrowse,
+                targetState = pane,
                 transitionSpec = {
-                    val switchingToGenre = targetState
-                    val enter = fadeIn(animationSpec = tween(durationMillis = 320, delayMillis = 70)) +
-                        slideInVertically(animationSpec = tween(durationMillis = 320)) { fullHeight ->
-                            if (switchingToGenre) -fullHeight / 10 else fullHeight / 10
-                        }
-                    val exit = fadeOut(animationSpec = tween(durationMillis = 220)) +
-                        slideOutVertically(animationSpec = tween(durationMillis = 220)) { fullHeight ->
-                            if (switchingToGenre) fullHeight / 12 else -fullHeight / 12
-                        }
-                    (enter togetherWith exit).using(SizeTransform(clip = false))
+                    if (targetState != SearchPane.Results && initialState != SearchPane.Results) {
+                        // Genre grid <-> recent searches (the field gained or lost focus): a spring cross-fade.
+                        fadeIn(animationSpec = motionScheme.defaultEffectsSpec()) togetherWith
+                            fadeOut(animationSpec = motionScheme.fastEffectsSpec())
+                    } else {
+                        val switchingToGenre = targetState != SearchPane.Results
+                        val enter = fadeIn(animationSpec = tween(durationMillis = 320, delayMillis = 70)) +
+                            slideInVertically(animationSpec = tween(durationMillis = 320)) { fullHeight ->
+                                if (switchingToGenre) -fullHeight / 10 else fullHeight / 10
+                            }
+                        val exit = fadeOut(animationSpec = tween(durationMillis = 220)) +
+                            slideOutVertically(animationSpec = tween(durationMillis = 220)) { fullHeight ->
+                                if (switchingToGenre) fullHeight / 12 else -fullHeight / 12
+                            }
+                        (enter togetherWith exit).using(SizeTransform(clip = false))
+                    }
                 },
                 label = "search_mode_transition"
-            ) { isGenreMode ->
-                if (isGenreMode) {
+            ) { currentPane ->
+                if (currentPane == SearchPane.History) {
+                    SearchHistoryPanel(
+                        items = history,
+                        onOpen = openHistoryItem,
+                        onFill = { item -> playerViewModel.updateSearchQuery(item.query) },
+                        onRemove = removeHistoryItem,
+                        onClearAll = clearHistory,
+                        bottomPadding = if (imeTargetBottom > 8.dp) {
+                            imeTargetBottom + NavPillHeight + 24.dp
+                        } else {
+                            bottomBarHeightDp + 16.dp
+                        },
+                        modifier = Modifier.padding(top = 8.dp)
+                    )
+                } else if (currentPane == SearchPane.Browse) {
                     Column(modifier = Modifier.fillMaxSize()) {
+                        if (privateOn) {
+                            SearchHistoryPrivateHint()
+                        } else {
+                            SearchRecentStrip(
+                                items = recentStripItems,
+                                onOpen = openHistoryItem,
+                                onRemove = removeHistoryItem,
+                                modifier = Modifier.padding(top = 8.dp)
+                            )
+                        }
                         if (isGenreSelectionMode) {
                             SelectionActionRow(
                                 selectedCount = selectedGenres.size,
@@ -562,6 +709,12 @@ fun SearchScreen(
                                 SearchFilterChip(SearchFilterType.PLAYLISTS, currentFilter, playerViewModel)
                             }
                         }
+                        if (!anySelectionMode) {
+                            SearchHistorySuggestions(
+                                items = historySuggestions,
+                                onPick = { item -> runHistoryQuery(item.query) },
+                            )
+                        }
                         Box(modifier = Modifier.fillMaxSize()) {
                             Crossfade(
                                 // Mientras Spotify sigue contestando no se declara vacío:
@@ -667,6 +820,18 @@ fun SearchScreen(
                 .background(brush = bottomGradientBrush)
         )
 
+        SnackbarHost(
+            hostState = historySnackbar,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(
+                    bottom = if (imeTargetBottom > 8.dp) {
+                        imeTargetBottom + NavPillHeight + 16.dp
+                    } else {
+                        bottomBarHeightDp + 16.dp + (if (hasMiniPlayer) MiniPlayerHeight else 0.dp)
+                    }
+                )
+        )
 
     }
 
@@ -1098,91 +1263,6 @@ fun SearchResultSectionHeader(title: String) {
 }
 
 @Composable
-fun SearchHistoryList(
-    historyItems: List<SearchHistoryItem>,
-    onHistoryClick: (String) -> Unit,
-    onHistoryDelete: (String) -> Unit,
-    onClearAllHistory: () -> Unit
-) {
-    val localDensity = LocalDensity.current
-    Column {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 8.dp, horizontal = 8.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                stringResource(R.string.search_recent_searches),
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold
-            )
-            if (historyItems.isNotEmpty()) {
-                TextButton(onClick = onClearAllHistory) {
-                    Text(stringResource(R.string.search_action_clear_all), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-            }
-        }
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-            contentPadding = PaddingValues(
-                top = 8.dp,
-            )
-        ) {
-            items(historyItems, key = { "history_${it.id ?: it.query}" }, contentType = { "search_history" }) { item ->
-                SearchHistoryListItem(
-                    item = item,
-                    onHistoryClick = onHistoryClick,
-                    onHistoryDelete = onHistoryDelete
-                )
-            }
-        }
-    }
-}
-
-@Composable
-fun SearchHistoryListItem(
-    item: SearchHistoryItem,
-    onHistoryClick: (String) -> Unit,
-    onHistoryDelete: (String) -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .pointerInput(Unit) { detectTapGestures(onTap = { onHistoryClick(item.query) }) }
-            .padding(horizontal = 8.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-            Icon(
-                imageVector = Icons.Rounded.History,
-                contentDescription = stringResource(R.string.search_cd_search_history_icon),
-                modifier = Modifier.size(20.dp),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Spacer(modifier = Modifier.width(12.dp))
-            Text(
-                text = item.query,
-                style = MaterialTheme.typography.bodyLarge,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-        IconButton(onClick = { onHistoryDelete(item.query) }) {
-            Icon(
-                imageVector = Icons.Rounded.DeleteForever,
-                contentDescription = stringResource(R.string.search_cd_delete_search_history_item),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-            )
-        }
-    }
-}
-
-
-@Composable
 fun EmptySearchResults(searchQuery: String, colorScheme: ColorScheme) {
     Column(
         modifier = Modifier
@@ -1240,7 +1320,7 @@ fun SearchResultsList(
     results: List<SearchResultItem>,
     searchQuery: () -> String,
     playerViewModel: PlayerViewModel,
-    onItemSelected: () -> Unit,
+    onItemSelected: (SearchHistoryKind?, String?, String?, String?) -> Unit,
     playback: State<PlaybackRowState>,
     onSongMoreOptionsClick: (Song) -> Unit,
     navController: NavHostController,
@@ -1313,7 +1393,7 @@ fun SearchResultsList(
                 ?.let { "Search: $it" }
                 ?: "Search Results"
             playerViewModel.showAndPlaySong(song, playbackQueue, searchQueueName)
-            latestOnItemSelected()
+            latestOnItemSelected(SearchHistoryKind.SONG, song.id, song.title, song.albumArtUriString)
         }
     }
 
@@ -1410,7 +1490,7 @@ fun SearchResultsList(
                                         Timber.tag("SearchScreen")
                                             .d("Album clicked: ${item.album.title}")
                                         playerViewModel.playAlbum(item.album)
-                                        onItemSelected()
+                                        onItemSelected(SearchHistoryKind.ALBUM, item.album.id.toString(), item.album.title, item.album.albumArtUriString)
                                     }
                                 }
                                 val onOpenClick = remember(
@@ -1422,7 +1502,7 @@ fun SearchResultsList(
                                             route = Screen.AlbumDetail.createRoute(item.album.id),
                                             patternToPop = Screen.AlbumDetail.route
                                         )
-                                        onItemSelected()
+                                        onItemSelected(SearchHistoryKind.ALBUM, item.album.id.toString(), item.album.title, item.album.albumArtUriString)
                                     }
                                 }
                                 val isSelected = selectedAlbums.any { it.id == item.album.id }
@@ -1445,7 +1525,7 @@ fun SearchResultsList(
                                         Timber.tag("SearchScreen")
                                             .d("Artist clicked: ${item.artist.name}")
                                         playerViewModel.playArtist(item.artist)
-                                        onItemSelected()
+                                        onItemSelected(SearchHistoryKind.ARTIST, item.artist.id.toString(), item.artist.name, item.artist.effectiveImageUrl)
                                     }
                                 }
                                 val onOpenClick = remember(
@@ -1457,7 +1537,7 @@ fun SearchResultsList(
                                             route = Screen.ArtistDetail.createRoute(item.artist.id),
                                             patternToPop = Screen.ArtistDetail.route
                                         )
-                                        onItemSelected()
+                                        onItemSelected(SearchHistoryKind.ARTIST, item.artist.id.toString(), item.artist.name, item.artist.effectiveImageUrl)
                                     }
                                 }
                                 SearchResultArtistItem(
@@ -1485,7 +1565,7 @@ fun SearchResultsList(
                                         } else {
                                             playerViewModel.sendToast("Empty playlist")
                                         }
-                                        onItemSelected()
+                                        onItemSelected(SearchHistoryKind.PLAYLIST, item.playlist.id, item.playlist.name, item.playlist.coverImageUri)
                                     }
                                 }
                                 val onOpenClick = remember(
@@ -1494,7 +1574,7 @@ fun SearchResultsList(
                                 ) {
                                     {
                                         navController.navigateSafely(Screen.PlaylistDetail.createRoute(item.playlist.id))
-                                        onItemSelected()
+                                        onItemSelected(SearchHistoryKind.PLAYLIST, item.playlist.id, item.playlist.name, item.playlist.coverImageUri)
                                     }
                                 }
                                 val isSelected = selectedPlaylists.any { it.id == item.playlist.id }
@@ -1526,6 +1606,7 @@ fun SearchResultsList(
                                             item.track.spotifyId,
                                             item.track.title
                                         )
+                                        onItemSelected(null, null, null, null)
                                     }
                                 )
                             }
@@ -1538,6 +1619,7 @@ fun SearchResultsList(
                                             item.track.videoId,
                                             item.track.title
                                         )
+                                        onItemSelected(null, null, null, null)
                                     }
                                 )
                             }
