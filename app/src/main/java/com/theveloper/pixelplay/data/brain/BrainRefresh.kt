@@ -74,6 +74,13 @@ interface RefreshWork {
      * It runs here and not at first use, so Home never waits for it. A no-op by default.
      */
     suspend fun rebuildBrain() {}
+
+    /**
+     * Stage 4 (docs/brain-spec.md, 9.4): the optional batch jobs of "Let Taizo help the engine" (island names, genres for tracks no source knows,
+     * artists the listener may not know). Off by default behind its own switch, inside the assistant's monthly budget; runs here and nowhere
+     * else, after the brain is rebuilt. A no-op by default.
+     */
+    suspend fun assistantHelp() {}
 }
 
 /**
@@ -215,6 +222,8 @@ class BrainRefreshRunner(
                 work.fitIslands()
                 work.settleShelves()
                 work.rebuildBrain()
+                // The optional assistant jobs (off unless "Let Taizo help the engine" is on): after everything the brain needs, so it never delays it.
+                if (allowed() && !playing()) work.assistantHelp()
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -254,6 +263,7 @@ class AppRefreshWork @Inject constructor(
     private val spotifyPurge: SpotifyDnaPurge,
     private val shelfStore: ShelfStore,
     private val engine: BrainEngine,
+    private val assist: AssistantHelp,
 ) : RefreshWork {
 
     override suspend fun dnaTargets(lane: Int, limit: Int): List<DnaTarget> = when (lane) {
@@ -285,6 +295,14 @@ class AppRefreshWork @Inject constructor(
         engine.awaitRebuild()
     }
 
+
+    override suspend fun assistantHelp() {
+        val r = assist.run(playing = { com.theveloper.pixelplay.data.service.PlaybackActivityTracker.isPlaybackActive })
+        timber.log.Timber.d(
+            "AssistantHelp: %d islands named, %d tracks tagged, %d songs suggested, %d calls, %d tags taken back",
+            r.islandsNamed, r.tracksTagged, r.songsSuggested, r.calls, r.tagsTakenBack,
+        )
+    }
 
     override suspend fun radioSeeds(): List<RefreshTarget> = targetsOf(mixes.seedsForRefresh())
 

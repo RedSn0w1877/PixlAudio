@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 
 /** The one status line Settings › AI features shows. */
 sealed interface ClaudeStatus {
@@ -51,9 +52,17 @@ object ClaudeStatusResolver {
 class ClaudeSettingsViewModel @Inject constructor(
     private val claude: ClaudeService,
     aiPreferences: AiPreferencesRepository,
-    userPreferences: UserPreferencesRepository,
+    private val userPreferences: UserPreferencesRepository,
     connectivity: ConnectivityStateHolder,
 ) : ViewModel() {
+
+    /** "Let Taizo help the engine" (stage 4, docs/brain-spec.md, 9.4): off unless the listener turns it on. */
+    val assistHelp: StateFlow<Boolean> = userPreferences.brainAssistHelpEnabledFlow
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
+    fun setAssistHelp(enabled: Boolean) {
+        viewModelScope.launch { userPreferences.setBrainAssistHelpEnabled(enabled) }
+    }
 
     val budget: StateFlow<ClaudeBudgetState> = claude.budgetState
 

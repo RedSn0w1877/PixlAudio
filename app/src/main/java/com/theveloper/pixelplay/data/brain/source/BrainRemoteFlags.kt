@@ -33,6 +33,19 @@ object BrainRemoteConfig {
     }
 
     /**
+     * False only when [configText] says `{"brain": {"assist": {"enabled": false}}}`: the owner can switch the batch jobs of "Let Taizo
+     * help the engine" off for every phone. A missing file, a missing key or text that is not JSON means "on" (the local switch is off by default).
+     */
+    fun assistAllowed(configText: String?): Boolean {
+        if (configText.isNullOrBlank()) return true
+        return runCatching {
+            val root = json.parseToJsonElement(configText).jsonObject
+            val enabled = ((root["brain"] as? JsonObject)?.get("assist") as? JsonObject)?.get("enabled")?.jsonPrimitive?.booleanOrNull
+            enabled != false
+        }.getOrDefault(true)
+    }
+
+    /**
      * False only when [configText] says `{"brain": {"sources": {"<key>": {"enabled": false}}}}` for that source. The owner can
      * switch a knowledge source off for every phone before charging anyone (docs/brain-spec.md, 15, question 2). A missing file,
      * a missing key or text that is not JSON means "on".
@@ -57,6 +70,13 @@ class BrainRemoteFlags @Inject constructor(
         val file = File(context.filesDir, SAVED_CONFIG)
         val text = runCatching { if (file.isFile && file.length() < MAX_CHARS) file.readText() else null }.getOrNull()
         return BrainRemoteConfig.refreshAllowed(text)
+    }
+
+    /** True unless the saved remote config switches the assistant's batch jobs off. Reads one small file. */
+    fun assistAllowed(): Boolean {
+        val file = File(context.filesDir, SAVED_CONFIG)
+        val text = runCatching { if (file.isFile && file.length() < MAX_CHARS) file.readText() else null }.getOrNull()
+        return BrainRemoteConfig.assistAllowed(text)
     }
 
     /** True unless the saved remote config switches the open-data source [key] off. Reads one small file. */

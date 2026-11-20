@@ -63,7 +63,16 @@ data class WhySheetState(
     val whyArg: String,
     /** Up to two supporting facts (8.8), loaded after the sheet opens; empty until then or when there are none. */
     val facts: List<WhyFactLine> = emptyList(),
+    /**
+     * What moved this pick's score the most (stage 4, 9.3 `explain_track`): the fixed factor names of the vector it was served with, read after the
+     * sheet opens; empty when the pick has no stored vector (nothing is guessed).
+     */
+    val factors: List<WhyFactorLine> = emptyList(),
 )
+
+/** One factor of a pick: a fixed name from `AssistantRules.FACTOR_NAMES` and whether it pushed the pick up or held it back. */
+@Immutable
+data class WhyFactorLine(val name: String, val up: Boolean)
 
 /** One supporting fact: a `WhyFacts` key and its two arguments; the words are in the resources. */
 @Immutable
@@ -80,6 +89,7 @@ class BrainActionsStateHolder @Inject constructor(
     private val engine: BrainEngine,
     private val identity: TrackResolver,
     private val whyFacts: WhyFactsLoader,
+    private val servedFactors: com.theveloper.pixelplay.data.brain.ServedFactors,
     private val historyDao: dagger.Lazy<com.theveloper.pixelplay.data.history.ListeningHistoryDao>,
     @AppScope private val scope: CoroutineScope,
 ) {
@@ -285,13 +295,19 @@ class BrainActionsStateHolder @Inject constructor(
         _notice.value = null
     }
 
-    fun showWhy(song: Song, whyKey: String, whyArg: String) {
+    fun showWhy(song: Song, whyKey: String, whyArg: String, servedX: String = "", model: Int = -1) {
         _whySheet.value = WhySheetState(song, whyKey, whyArg)
         factsJob?.cancel()
         factsJob = scope.launch {
             try {
                 val facts = whyFacts.load(song).map { WhyFactLine(it.key, it.a, it.b) }
                 _whySheet.value?.takeIf { it.song.id == song.id }?.let { _whySheet.value = it.copy(facts = facts) }
+                // The factors come from the vector the pick was served with: the queue's copy, else the newest play of this song that kept one.
+                val factors = (if (servedX.isNotEmpty()) servedFactors.topOfHex(servedX, model) else null) ?: servedFactors.topOfLastPlay(song)
+                if (!factors.isNullOrEmpty()) {
+                    _whySheet.value?.takeIf { it.song.id == song.id }
+                        ?.let { _whySheet.value = it.copy(factors = factors.map { f -> WhyFactorLine(f.name, f.up) }) }
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {

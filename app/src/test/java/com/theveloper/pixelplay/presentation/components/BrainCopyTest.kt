@@ -75,6 +75,31 @@ class BrainCopyTest {
         for (name in learnAllowed) assertTrue(name in brain || name in plurals("strings_brain.xml"), "$name is a brain string")
     }
 
+    /**
+     * Ask Taizo's words (stage 4): its cards, its status lines and the settings rows around it. Never a forbidden word, never the vendor or the
+     * model, and "learn" in none of them: the only place stage 3 lets that word in is Your sound, where it follows the model's real state.
+     */
+    @Test
+    fun `what Ask Taizo and its settings say follows the same rules`() {
+        val all = strings("strings.xml").filterKeys {
+            it.startsWith("taizo_") || it.startsWith("settings_ai_") || it.startsWith("settings_ask_taizo") || it.startsWith("settings_claude_")
+        }
+        assertTrue(all.size >= 20, "expected Taizo's strings, found ${all.size}")
+        val brain = strings("strings_brain.xml").filterKeys { it.startsWith("brain_taizo_") || it.startsWith("brain_assist_") || it.startsWith("brain_weekly_") || it.startsWith("brain_why_factors_") }
+        assertTrue(brain.size >= 12, "expected the new cards' strings, found ${brain.size}")
+        for ((name, text) in all + brain) {
+            val lower = text.lowercase()
+            for (word in forbidden) assertTrue(word !in lower, "$name says \"$word\": $text")
+            assertTrue("learn" !in lower, "$name says \"learn\": $text")
+        }
+        for ((name, items) in plurals("strings_brain.xml").filterKeys { it.startsWith("brain_taizo_") }) {
+            for (text in items) for (word in forbidden + "learn") assertTrue(word !in text.lowercase(), "$name says \"$word\": $text")
+        }
+        // The switch is called what the spec calls it, and says it is off until turned on.
+        assertEquals("Let Taizo help the engine", brain["brain_assist_title"])
+        assertTrue("Off unless you turn it on." in brain.getValue("brain_assist_body"))
+    }
+
     @Test
     fun `the copy of section 8 is what the listener reads`() {
         val brain = strings("strings_brain.xml")

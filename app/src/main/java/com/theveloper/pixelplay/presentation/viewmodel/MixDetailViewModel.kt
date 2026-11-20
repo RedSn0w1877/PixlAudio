@@ -34,6 +34,8 @@ data class MixDetailUi(
     val songs: ImmutableList<Song> = persistentListOf(),
     val reasons: Map<String, MixReason> = emptyMap(),
     val novelIds: Set<String> = emptySet(),
+    /** The weekly note of First Listen (docs/brain-spec.md, 9.3): two or three sentences; null for any other list, and until it is ready. */
+    val note: String? = null,
 )
 
 /**
@@ -45,6 +47,7 @@ class MixDetailViewModel @Inject constructor(
     savedState: SavedStateHandle,
     private val mixes: BrainMixes,
     private val playTags: BrainPlayTags,
+    private val weeklyNote: com.theveloper.pixelplay.data.brain.WeeklyNoteRepository,
     @ApplicationContext private val context: Context,
 ) : ViewModel() {
     private val mixId: String = savedState.get<String>("mixId").orEmpty()
@@ -66,6 +69,11 @@ class MixDetailViewModel @Inject constructor(
                     loaded = true, title = titleOf(view.spec.kind, view.number), subtitle = view.subtitle,
                     songs = view.songs.toImmutableList(), reasons = view.reasons, novelIds = view.novelIds,
                 )
+                // First Listen only: the note is made after the list is on screen (one cloud call a week, a template otherwise), never before.
+                if (view.kind == MixKinds.FIRST_LISTEN) {
+                    val note = weeklyNote.noteFor(view)
+                    if (note != null) mutable.value = mutable.value.copy(note = note)
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {

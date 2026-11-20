@@ -326,6 +326,9 @@ fun QueueBottomSheet(
         }
     }
 
+    // Set notes (docs/brain-spec.md, 9.3): one line before a group of upcoming songs, made from the queue itself with no model call.
+    val setNotes = remember(queue, currentSongIndex) { SetNoteLines.forQueue(queue, currentSongIndex).bySongId }
+
     // Offset to convert display indices to queue indices when history is hidden.
     val queueIndexOffset = if (showQueueHistory || currentSongIndex < 0) 0 else currentSongIndex
 
@@ -947,6 +950,7 @@ fun QueueBottomSheet(
                                             onRefreshPicks = if (hasUpcomingEngineItems) brainUi?.refreshPicks else null
                                         )
                                     }
+                                    setNotes[song.id]?.let { note -> if (canReorder || index == currentSongDisplayIndex) SetNoteRowLabel(note) }
                                     val why = queueWhy[song.id]
                                     val whyText = if (why != null) whyLineText(why.key, why.arg) else null
                                     QueuePlaylistSongItem(
@@ -977,7 +981,7 @@ fun QueueBottomSheet(
                                         onMoreOptionsClick = { onSongInfoClick(song) },
                                         whyLine = whyText,
                                         onWhyClick = if (why != null && brainUi != null) {
-                                            { brainUi.showWhy(song, why.key, why.arg) }
+                                            { brainUi.showWhy(song, why.key, why.arg, why.servedX, why.model) }
                                         } else null,
                                         dragHandle = {
                                             IconButton(

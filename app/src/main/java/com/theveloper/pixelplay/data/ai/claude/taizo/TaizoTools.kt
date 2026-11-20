@@ -322,7 +322,7 @@ object TaizoTools {
             tool(
                 STEER_SESSION,
                 "Change what plays next in the current queue, or (scope always) what PixlAudio recommends from now on. Only when the " +
-                    "user asked for it in their latest message. scope always asks the user to confirm.",
+                    "user asked for it in their latest message. \"Slow it down\" is energy_down, \"pick it up\" energy_up. scope always asks the user to confirm.",
             ) {
                 enumProp("change", "What to change.", AssistantRules.STEER_CHANGES)
                 stringProp("target", "A ref or an artist name for the artist changes, a genre id for the genre changes, otherwise \"\".")

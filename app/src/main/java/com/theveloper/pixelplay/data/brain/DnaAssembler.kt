@@ -81,6 +81,9 @@ object DnaAssembler {
     const val P_LB_ARTIST = 12
     const val P_WD_ARTIST = 13
 
+    /** The optional assistant tagging job (tag source 10, stage 4): constrained to a shortlist of atlas ids, trust 0.25, used only when the other sources are weak. */
+    const val P_ASSISTANT = 10
+
     fun sourceOf(provider: Int): Int = when (provider) {
         P_LB_RECORDING -> Tags.SRC_RECORDING
         P_MB_ARTIST, P_LB_ARTIST, P_WD_ARTIST -> Tags.SRC_ARTIST
@@ -88,6 +91,7 @@ object DnaAssembler {
         P_CHIP -> Tags.SRC_CHIP
         P_ITUNES -> Tags.SRC_ITUNES
         P_DEEZER_ALBUM -> Tags.SRC_DEEZER_ALBUM
+        P_ASSISTANT -> Tags.SRC_ASSISTANT
         else -> 0
     }
 
@@ -189,6 +193,30 @@ object DnaAssembler {
     }
 
     class Result(val track: TrackDnaEntity, val artist: ArtistDnaEntity?)
+
+    /**
+     * [row] with its assistant claims replaced by [claims] (none removes them): the stored claims of every other source are kept and the tags
+     * are merged again, so the weakest source speaks only while the others are weak (3.4) and takes nothing away when they are not.
+     * Used by the optional tagging job ([AssistantHelp]) and by its undo when the switch is turned off.
+     */
+    fun withAssistantClaims(row: TrackDnaEntity, claims: List<Claim>, atlas: GenreAtlas, atlasVersion: Int, nowMs: Long): TrackDnaEntity {
+        val prior = if (row.atlasVersion == atlasVersion) decodeClaims(row.tagInputs) else emptyList()
+        val all = prior.filter { it.provider != P_ASSISTANT } + claims.filter { it.provider == P_ASSISTANT }
+        val tags = merged(atlas, all, artistLevelOnly = false)
+        val feel = TrackDna.feel(atlas, tags, row.gainDbX10)
+        val moods = TrackDna.moods(atlas, tags)
+        val sources = all.filter { sourceOf(it.provider) != 0 }.map { sourceOf(it.provider) }.toSet().size
+        return row.copy(
+            tags = Tags.encode(tags),
+            moods = ByteArray(moods.size) { moods[it].toByte() },
+            energy = feel.energy,
+            valence = feel.valence,
+            confidence = if (tags.isEmpty) 0 else minOf(255, sources * 64),
+            updatedAtMs = nowMs,
+            atlasVersion = atlasVersion,
+            tagInputs = encodeClaims(all),
+        )
+    }
 
     /**
      * Builds the stored rows. [prior] and [priorArtist] are what is in the database (null on a first run); [nowMs] stamps the parts

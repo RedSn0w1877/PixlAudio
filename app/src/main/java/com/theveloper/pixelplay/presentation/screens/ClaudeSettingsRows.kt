@@ -71,6 +71,15 @@ internal fun ClaudeStatusAndAssistantRows(
             leadingIcon = { Icon(Icons.Rounded.AutoAwesome, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
             onClick = { showTaizo = true },
         )
+        // The optional weekly jobs (island names, genres for songs no source knows, artists to try): off unless turned on, inside the monthly budget.
+        val assistHelp by viewModel.assistHelp.collectAsStateWithLifecycle()
+        SwitchSettingItem(
+            title = stringResource(R.string.brain_assist_title),
+            subtitle = stringResource(R.string.brain_assist_body),
+            checked = assistHelp,
+            onCheckedChange = { viewModel.setAssistHelp(it) },
+            leadingIcon = { Icon(Icons.Rounded.AutoAwesome, contentDescription = null, tint = MaterialTheme.colorScheme.secondary) },
+        )
     }
 
     if (showTaizo) {

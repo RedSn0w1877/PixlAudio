@@ -30,6 +30,14 @@ class BrainSwitch @Inject constructor(
     /** "Use my Spotify music to shape picks": the Spotify facts and history the picks may count (default on). */
     val spotifyShapesPicksFlow: Flow<Boolean> get() = preferences.brainSpotifyShapesPicksFlow
 
+    /** "Let Taizo help the engine": the optional batch jobs (island names, genre tags, artist suggestions). Off by default. */
+    val assistHelpFlow: Flow<Boolean> get() = preferences.brainAssistHelpEnabledFlow
+
+    suspend fun setAssistHelp(enabled: Boolean) = preferences.setBrainAssistHelpEnabled(enabled)
+
+    /** The batch jobs may run: the listener turned them on AND the remote config does not switch them off. Asked before every call. */
+    suspend fun assistHelpAllowed(): Boolean = assistHelpFlow.first() && remote.assistAllowed()
+
     /** The local switch of one open-data source (Developer mode > Brain data). */
     fun sourceEnabledFlow(host: com.theveloper.pixelplay.data.brain.source.KnowledgeHost): Flow<Boolean> =
         preferences.brainSourceEnabledFlow(host.key)

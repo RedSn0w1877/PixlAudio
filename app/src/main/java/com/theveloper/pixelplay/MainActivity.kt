@@ -350,7 +350,7 @@ class MainActivity : ComponentActivity() {
                     startSongStation = { song -> playerViewModel.startSongStation(song) },
                     startArtistStation = { name, songs -> playerViewModel.startArtistStation(name, songs) },
                     notForMe = { song -> playerViewModel.notForMe(song) },
-                    showWhy = { song, key, arg -> playerViewModel.brainSession.actions.showWhy(song, key, arg) },
+                    showWhy = { song, key, arg, servedX, model -> playerViewModel.brainSession.actions.showWhy(song, key, arg, servedX, model) },
                     showHowPicksWork = { playerViewModel.brainSession.actions.showHowPicksWork() },
                     startAlbumStation = { name, songs -> playerViewModel.startAlbumStation(name, songs) },
                     startPlaylistStation = { name, songs -> playerViewModel.startPlaylistStation(name, songs) },

@@ -52,6 +52,32 @@ class DnaAssemblerTest {
     }
 
     @Test
+    fun `the assistant's claim is the weakest source, tags a track nobody else could, and is taken out again`() {
+        val bare = DnaAssembler.assemble(
+            target(), DnaEvidence(tried = DnaSource.MUSICBRAINZ or DnaSource.ITUNES), null, null, atlas, 1, now, 2027,
+        ).track
+        assertTrue(Tags.decode(bare.tags).isEmpty)
+        val claim = DnaAssembler.Claim(DnaAssembler.P_ASSISTANT, id("shoegaze"), 230)
+        val tagged = DnaAssembler.withAssistantClaims(bare, listOf(claim), atlas, 1, now + 1)
+        // Source 10 alone has trust 0.25: it speaks only when it is all there is (3.4), and the claim is kept for the next merge.
+        assertTrue(DnaAssembler.decodeClaims(tagged.tagInputs).any { it.provider == DnaAssembler.P_ASSISTANT })
+        // A later pass of the other sources keeps the assistant's claim and does not duplicate it.
+        val again = DnaAssembler.assemble(target(), DnaEvidence(tried = DnaSource.MUSICBRAINZ), tagged, null, atlas, 1, now + 2, 2027).track
+        assertEquals(1, DnaAssembler.decodeClaims(again.tagInputs).count { it.provider == DnaAssembler.P_ASSISTANT })
+        // The switch turned off: its claims leave, and the tags are what the other sources say (here nothing).
+        val back = DnaAssembler.withAssistantClaims(again, emptyList(), atlas, 1, now + 3)
+        assertTrue(DnaAssembler.decodeClaims(back.tagInputs).none { it.provider == DnaAssembler.P_ASSISTANT })
+        assertTrue(Tags.decode(back.tags).isEmpty)
+        // A real source beside it: the assistant adds nothing the strong source did not already say, and leaves with its claim.
+        val strong = DnaAssembler.assemble(
+            target(), DnaEvidence(mbArtist = MbArtist("m1", "Band", "GB", listOf(vote("techno", 10)), emptyList()), tried = DnaSource.MUSICBRAINZ), null, null, atlas, 1, now, 2027,
+        ).track
+        val withBoth = DnaAssembler.withAssistantClaims(strong, listOf(claim), atlas, 1, now + 1)
+        assertEquals(id("techno"), Tags.decode(withBoth.tags).top)
+        assertEquals(Tags.decode(strong.tags).top, Tags.decode(DnaAssembler.withAssistantClaims(withBoth, emptyList(), atlas, 1, now + 2).tags).top)
+    }
+
+    @Test
     fun `a second track by the same artist inherits the artist's genres with no request`() {
         val a = DnaAssembler.assemble(
             target(1L), DnaEvidence(mbArtist = MbArtist("m1", "Band", "GB", listOf(vote("shoegaze", 4)), emptyList()), tried = DnaSource.MUSICBRAINZ),

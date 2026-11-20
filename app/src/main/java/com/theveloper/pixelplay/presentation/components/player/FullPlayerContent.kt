@@ -2657,6 +2657,8 @@ private fun PlayerSongInfo(
             ),
             canScroll = isPlayingProvider()
         )
+        // Set note (docs/brain-spec.md, 9.3): what the next few songs are, from a template over the queue. Nothing when there is none.
+        com.theveloper.pixelplay.presentation.components.SetNoteLine(playerViewModel, artistTextColor)
     }
 }
 

@@ -197,6 +197,17 @@ fun AskTaizoSheet(
                                 onAnswer = { accepted -> viewModel.answerConfirmation(item.id, accepted) },
                             )
                             is TaizoChatItem.Note -> NoteRow(stringResource(item.textRes))
+                            is TaizoChatItem.Mix -> MixCardBubble(
+                                item = item,
+                                onPlay = { viewModel.playMix(item.id) },
+                                onSave = { viewModel.saveMix(item.id) },
+                                onChip = { chip -> viewModel.applyMixChip(item.id, chip) },
+                            )
+                            is TaizoChatItem.Less -> LessChipRow(
+                                item = item,
+                                onTap = { viewModel.tapLess(item.id) },
+                                onUndo = { viewModel.undoLess(item.id) },
+                            )
                         }
                     }
                 }

@@ -30,7 +30,14 @@ import timber.log.Timber
 
 /** The reason an engine pick is in the queue (8.8): a `WhyLine` key name and the name it is about. */
 @Immutable
-data class QueueWhy(val key: String, val arg: String)
+data class QueueWhy(
+    val key: String,
+    val arg: String,
+    /** The served feature vector of the pick (hex), "" when it has none: "Why this song" reads its top factors from it. */
+    val servedX: String = "",
+    /** What ranked the pick (`BrainEventRecorder.MODEL_*`), -1 when not recorded. */
+    val model: Int = -1,
+)
 
 /**
  * What the UI needs to know about the music brain's part of the current session
@@ -96,7 +103,10 @@ class BrainSessionStateHolder @Inject constructor(
             val key = extras.getString(BrainExtras.WHY_KEY)
             if (!key.isNullOrEmpty()) {
                 (why ?: HashMap<String, QueueWhy>().also { why = it })[item.mediaId] =
-                    QueueWhy(key, extras.getString(BrainExtras.WHY_ARG).orEmpty())
+                    QueueWhy(
+                        key, extras.getString(BrainExtras.WHY_ARG).orEmpty(), extras.getString(BrainExtras.SERVED_X).orEmpty(),
+                        extras.getInt(BrainExtras.MODEL, -1),
+                    )
             }
         }
         val next: Set<String> = ids ?: emptySet()

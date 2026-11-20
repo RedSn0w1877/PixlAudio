@@ -46,16 +46,29 @@ class FakeMusicBackend : MusicBackend {
         return Recommendation(mixTracks.take(query.count).map { PickInfo(it, "radio_fans", listOf("Sabrina Carpenter")) }, unsupported, coldStart)
     }
 
+    /** The mixes built so far, by id; a chip builds a new one from the stored request, as the engine does. */
+    val mixes = LinkedHashMap<String, BuiltMix>()
+    val chipCalls = ArrayList<Pair<String, AssistantRules.Chip>>()
+    var topArtist: Pair<String, String> = "" to ""
+    var topGenre: Pair<Int, String> = 0 to ""
+
+    private fun built(id: String, query: AssistantRules.Query): BuiltMix = BuiltMix(
+        mixId = id, title = query.title.ifBlank { "Made for you" }, tracks = mixTracks.take(query.count).map { PickInfo(it, "asked", emptyList()) },
+        unsupportedFilters = unsupported, query = query, topArtistRef = topArtist.first, topArtistName = topArtist.second,
+        topGenreId = topGenre.first, topGenreName = topGenre.second,
+    ).also { mixes[id] = it }
+
     override suspend fun buildMix(query: AssistantRules.Query): BuiltMix? {
         mixQueries.add(query)
         if (mixTracks.isEmpty()) return null
-        return BuiltMix(
-            mixId = "m1", title = query.title.ifBlank { "Made for you" }, tracks = mixTracks.take(query.count).map { PickInfo(it, "asked", emptyList()) },
-            unsupportedFilters = unsupported, query = query,
-        )
+        return built("m1", query)
     }
 
-    override suspend fun adjustMix(mixId: String, chip: AssistantRules.Chip): BuiltMix? = null
+    override suspend fun adjustMix(mixId: String, chip: AssistantRules.Chip): BuiltMix? {
+        chipCalls.add(mixId to chip)
+        val old = mixes[mixId] ?: return null
+        return built("m${mixes.size + 1}", AssistantRules.applyChip(old.query, chip))
+    }
 
     override suspend fun songsForMix(mixId: String): List<Song>? = null
 

@@ -55,6 +55,9 @@ interface TaizoAgentListener {
 
     /** Asks the user to tap to confirm; false = declined. */
     suspend fun confirm(question: String): Boolean
+
+    /** A client tool finished and returned [result] (JSON text): the chat may show a card for it (a mix), never the model's words. */
+    fun onToolResult(name: String, result: String) {}
 }
 
 /** A web page Claude cited. */
@@ -212,7 +215,9 @@ class TaizoAgent(
                 if (question != null && !listener.confirm(question)) {
                     return@map toolResult(id, """{"declined":true,"message":"The user chose not to do this."}""", isError = false)
                 }
-                toolResult(id, tools.run(name, input), isError = false)
+                val result = tools.run(name, input)
+                listener.onToolResult(name, result)
+                toolResult(id, result, isError = false)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {

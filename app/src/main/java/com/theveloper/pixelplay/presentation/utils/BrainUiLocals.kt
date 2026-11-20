@@ -18,7 +18,7 @@ class BrainUi(
     /** Mutes the song in everything the app picks by itself; skips it when it is playing. */
     val notForMe: (Song) -> Unit,
     /** Opens the sheet behind a pick's reason line. */
-    val showWhy: (song: Song, whyKey: String, whyArg: String) -> Unit,
+    val showWhy: (song: Song, whyKey: String, whyArg: String, servedX: String, model: Int) -> Unit,
     val showHowPicksWork: () -> Unit,
     /** A station from an album: a few of its songs seed it, and none of its own songs lead. */
     val startAlbumStation: (albumName: String, songs: List<Song>) -> Unit = { _, _ -> },

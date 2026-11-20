@@ -171,6 +171,13 @@ interface TrackDnaDao {
     @Query("SELECT COUNT(*) FROM track_dna")
     suspend fun count(): Int
 
+    /**
+     * Rows no source could tag (stage 4, the optional tagging job): no tags, and Deezer, MusicBrainz and iTunes have all answered. After
+     * [after], in recording order. A row the assistant could not tag either is skipped by the job's own cache, not here.
+     */
+    @Query("SELECT * FROM track_dna WHERE length(tags) = 0 AND (fetchedMask & 19) = 19 AND rid > :after ORDER BY rid LIMIT :limit")
+    suspend fun untagged(after: Long, limit: Int): List<TrackDnaEntity>
+
     @Query("SELECT COALESCE(MAX(updatedAtMs), 0) FROM track_dna")
     suspend fun newestUpdate(): Long
 

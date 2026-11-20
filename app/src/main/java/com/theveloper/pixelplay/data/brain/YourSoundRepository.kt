@@ -44,6 +44,7 @@ class YourSoundRepository @Inject constructor(
     private val feedback: dagger.Lazy<com.theveloper.pixelplay.data.brain.store.FeedbackDao>,
     private val homeRows: dagger.Lazy<BrainHomeRows>,
     private val homePlans: dagger.Lazy<HomePlanStore>,
+    private val assistCache: AssistCache,
 ) {
     /**
      * One island of "Right now": its share, and what tapping it shows (8.6 point 1): its top artists and songs by name (a name the brain does
@@ -195,7 +196,12 @@ class YourSoundRepository @Inject constructor(
         suspend fun nameOf(id: Int): String? {
             if (names.containsKey(id)) return names[id]
             val island = set?.islands?.firstOrNull { it.id == id }
-            val name = if (island == null) null else try {
+            // "Let Taizo help the engine": a validated assistant-written name, only while that switch is on and only while the island still
+            // holds the genres it was written for. Otherwise (and always without the switch) the atlas name below.
+            val assisted = if (island == null || atlas == null) null else assistCache.islandName(
+                island.id, island.topTags.toList().mapNotNull { AtlasNames.genreName(atlas, it) }.distinct().take(5),
+            )
+            val name = if (island == null) null else if (assisted != null) assisted else try {
                 mixes.get().islandSubtitle(island, now).takeIf { it.isNotBlank() }
             } catch (e: CancellationException) {
                 throw e

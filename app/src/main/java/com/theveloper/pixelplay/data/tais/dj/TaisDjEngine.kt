@@ -30,6 +30,9 @@ sealed interface TaizoTurn {
      */
     data class Media(val intent: DjIntent, val result: DjRouteResult, val aiIntro: String? = null) : TaizoTurn
     data class Conversation(val text: String) : TaizoTurn
+
+    /** "Start a station from [name]": read by rules, so it works with no connection (docs/brain-spec.md, 14 stage 4). The chat starts it. */
+    data class Station(val name: String) : TaizoTurn
     data class Error(val message: String) : TaizoTurn
 }
 
@@ -59,6 +62,8 @@ class TaisDjEngine @Inject constructor(
      * (Ask Taizo falls back here when a Claude request fails mid-way).
      */
     suspend fun respond(prompt: String, memory: TaizoMemory? = null, forceOnDevice: Boolean = false): TaizoTurn {
+        // A station from a sentence needs no model and no network: the name is looked up in the library and the atlas on the phone.
+        StationSentence.parse(prompt)?.let { return TaizoTurn.Station(it) }
         if (intentParser.isMediaRequest(prompt)) {
             val intent = intentParser.parse(prompt)
             val result = mediaRouter.route(intent)

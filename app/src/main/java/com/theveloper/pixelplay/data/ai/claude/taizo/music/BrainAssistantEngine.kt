@@ -83,6 +83,7 @@ class BrainAssistantEngine @Inject constructor(
     private val playlists: PlaylistPreferencesRepository,
     private val feedback: BrainFeedback,
     private val playTags: BrainPlayTags,
+    private val servedFactors: com.theveloper.pixelplay.data.brain.ServedFactors,
 ) : MusicBackend {
 
     // ---- what this process issued -----------------------------------------------------------------------
@@ -502,6 +503,11 @@ class BrainAssistantEngine @Inject constructor(
             else -> return SteerOutcome(false, 0, "Unknown change.")
         }
         val rec = recommend(q)
+        // An energy change the data cannot answer (no energy known for the pool) would only add songs that are not any lower or higher:
+        // it is not applied, and the model is told, instead of reporting a change that did not happen.
+        if ((change == "energy_up" || change == "energy_down") && AssistantRules.FILTER_ENERGY in rec.unsupportedFilters) {
+            return SteerOutcome(false, 0, "PixlAudio does not know how energetic these songs are yet, so it cannot change the energy of this queue. Nothing was changed.")
+        }
         val songs = rec.picks.mapNotNull { songForRef(it.track.ref) }
         if (songs.isEmpty()) {
             return SteerOutcome(false, 0, "PixlAudio found nothing to change the queue with yet. Nothing was changed.")
@@ -582,10 +588,10 @@ class BrainAssistantEngine @Inject constructor(
         // The vector the pick was served with: a pick made in this chat, else the newest played event that stored one.
         val servedX = known?.servedX ?: events.filter { it.servedX != null }.maxByOrNull { it.startedAtMs }?.servedX
         val armCode = known?.tag?.arm?.let { Arm.codeOf(it) } ?: events.filter { it.arm != Arm.NONE }.maxByOrNull { it.startedAtMs }?.arm
-        val factors = ServedVector.dequantize(servedX)?.let { x ->
-            val p0 = brain.withState { st -> Affinity.p0(st.affinity, mixes.clock.nowMs()) }
-            AssistantRules.topFactors(x, Ranker.weights(p0))
-        }
+        val servedModel = known?.tag?.modelVersion?.takeIf { known?.servedX != null }
+            ?: events.filter { it.servedX != null }.maxByOrNull { it.startedAtMs }?.modelVersion ?: -1
+        // The weights the pick was ranked with (the learned ones only for a pick they ranked, and only while the gate still has them on).
+        val factors = ServedVector.dequantize(servedX)?.let { x -> servedFactors.top(x, servedModel) }
         val atlas = mixes.atlasProvider.atlas()
         val genres = if (dna == null || atlas == null) null else {
             val v = Tags.decode(dna.tags)

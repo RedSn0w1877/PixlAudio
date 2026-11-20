@@ -77,6 +77,7 @@ class AssistantPlan(
 class AssistantMixer @Inject constructor(
     private val mixes: BrainMixes,
     private val brain: BrainEngine,
+    private val assistCache: com.theveloper.pixelplay.data.brain.AssistCache,
 ) {
     suspend fun plan(query: AssistantRules.Query, seeds: List<SeedMaterial>, excludedArtists: Set<String>, regen: Int): AssistantPlan? {
         val now = mixes.clock.nowMs()
@@ -104,6 +105,12 @@ class AssistantMixer @Inject constructor(
                 if (list == null && artistRows.isEmpty()) continue
                 mixSeeds.add(MixSeed(p.rid, p.aid, p.title, p.artist, list, artistRows))
             }
+        }
+        // "Let Taizo help the engine" (off by default): songs the assistant suggested by artists the listener likely does not know join the pool as
+        // an artist list, so they are candidates like any other (arm ASK, scored by the same ranker); a request for familiar music or for no new music leaves them out.
+        if (query.novelty != AssistantRules.FAMILIAR && query.noveltySharePct != 0) {
+            val suggested = runCatching { assistCache.suggestedRows() }.getOrDefault(emptyList())
+            if (suggested.isNotEmpty()) mixSeeds.add(MixSeed(0L, 0L, "", "", null, suggested))
         }
         if (library.isEmpty() && mixSeeds.isEmpty()) return null
 

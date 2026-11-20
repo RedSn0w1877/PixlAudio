@@ -130,6 +130,26 @@ fun WhyThisSongSheet(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+            // What moved the pick's score the most (docs/brain-spec.md, 9.3 `explain_track`): fixed names from the vector it was served with,
+            // never a weight or a raw value; nothing here when the pick has no stored vector.
+            val helped = state.factors.filter { it.up }.joinToString("; ") { it.name }
+            val held = state.factors.filter { !it.up }.joinToString("; ") { it.name }
+            if (helped.isNotEmpty()) {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = stringResource(R.string.brain_why_factors_up, helped),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (held.isNotEmpty()) {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = stringResource(R.string.brain_why_factors_down, held),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             Spacer(Modifier.height(20.dp))
 
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {

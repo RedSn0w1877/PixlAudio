@@ -641,6 +641,31 @@ class TaizoToolExecutor @Inject constructor(
     }
 
     /** A playlist holds library songs: a track from outside the library is saved first, as "Add to playlist" does in the app. */
+    // ─── Cards under the answer (docs/brain-spec.md, 9.3 "What the listener gets"): no model call behind any of these ───────────────
+
+    /** The card of a mix this chat built. */
+    fun mixCard(mixId: String): com.theveloper.pixelplay.data.ai.claude.taizo.music.MixCard? = music.mixCard(mixId)
+
+    /** A chip tapped under a mix card: the stored request with that delta, built again by the engine. */
+    suspend fun adjustMix(mixId: String, chip: AssistantRules.Chip): com.theveloper.pixelplay.data.ai.claude.taizo.music.MixCard? = music.adjustMix(mixId, chip)
+
+    /** The Play button of a mix card (main thread). */
+    suspend fun playMix(mixId: String): Boolean = music.playMix(mixId, player)
+
+    /** The genres and artists the explain tools returned in this turn. */
+    fun namedThisTurn(): List<com.theveloper.pixelplay.brain.AssistantCards.Named> = music.namedThisTurn()
+
+    /**
+     * The Save button of a mix card: the mix becomes a playlist of the listener's. A track from outside the library is saved first (a
+     * playlist holds library rows); the mix keeps its card. Returns the playlist's song count, or null when there is nothing to save.
+     */
+    suspend fun saveMix(mixId: String): Int? {
+        val (title, songs) = music.songsOfMix(mixId) ?: return null
+        saveEngineTracks(songs)
+        withContext(Dispatchers.IO) { playlists.createPlaylist(name = title, songIds = songs.map { it.id }, isAiGenerated = true) }
+        return songs.size
+    }
+
     private suspend fun saveEngineTracks(songs: List<Song>) {
         val outside = songs.filter { EngineTrack.isEngineOnly(it) }.map { it.id }
         if (outside.isNotEmpty()) withContext(Dispatchers.IO) { engineTrackSaver.saveAll(outside) }

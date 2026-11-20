@@ -297,4 +297,25 @@
     <string name="brain_genre_more_done">Got it. You will hear more %1$s.</string>
     <string name="brain_genre_less_done">Got it. You will hear less %1$s.</string>
     <string name="brain_genre_adjust_failed">That change could not be saved.</string>
+    <!-- Ask Taizo's cards, the factors of a pick, set notes and the weekly note (stage 4, docs/brain-spec.md 9.3) -->
+    <plurals name="brain_taizo_mix_songs">
+        <item quantity="one">%1$d song</item>
+        <item quantity="other">%1$d songs</item>
+    </plurals>
+    <string name="brain_taizo_mix_play">Play</string>
+    <string name="brain_taizo_mix_save">Save</string>
+    <string name="brain_taizo_mix_saved">Saved</string>
+    <string name="brain_taizo_mix_updating">Updating</string>
+    <string name="brain_taizo_mix_failed">Could not change that mix. Try again.</string>
+    <string name="brain_taizo_mix_not_applied">Some of what you asked for could not be applied, because PixlAudio has no data on it yet.</string>
+    <string name="brain_taizo_less_done">Done. You will get less %1$s.</string>
+    <string name="brain_taizo_less_undo">Undo</string>
+    <string name="brain_taizo_less_failed">Could not change that.</string>
+    <string name="brain_why_factors_up">What helped: %1$s</string>
+    <string name="brain_why_factors_down">What held it back: %1$s</string>
+    <string name="brain_weekly_note_title">This week</string>
+    <string name="brain_assist_title">Let Taizo help the engine</string>
+    <string name="brain_assist_body">Once a week Taizo can name your taste islands, suggest artists you may not know and add genres to songs that no source knows. It sends genre names, artist names and song titles to the cloud assistant, never play counts or dates, and it counts against your monthly allowance. Off unless you turn it on.</string>
+    <string name="brain_taizo_station_started">Started a station from %1$s.</string>
+    <string name="brain_taizo_station_not_found">I could not find %1$s in your library or your genres, so I did not start a station.</string>
 </resources>

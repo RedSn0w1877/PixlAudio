@@ -222,6 +222,62 @@ class TaizoMusicToolsTest {
         assertThat(grounding.check("[[Please Please Please]]", "(?)").ok).isFalse()
     }
 
+    private fun buildLateDrive(): JsonObject = run(
+        TaizoTools.BUILD_MIX,
+        """{"title":"Late drive","seed_refs":[],"genre_ids":[],"mood_ids":[],"year_from":0,"year_to":0,"energy":"any","tempo":"any","novelty_share_pct":-1,"length":30,"exclude_artist_refs":[]}""",
+    )
+
+    @Test
+    fun `a built mix gives the chat a card with the words of its chips, made from the engine's answer`() {
+        val a = backend.add(yt(1), "Espresso", "Sabrina Carpenter", 2024)
+        val b = backend.add(yt(2), "Good Luck, Babe!", "Chappell Roan", 2024)
+        backend.mixTracks = listOf(a, b)
+        backend.topArtist = yt(1) to "Sabrina Carpenter"
+        backend.topGenre = 7 to "R&B"
+        buildLateDrive()
+        val card = tools.mixCard("m1")!!
+        assertThat(card.title).isEqualTo("Late drive")
+        assertThat(card.total).isEqualTo(2)
+        assertThat(card.preview.map { it.title }).containsExactly("Espresso", "Good Luck, Babe!").inOrder()
+        assertThat(card.chips.map { it.label }).containsExactly("Less Sabrina Carpenter", "More R&B", "Shorter", "Slower", "More new", "More familiar").inOrder()
+        // A mix this chat never built has no card.
+        assertThat(tools.mixCard("zz")).isNull()
+    }
+
+    @Test
+    fun `a chip changes the stored request on the phone, with no model call, and the new tracks may be named`() {
+        val a = backend.add(yt(1), "Espresso", "Sabrina Carpenter", 2024)
+        val b = backend.add(yt(2), "Good Luck, Babe!", "Chappell Roan", 2024)
+        backend.mixTracks = listOf(a, b)
+        backend.topArtist = yt(1) to "Sabrina Carpenter"
+        buildLateDrive()
+        val next = runBlocking { tools.adjustMix("m1", AssistantRules.Chip(AssistantRules.CHIP_SLOWER)) }!!
+        assertThat(backend.chipCalls.single().first).isEqualTo("m1")
+        assertThat(backend.mixes.getValue(next.mixId).query.tempo).isEqualTo("slow")
+        // The slower mix no longer offers "Slower"; the card of the new mix is the one to use now.
+        assertThat(next.chips.map { it.label }).doesNotContain("Slower")
+        assertThat(tools.mixCard(next.mixId)).isNotNull()
+        // A chip for a mix nobody built is refused, not guessed.
+        assertThat(runBlocking { tools.adjustMix("nope", AssistantRules.Chip(AssistantRules.CHIP_SHORTER)) }).isNull()
+    }
+
+    @Test
+    fun `an explanation names the genres and artists a Less chip may be about, and only those`() {
+        backend.taste = TasteExplanation("genres", listOf(TasteLine("Trap", "31% of plays"), TasteLine("Pop", "12% of plays")), emptyList())
+        tools.beginTurn()
+        run(TaizoTools.EXPLAIN_TASTE, """{"scope":"genres"}""")
+        val named = tools.namedThisTurn()
+        assertThat(named.map { it.name }).containsExactly("Trap", "Pop")
+        assertThat(com.theveloper.pixelplay.brain.AssistantCards.lessTarget("why do I keep getting trap?", named)?.name).isEqualTo("Trap")
+        // A new turn starts clean: a name from an earlier answer is not offered again.
+        tools.beginTurn()
+        assertThat(tools.namedThisTurn()).isEmpty()
+        // A summary names its top genres; a rule-less line (a count) names nothing.
+        backend.taste = TasteExplanation("summary", listOf(TasteLine("plays recorded", "212"), TasteLine("top genre", "Hip hop", "40% of plays")), emptyList())
+        run(TaizoTools.EXPLAIN_TASTE, """{"scope":"summary"}""")
+        assertThat(tools.namedThisTurn().map { it.name }).containsExactly("Hip hop")
+    }
+
     @Test
     fun `build_mix says so when the engine has nothing to build from, and never makes a list itself`() {
         val out = run(

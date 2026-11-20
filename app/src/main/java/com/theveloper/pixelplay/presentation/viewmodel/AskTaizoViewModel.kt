@@ -22,6 +22,10 @@ import com.theveloper.pixelplay.data.ai.claude.taizo.TaizoProfile
 import com.theveloper.pixelplay.data.ai.claude.taizo.TaizoSource
 import com.theveloper.pixelplay.data.ai.claude.taizo.TaizoToolExecutor
 import com.theveloper.pixelplay.data.ai.claude.taizo.TaizoTools
+import com.theveloper.pixelplay.data.ai.claude.taizo.music.MixCard
+import com.theveloper.pixelplay.data.ai.claude.taizo.music.MixCardChip
+import com.theveloper.pixelplay.brain.AssistantCards
+import com.theveloper.pixelplay.data.brain.BrainFeedback
 import com.theveloper.pixelplay.data.ai.local.AiRoute
 import com.theveloper.pixelplay.data.model.Song
 import com.theveloper.pixelplay.data.network.spotify.SpotifyTrack
@@ -49,7 +53,10 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -81,6 +88,37 @@ sealed interface TaizoChatItem {
 
     /** A one-line note (answering on the phone, budget used up...). */
     data class Note(override val id: Long, @param:StringRes @get:StringRes val textRes: Int) : TaizoChatItem
+
+    /**
+     * A mix `build_mix` made (docs/brain-spec.md, 9.3): "Late drive · 30 songs", Play, Save, and the chips under it. A chip is a delta on the
+     * stored request applied on the phone, with no model call.
+     */
+    data class Mix(
+        override val id: Long,
+        val card: MixCard,
+        /** A chip or Save is being worked out. */
+        val busy: Boolean = false,
+        val playing: Boolean = false,
+        val saved: Boolean = false,
+        /** The last chip or Save did not work. */
+        val failed: Boolean = false,
+    ) : TaizoChatItem
+
+    /** The one-tap "Less X" that ends an explanation of the listener's taste or of one pick. [state] is one of [LESS_IDLE], [LESS_DONE], [LESS_FAILED]. */
+    data class Less(
+        override val id: Long,
+        val kind: Int,
+        val name: String,
+        val label: String,
+        val state: Int = LESS_IDLE,
+        val adjustmentId: String? = null,
+    ) : TaizoChatItem
+
+    companion object {
+        const val LESS_IDLE = 0
+        const val LESS_DONE = 1
+        const val LESS_FAILED = 2
+    }
 }
 
 /** Where this chat's answers come from right now. */
@@ -118,6 +156,8 @@ class AskTaizoViewModel @Inject constructor(
     private val djEngine: TaisDjEngine,
     private val spotifyRepository: SpotifyRepository,
     private val musicRepository: MusicRepository,
+    private val brainFeedback: BrainFeedback,
+    private val assistantEngine: com.theveloper.pixelplay.data.ai.claude.taizo.music.BrainAssistantEngine,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(AskTaizoUiState())
@@ -304,6 +344,113 @@ class AskTaizoViewModel @Inject constructor(
         }
     }
 
+    // ---- cards under the answer: nothing below calls a model ------------------------------------------------------------------
+
+    /** `build_mix` returned: the card goes under the answer. Reads the mix the engine kept, never the model's text. */
+    private fun showMixCard(result: String) {
+        val mixId = runCatching { (Json.parseToJsonElement(result) as? JsonObject)?.get("mix_id")?.jsonPrimitive?.contentOrNull }.getOrNull() ?: return
+        val card = toolExecutor.mixCard(mixId) ?: return
+        appendItem(TaizoChatItem.Mix(nextId(), card))
+    }
+
+    private fun updateMix(id: Long, change: (TaizoChatItem.Mix) -> TaizoChatItem.Mix) = _uiState.update { state ->
+        state.copy(items = state.items.map { if (it.id == id && it is TaizoChatItem.Mix) change(it) else it })
+    }
+
+    private fun mixItem(id: Long): TaizoChatItem.Mix? = _uiState.value.items.firstOrNull { it.id == id } as? TaizoChatItem.Mix
+
+    /** Play on a mix card: the queue becomes the mix (every pick resolved before this card was shown). */
+    fun playMix(itemId: Long) {
+        val item = mixItem(itemId) ?: return
+        if (item.busy) return
+        viewModelScope.launch {
+            val ok = runCatching { toolExecutor.playMix(item.card.mixId) }.getOrDefault(false)
+            updateMix(itemId) { it.copy(playing = ok, failed = !ok) }
+        }
+    }
+
+    /** Save on a mix card: a playlist of the listener's with the mix's songs. */
+    fun saveMix(itemId: Long) {
+        val item = mixItem(itemId) ?: return
+        if (item.busy || item.saved) return
+        updateMix(itemId) { it.copy(busy = true, failed = false) }
+        viewModelScope.launch {
+            val saved = try {
+                toolExecutor.saveMix(item.card.mixId)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Timber.tag(TAG).w(e, "Saving a mix from the chat failed")
+                null
+            }
+            updateMix(itemId) { it.copy(busy = false, saved = saved != null, failed = saved == null) }
+        }
+    }
+
+    /** A chip under a mix card: the stored request with that delta, built again by the engine on the phone. */
+    fun applyMixChip(itemId: Long, chip: MixCardChip) {
+        val item = mixItem(itemId) ?: return
+        if (item.busy) return
+        updateMix(itemId) { it.copy(busy = true, failed = false) }
+        viewModelScope.launch {
+            val next = try {
+                toolExecutor.adjustMix(item.card.mixId, chip.chip)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Timber.tag(TAG).w(e, "A mix chip failed")
+                null
+            }
+            updateMix(itemId) {
+                if (next != null) it.copy(card = next, busy = false, playing = false, saved = false, failed = false) else it.copy(busy = false, failed = true)
+            }
+        }
+    }
+
+    /**
+     * After an answer that explained the listener's taste or a pick: the one tap that acts on it, "Less trap". Offered only for a genre or
+     * an artist an explain tool returned in this turn AND the listener's own words named ([AssistantCards.lessTarget]).
+     */
+    private fun offerLess(userText: String) {
+        val target = AssistantCards.lessTarget(userText, toolExecutor.namedThisTurn()) ?: return
+        val label = AssistantCards.lessLabel(target.name)
+        if (label.isEmpty()) return
+        appendItem(TaizoChatItem.Less(nextId(), target.kind, target.name, label))
+    }
+
+    private fun updateLess(id: Long, change: (TaizoChatItem.Less) -> TaizoChatItem.Less) = _uiState.update { state ->
+        state.copy(items = state.items.map { if (it.id == id && it is TaizoChatItem.Less) change(it) else it })
+    }
+
+    /** "Less trap": the existing taste adjustment (undone in Taste changes, or with Undo here). */
+    fun tapLess(itemId: Long) {
+        val item = _uiState.value.items.firstOrNull { it.id == itemId } as? TaizoChatItem.Less ?: return
+        if (item.state == TaizoChatItem.LESS_DONE) return
+        viewModelScope.launch {
+            val id = try {
+                if (item.kind == AssistantCards.NAMED_GENRE) brainFeedback.adjustGenre(item.name, more = false) else brainFeedback.lessFrom(item.name)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Timber.tag(TAG).w(e, "A taste change from the chat failed")
+                null
+            }
+            // The profile the model reads is stale after a taste change: it is rebuilt for the next turn.
+            if (id != null) profile = null
+            updateLess(itemId) { it.copy(state = if (id != null) TaizoChatItem.LESS_DONE else TaizoChatItem.LESS_FAILED, adjustmentId = id) }
+        }
+    }
+
+    fun undoLess(itemId: Long) {
+        val item = _uiState.value.items.firstOrNull { it.id == itemId } as? TaizoChatItem.Less ?: return
+        val adjustment = item.adjustmentId ?: return
+        viewModelScope.launch {
+            runCatching { brainFeedback.undo(adjustment) }
+            profile = null
+            updateLess(itemId) { it.copy(state = TaizoChatItem.LESS_IDLE, adjustmentId = null) }
+        }
+    }
+
     // ---------------------------------------------------------------------------------------
 
     private suspend fun answerWithClaude(text: String) {
@@ -352,6 +499,10 @@ class AskTaizoViewModel @Inject constructor(
                 insertBefore(assistant.id, card)
                 return answer.await()
             }
+
+            override fun onToolResult(name: String, result: String) {
+                if (name == TaizoTools.BUILD_MIX) showMixCard(result)
+            }
         }
 
         try {
@@ -391,6 +542,7 @@ class AskTaizoViewModel @Inject constructor(
                 }
             }
             memory.add(text, finalText.take(MEMORY_REPLY_CHARS))
+            if (result.outcome != TaizoAgent.Outcome.REFUSED) offerLess(text)
         } catch (e: ClaudeException) {
             if (!e.fallsBackOnDevice) throw e
             lastNowSignature = null
@@ -450,6 +602,14 @@ class AskTaizoViewModel @Inject constructor(
                 updateAssistant(assistant.id) { it.copy(text = turn.text, streaming = false, activityRes = null) }
                 memory.add(text, turn.text)
             }
+            is TaizoTurn.Station -> {
+                // No model and no connection needed: the name is looked up in the library and the genre atlas on the phone.
+                val started = startStationFromSentence(turn.name)
+                val reply = if (started) context.getString(R.string.brain_taizo_station_started, turn.name)
+                else context.getString(R.string.brain_taizo_station_not_found, turn.name)
+                updateAssistant(assistant.id) { it.copy(text = reply, streaming = false, activityRes = null, isError = !started) }
+                memory.add(text, reply)
+            }
             is TaizoTurn.Error -> updateAssistant(assistant.id) {
                 it.copy(text = turn.message, streaming = false, activityRes = null, isError = true)
             }
@@ -469,6 +629,26 @@ class AskTaizoViewModel @Inject constructor(
             Timber.tag(TAG).w("Reply held ${verdict.ungroundedNames.size} unverified names and ${verdict.ungroundedNumbers.size} unverified numbers")
         }
         return verdict.cleaned.ifBlank { raw.replace("[[", "").replace("]]", "") }
+    }
+
+    /**
+     * "Start a station from X" offline: X is tried as an artist, a genre, a playlist and an album of the listener's, in that order, through the
+     * same call the chat's `start_station` tool makes (so the first track plays at once and the engine continues from the cached pools).
+     */
+    private suspend fun startStationFromSentence(name: String): Boolean {
+        val player = toolExecutor.player ?: return false
+        for (kind in listOf("artist", "genre", "playlist", "album")) {
+            val outcome = try {
+                assistantEngine.startStation(name, kind, "blend", player)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Timber.tag(TAG).d(e, "A station from a sentence could not start as $kind")
+                continue
+            }
+            if (outcome.started) return true
+        }
+        return false
     }
 
     private suspend fun profileBlock(): String {

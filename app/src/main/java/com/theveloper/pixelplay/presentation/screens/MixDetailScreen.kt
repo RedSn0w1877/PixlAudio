@@ -75,6 +75,12 @@ fun MixDetailScreen(
             item(key = "header", contentType = "header") {
                 androidx.compose.foundation.layout.Column(Modifier.padding(horizontal = 20.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     if (ui.subtitle.isNotBlank()) Text(ui.subtitle, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    ui.note?.let { note ->
+                        androidx.compose.foundation.layout.Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(stringResource(R.string.brain_weekly_note_title), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                            Text(note, style = MaterialTheme.typography.bodyLarge)
+                        }
+                    }
                     if (ui.songs.isNotEmpty()) {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             Button(onClick = {

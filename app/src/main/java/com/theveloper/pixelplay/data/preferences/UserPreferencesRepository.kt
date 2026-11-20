@@ -262,6 +262,7 @@ class UserPreferencesRepository @Inject constructor(
         val BRAIN_ENGINE = intPreferencesKey("brain_engine")
         // The one background job of the brain (BrainRefreshWorker); default on.
         val BRAIN_REFRESH_ENABLED = booleanPreferencesKey("brain_refresh_enabled")
+        val BRAIN_ASSIST_HELP_ENABLED = booleanPreferencesKey("brain_assist_help_enabled")
         val BRAIN_SPOTIFY_SHAPES_PICKS = booleanPreferencesKey("brain_spotify_shapes_picks")
         val BRAIN_STATE_SEEN = booleanPreferencesKey("brain_state_seen")
         val RESUME_ON_HEADSET_RECONNECT = booleanPreferencesKey("resume_on_headset_reconnect")
@@ -657,6 +658,14 @@ class UserPreferencesRepository @Inject constructor(
 
     suspend fun setBrainRefreshEnabled(enabled: Boolean) {
         dataStore.edit { it[PreferencesKeys.BRAIN_REFRESH_ENABLED] = enabled }
+    }
+
+    /** "Let Taizo help the engine" (stage 4, docs/brain-spec.md, 9.4 batch jobs): off unless the listener turns it on. */
+    val brainAssistHelpEnabledFlow: Flow<Boolean> =
+        pref { it[PreferencesKeys.BRAIN_ASSIST_HELP_ENABLED] ?: false }
+
+    suspend fun setBrainAssistHelpEnabled(enabled: Boolean) {
+        dataStore.edit { it[PreferencesKeys.BRAIN_ASSIST_HELP_ENABLED] = enabled }
     }
 
     /**

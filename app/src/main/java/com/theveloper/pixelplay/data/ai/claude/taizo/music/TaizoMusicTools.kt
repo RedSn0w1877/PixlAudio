@@ -1,5 +1,6 @@
 package com.theveloper.pixelplay.data.ai.claude.taizo.music
 
+import com.theveloper.pixelplay.brain.AssistantCards
 import com.theveloper.pixelplay.brain.AssistantRules
 import com.theveloper.pixelplay.data.ai.claude.taizo.TaizoPlayer
 import com.theveloper.pixelplay.data.ai.claude.taizo.TaizoTools
@@ -39,9 +40,68 @@ class TaizoMusicTools(
     var budgetSpentThisTurn: Boolean = false
         private set
 
+    /** The mixes this chat built, newest last (a card's Play, Save and chips find their request here). */
+    private val builtMixes = object : LinkedHashMap<String, BuiltMix>(16, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, BuiltMix>?): Boolean = size > MAX_MIXES
+    }
+
+    /** What the explain tools named this turn (genres, artists), for the one-tap "Less X" that ends an explanation. */
+    private val namedThisTurn = ArrayList<AssistantCards.Named>()
+
     fun beginTurn() {
         lookedUpThisTurn = 0
         budgetSpentThisTurn = false
+        synchronized(namedThisTurn) { namedThisTurn.clear() }
+    }
+
+    /** The genres and artists the explain tools of this turn returned; the chat offers "Less X" only for one of these the listener asked about. */
+    fun namedThisTurn(): List<AssistantCards.Named> = synchronized(namedThisTurn) { namedThisTurn.toList() }
+
+    private fun noteNamed(kind: Int, name: String) {
+        val n = name.trim()
+        if (n.isEmpty()) return
+        synchronized(namedThisTurn) { if (namedThisTurn.none { it.kind == kind && it.name == n }) namedThisTurn.add(AssistantCards.Named(kind, n)) }
+    }
+
+    private fun remember(mix: BuiltMix) {
+        synchronized(builtMixes) { builtMixes[mix.mixId] = mix }
+    }
+
+    /** The card of a mix this chat built, or null. */
+    fun mixCard(mixId: String): MixCard? = synchronized(builtMixes) { builtMixes[mixId] }?.let(MixCard::of)
+
+    /**
+     * A chip tapped under a card: the stored request with the delta applied, built again by the engine. No model call, no tool call of the
+     * conversation: the tracks it returns are noted as held, so a reply that names one is not an invented name. Null when the engine
+     * had nothing to build or the mix is not this chat's.
+     */
+    suspend fun adjustMix(mixId: String, chip: AssistantRules.Chip): MixCard? {
+        val next = backend.adjustMix(mixId, chip) ?: return null
+        for (p in next.tracks) notePick(p)
+        grounding.noteName(next.title)
+        remember(next)
+        return MixCard.of(next)
+    }
+
+    private fun titleOfMix(mixId: String): String = synchronized(builtMixes) { builtMixes[mixId]?.title }.orEmpty().ifBlank { "Made for you" }
+
+    /** The songs of a mix this chat built, ready to play (engine tracks registered in `playable`) with its title; null for any other id. */
+    suspend fun songsOfMix(mixId: String): Pair<String, List<com.theveloper.pixelplay.data.model.Song>>? {
+        val songs = backend.songsForMix(mixId)?.takeIf { it.isNotEmpty() } ?: return null
+        return titleOfMix(mixId) to songs
+    }
+
+    /**
+     * Plays a mix through [player] (the Play button of its card): the queue becomes the mix, and every pick is announced with its tags
+     * (surface assistant, arm, served vector) so what is played reaches the event log as it does from Home. Main thread (the player's).
+     */
+    suspend fun playMix(mixId: String, player: TaizoPlayer?): Boolean {
+        val p = player ?: return false
+        val (title, songs) = songsOfMix(mixId) ?: return false
+        val queueName = "Taizo: $title"
+        backend.expectTags(queueName, songs)
+        p.playSongs(songs, songs.first(), queueName)
+        return true
     }
 
     /** True for the ten music tools. */
@@ -165,6 +225,7 @@ class TaizoMusicTools(
                 put("note", "PixlAudio has nothing to build this from yet (no songs and no cached radios). Say so; do not make a list yourself.")
                 putUnknownRefs(unknown)
             }
+        remember(mix)
         val json = mixJson(mix)
         return buildJsonObject {
             json.forEach { (k, v) -> put(k, v) }
@@ -233,6 +294,8 @@ class TaizoMusicTools(
         grounding.noteName(e.title)
         grounding.noteArtists(e.artist)
         e.whyArgs.forEach(grounding::noteName)
+        noteNamed(AssistantCards.NAMED_ARTIST, e.artist.substringBefore(", "))
+        e.genres?.forEach { noteNamed(AssistantCards.NAMED_GENRE, it) }
         val unknown = ArrayList<String>()
         val rate = e.completionRate
         return buildJsonObject {
@@ -276,6 +339,9 @@ class TaizoMusicTools(
             grounding.noteName(line.name)
             grounding.noteName(line.value)
             if (line.detail.isNotEmpty()) grounding.noteName(line.detail)
+            // A genre the answer states (the genres list, or the summary's top genres) is something "Less X" can be about.
+            if (t.scope == "genres") noteNamed(AssistantCards.NAMED_GENRE, line.name)
+            else if (t.scope == "summary" && line.name == "top genre") noteNamed(AssistantCards.NAMED_GENRE, line.value)
         }
         return buildJsonObject {
             put("scope", t.scope)
@@ -437,6 +503,9 @@ class TaizoMusicTools(
     companion object {
         /** Network lookups one turn may start (the YouTube budget of the day is smaller still, and the backend enforces it). */
         const val MAX_LOOKUPS_PER_TURN = 40
+
+        /** Mixes kept so their cards can still play, save and change. */
+        const val MAX_MIXES = 8
 
         private fun JsonObject.str(key: String): String? = (this[key] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
         private fun JsonObject.int(key: String): Int = intOr(key, 0)

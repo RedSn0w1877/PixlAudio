@@ -47,7 +47,7 @@ class BrainFeedbackTest {
 
     /** The holder with the parts these tests do not look at as relaxed mocks. */
     private fun actionsOf() = BrainActionsStateHolder(
-        feedback, mockk(relaxed = true), mockk(relaxed = true), mockk(relaxed = true), mockk(relaxed = true),
+        feedback, mockk(relaxed = true), mockk(relaxed = true), mockk(relaxed = true), mockk(relaxed = true), mockk(relaxed = true),
         dagger.Lazy { mockk(relaxed = true) }, CoroutineScope(Dispatchers.Unconfined),
     )
 
@@ -209,7 +209,7 @@ class BrainFeedbackTest {
         every { engine.isLoaded } returns false
         val identity = mockk<TrackResolver>(relaxed = true)
         val holder = BrainActionsStateHolder(
-            feedback, mockk(relaxed = true), engine, identity, mockk(relaxed = true),
+            feedback, mockk(relaxed = true), engine, identity, mockk(relaxed = true), mockk(relaxed = true),
             dagger.Lazy { mockk(relaxed = true) }, CoroutineScope(Dispatchers.Unconfined),
         )
         holder.swiped(song)
