@@ -397,6 +397,10 @@ object GoldenGenerator {
                 OfferReceived(0, V1, 9, 10_000), SaveResult(SaveOutcome.SAVED, 10_100), Undo(11_000),
                 OfferReceived(0, V2, 9, 20_000), SaveResult(SaveOutcome.SAVED, 20_100), Undo(21_000),
                 OfferReceived(0, "bbbbbbbbbbb", 9, 30_000), Dismiss, OfferReceived(0, "bbbbbbbbbbb", 8, 31_000), SaveResult(SaveOutcome.SAVED, 31_100))
+            add("limits: qr beams are never muted", false, Arm(Role.RECEIVE, false),
+                OfferReceived(0, V1, 0, 10_000), SaveResult(SaveOutcome.SAVED, 10_100), Undo(11_000),
+                OfferReceived(0, V2, 0, 20_000), SaveResult(SaveOutcome.SAVED, 20_100), Undo(21_000),
+                OfferReceived(0, "bbbbbbbbbbb", 0, 30_000), SaveResult(SaveOutcome.SAVED, 30_100))
             add("idle ignores everything", true, PeerFound(1), TapDetected(1, V1), OfferReceived(0, V1, 1, 0), Accept(0), Undo(0), Dismiss, Cancel, Disarm, Timeout(TimeoutTag.ACK))
             add("arm twice", true, Arm(Role.SEND, true), Arm(Role.RECEIVE, false), PeerFound(1), Arm(Role.SEND, true))
             add("a peer that leaves while found", true, Arm(Role.SEND, true), PeerFound(1), PeerNear(1), PeerFar(1), PeerLost(1), PeerNear(1))
@@ -591,6 +595,7 @@ object GoldenGenerator {
         for (i in 0 until 31) { hour += "admit,${i * 100_000},h$i,1"; hour += "accepted,${i * 100_000},h$i" }
         hour += "admit,3100001,hx,1"; hour += "admit,3700000,hx,1"
         scripts += "thirty an hour" to hour
+        scripts += "an unknown sender is never muted" to listOf("undone,0,0", "undone,1000,0", "admit,2000,a,0")
         scripts += "mute" to listOf("undone,0,5", "admit,100,a,5", "undone,1000,5", "admit,1001,a,5", "admit,1001,a,6", "admit,3601000,a,5", "admit,3601001,a,5")
         val rng = SplitMix64(0x52415445L)
         for (n in 0 until 40) {

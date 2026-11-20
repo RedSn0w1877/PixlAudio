@@ -145,6 +145,15 @@ class SessionTest {
     }
 
     @Test
+    fun `code beams have no sender to mute`() {
+        val r = run(false, Arm(Role.RECEIVE, false),
+            OfferReceived(0, v1, 0, 10_000), SaveResult(SaveOutcome.SAVED, 10_100), Undo(11_000),
+            OfferReceived(0, v2, 0, 20_000), SaveResult(SaveOutcome.SAVED, 20_100), Undo(21_000),
+            OfferReceived(0, "bbbbbbbbbbb", 0, 30_000))
+        assertEquals(Phase.TRANSFERRING, r.last().state.phase)
+    }
+
+    @Test
     fun `nothing to send is a notice and not an offer`() {
         val r = run(true, Arm(Role.SEND, true), PeerFound(1), PeerNear(1), TapDetected(1, ""))
         assertEquals(FailReason.NOTHING_TO_SEND, r.last().state.fail)

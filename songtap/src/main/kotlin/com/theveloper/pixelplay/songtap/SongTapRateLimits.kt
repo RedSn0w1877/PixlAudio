@@ -47,8 +47,13 @@ class RateLimits private constructor(
         return RateLimits(times, videos, undoCounts, mutedUntil.filter { it.second > nowMs })
     }
 
-    /** The listener undid a beam from [senderKey]; the second undo mutes that sender for an hour. */
+    /**
+     * The listener undid a beam from [senderKey]; the second undo mutes that sender for an hour. Key 0 means
+     * the sender is not known (a QR code carries no key), and not knowing who it was, nobody is muted for it:
+     * the rate limits above still apply.
+     */
     fun undone(nowMs: Long, senderKey: Int): RateLimits {
+        if (senderKey == 0) return this
         val before = undoCounts.firstOrNull { it.first == senderKey }?.second ?: 0
         val count = before + 1
         val others = undoCounts.filter { it.first != senderKey }

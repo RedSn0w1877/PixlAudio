@@ -43,6 +43,12 @@ class MiscTest {
     }
 
     @Test
+    fun `a sender that is not known is never muted`() {
+        val l = RateLimits().undone(0, 0).undone(1_000, 0).undone(2_000, 0)
+        assertEquals(LimitVerdict.ALLOWED, l.admit(5_000, "a", 0))
+    }
+
+    @Test
     fun `timeline ends where it should`() {
         val send = SongTapTimeline.frame(Role.SEND, 0, false)
         assertEquals(BeamFrame(0, 1000, 0, 1000, 0, 0, 0, 0), send)
