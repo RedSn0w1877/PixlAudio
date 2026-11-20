@@ -85,7 +85,15 @@ App (`data/ai/claude/taizo/music/`): `MusicBackend`, `TaizoMusicTools` (executor
 
 ## What was run, and what it said
 
-(filled in below at the end of the pass)
+Commands (Windows, `ANDROID_HOME` set, one Gradle at a time):
+
+- `./gradlew :brain:generateGolden` then `./gradlew :brain:test`: **273 tests, 0 failed**. `BrainGoldenTest` compares the committed golden folder byte for byte; after regeneration only `assistant.jsonl` (one new case) and the manifest and README changed.
+- `./gradlew :app:testDebugUnitTest --tests "com.theveloper.pixelplay.data.brain.*" --tests "com.theveloper.pixelplay.data.recommendation.*" --tests "com.theveloper.pixelplay.data.ai.*"`: **493 tests, 1 skipped (pre-existing), 0 failed**. That includes `RecommendationGoldenEqualityTest` (legacy mixes byte for byte: 5 tests), `MusicBrainMigrationsTest` (15), `ControlSessionTest` (7, one new), `TaizoMusicToolsTest` (22), `TaizoGroundingTest` (8), `TaizoMusicPromptTest` (2), `ClaudeRulesTest`, `TaizoTasteToolsTest` (two assertions updated: the 16 old tools keep their place, and at most 20 are strict).
+- `./gradlew :brain:test :app:assembleDebug`: **BUILD SUCCESSFUL** (the debug APK builds with the new Hilt graph, so `BrainAssistantEngine` and its injected dependencies resolve).
+
+Two things went wrong on the way and were fixed: a Windows line break inside a Kotlin char literal (compile error) and `TaizoTasteToolsTest` needing the executor's two new constructor arguments. The earlier first run of `TaizoTasteToolsTest` also caught the 20-strict-tool limit (deviation 222), which the spec's table does not account for.
+
+Not run: `./gradlew :app:testDebugUnitTest` for the whole app (only the three packages above), `connectedDebugAndroidTest` (no device), `:wear:assembleDebug`.
 
 ## Still unverified (nothing was run on a phone)
 
