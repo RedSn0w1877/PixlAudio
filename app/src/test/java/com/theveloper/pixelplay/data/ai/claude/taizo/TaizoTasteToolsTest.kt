@@ -35,7 +35,8 @@ class TaizoTasteToolsTest {
     @Test
     fun `the new tools are registered after the old ones and are closed and eager`() {
         val names = TaizoTools.clientToolNames
-        assertThat(names.takeLast(5)).containsExactly(
+        // The 16 tools of before stage 4 keep their place (their tail is the taste tools); the ten music tools come after them.
+        assertThat(names.take(16).takeLast(5)).containsExactly(
             TaizoTools.LIBRARY_OVERVIEW, TaizoTools.TASTE_PROFILE, TaizoTools.ADJUST_TASTE,
             TaizoTools.LIST_TASTE_ADJUSTMENTS, TaizoTools.REMOVE_TASTE_ADJUSTMENT,
         ).inOrder()
@@ -133,6 +134,8 @@ class TaizoTasteToolsTest {
         library = mockk(),
         profileProvider = mockk(),
         tasteAdjustments = repository,
+        musicEngine = mockk(),
+        engineTrackSaver = mockk(),
     )
 
     private fun outcome(vararg texts: String) = TasteOutcome(

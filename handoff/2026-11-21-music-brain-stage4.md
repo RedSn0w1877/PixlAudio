@@ -27,7 +27,7 @@ The learner trained and the gate predicted on a REDUCED vector rebuilt from the 
 
 ### The ten tools (`TaizoTools.musicToolNames`, appended after the 16)
 
-`resolve_tracks`, `recommend`, `build_mix`, `start_station`, `steer_session`, `explain_track`, `explain_taste`, `lookup_genre`, `similar_artists`, `new_releases`. All strict, `additionalProperties: false`, `eager_input_streaming`, **every parameter required** (so 0 of the 24 optional parameters are spent). Sentinels: `[]`, `0`, `""`, `"any"`, and `-1` for `novelty_share_pct` (deviation 212). Descriptions are short (the list is the cached prefix).
+`resolve_tracks`, `recommend`, `build_mix`, `start_station`, `steer_session`, `explain_track`, `explain_taste`, `lookup_genre`, `similar_artists`, `new_releases`. All `additionalProperties: false`, `eager_input_streaming`, five strict (deviation 222), **every parameter required** (so 0 of the 24 optional parameters are spent); only five of them are strict (deviation 222). Sentinels: `[]`, `0`, `""`, `"any"`, and `-1` for `novelty_share_pct` (deviation 212). Descriptions are short (the list is the cached prefix).
 
 Pure (`:brain`, `AssistantRules`, golden `assistant.jsonl`): refs, `normalize` (clamps, de-duplicates, orders year bounds), the filters (`passes`, `unsupportedFilters`, `noveltyShare`), the chips (`applyChip`, `chipsFor`), the fixed factor names and `topFactors`.
 
@@ -66,6 +66,7 @@ App (`data/ai/claude/taizo/music/`): `MusicBackend`, `TaizoMusicTools` (executor
 218. **`new_releases` has only `my_artists`.** Nothing tracks "adjacent" or "country" releases; those scopes return an empty list and say why.
 219. **Web search and fetch results count as held** (`noteServerResult`): a name that appears on a page the model read is not an invented name. A recommendation that names something only a web page returned passes the check; the prompt still says picks come from `recommend` / `build_mix`.
 220. **A resolved or recommended track needs a ref.** A library song with neither a real Spotify id nor a known YouTube audio id has no ref and is left out of tool results.
+222. **Only five of the ten tools are strict.** A request may hold at most 20 strict tools (the older test `TaizoTasteToolsTest` already pinned it); 15 of the older 16 are strict, so 5 of the new ones can be. `resolve_tracks`, `recommend`, `build_mix`, `start_station` and `steer_session` are strict; `explain_track`, `explain_taste`, `lookup_genre`, `similar_artists` and `new_releases` (small, read-only, one or two parameters) are not, like `search_library`. Their schemas are still closed (`additionalProperties: false`, every parameter required) and every input is validated locally before it runs. The spec's "strict: true" for all ten cannot hold with the 16 already in place. iOS: same split.
 221. **`start_station` for album / playlist / genre** picks its seeds by the library's order (`StationSeeds.pick` with no play counts), not by plays, because the backend has no engagement store.
 
 ## Cut or deferred

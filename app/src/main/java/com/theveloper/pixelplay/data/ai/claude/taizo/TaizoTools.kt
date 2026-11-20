@@ -78,12 +78,13 @@ object TaizoTools {
     val clientToolNames: List<String> = legacyToolNames + musicToolNames
 
     /**
-     * The one tool that is not `strict`. Anthropic compiles strict schemas into a grammar and allows 24
-     * optional parameters across all of them; `search_library` alone has a dozen filters, and the others
-     * already use 20 of the 24. Its input is still checked locally ([com.theveloper.pixelplay.data.ai.claude.ToolInputValidator]),
-     * like every streamed input.
+     * The tools that are not `strict`. Anthropic compiles strict schemas into a grammar, allows 24 optional parameters across all of them and
+     * at most 20 strict tools in one request. `search_library` alone has a dozen filters; and 15 older tools plus ten new ones would be 25
+     * strict tools, so the five small read-only music tools (`explain_track`, `explain_taste`, `lookup_genre`, `similar_artists`,
+     * `new_releases`: deviation 222) are not strict either. Their schemas are still closed with every parameter required, and every input is
+     * checked locally ([com.theveloper.pixelplay.data.ai.claude.ToolInputValidator]) before anything runs, like every streamed input.
      */
-    val nonStrictToolNames: Set<String> = setOf(SEARCH_LIBRARY)
+    val nonStrictToolNames: Set<String> = setOf(SEARCH_LIBRARY, EXPLAIN_TRACK, EXPLAIN_TASTE, LOOKUP_GENRE, SIMILAR_ARTISTS, NEW_RELEASES)
 
     /** Client tool definitions by name (their `input_schema` is what inputs are validated against). */
     val clientTools: Map<String, JsonObject> by lazy {
@@ -332,6 +333,7 @@ object TaizoTools {
                 EXPLAIN_TRACK,
                 "Why a pick was served: the arm, the reason line, the strongest factors (names only, no weights) and facts " +
                     "(genres, year, plays, completion rate). Report only what it returns; a field listed in unknown is unknown.",
+                strict = false,
             ) {
                 stringProp("ref", "The track's ref (sp:<id> or yt:<id>) from an earlier result, or \"now\" for the song playing.")
                 required("ref")
@@ -340,6 +342,7 @@ object TaizoTools {
                 EXPLAIN_TASTE,
                 "Part of the user's Your sound page: what their plays say, with real numbers, and what is not known yet. " +
                     "Call this for \"why do I keep getting X\" and \"what is my taste\". Report only what it returns.",
+                strict = false,
             ) {
                 enumProp("scope", "Which part.", AssistantRules.EXPLAIN_SCOPES)
                 required("scope")
@@ -348,6 +351,7 @@ object TaizoTools {
                 LOOKUP_GENRE,
                 "Look a genre or mood up in PixlAudio's genre atlas: id, description, parents, children, related, region, era. " +
                     "Use it to get ids for recommend and build_mix; never guess an id. A name it lacks returns the nearest names.",
+                strict = false,
             ) {
                 stringProp("query", "A genre or mood name, or an id.")
                 required("query")
@@ -355,6 +359,7 @@ object TaizoTools {
             tool(
                 SIMILAR_ARTISTS,
                 "Artists close to one the user names, from the similarity graph PixlAudio built, with how sure it is.",
+                strict = false,
             ) {
                 stringProp("artist", "The artist's name.")
                 integerProp("count", "How many, 1-${AssistantRules.DEFAULT_RESULTS}.")
@@ -365,6 +370,7 @@ object TaizoTools {
                 NEW_RELEASES,
                 "New releases PixlAudio has found for the user's artists (my_artists), for artists next to them (adjacent), or for " +
                     "their country (country). It only knows what its last refresh found.",
+                strict = false,
             ) {
                 enumProp("scope", "Whose releases.", AssistantRules.RELEASE_SCOPES)
                 integerProp("count", "How many, 1-${AssistantRules.DEFAULT_RESULTS}.")

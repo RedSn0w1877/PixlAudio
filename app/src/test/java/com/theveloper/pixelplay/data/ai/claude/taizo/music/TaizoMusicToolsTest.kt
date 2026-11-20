@@ -47,10 +47,14 @@ class TaizoMusicToolsTest {
     }
 
     @Test
-    fun `every music tool is strict, closed, eager and has every parameter required`() {
+    fun `every music tool is closed, eager and has every parameter required, and the strict ones stay within the API's 20`() {
+        // 15 older strict tools + 5 music ones = 20 (deviation 222): the five small read-only tools are validated locally instead.
+        val strictMusic = TaizoTools.musicToolNames.filter { it !in TaizoTools.nonStrictToolNames }
+        assertThat(strictMusic).containsExactly("resolve_tracks", "recommend", "build_mix", "start_station", "steer_session").inOrder()
+        assertThat(TaizoTools.clientToolNames.count { it !in TaizoTools.nonStrictToolNames }).isAtMost(20)
         for (name in TaizoTools.musicToolNames) {
             val tool = TaizoTools.clientTools.getValue(name)
-            assertThat(tool["strict"]).isEqualTo(JsonPrimitive(true))
+            if (name in strictMusic) assertThat(tool["strict"]).isEqualTo(JsonPrimitive(true)) else assertThat(tool["strict"]).isNull()
             assertThat(tool["eager_input_streaming"]).isEqualTo(JsonPrimitive(true))
             val schema = tool["input_schema"]!!.jsonObject
             assertThat(schema["additionalProperties"]).isEqualTo(JsonPrimitive(false))
