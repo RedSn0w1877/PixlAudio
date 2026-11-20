@@ -50,6 +50,11 @@ JVM: `SearchHistoryRulesTest` (constants, key, Vietnamese NFC/NFD, upsert, cap, 
 `SearchHistorySchemaTest` (the ALTER statements and the index against the exported `5.json`/`6.json`). Fake: `FakeSearchHistoryDao`.
 Device: `SearchHistoryMigrationTest` (5 to 6 on a real file), `SearchHistoryDaoTest` (the SQL). Not run here (no device).
 
+## Verification done
+
+No local Gradle run (other builds were running on the machine). CI ("Android CI", compile, whole unit-test suite, Wear compile, debug APKs) is the check.
+`app/schemas/.../PixelPlayDatabase/6.json` is the file Room's KSP exported in CI (a temporary workflow printed it; it is removed again), not hand-written.
+
 ## Deviations from the brief
 
 - Tapping a recent row that opened something (artist, album, playlist, song) opens it; tapping a plain query row fills the field and
