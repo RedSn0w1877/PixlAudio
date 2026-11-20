@@ -2,6 +2,7 @@ package com.theveloper.pixelplay.presentation.screens
 
 import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -15,6 +16,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material3.AssistChip
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -26,8 +28,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -70,7 +74,14 @@ fun GenrePageScreen(
             )
         },
     ) { padding ->
-        if (facts == null) return@Scaffold
+        if (facts == null) {
+            // Loading, or nothing to show (no atlas, a genre the app does not name): the page says which, instead of staying blank.
+            Box(Modifier.fillMaxSize().padding(padding).padding(16.dp), contentAlignment = Alignment.Center) {
+                if (ui.loading) CircularProgressIndicator()
+                else Text(stringResource(R.string.brain_genre_unavailable), style = MaterialTheme.typography.bodyLarge)
+            }
+            return@Scaffold
+        }
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding).navigationBarsPadding(),
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
@@ -114,7 +125,7 @@ fun GenrePageScreen(
                                 stringResource(R.string.brain_genre_you_first, java.text.DateFormat.getDateInstance(java.text.DateFormat.MEDIUM).format(java.util.Date(you.firstPlayedMs))),
                                 style = MaterialTheme.typography.bodyLarge,
                             )
-                            Text(stringResource(R.string.brain_genre_you_share, (you.permille + 5) / 10, you.plays), style = MaterialTheme.typography.bodyMedium)
+                            Text(pluralStringResource(R.plurals.brain_genre_you_share, you.plays, (you.permille + 5) / 10, you.plays), style = MaterialTheme.typography.bodyMedium)
                             if (you.topSongs.isNotEmpty()) {
                                 Text(stringResource(R.string.brain_genre_you_top), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 for (s in you.topSongs) Text(s, style = MaterialTheme.typography.bodyMedium)

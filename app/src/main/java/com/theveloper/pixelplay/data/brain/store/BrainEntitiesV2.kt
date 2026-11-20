@@ -158,6 +158,10 @@ interface FeedbackDao {
 
     @Query("DELETE FROM feedback")
     suspend fun clear()
+
+    /** Every row whose id is not in [ids]: a restore adds the restored rows first and then removes the rest, so a stop in between loses nothing. */
+    @Query("DELETE FROM feedback WHERE id NOT IN (:ids)")
+    suspend fun deleteNotIn(ids: List<Long>)
 }
 
 /** What a seed pick reads from the event log and the radio cache (3.6, "Stage 2 before islands exist"). */

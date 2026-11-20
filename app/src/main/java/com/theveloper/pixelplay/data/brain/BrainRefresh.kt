@@ -68,6 +68,12 @@ interface RefreshWork {
 
     /** Gives the finished Home visits to the shelf bandit (stage 3, 5.10). Reads and writes the database only. A no-op by default. */
     suspend fun settleShelves() {}
+
+    /**
+     * Stage 3 (5.9, 5.12): the replay that trains the learner and decides the gate, and the weekly refresh of the facts, when they are due.
+     * It runs here and not at first use, so Home never waits for it. A no-op by default.
+     */
+    suspend fun rebuildBrain() {}
 }
 
 /**
@@ -208,6 +214,7 @@ class BrainRefreshRunner(
                 work.purgeSpotify()
                 work.fitIslands()
                 work.settleShelves()
+                work.rebuildBrain()
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -246,6 +253,7 @@ class AppRefreshWork @Inject constructor(
     private val dnaEnricher: DnaEnricher,
     private val spotifyPurge: SpotifyDnaPurge,
     private val shelfStore: ShelfStore,
+    private val engine: BrainEngine,
 ) : RefreshWork {
 
     override suspend fun dnaTargets(lane: Int, limit: Int): List<DnaTarget> = when (lane) {
@@ -267,6 +275,14 @@ class AppRefreshWork @Inject constructor(
 
     override suspend fun settleShelves() {
         shelfStore.settle()
+    }
+
+    override suspend fun rebuildBrain() {
+        // Loads the state (which starts a rebuild only if the tables are stale), then asks for the due one and waits for it: the work stays
+        // inside this job.
+        engine.withState { }
+        engine.requestRebuild(force = false)
+        engine.awaitRebuild()
     }
 
 

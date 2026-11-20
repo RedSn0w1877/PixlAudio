@@ -2,6 +2,8 @@ package com.theveloper.pixelplay.data.brain
 
 import com.theveloper.pixelplay.brain.BrainMath
 import com.theveloper.pixelplay.brain.EndReason
+import com.theveloper.pixelplay.brain.EventFlags
+import com.theveloper.pixelplay.brain.StartReason
 import com.theveloper.pixelplay.brain.HomePlanner
 import com.theveloper.pixelplay.brain.Ranker
 import com.theveloper.pixelplay.brain.ShelfBandit
@@ -42,6 +44,9 @@ class ShelfStore @Inject constructor(
     private var seenDepth = -1
     private val activated = HashSet<Int>()
 
+    /** When the page last reported anything. A visit is over after [SAME_VISIT_MS] without a signal, not that long after it began. */
+    private var lastTouchMs = 0L
+
     private suspend fun loadedState(): ShelfBandit.State {
         state?.let { return it }
         val loaded = store.getState(KEY_SHELF_BANDIT)?.let(ShelfBanditCodec::decode) ?: ShelfBandit.newState()
@@ -62,9 +67,15 @@ class ShelfStore @Inject constructor(
             try {
                 if (ids.isEmpty() || ids.size != types.size) return@withLock
                 val now = clock.nowMs()
-                if (visitId != 0L && now - visitId in 0 until SAME_VISIT_MS && visitShelves == ids) return@withLock
+                if (visitId != 0L && now - lastTouchMs in 0 until SAME_VISIT_MS && visitShelves == ids) {
+                    lastTouchMs = now
+                    return@withLock
+                }
+                // A different page replaces the one on screen: that visit is over (it is given to the bandit once it is old enough).
+                visitId = 0L
                 settleLocked(now)
                 visitId = now
+                lastTouchMs = now
                 visitShelves = ids
                 seenDepth = -1
                 activated.clear()
@@ -86,6 +97,7 @@ class ShelfStore @Inject constructor(
                 val position = visitShelves.indexOf(shelfId)
                 if (visitId == 0L || position < 0 || position <= seenDepth) return@withLock
                 seenDepth = position
+                lastTouchMs = clock.nowMs()
                 dao.markSeenThrough(visitId, position)
             } catch (e: CancellationException) {
                 throw e
@@ -101,7 +113,8 @@ class ShelfStore @Inject constructor(
             try {
                 val position = visitShelves.indexOf(shelfId)
                 if (visitId == 0L || position < 0 || !activated.add(position)) return@withLock
-                dao.markActivated(visitId, position, clock.nowMs())
+                lastTouchMs = clock.nowMs()
+                dao.markActivated(visitId, position, lastTouchMs)
                 if (position > seenDepth) {
                     seenDepth = position
                     dao.markSeenThrough(visitId, position)
@@ -133,36 +146,50 @@ class ShelfStore @Inject constructor(
         if (rows.isEmpty()) return
         val s = loadedState()
         val visits = ArrayList<Long>()
+        // One play rewards one shelf: a play already given to a shelf (of this or another visit) is not given again.
+        val claimed = HashSet<Long>()
         var i = 0
         var moved = false
         while (i < rows.size) {
             var j = i
             while (j < rows.size && rows[j].visitId == rows[i].visitId) j++
             val group = rows.subList(i, j)
+            i = j
+            // The page that is on screen now and was touched lately is not over, however long ago it was first shown.
+            if (group[0].visitId == visitId && nowMs - lastTouchMs in 0 until SAME_VISIT_MS) continue
             visits.add(group[0].visitId)
             val shown = IntArray(group.size) { group[it].shelf }
             var lastSeen = -1
             var used = -1
             for (k in group.indices) {
                 if (group[k].seen == 1) lastSeen = k
-                if (group[k].activatedAtMs > 0L && used < 0 && wasPlayedThirtySeconds(group[k].activatedAtMs)) used = k
+                if (group[k].activatedAtMs > 0L && used < 0 && wasPlayedThirtySeconds(group[k].activatedAtMs, claimed)) used = k
                 // Started but not played for 30 seconds: the listener looked at it, no reward.
                 if (group[k].activatedAtMs > 0L && k > lastSeen) lastSeen = k
             }
             val today = BrainMath.localDay(group[0].shownAtMs, java.util.TimeZone.getDefault().getOffset(group[0].shownAtMs) / 60_000)
             if (ShelfBandit.visit(s, group[0].daypart, shown, lastSeen, used, today) > 0) moved = true
-            i = j
         }
-        dao.settle(visits)
+        // The posteriors are saved BEFORE the visits are marked as given: a process death between the two counts a visit twice at worst, never
+        // loses one for good.
         if (moved) save(s)
+        if (visits.isNotEmpty()) dao.settle(visits)
     }
 
-    /** True when the first play that started within two minutes of [activatedAtMs] was heard for at least 30 seconds (or to its end). */
-    private fun wasPlayedThirtySeconds(activatedAtMs: Long): Boolean {
+    /**
+     * True when the first play the listener's tap started within [PLAY_WINDOW_MS] of [activatedAtMs] was heard for at least 30 seconds (or to
+     * its end). Plays that count for nothing are skipped (private ones, silent ones), and so are the ones the queue moved on to by itself
+     * (auto advance, autoplay, a restored queue): they are not what the tap started. A play is given to one shelf only ([claimed]).
+     * The play is not matched to the shelf's own list: the event carries a surface and a list id, but a shelf and a list do not share ids yet.
+     */
+    private fun wasPlayedThirtySeconds(activatedAtMs: Long, claimed: MutableSet<Long>): Boolean {
         val after = (activatedAtMs shl 16) - 1L
         for (e in store.eventsAfter(after, FIRST_EVENTS)) {
             if (e.startedAtMs < activatedAtMs) continue
             if (e.startedAtMs > activatedAtMs + PLAY_WINDOW_MS) return false
+            if (e.has(EventFlags.LEARN_EXCLUDED) || e.has(EventFlags.NEVER_AUDIBLE)) continue
+            if (e.startReason == StartReason.AUTO_ADVANCE || e.startReason == StartReason.AUTOPLAY || e.startReason == StartReason.RESTORE) continue
+            if (!claimed.add(e.eventId)) continue
             return e.endReason == EndReason.TRACK_DONE || e.playedMs.toLong() >= ShelfBandit.REWARD_PLAY_MS
         }
         return false
@@ -201,6 +228,7 @@ class ShelfStore @Inject constructor(
                 state = ShelfBandit.newState()
                 store.putState(KEY_SHELF_BANDIT, null)
                 visitId = 0L
+                lastTouchMs = 0L
                 visitShelves = emptyList()
                 seenDepth = -1
                 activated.clear()
@@ -221,8 +249,8 @@ class ShelfStore @Inject constructor(
         /** A page left alone this long is a finished visit; the same page shown again within it is the same visit. */
         const val SAME_VISIT_MS = 30L * 60_000L
 
-        /** A play that starts within this long of a tap is the one the tap started. */
-        const val PLAY_WINDOW_MS = 2L * 60_000L
+        /** A play the listener starts within this long of a tap is the one the tap started (a card opens a page first, then play is pressed). */
+        const val PLAY_WINDOW_MS = 10L * 60_000L
         private const val FIRST_EVENTS = 8
     }
 }

@@ -114,6 +114,51 @@ class ControlSessionTest {
     }
 
     @Test
+    fun `a list built before the first play is drawn on its own key, so about one in ten is a control`() = runTest {
+        engine.withState { st ->
+            // Before any play the session has no id (0 is never a control): the draw is taken on a key made for the gap instead.
+            assertEquals(0L, st.session.sessionId)
+            var controls = 0
+            val n = 5_000
+            for (i in 0 until n) {
+                val t = now + i * 7_919L
+                st.newSession(t)
+                val key = st.controlKey(0L, t)
+                assertEquals(key, st.controlKey(0L, t + 1_000L), "one gap, one key")
+                if (Ranker.isControlSession(key)) controls++
+            }
+            assertTrue(controls in n * 7 / 100..n * 13 / 100, "about one in ten, got $controls of $n")
+            // A session that has expired is a gap too: its old id is not what the next list is drawn on.
+            st.session.sessionId = session(false)
+            st.session.lastEndMs = now - 3_600_000L
+            assertTrue(st.controlKey(st.session.sessionId, now) != st.session.sessionId)
+            // A live session keeps its own id.
+            st.session.lastEndMs = now
+            assertEquals(st.session.sessionId, st.controlKey(st.session.sessionId, now))
+        }
+    }
+
+    @Test
+    fun `a control session is also given the standard share of new music`() = runTest {
+        engine.withState { st ->
+            st.learner.gate = Gate.State(useLearned = true, winStreak = 2, atMs = now)
+            st.learner.learnVersion = LearnReplay.VERSION
+            st.learner.posteriors.appetite.nuLong = 0.5
+            st.learner.posteriors.appetite.nuDay = Long.MAX_VALUE
+        }
+        val tag = BrainItemTag(surface = "autoplay", surfaceId = "s", recId = 1L, slot = 0, arm = "RADIO")
+        // A session whose id is a control one: the standard 0.25.
+        while (!Ranker.isControlSession(now)) now++
+        recorder.record(play(tag))
+        engine.withState { st -> assertEquals(0.25, st.session.nuSession, 1e-9) }
+        // A later session that is not a control one: the learned appetite.
+        now += 3_600_000L
+        while (Ranker.isControlSession(now)) now++
+        recorder.record(play(tag))
+        engine.withState { st -> assertEquals(0.5, st.session.nuSession, 1e-9) }
+    }
+
+    @Test
     fun `a stored mix and a stored home row keep the choice they were built with`() {
         val mix = StoredMix(kind = 0, builtAtMs = 1L, seed = 2L, items = emptyList(), control = true, model = 0)
         val back = MixCodec.decode(MixCodec.encode(mix))!!

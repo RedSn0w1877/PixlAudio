@@ -221,27 +221,33 @@
     <string name="brain_sound_daypart_afternoon">Afternoons</string>
     <string name="brain_sound_daypart_evening">Evenings</string>
     <string name="brain_sound_daypart_night">Nights</string>
-    <string name="brain_sound_daypart_line">%1$s: mostly %2$s</string>
+    <string name="brain_sound_daypart_line">%1$s: most often %2$s</string>
     <string name="brain_sound_months">Over months</string>
-    <string name="brain_sound_month_line">%1$s · %2$d plays</string>
+    <plurals name="brain_sound_month_line">
+        <item quantity="one">%1$s · %2$d play</item>
+        <item quantity="other">%1$s · %2$d plays</item>
+    </plurals>
     <string name="brain_sound_newfam">New and familiar</string>
     <string name="brain_sound_novelty">Last week %1$d%% of what you played was new to you.</string>
     <string name="brain_sound_model">How well I know you</string>
     <string name="brain_sound_model_getting">Still getting to know you</string>
     <string name="brain_sound_model_getting_count">%1$d of %2$d plays so far</string>
     <string name="brain_sound_model_standard">Your picks use the standard recipe for now.</string>
-    <string name="brain_sound_model_standard_acc">The standard recipe gets %1$d%% of your finishes and skips right.</string>
-    <string name="brain_sound_model_learning">Learning from %1$d plays.</string>
-    <string name="brain_sound_model_acc">I get %1$d%% of your finishes and skips right.</string>
+    <string name="brain_sound_model_standard_acc">On plays I could check, the standard recipe gets %1$d%% of your finishes and skips right.</string>
+    <plurals name="brain_sound_model_learning">
+        <item quantity="one">Learning from %1$d play.</item>
+        <item quantity="other">Learning from %1$d plays.</item>
+    </plurals>
+    <string name="brain_sound_model_acc">On plays I could check, I get %1$d%% of your finishes and skips right.</string>
     <string name="brain_sound_model_acc_before">A month ago it was %1$d%%.</string>
-    <string name="brain_sound_model_acc_prior">The standard recipe gets %1$d%%.</string>
-    <string name="brain_sound_control">One session in ten uses the standard recipe as a check. Finish rate: %1$d%% there, %2$d%% in the rest.</string>
-    <string name="brain_sound_control_waiting">One session in ten uses the standard recipe as a check. The two rates show after %1$d plays there.</string>
+    <string name="brain_sound_model_acc_prior">The standard recipe gets %1$d%% of the same plays.</string>
+    <string name="brain_sound_control">One session in ten uses the standard recipe as a check. Over the same weeks, %1$d%% of its picks were finished, against %2$d%% of the picks made with the weights in use.</string>
+    <string name="brain_sound_control_waiting">One session in ten uses the standard recipe as a check. The two rates show once each side has %1$d plays over the same weeks.</string>
     <string name="brain_sound_controls">Controls</string>
     <string name="brain_sound_reset">Reset what I\'ve learned</string>
-    <string name="brain_sound_reset_subtitle">Your plays, blocked artists and taste changes stay. Picks go back to the standard recipe.</string>
+    <string name="brain_sound_reset_subtitle">Your plays, blocked artists and taste changes stay. The weights go back to the standard recipe, and what you played still counts.</string>
     <string name="brain_sound_reset_title">Reset what I\'ve learned?</string>
-    <string name="brain_sound_reset_body">Picks go back to the standard recipe and start again from now. Nothing you played is deleted.</string>
+    <string name="brain_sound_reset_body">The weights go back to the standard recipe and start again from now. What you played still counts, and nothing is deleted.</string>
     <string name="brain_sound_reset_confirm">Reset</string>
     <string name="brain_sound_reset_done">Back to the standard recipe.</string>
     <string name="brain_sound_footer">All of this is worked out on your phone.</string>
@@ -280,7 +286,11 @@
     <string name="brain_genre_from_library">From your library</string>
     <string name="brain_genre_you">You and this genre</string>
     <string name="brain_genre_you_first">First played %1$s</string>
-    <string name="brain_genre_you_share">%1$d%% of your listening, %2$d plays</string>
+    <plurals name="brain_genre_you_share">
+        <item quantity="one">%1$d%% of your listening, %2$d play</item>
+        <item quantity="other">%1$d%% of your listening, %2$d plays</item>
+    </plurals>
+    <string name="brain_genre_unavailable">Nothing to show for this genre.</string>
     <string name="brain_genre_you_top">Played most</string>
     <string name="brain_genre_more">More of this</string>
     <string name="brain_genre_less">Less of this</string>

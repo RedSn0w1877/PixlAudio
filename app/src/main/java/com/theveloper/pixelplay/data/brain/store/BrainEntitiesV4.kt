@@ -209,7 +209,7 @@ interface ArtistDnaDao {
     suspend fun bySpotifyId(spotifyId: String): ArtistDnaEntity?
 
     /** The artists the brain knows a genre vector for (a genre page's key artists, 8.7). */
-    @Query("SELECT * FROM artist_dna WHERE length(tags) > 0")
+    @Query("SELECT * FROM artist_dna WHERE length(tags) > 0 LIMIT 20000")
     suspend fun withTags(): List<ArtistDnaEntity>
 
     @Query("SELECT COUNT(*) FROM artist_dna")

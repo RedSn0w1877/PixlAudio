@@ -202,6 +202,31 @@ class BrainMixesTest {
     }
 
     @Test
+    fun `a mix the learned weights ranked is built again after Reset what I have learned, and one the prior ranked is kept`() = runTest {
+        listen(plays = 30, seeds = 6)
+        cacheRadios(6)
+        val m = mixes()
+        m.today(MixPlanner.KIND_DAILY)!!
+        val spec = m.specFor(MixPlanner.KIND_DAILY)
+        val builtWithPrior = served.todays(spec.surface, now, BrainMixes.tzOffsetMin(now), spec.surfaceId)!!
+        // A reset after a mix that the prior ranked changes nothing.
+        states.put(com.theveloper.pixelplay.data.brain.store.BrainStateEntity(BrainEngine.KEY_LEARN_AFTER, (((now + 1_000L) shl 16) or 0xFFFFL).toString().toByteArray()))
+        assertNotNull(m.saved(MixPlanner.KIND_DAILY), "the prior ranked it: it stays")
+        // The same mix, ranked with the learned weights, built before the reset: it is not the day's mix any more.
+        served.put(spec.surface, spec.surfaceId, builtWithPrior.copy(model = BrainEventRecorder.MODEL_LEARNED), nuQ = 250)
+        assertNull(m.saved(MixPlanner.KIND_DAILY))
+        // Reading it for today builds a new one, which the prior ranks (the gate is off after a reset).
+        val rebuilt = m.today(MixPlanner.KIND_DAILY)!!
+        assertTrue(rebuilt.songs.isNotEmpty())
+        assertNotNull(m.saved(MixPlanner.KIND_DAILY))
+        // A reset made earlier than the mix does not touch it.
+        states.put(com.theveloper.pixelplay.data.brain.store.BrainStateEntity(BrainEngine.KEY_LEARN_AFTER, (((now - 10_000L) shl 16) or 0xFFFFL).toString().toByteArray()))
+        val current = served.todays(spec.surface, now, BrainMixes.tzOffsetMin(now), spec.surfaceId)!!
+        served.put(spec.surface, spec.surfaceId, current.copy(model = BrainEventRecorder.MODEL_LEARNED), nuQ = 250)
+        assertNotNull(m.saved(MixPlanner.KIND_DAILY))
+    }
+
+    @Test
     fun `no track is in two mixes of one day, and Your Mix leaves the Daily Mix alone`() = runTest {
         listen(30, 6)
         cacheRadios(6)

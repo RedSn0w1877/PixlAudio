@@ -38,9 +38,30 @@ class BrainCopyTest {
         return out
     }
 
+    /** `name -> items` of every plurals resource of a file, so a plural cannot slip a forbidden word past the test. */
+    private fun plurals(file: String): Map<String, List<String>> {
+        val candidates = listOf(File("src/main/res/values/$file"), File("app/src/main/res/values/$file"))
+        val xml = candidates.first { it.isFile }.readText()
+        val out = LinkedHashMap<String, List<String>>()
+        for (match in Regex("<plurals name=\"([^\"]+)\">(.*?)</plurals>", RegexOption.DOT_MATCHES_ALL).findAll(xml)) {
+            out[match.groupValues[1]] = Regex("<item[^>]*>(.*?)</item>", RegexOption.DOT_MATCHES_ALL).findAll(match.groupValues[2]).map { it.groupValues[1] }.toList()
+        }
+        return out
+    }
+
     @Test
     fun `no brain string uses a word the app never says`() {
         val brain = strings("strings_brain.xml")
+        // Plurals are held to the same rule: each of their items is checked as a string of that name.
+        for ((name, items) in plurals("strings_brain.xml")) {
+            assertTrue(items.isNotEmpty(), "$name has items")
+            for (text in items) {
+                val lower = text.lowercase()
+                for (word in forbidden) assertTrue(word !in lower, "$name says \"$word\": $text")
+                if (name !in learnAllowed) assertTrue("learn" !in lower, "$name says \"learn\": $text")
+            }
+        }
+        assertEquals(listOf("Learning from %1\$d play.", "Learning from %1\$d plays."), plurals("strings_brain.xml")["brain_sound_model_learning"])
         assertTrue(brain.size >= 30, "expected the brain's strings, found ${brain.size}")
         val autoplay = strings("strings_player.xml").filterKeys { it.startsWith("queue_autoplay_") }
         assertTrue(autoplay.isNotEmpty())
@@ -50,9 +71,8 @@ class BrainCopyTest {
             if (name !in learnAllowed) assertTrue("learn" !in lower, "$name says \"learn\": $text")
         }
         // The allowed strings are really there, and the allowance is not a loophole for anything else.
-        assertEquals("Learning from %1\$d plays.", brain["brain_sound_model_learning"])
         assertEquals("Reset what I\\'ve learned", brain["brain_sound_reset"])
-        for (name in learnAllowed) assertTrue(name in brain, "$name is a brain string")
+        for (name in learnAllowed) assertTrue(name in brain || name in plurals("strings_brain.xml"), "$name is a brain string")
     }
 
     @Test

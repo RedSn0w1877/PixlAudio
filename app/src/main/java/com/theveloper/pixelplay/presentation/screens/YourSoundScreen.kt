@@ -3,6 +3,7 @@ package com.theveloper.pixelplay.presentation.screens
 import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -17,6 +18,7 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -35,6 +37,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -93,7 +96,12 @@ fun YourSoundScreen(
         ) {
             if (data == null || data.isEmpty) {
                 item(key = "empty") {
-                    if (!ui.loading) Text(stringResource(R.string.brain_sound_empty), style = MaterialTheme.typography.bodyLarge)
+                    if (ui.loading) {
+                        // Working out the page reads the log once; say so instead of leaving the screen blank.
+                        Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+                    } else {
+                        Text(stringResource(R.string.brain_sound_empty), style = MaterialTheme.typography.bodyLarge)
+                    }
                 }
             }
             if (data != null) {
@@ -152,7 +160,7 @@ fun YourSoundScreen(
                         for (m in data.months.takeLast(12).asReversed()) {
                             val label = Month.of(m.month % 12 + 1).getDisplayName(TextStyle.SHORT, Locale.getDefault()) + " " + (m.month / 12)
                             Text(
-                                stringResource(R.string.brain_sound_month_line, label, m.plays),
+                                pluralStringResource(R.plurals.brain_sound_month_line, m.plays, label, m.plays),
                                 style = MaterialTheme.typography.bodyMedium,
                             )
                             val top = m.islands.firstOrNull()
@@ -180,7 +188,8 @@ fun YourSoundScreen(
             }
             item(key = "controls") {
                 Section(stringResource(R.string.brain_sound_controls)) {
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    // "Reset what I've learned" is offered only once something has been learned (a play moved the weights).
+                    if (data != null && data.modelUpdates > 0L) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             Text(stringResource(R.string.brain_sound_reset), style = MaterialTheme.typography.titleSmall)
                             Text(
@@ -284,7 +293,7 @@ private fun ModelLines(data: YourSoundRepository.State) {
             m.accPriorPercent?.let { Text(stringResource(R.string.brain_sound_model_standard_acc, it), style = MaterialTheme.typography.bodySmall) }
         }
         else -> {
-            Text(stringResource(R.string.brain_sound_model_learning, m.learnedFrom.toInt()), style = MaterialTheme.typography.bodyLarge)
+            Text(pluralStringResource(R.plurals.brain_sound_model_learning, m.learnedFrom.toInt(), m.learnedFrom.toInt()), style = MaterialTheme.typography.bodyLarge)
             m.accNowPercent?.let { Text(stringResource(R.string.brain_sound_model_acc, it), style = MaterialTheme.typography.bodyMedium) }
             m.accBeforePercent?.let { Text(stringResource(R.string.brain_sound_model_acc_before, it), style = MaterialTheme.typography.bodySmall) }
             m.accPriorPercent?.let { Text(stringResource(R.string.brain_sound_model_acc_prior, it), style = MaterialTheme.typography.bodySmall) }

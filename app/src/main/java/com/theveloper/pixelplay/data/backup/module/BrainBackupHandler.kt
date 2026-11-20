@@ -51,9 +51,18 @@ class BrainBackupHandler @Inject constructor(
     override suspend fun restore(payload: String) {
         val p = BrainBackupFormat.decode(gson, payload) ?: throw IllegalArgumentException("The brain backup could not be read.")
         p.salt?.let { states.put(BrainStateEntity(BrainMixes.KEY_SALT, it.toByteArray(Charsets.UTF_8))) }
-        feedback.clear()
-        feedback.insertAll(p.feedback.map { FeedbackEntity(it.id, it.kind, it.targetKind, it.targetId, it.createdAtMs, it.undoneAtMs) })
-        tasteAdjustments.replaceAll(if (p.adjustments.isBlank()) emptyList() else TasteAdjustmentCodec.decode(p.adjustments))
+        // Everything that can fail to read is read BEFORE anything is changed. The exclusions are then added (a row with the same id is
+        // replaced) and only afterwards are the others removed, so a stop half way never leaves the listener with fewer exclusions than either
+        // side had; the taste changes go last, in their own store.
+        val adjustments = if (p.adjustments.isBlank()) emptyList() else TasteAdjustmentCodec.decode(p.adjustments)
+        val rows = p.feedback.map { FeedbackEntity(it.id, it.kind, it.targetKind, it.targetId, it.createdAtMs, it.undoneAtMs) }
+        if (rows.isEmpty()) {
+            feedback.clear()
+        } else {
+            feedback.insertAll(rows)
+            feedback.deleteNotIn(rows.map { it.id })
+        }
+        tasteAdjustments.replaceAll(adjustments)
         // The caches are made again from the log, once, in the background.
         engine.get().requestRebuild(force = true)
     }

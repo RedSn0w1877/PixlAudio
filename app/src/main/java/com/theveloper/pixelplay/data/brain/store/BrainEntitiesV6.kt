@@ -10,8 +10,9 @@ import androidx.room.Query
 /**
  * One shelf of one visit to the Home page (docs/brain-spec.md, 8.1, 5.10): the compact impression the shelf bandit learns from. A visit is
  * the plan being shown; its rows are the shelves in page order. [seen] says the shelf was on screen for at least a second, [activatedAtMs]
- * when the listener started something from it (0 for never), [settled] that the visit has been given to the bandit. Raw facts only: the
- * bandit's posteriors are a cache of these rows ([com.theveloper.pixelplay.brain.ShelfBandit.rebuild]).
+ * when the listener started something from it (0 for never), [settled] that the visit has been given to the bandit. Raw facts only. The reward (a play of 30 seconds or more
+ * from the shelf) is worked out from the event log when the visit is settled and is not stored here, so the bandit's posteriors (kept in
+ * `brain_state`) cannot be made again from these rows alone; [com.theveloper.pixelplay.brain.ShelfBandit.rebuild] is for tests.
  *
  * Kept small: at most [ImpressionDao.KEEP_VISITS] visits and [ImpressionDao.KEEP_DAYS] days, pruned when a visit is added. Nothing in a row
  * names a track or the listener.

@@ -4,6 +4,7 @@ import com.theveloper.pixelplay.brain.Affinity
 import com.theveloper.pixelplay.brain.ArmBandit
 import com.theveloper.pixelplay.brain.ArmPicker
 import com.theveloper.pixelplay.brain.Brain
+import com.theveloper.pixelplay.brain.Family
 import com.theveloper.pixelplay.brain.BrainMath
 import com.theveloper.pixelplay.brain.Gate
 import com.theveloper.pixelplay.brain.GradeTracker
@@ -54,6 +55,12 @@ class RankingChoice(val source: Ranker.WeightSource?, val control: Boolean, val 
 interface StateRebuilder {
     /** True when the stored rows are missing, were built by other logic, or the import changed. */
     suspend fun isNeeded(): Boolean
+
+    /**
+     * True when the rebuild cannot wait for the refresh worker: the tables are missing, were built by other logic, or the import or a switch
+     * changed. The learner's replay and the weekly refresh of the facts are not urgent: the worker runs them (5.9, "no second job").
+     */
+    suspend fun isUrgent(): Boolean = isNeeded()
 
     suspend fun rebuild(nowMs: Long): Rebuilt
 
@@ -114,7 +121,7 @@ class BrainEngine @Inject constructor(
          * and carried with each queue entry, so the control completion rate is measured on what was really ranked with the prior.
          */
         fun rankingChoice(sessionId: Long, seed: Long? = null): RankingChoice {
-            val control = Ranker.isControlSession(sessionId)
+            val control = Ranker.isControlSession(controlKey(sessionId))
             if (!learner.useLearned || control) return RankingChoice(null, control, 0)
             return RankingChoice(Ranker.WeightSource(learner.model, true, seed), false, BrainEventRecorder.MODEL_LEARNED)
         }
@@ -124,8 +131,27 @@ class BrainEngine @Inject constructor(
          * standard recipe keeps stage 2's choice of the novel candidate exactly.
          */
         fun armPicker(sessionId: Long, family: Int, seed: Long): ArmPicker? {
-            if (!learner.useLearned || Ranker.isControlSession(sessionId)) return null
+            if (!learner.useLearned || Ranker.isControlSession(controlKey(sessionId))) return null
             return ArmBandit.Sampler(learner.posteriors.arms, family, seed)
+        }
+
+        private var pendingKey = 0L
+        private var pendingFor = -1L
+
+        /**
+         * The id a list's control draw is taken on. A session's id is the start time of its first play, so before that play (right after the
+         * process starts, or after the session has expired and before the next play) there is no live id: the stored one is 0 or the old
+         * session's. Drawing on it would make every list built then the same kind for good (id 0 is never a control). Those lists are drawn on
+         * one key per gap instead (the time the gap was first seen), so about one in ten of them is a control as well.
+         */
+        fun controlKey(sessionId: Long, nowMs: Long = System.currentTimeMillis()): Long {
+            val stale = sessionId == 0L || (sessionId == session.sessionId && Session.isExpired(session, nowMs))
+            if (!stale) return sessionId
+            if (pendingFor != sessionId) {
+                pendingFor = sessionId
+                pendingKey = nowMs
+            }
+            return pendingKey
         }
 
         /**
@@ -145,7 +171,9 @@ class BrainEngine @Inject constructor(
         /** Starts a new session: the old one's lists, blocks, anchors and direction are gone. */
         fun newSession(nowMs: Long = System.currentTimeMillis()) {
             session = SessionState()
-            session.nuSession = sessionNu(nowMs)
+            // A new gap before the next play: its lists are drawn on a fresh key (see [controlKey]), and a control draw keeps the standard share.
+            pendingFor = -1L
+            session.nuSession = if (Ranker.isControlSession(controlKey(0L, nowMs))) Session.NU_DEFAULT else sessionNu(nowMs)
             anchors.clear()
             direction = Direction()
         }
@@ -206,7 +234,9 @@ class BrainEngine @Inject constructor(
         if (storedLearner != null) fresh.learner = storedLearner
         loaded = fresh
         isLoaded = true
-        requestRebuild(force = false)
+        // First use only reads the cache; a rebuild runs now only when the tables themselves are missing or stale. The replay that trains the
+        // learner, the gate and the weekly facts run in the refresh worker (BrainRefreshRunner), never while Home is loading.
+        requestRebuild(force = false, urgentOnly = true)
         return fresh
     }
 
@@ -284,12 +314,12 @@ class BrainEngine @Inject constructor(
 
     /** Asks for a rebuild in the background. Without [force] it only runs when [StateRebuilder.isNeeded]. */
     @Synchronized
-    fun requestRebuild(force: Boolean) {
+    fun requestRebuild(force: Boolean, urgentOnly: Boolean = false) {
         if (rebuildJob?.isActive == true) return
         rebuildJob = scope.launch {
             try {
                 val rebuilder = rebuilder.get()
-                if (!force && !rebuilder.isNeeded()) return@launch
+                if (!force && !(if (urgentOnly) rebuilder.isUrgent() else rebuilder.isNeeded())) return@launch
                 var epochAtStart = 0
                 mutex.withLock {
                     recordedDuringRebuild = ArrayList()
@@ -307,14 +337,19 @@ class BrainEngine @Inject constructor(
                     val learner = if (adopt) learnerOf(replayed!!, state.learner, rebuilt.likedRids, nowMs) else null
                     // Plays that ended while the rebuild ran and that it did not read from the log.
                     val tracker = GradeTracker(rebuilt.state.completions)
-                    val catchUpSession = SessionState()
+                    // The session features of these plays come from a session built from them, as the replay builds it (not an empty one).
+                    var catchUpSession = SessionState()
                     for (event in live) {
                         if (event.eventId in rebuilt.recentEventIds) continue
+                        val novelBefore = !Affinity.isHeard(rebuilt.state, Family.TRACK, event.rid)
                         val graded = tracker.grade(event)
+                        if (Session.isExpired(catchUpSession, event.startedAtMs)) catchUpSession = SessionState()
+                        Session.begin(catchUpSession, event.startedAtMs, event.startReason)
                         if (learner != null) {
                             LearnReplay.applyLive(learner.model, event, graded, event.rid in learner.liked, rebuilt.state, catchUpSession, nowMs, learner.posteriors)
                         }
                         Affinity.applyEvent(rebuilt.state, event, graded, event.startedAtMs)
+                        Session.apply(catchUpSession, event, graded, novelBefore)
                     }
                     rebuilt.state.drainTouched { _, _ -> }
                     store.transaction {
@@ -373,7 +408,11 @@ class BrainEngine @Inject constructor(
             val sb = StringBuilder()
             var n = 0
             for (rid in liked.sorted()) {
-                if (n++ >= MAX_LIKED) break
+                if (n++ >= MAX_LIKED) {
+                    // Loud, not silent: after a restart the live path sees a smaller set than the replay used until the next rebuild.
+                    Timber.w("brain: %d favourites, only the first %d are kept for the live learner until the next rebuild", liked.size, MAX_LIKED)
+                    break
+                }
                 if (sb.isNotEmpty()) sb.append(',')
                 sb.append(java.lang.Long.toString(rid, 36))
             }

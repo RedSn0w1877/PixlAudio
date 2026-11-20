@@ -211,6 +211,21 @@ class BrainHomeRows @Inject constructor(
         }
     }
 
+    /**
+     * "Reset what I've learned": the rows the learned weights ranked are not shown again. They are built again, with the standard recipe, on the
+     * next visit (the saved file goes with them).
+     */
+    suspend fun dropLearned() = withContext(Dispatchers.IO) {
+        lock.withLock {
+            val current = memory ?: readFile()
+            if (current.rows.any { it.model == BrainEventRecorder.MODEL_LEARNED }) {
+                memory = StoredHomeRows()
+                runCatching { file.delete() }
+                lastFailedSignature = ""
+            }
+        }
+    }
+
     /** Every card of [row] must be in `playable` before its media item reaches the player (7.2). */
     suspend fun prepareForPlayback(row: PlayableBrainRow) {
         playableStore.register(row.items.map { it.track }, clock.nowMs())

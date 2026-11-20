@@ -41,29 +41,27 @@ class ReplayMerger(private val store: BrainStore) {
         val learned: LearnReplay.Result? = null,
     )
 
+    /** The two streams of 4.4 as one: the stored log and the deduplicated imports, ascending by id, rids mapped to their survivors. */
+    class Merged(val events: Iterator<PlayEvent>, val importedUsed: Int, val importedDropped: Int)
+
     /**
      * [imported] in any order. [survivorOf] maps a merged recording to the one it was merged into.
      * [excluded] maps a surviving recording to the time a "Don't count this" was made on it: every play of it
      * that started at or before then (imported ones included, which the log does not hold) replays as
      * `learnExcluded`.
      * An imported play whose end is within [DUPLICATE_WINDOW_MS] of a stored play of the same
-     * recording is the same listen seen twice and is dropped.
+     * recording is the same listen seen twice and is dropped. [recent] (when given) collects the ids of the stored
+     * events that started in the last day, as the stream is read.
      */
-    fun rebuild(
+    fun merged(
         imported: List<PlayEvent>,
-        facts: LibraryFacts,
         nowMs: Long,
         excluded: Map<Long, Long> = emptyMap(),
-        /** Train the ranker in the same pass (5.9). [likedRids] are the favourites; plays at or below [learnAfterEventId] are not learned from. */
-        learn: Boolean = false,
-        likedRids: Set<Long> = emptySet(),
-        learnAfterEventId: Long = Long.MIN_VALUE,
-        tzNowMin: Int = 0,
+        recent: MutableSet<Long>? = null,
         survivorOf: (Long) -> Long,
-    ): Result {
+    ): Merged {
         // Pass 1 over the log: when each recording's stored plays ended.
         val endsByRid = HashMap<Long, ArrayList<Long>>()
-        val recent = HashSet<Long>()
         var after = Long.MIN_VALUE
         while (true) {
             val page = store.eventsAfter(after, PAGE)
@@ -92,7 +90,7 @@ class ReplayMerger(private val store: BrainStore) {
         kept.sortWith { a, b -> a.eventId.compareTo(b.eventId) }
 
         // Pass 2: both streams in ascending event id, the order the replay is defined on.
-        val merged = object : Iterator<PlayEvent> {
+        val stream = object : Iterator<PlayEvent> {
             var page: List<PlayEvent> = store.eventsAfter(Long.MIN_VALUE, PAGE)
             var at = 0
             var importedAt = 0
@@ -113,7 +111,7 @@ class ReplayMerger(private val store: BrainStore) {
                 val next = if (stored != null && (other == null || stored.eventId <= other.eventId)) {
                     at++
                     // What was really replayed, so a play recorded while this runs is not applied twice.
-                    if (stored.startedAtMs >= nowMs - RECENT_MS) recent.add(stored.eventId)
+                    if (recent != null && stored.startedAtMs >= nowMs - RECENT_MS) recent.add(stored.eventId)
                     stored
                 } else {
                     importedAt++
@@ -125,11 +123,28 @@ class ReplayMerger(private val store: BrainStore) {
                 return if (survivor == next.rid && flags == next.flags) next else next.withRid(survivor, flags)
             }
         }
+        return Merged(stream, kept.size, dropped)
+    }
+
+    fun rebuild(
+        imported: List<PlayEvent>,
+        facts: LibraryFacts,
+        nowMs: Long,
+        excluded: Map<Long, Long> = emptyMap(),
+        /** Train the ranker in the same pass (5.9). [likedRids] are the favourites; plays at or below [learnAfterEventId] are not learned from. */
+        learn: Boolean = false,
+        likedRids: Set<Long> = emptySet(),
+        learnAfterEventId: Long = Long.MIN_VALUE,
+        tzNowMin: Int = 0,
+        survivorOf: (Long) -> Long,
+    ): Result {
+        val recent = HashSet<Long>()
+        val m = merged(imported, nowMs, excluded, recent, survivorOf)
         if (learn) {
-            val learned = LearnReplay.run(merged, facts, nowMs, likedRids, tzNowMin, learnAfterEventId)
-            return Result(learned.state, recent, kept.size, dropped, learned)
+            val learned = LearnReplay.run(m.events, facts, nowMs, likedRids, tzNowMin, learnAfterEventId)
+            return Result(learned.state, recent, m.importedUsed, m.importedDropped, learned)
         }
-        return Result(Replay.rebuild(merged, facts, nowMs), recent, kept.size, dropped)
+        return Result(Replay.rebuild(m.events, facts, nowMs), recent, m.importedUsed, m.importedDropped)
     }
 
     private fun PlayEvent.withRid(rid: Long, flags: Int = this.flags) = PlayEvent(
@@ -170,19 +185,26 @@ class AppStateRebuilder @Inject constructor(
 ) : StateRebuilder {
 
     override suspend fun isNeeded(): Boolean = withContext(Dispatchers.IO) {
-        if (store.getState(BrainStore.KEY_HISTORY_MIGRATED) == null) return@withContext true
-        if (store.getState(BrainStore.KEY_SPEC_VERSION) != Brain.SPEC_VERSION.toString()) return@withContext true
-        val importMax = runCatching { historyDao.get().maxPlayId() ?: 0L }.getOrDefault(0L)
-        if (store.getState(BrainStore.KEY_IMPORT_MAX_ID) != importMax.toString()) return@withContext true
+        if (isUrgentNow()) return@withContext true
         // The learner (stage 3) is missing, or was built by other logic: replay it.
         if (store.getState(BrainEngine.KEY_LEARN_VERSION) != LearnReplay.VERSION.toString()) return@withContext true
-        // "Use my Spotify music to shape picks" was flipped since the last rebuild: the tables change with it.
-        if ((store.getState(KEY_SPOTIFY_SHAPES) ?: "true") != switch.spotifyShapesPicks().toString()) return@withContext true
         // The facts (likes, top lists, follows, taste changes) are folded in at a rebuild; a weekly one
-        // keeps them current without a background job.
+        // keeps them current. The refresh worker asks for it (BrainRefreshRunner), first use does not.
         val rebuiltAt = store.getState(KEY_REBUILT_AT_MS)?.toLongOrNull() ?: 0L
         val age = clock.nowMs() - rebuiltAt
         age < 0L || age > FACTS_REFRESH_MS
+    }
+
+    /** The tables are missing, were built by other logic, the import changed, or a switch that changes them was flipped. */
+    override suspend fun isUrgent(): Boolean = withContext(Dispatchers.IO) { isUrgentNow() }
+
+    private suspend fun isUrgentNow(): Boolean {
+        if (store.getState(BrainStore.KEY_HISTORY_MIGRATED) == null) return true
+        if (store.getState(BrainStore.KEY_SPEC_VERSION) != Brain.SPEC_VERSION.toString()) return true
+        val importMax = runCatching { historyDao.get().maxPlayId() ?: 0L }.getOrDefault(0L)
+        if (store.getState(BrainStore.KEY_IMPORT_MAX_ID) != importMax.toString()) return true
+        // "Use my Spotify music to shape picks" was flipped since the last rebuild: the tables change with it.
+        return (store.getState(KEY_SPOTIFY_SHAPES) ?: "true") != switch.spotifyShapesPicks().toString()
     }
 
     override suspend fun rebuild(nowMs: Long): StateRebuilder.Rebuilt = withContext(Dispatchers.IO) {

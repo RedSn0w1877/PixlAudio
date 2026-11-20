@@ -28,6 +28,7 @@ class GenrePageRepository @Inject constructor(
     private val genreStations: GenreStations,
     private val atlasProvider: AtlasProvider,
     private val clock: BrainClock,
+    private val switch: BrainSwitch,
 ) {
     /** "You and this genre": when it was first played, how much of the listening it is, the five tracks played most. */
     class You(val firstPlayedMs: Long, val permille: Int, val plays: Int, val topSongs: List<String>)
@@ -36,8 +37,18 @@ class GenrePageRepository @Inject constructor(
 
     suspend fun extras(atlasId: Int): Extras = withContext(Dispatchers.IO) {
         val atlas = atlasProvider.atlas() ?: return@withContext Extras(emptyList(), emptyList(), null)
-        Extras(keyArtists(atlas, atlasId), libraryArtists(atlasId), you(atlas, atlasId))
+        Extras(if (tagVotesAllowed()) keyArtists(atlas, atlasId) else emptyList(), libraryArtists(atlasId), you(atlas, atlasId))
     }
+
+    /**
+     * Key artists come from the artist tags the brain holds, which the open-data sources (Deezer, MusicBrainz, ListenBrainz; non-commercial
+     * terms while the app has a paid tier) filled in. The rows do not say which source a tag came from, so the list is shown only while all
+     * three are switched on: turn one off and the list goes with it. Library artists and "You and this genre" are the listener's own data.
+     */
+    private suspend fun tagVotesAllowed(): Boolean =
+        switch.sourceAllowed(com.theveloper.pixelplay.data.brain.source.KnowledgeHost.DEEZER) &&
+            switch.sourceAllowed(com.theveloper.pixelplay.data.brain.source.KnowledgeHost.MUSICBRAINZ) &&
+            switch.sourceAllowed(com.theveloper.pixelplay.data.brain.source.KnowledgeHost.LISTENBRAINZ)
 
     /** Whether a tag is the genre or one of its descendants. */
     private fun under(atlas: GenreAtlas, tag: Int, id: Int): Boolean = tag == id || atlas.ancestors(tag).any { it == id }

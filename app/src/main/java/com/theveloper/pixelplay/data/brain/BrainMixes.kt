@@ -220,11 +220,19 @@ class BrainMixes @Inject constructor(
      * the day's mix and stays.
      */
     private suspend fun isStale(saved: StoredMix, now: Long): Boolean {
+        // "Reset what I've learned": a mix that the learned weights ranked, built before the reset, is not the day's mix any more.
+        if (saved.model == BrainEventRecorder.MODEL_LEARNED && builtBeforeReset(saved.builtAtMs)) return true
         // Only the lists that take new music from cached radios can be waiting for one; On Repeat and Rediscover never are.
         if (!MixKinds.usesPlanner(saved.kind) || saved.kind == MixKinds.FIRST_LISTEN) return false
         if (saved.seedLists > 0 || saved.novelCount > 0) return false
         if (now - saved.builtAtMs < REBUILD_MIN_AGE_MS) return false
         return seedDao.fetchedSince(0L) > 0
+    }
+
+    /** True when [builtAtMs] is not after the last "Reset what I've learned" (the engine saves its moment inside the event id it sets). */
+    internal suspend fun builtBeforeReset(builtAtMs: Long): Boolean {
+        val after = states.get(BrainEngine.KEY_LEARN_AFTER)?.let { String(it, Charsets.UTF_8).toLongOrNull() } ?: return false
+        return builtAtMs <= (after ushr 16)
     }
 
     // ---- building ---------------------------------------------------------------------------------

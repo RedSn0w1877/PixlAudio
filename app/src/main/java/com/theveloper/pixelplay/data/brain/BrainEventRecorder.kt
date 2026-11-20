@@ -7,6 +7,7 @@ import com.theveloper.pixelplay.brain.EndReason
 import com.theveloper.pixelplay.brain.EventFlags
 import com.theveloper.pixelplay.brain.Origin
 import com.theveloper.pixelplay.brain.PlayEvent
+import com.theveloper.pixelplay.brain.Ranker
 import com.theveloper.pixelplay.brain.Reward
 import com.theveloper.pixelplay.brain.Session
 import com.theveloper.pixelplay.brain.Surface
@@ -177,11 +178,18 @@ class BrainEventRecorder @Inject constructor(
         }
 
         return engine.withState { state ->
-            val firstSession = state.session.sessionId == 0L
-            if (state.session.sessionId != 0L && Session.isExpired(state.session, play.startedAtMs)) state.newSession(play.startedAtMs)
+            var newSession = state.session.sessionId == 0L
+            if (state.session.sessionId != 0L && Session.isExpired(state.session, play.startedAtMs)) {
+                state.newSession(play.startedAtMs)
+                newSession = true
+            }
             val stamp = Session.begin(state.session, play.startedAtMs, context.startReason)
-            // A session starts at the novelty share of the moment (5.5): the learned appetite while the gate has the learned weights on.
-            if (firstSession) state.session.nuSession = state.sessionNu(play.startedAtMs)
+            // A session starts at the novelty share of the moment (5.5): the learned appetite while the gate has the learned weights on. A
+            // control session (5.12 point 8) is ranked with the standard recipe, and that includes its share of new music.
+            if (newSession) {
+                state.session.nuSession =
+                    if (Ranker.isControlSession(stamp.sessionId)) Session.NU_DEFAULT else state.sessionNu(play.startedAtMs)
+            }
             // One session in ten is ranked with the prior and flagged (5.12 point 8). Which weights ranked a list, and whether it was a
             // control, was decided when the list was BUILT and travels with the queue entry (`brain.ctrl`, `brain.model`): it is read
             // here, never worked out at the end of the play. An entry that carries nothing (a track the listener chose, a queue saved by
