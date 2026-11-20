@@ -58,7 +58,7 @@ class AssistantHelp @Inject constructor(
 
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 
-    suspend fun run(playing: () -> Boolean): Report {
+    suspend fun run(playing: () -> Boolean, requestsLeft: suspend () -> Int = { Int.MAX_VALUE }): Report {
         // Switched off: the tags the job wrote leave with it (the names and suggestions are not read while it is off).
         if (!switch.assistHelpAllowed()) return Report(0, 0, 0, 0, takeBackTags())
         if (playing() || !mayAsk()) return Report(0, 0, 0, 0, 0)
@@ -80,7 +80,7 @@ class AssistantHelp @Inject constructor(
             tagged = r.second
         }
         if (inputs.isNotEmpty() && !playing() && mayAsk()) {
-            val r = suggestSongs(inputs)
+            val r = suggestSongs(inputs, requestsLeft)
             calls += r.first
             songs = r.second
         }
@@ -245,7 +245,11 @@ class AssistantHelp @Inject constructor(
 
     // ---- artists the listener likely does not know -----------------------------------------------------------
 
-    private suspend fun suggestSongs(inputs: List<IslandInput>): Pair<Int, Int> {
+    private suspend fun suggestSongs(inputs: List<IslandInput>, requestsLeft: suspend () -> Int): Pair<Int, Int> {
+        // The searches share the day's YouTube budget with everything the listener does: the worker's own share must have room for them,
+        // or nothing is asked (a week is not marked as asked, so a later run tries again).
+        val room = requestsLeft()
+        if (room < ASK_MIN_ROOM) return 0 to 0
         val week = clock.nowMs() / WEEK_MS
         val input = "week=$week|" + inputs.joinToString("|") { it.key() }
         val key = cache.keyOf("ask", input)
@@ -272,7 +276,7 @@ class AssistantHelp @Inject constructor(
         }
         val kept = ArrayList<AssistCache.AskAnswer>()
         // Looked up the way `resolve_tracks` does it: the library and the alias table first (free), then one songs search under the day's YouTube budget.
-        val looked = if (wanted.isEmpty()) emptyList() else assistant.resolve(wanted.take(ASK_LOOKUPS_PER_RUN))
+        val looked = if (wanted.isEmpty()) emptyList() else assistant.resolve(wanted.take(minOf(ASK_LOOKUPS_PER_RUN, room)))
         for (l in looked) {
             val t = l.track ?: continue
             if (t.inLibrary || !t.ref.startsWith("yt:")) continue
@@ -312,9 +316,10 @@ class AssistantHelp @Inject constructor(
         private const val MAX_ASK_ISLANDS = 6
         private const val ASK_PER_ISLAND_LOOKUPS = 4
         private const val ASK_LOOKUPS_PER_RUN = 12
+        private const val ASK_MIN_ROOM = 6
         private const val TAG_TRACKS_PER_RUN = 100
         private const val TAG_SCAN_PAGE = 200
-        private const val TAG_SCAN_LIMIT = 1_000
+        private const val TAG_SCAN_LIMIT = 5_000
         private const val MIN_SHORTLIST = 6
         private const val SHORTLIST_LISTENER = 18
         private const val MAX_TOKENS_ISLANDS = 900L

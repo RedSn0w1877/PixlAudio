@@ -159,3 +159,32 @@ First: milestone 1 compiled and its tests passed on arrival (`:brain:test` and `
 - Mirror word for word: the strings of `strings_brain.xml` added in this pass; `WeeklyNoteRepository.SYSTEM`, the three batch prompts in `AssistantHelp`; the `steer_session` description sentence; chip labels (`AssistantCards.chipLabel`) and the set-note templates (`SetNotes.text`) are in the pure core.
 - Stored formats: `weekly_note.json` (`week`, `asked`, `cloudHash`, `cloudText`), `assist_cache.json` (`islands`, `tags`, `ask`, `askLatest`, `tagRids`, keyed by `AssistBatch.cacheKey(model id, kind, input)` in hex); provider 10 in `track_dna` claims; preference `brain_assist_help_enabled` (default false); remote key `brain.assist.enabled`.
 - The iOS "Why this song" needs the factors (`ServedFactors`), the card needs Play / Save / chips with no model call, and the offline station reads `StationSentence`'s shape.
+
+## What was run, and what it said (milestone 2)
+
+All on Windows, `ANDROID_HOME` set, one Gradle at a time (the machine was busy: the last run took 43 minutes; `--no-build-cache` because another session held the shared build-cache lock; two Windows file locks under `app/build` were cleared by deleting the named directory, as the notes say).
+
+- `./gradlew :brain:generateGolden` then `:brain:test`: **291 tests, 0 failed, 1 skipped** (`RealExportTest6`, no export). The golden folder gained four files; **no older golden line changed** (`git diff` shows only the manifest and README gaining lines).
+- `./gradlew --no-build-cache --continue :brain:test :app:testDebugUnitTest :app:assembleDebug`: **BUILD SUCCESSFUL**. The whole app suite: **2,451 tests, 0 failed, 2 skipped**. `:app:assembleDebug` built both ABI splits (the Hilt graph resolves with `ServedFactors`, `AssistCache`, `AssistantHelp` and `WeeklyNoteRepository`). `RecommendationGoldenEqualityTest` and the legacy mix tests ran untouched and passed.
+- New tests: `Stage4M2Test` (18 in `:brain`: chips, labels, "Less X", set notes, the weekly note's check, the batch checks, forbidden words in every template), `TaizoMusicToolsTest` (+3: the card and its chips, a chip as a delta, the names a "Less X" may be about), `StationSentenceTest` (2), `SetNoteLinesTest` (2), `DnaAssemblerTest` (+1: source 10 is the weakest and is taken out again), `BrainCopyTest` (+1: Ask Taizo's words and the new settings row).
+- Not run: `:app:connectedDebugAndroidTest` (no device) and `:wear:assembleDebug`.
+
+## Still unverified (nothing ran on a phone)
+
+- Every screen: the mix card (Play, Save, the chips, busy and failed states), the "Less X" chip and Undo, the factors in "Why this song", the set note in the queue and under the player title (and whether a line under the title moves the hero layout), the weekly note on First Listen, the new switch row in Settings.
+- That a `build_mix` chip really builds a different list through `BrainAssistantEngine.adjustMix` (it is traced and tested over a fake, not run over the real tables), and that Play from a card reaches the event log with surface assistant / arm ASK / the served vector.
+- The weekly note's cloud call: how often the model marks names with `[[ ]]` and how often `WeeklyNote.check` rejects its answer (then the template shows). The one-call-a-week counting is traced.
+- The batch jobs: none has run. Not known: how often the model's island names pass `AssistBatch`, how many tracks no source knows on a real library, what a week costs (a call happens only when the cache lacks an answer; no figure is claimed), whether provider-10 claims ever tip a track over `Tags.merge`'s threshold, and that ASK suggestions found by YouTube search are the song asked for.
+- The offline station: that `startStation` for an artist not in the library fails fast offline (it tries the network once through `beginArtistStation`, inside a try / catch).
+- Set notes use `Song.genre` (Spotify's artist genres): on a library where that column is empty, only the artist and "you know" forms appear.
+- There is still no real-data number: the learner, the gate and anything read from them are verified on synthetic listeners only.
+
+## How to test on a phone (for Hoa)
+
+1. Ask Taizo: "make me something like Espresso but slower for a late drive". Expect a card "Late drive - 30 songs", four rows, Play, Save and chips ("Less <artist>", "More <genre>", "Shorter", "Slower" ...). Tap "Shorter": the card changes to 20 songs with no spinner longer than a second and no chat message. Tap Play: the queue becomes the mix and Why-this-song on a pick says it was asked for. Tap Save: a playlist "Late drive" appears.
+2. "Why do I keep getting trap?" (use a genre you really play): the answer's numbers match Settings > Your sound, and a chip "Less trap" appears under it; tap it, then Undo.
+3. Open "Why this song" on an engine pick in the queue: "What helped: ..." and "What held it back: ..." lines with plain words only.
+4. Queue 3 songs of one genre from your library, then an engine pick: a line above the first of them ("Three from your <genre> side, then something new from <artist>.") and the same line under the player title; remove a song and the line changes or goes.
+5. Open First Listen on a Monday build with Wi-Fi: a "This week" note of two or three sentences appears under the title; airplane mode: the template text. Open it again: the same text, no new call.
+6. Settings > AI features: "Let Taizo help the engine" is OFF. Turn it on, leave the phone charging idle until the refresh worker has run; Your sound may show assistant-written island names; turn it off: the atlas names come back and the genres the job added are taken out at the next run.
+7. Airplane mode: "start a station from Radiohead" (an artist in your library) starts a station.

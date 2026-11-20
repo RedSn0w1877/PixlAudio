@@ -297,7 +297,7 @@ class AppRefreshWork @Inject constructor(
 
 
     override suspend fun assistantHelp() {
-        val r = assist.run(playing = { com.theveloper.pixelplay.data.service.PlaybackActivityTracker.isPlaybackActive })
+        val r = assist.run(playing = { com.theveloper.pixelplay.data.service.PlaybackActivityTracker.isPlaybackActive }, requestsLeft = { requestsLeft() })
         timber.log.Timber.d(
             "AssistantHelp: %d islands named, %d tracks tagged, %d songs suggested, %d calls, %d tags taken back",
             r.islandsNamed, r.tracksTagged, r.songsSuggested, r.calls, r.tagsTakenBack,
