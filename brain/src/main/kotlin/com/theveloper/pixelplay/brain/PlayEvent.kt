@@ -116,6 +116,12 @@ class PlayEvent(
     val radioRank: Int = -1,
     val pServedQ: Int = 0,
     val modelVersion: Int = 0,
+    /**
+     * The feature vector the pick was served with, quantised ([ServedVector]): 102 bytes, or null for a play that was not served by the
+     * scorer (a track the listener chose, an import, a row written before stage 4). The learner and the gate use it instead of the reduced
+     * vector a replay can rebuild from the log. Additive: a row without it reads as null and the line omits the key.
+     */
+    val servedX: ByteArray? = null,
     val schema: Int = SCHEMA,
 ) {
     fun has(flag: Int): Boolean = flags and flag != 0
@@ -153,6 +159,7 @@ class PlayEvent(
         w.int("radioRank", radioRank)
         w.int("pServedQ", pServedQ)
         w.int("modelVersion", modelVersion)
+        if (servedX != null && servedX.size == ServedVector.BYTES) w.string("servedX", ServedVector.toHex(servedX))
         return w.endObject().toString()
     }
 
@@ -206,6 +213,7 @@ class PlayEvent(
                 radioRank = int("radioRank", -1),
                 pServedQ = int("pServedQ"),
                 modelVersion = int("modelVersion"),
+                servedX = ServedVector.fromHex(m["servedX"] as? String),
             )
         }
 

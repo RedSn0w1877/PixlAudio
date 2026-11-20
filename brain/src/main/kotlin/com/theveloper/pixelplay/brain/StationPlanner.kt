@@ -108,6 +108,11 @@ object StationPlanner {
         val novel: Boolean,
         /** The slot was an exploration slot: the arm was drawn by the bandit (5.10), and the play is logged with [EventFlags.EXPLORE_SLOT]. */
         val explore: Boolean = false,
+        /**
+         * The feature vector the pick was scored with, quantised ([ServedVector]), kept with the play so the learner trains on what the ranker saw
+         * (stage 4). Null when the plan was built without it; it never changes which picks are made.
+         */
+        val servedX: ByteArray? = null,
     )
 
     class Plan(
@@ -216,6 +221,7 @@ object StationPlanner {
                     noise = if (mix && request.jitter > 0.0) {
                         request.jitter * (BrainHash.unit(BrainHash.splitmix64(c.rid xor request.tieSeed)) - 0.5)
                     } else 0.0,
+                    idx = i,
                 )
             )
         }
@@ -270,6 +276,12 @@ object StationPlanner {
             val b = built[i]
             val s = b.scored
             if (b.kind == ListBuilder.SLOT_LIKED) usedLiked = true
+            // The vector this pick was scored with, read again from the same state (a plan changes neither the tables nor the session).
+            var servedX: ByteArray? = null
+            if (s.idx >= 0 && s.idx < n) {
+                Features.compute(kept[s.idx], armCodes[s.idx], pct[s.idx], s.bestRank, affinity, session, graph, nowMs, p0, homeRow || firstListen, x, request.islands)
+                servedX = ServedVector.quantize(x)
+            }
             val seedAid = if (s.bestSeed >= 0 && s.bestSeed < request.seeds.size) request.seeds[s.bestSeed].seedAid else 0L
             val why = WhyLine.pick(
                 arm = s.arm,
@@ -298,6 +310,7 @@ object StationPlanner {
                     pQ = BrainMath.floorToLong(s.p * 10000.0 + 0.5).toInt(),
                     novel = s.novel,
                     explore = b.explore,
+                    servedX = servedX,
                 )
             )
         }

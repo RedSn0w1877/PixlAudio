@@ -13,8 +13,9 @@ package com.theveloper.pixelplay.brain
  * the event carried since stage 1; the origin one-hot (48-50) is switched on for imported and migrated rows in training only and is
  * 0 in every prediction, as it is when serving.
  *
- * The LIVE path (the app's recorder) computes the same vector with [featuresOf] from the state before the play is applied, so a
- * live update and a replay of the same play agree up to the session's expiry rule.
+ * The LIVE path (the app's recorder) computes the same vector with [vectorOf] from the state before the play is applied, so a
+ * live update and a replay of the same play agree up to the session's expiry rule. Since stage 4 a play served by the scorer carries the
+ * vector it was served with (`PlayEvent.servedX`), and [vectorOf] prefers it to the reduced rebuild above.
  */
 object LearnReplay {
     /** Bumped when the features a replay computes, their definition or the update rule change: the learned model is rebuilt. */
@@ -38,6 +39,21 @@ object LearnReplay {
         val retrieval = if (e.retrQ >= 0) e.retrQ.toDouble() / 1000.0 else 0.0
         val bestRank = if (e.radioRank > 0) e.radioRank else 0
         Features.compute(c, e.arm, retrieval, bestRank, affinity, session, Graph.EMPTY, nowMs, p0, false, out)
+    }
+
+    /**
+     * The feature vector the learner and the gate see for play [e]: the vector it was SERVED with when the row carries one
+     * ([PlayEvent.servedX], stage 4), else the reduced vector [featuresOf] rebuilds from the log. Live and replay call this one function,
+     * so they agree. Fills [out] (length [Ranker.D]); returns true when the served vector was used.
+     */
+    fun vectorOf(e: PlayEvent, liked: Boolean, affinity: Affinity.State, session: SessionState, nowMs: Long, p0: Double, out: DoubleArray): Boolean {
+        val served = ServedVector.dequantize(e.servedX)
+        if (served != null) {
+            for (i in 0 until Ranker.D) out[i] = served[i]
+            return true
+        }
+        featuresOf(e, liked, affinity, session, nowMs, p0, out)
+        return false
     }
 
     /** True for a play that can be graded for the gate and the accuracy: it counted, was heard, and is a clear finish or a clear skip. */
@@ -67,7 +83,7 @@ object LearnReplay {
         if (posteriors != null) {
             PosteriorUpdate.onPlay(posteriors, e, g, !Affinity.isHeard(affinity, Family.TRACK, e.rid), t, liveId(e.eventId, posteriors.lastEventId))
         }
-        featuresOf(e, liked, affinity, session, t, p0, x)
+        vectorOf(e, liked, affinity, session, t, p0, x)
         val originIndex = originIndexOf(e.origin)
         if (originIndex >= 0) x[originIndex] = 1.0
         return Ranker.applyEvent(model, x, g.r, g.c, Ranker.biasOf(p0), dayOf(e, t), liveId(e.eventId, model.lastEventId))
@@ -172,7 +188,7 @@ object LearnReplay {
                 model = it
             }
             val p0 = Affinity.p0(affinity, t)
-            featuresOf(e, e.rid in likedRids, affinity, session, t, p0, x)
+            vectorOf(e, e.rid in likedRids, affinity, session, t, p0, x)
             val bias = Ranker.biasOf(p0)
             Ranker.forget(m, day)
             if (isGradedLabel(e, g)) {

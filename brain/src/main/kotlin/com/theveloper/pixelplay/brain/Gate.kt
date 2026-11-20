@@ -24,6 +24,12 @@ object Gate {
     /** Two evaluations closer than this count as one week. */
     const val WEEK_MS = 6L * 86_400_000L
 
+    /**
+     * The relative gain in log-loss a week must show to count as a win (stage 3 "done means": 1%). Below it the learned weights are not
+     * better than the prior in any way worth a decision, and a coin-flip week on a few hundred plays must not switch them on.
+     */
+    const val MIN_IMPROVEMENT = 0.01
+
     /** A month, for "up from ... a month ago". */
     const val MONTH_MS = 30L * 86_400_000L
 
@@ -71,6 +77,9 @@ object Gate {
         /** Relative improvement of the learned log-loss over the prior's; 0 with no plays. */
         val improvement: Double get() = if (plays == 0 || logLossPrior <= 0.0) 0.0 else (logLossPrior - logLossLearned) / logLossPrior
         val learnedBetter: Boolean get() = plays >= MIN_PLAYS && logLossLearned < logLossPrior
+
+        /** Better by at least [MIN_IMPROVEMENT]: what a week must show to be counted towards switching the learned weights on. */
+        val learnedClearlyBetter: Boolean get() = learnedBetter && improvement >= MIN_IMPROVEMENT
     }
 
     private fun clipP(p: Double): Double = BrainMath.clip(p, P_EDGE, 1.0 - P_EDGE)
@@ -117,11 +126,16 @@ object Gate {
 
     /**
      * The gate's decision after one evaluation (5.12 point 8). Off at once when the learned weights are not better (or there are too few
-     * graded plays); on only after [WINS_NEEDED] counted weeks of winning in a row; once on, it stays on while it keeps winning.
-     * An evaluation less than [WEEK_MS] after the last counted one changes the streak only downward, never upward.
+     * graded plays); on only after [WINS_NEEDED] counted weeks of winning in a row, each by at least [MIN_IMPROVEMENT] (and, from
+     * [LearnReplay.TEST6_MIN_PLAYS] graded plays, with the bootstrap interval of test 6 above zero: [intervalAboveZero]); once on, it stays
+     * on while it is still better. An evaluation less than [WEEK_MS] after the last counted one changes the streak only downward, never
+     * upward. A week that is better but not clearly better is not a win: it ends a streak that has not switched the learned weights on, and
+     * leaves one that has switched them on alone (no flapping on noise).
      */
-    fun decide(prev: State, summary: Summary, nowMs: Long): State {
+    fun decide(prev: State, summary: Summary, nowMs: Long, intervalAboveZero: Boolean = true): State {
         if (!summary.learnedBetter) return State(false, 0, nowMs)
+        val clear = summary.learnedClearlyBetter && (summary.playsTotal < LearnReplay.TEST6_MIN_PLAYS || intervalAboveZero)
+        if (!clear) return if (prev.useLearned) prev else State(false, 0, prev.atMs)
         val newWeek = prev.atMs == 0L || nowMs - prev.atMs >= WEEK_MS || nowMs < prev.atMs
         if (!newWeek) return prev
         val streak = if (prev.winStreak >= WINS_NEEDED) prev.winStreak else prev.winStreak + 1

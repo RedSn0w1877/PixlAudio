@@ -54,6 +54,8 @@ object ListBuilder {
         val servedPen: Double = 0.0,
         /** A per-list jitter in the value (a mix draws one per list so "Regenerate" gives another list); 0 for none. */
         val noise: Double = 0.0,
+        /** Index into the planner's kept candidates (stage 4: the planner re-reads this candidate's features for the served vector); -1 for none. */
+        val idx: Int = -1,
     )
 
     /** A slot already in the list (the engine's own tail of the queue), oldest first. */
