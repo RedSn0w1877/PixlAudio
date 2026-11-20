@@ -542,10 +542,14 @@ class SearchStateHolder @Inject constructor(
         scope?.launch {
             try {
                 val item = _searchHistory.value.firstOrNull { it.key == key } ?: return@launch
-                val id = item.id ?: return@launch
-                lastRemoved = listOf(item)
-                _searchHistory.value = _searchHistory.value.filterNot { it.key == key }.toImmutableList()
-                searchHistoryRepository.remove(id)
+                // The list shows one row per thing opened, so the X takes every row that points at the same target.
+                val group = item.targetKey?.let { target -> _searchHistory.value.filter { it.targetKey == target } } ?: listOf(item)
+                val ids = group.mapNotNull { it.id }
+                if (ids.isEmpty()) return@launch
+                lastRemoved = group
+                val gone = group.mapTo(HashSet()) { it.key }
+                _searchHistory.value = _searchHistory.value.filterNot { it.key in gone }.toImmutableList()
+                searchHistoryRepository.remove(ids)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {

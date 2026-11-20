@@ -39,6 +39,7 @@ class FakeSearchHistoryDao : SearchHistoryDao {
     override suspend fun getRecentSearches(limit: Int) = ordered().take(limit)
     override suspend fun findByKey(key: String) = rows.firstOrNull { it.key == key }
     override suspend fun deleteById(id: Long) { rows.removeAll { it.id == id } }
+    override suspend fun deleteByIds(ids: List<Long>) { rows.removeAll { it.id in ids } }
     override suspend fun deleteByKey(key: String) { rows.removeAll { it.key == key } }
     override suspend fun clearAll() { rows.clear() }
     override suspend fun getAll() = ordered()

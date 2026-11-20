@@ -60,12 +60,38 @@ object SearchHistoryRules {
     const val CAP = 50
     const val SUGGESTION_LIMIT = 5
     const val RECENT_STRIP_LIMIT = 10
+    const val MAX_TARGET_TITLE_LENGTH = 200
 
     /** The query as it will be stored: trimmed, cut to [MAX_QUERY_LENGTH], or null when it is too short to keep. */
     fun normalise(raw: String): String? {
         val trimmed = raw.trim()
-        val cut = if (trimmed.length > MAX_QUERY_LENGTH) trimmed.substring(0, MAX_QUERY_LENGTH).trimEnd() else trimmed
+        val cut = cutUnits(trimmed, MAX_QUERY_LENGTH).trimEnd()
         return cut.takeIf { it.length >= MIN_QUERY_LENGTH }
+    }
+
+    /**
+     * [text] cut to [max] UTF-16 units, never in the middle of a surrogate pair (a trailing high surrogate is dropped).
+     * Lengths are counted in UTF-16 units on both apps (Swift counts `utf16` too), so the same typed text is stored,
+     * cut and rejected identically; the golden case is an emoji at the cut and a single emoji (2 units, kept).
+     */
+    fun cutUnits(text: String, max: Int): String {
+        if (text.length <= max) return text
+        var end = max
+        if (end > 0 && Character.isHighSurrogate(text[end - 1])) end -= 1
+        return text.substring(0, end)
+    }
+
+    /**
+     * What the Recent strip and the Recent searches list show: one row per thing opened. Rows are one per typed query
+     * (the key), so "bey" then Beyonce and "beyonce" then Beyonce are two rows pointing at the same artist; the newest
+     * of them stands for the target. Rows with no target (a plain query) are all kept. Input order is kept.
+     */
+    fun <T> collapseByTarget(rows: List<T>, targetKey: (T) -> String?): List<T> {
+        val seen = HashSet<String>()
+        return rows.filter { row ->
+            val target = targetKey(row)
+            target == null || seen.add(target)
+        }
     }
 
     /** The de-dupe key of an already normalised query, or null when it folds to nothing. */

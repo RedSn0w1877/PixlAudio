@@ -42,6 +42,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.border
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.ui.draw.scale
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.ui.zIndex
@@ -307,8 +308,10 @@ fun SearchScreen(
     // Double-tapping Search now focuses the field in the nav pill itself (SplitPillNavigationBar).
 
     // Search debouncing is centralized in SearchStateHolder.
-    LaunchedEffect(searchQuery, currentFilter) {
-        playerViewModel.performSearch(searchQuery)
+    // A query that was only copied in from a Recent row's arrow waits for the user (typing or the search key).
+    val queryFilledOnly = playerViewModel.searchQueryFilledOnly
+    LaunchedEffect(searchQuery, currentFilter, queryFilledOnly) {
+        if (!queryFilledOnly) playerViewModel.performSearch(searchQuery)
     }
     val libraryResults = searchUiState.searchResults
     val catalogResults by playerViewModel.catalogSearchResults.collectAsStateWithLifecycle()
@@ -349,7 +352,7 @@ fun SearchScreen(
     val pane by remember(playerViewModel) {
         derivedStateOf {
             when {
-                playerViewModel.searchQuery.isNotBlank() -> SearchPane.Results
+                playerViewModel.searchQuery.isNotBlank() && !playerViewModel.searchQueryFilledOnly -> SearchPane.Results
                 playerViewModel.searchFieldFocused && !privateOn && history.isNotEmpty() -> SearchPane.History
                 else -> SearchPane.Browse
             }
@@ -361,7 +364,11 @@ fun SearchScreen(
             if (privateOn) emptyList() else SearchHistoryRules.suggest(history, playerViewModel.searchQuery)
         }
     }
-    val recentStripItems = remember(history) { history.take(SearchHistoryRules.RECENT_STRIP_LIMIT) }
+    // One row per thing opened: the same artist reached from two typed queries is one tile, not two.
+    val shownHistory = remember(history) { SearchHistoryRules.collapseByTarget(history) { it.targetKey } }
+    val recentStripItems = remember(shownHistory) { shownHistory.take(SearchHistoryRules.RECENT_STRIP_LIMIT) }
+    // The genre grid's scroll survives the swap to the Recent list and back.
+    val genreGridState = rememberLazyGridState()
 
     val runHistoryQuery: (String) -> Unit = { query ->
         playerViewModel.updateSearchQuery(query)
@@ -429,6 +436,18 @@ fun SearchScreen(
         }
     }
     val imeTargetBottom = with(LocalDensity.current) { WindowInsets.imeAnimationTarget.getBottom(this).toDp() }
+    // Back (or a swipe) that hides the keyboard leaves the field focused; let go of the focus so the Recent list gives
+    // the genre grid back. Only a keyboard that was shown and then hidden counts, so a hardware keyboard never triggers it.
+    var imeWasShown by remember { mutableStateOf(false) }
+    val imeUp = imeTargetBottom > 8.dp
+    LaunchedEffect(imeUp) {
+        if (imeUp) {
+            imeWasShown = true
+        } else if (imeWasShown) {
+            imeWasShown = false
+            if (playerViewModel.searchFieldFocused) focusManager.clearFocus()
+        }
+    }
     val hasMiniPlayer by remember(playerViewModel) {
         playerViewModel.stablePlayerState.map { it.currentSong != null }.distinctUntilChanged()
     }.collectAsStateWithLifecycle(initialValue = false)
@@ -543,9 +562,9 @@ fun SearchScreen(
             ) { currentPane ->
                 if (currentPane == SearchPane.History) {
                     SearchHistoryPanel(
-                        items = history,
+                        items = shownHistory,
                         onOpen = openHistoryItem,
-                        onFill = { item -> playerViewModel.updateSearchQuery(item.query) },
+                        onFill = { item -> playerViewModel.fillSearchQuery(item.query) },
                         onRemove = removeHistoryItem,
                         onClearAll = clearHistory,
                         bottomPadding = if (imeTargetBottom > 8.dp) {
@@ -582,6 +601,7 @@ fun SearchScreen(
                         }
                         Box(modifier = Modifier.fillMaxSize()) {
                             GenreCategoriesGrid(
+                                gridState = genreGridState,
                                 genres = genres,
                                 onGenreClick = { genre ->
                                     Timber.tag("SearchScreen")

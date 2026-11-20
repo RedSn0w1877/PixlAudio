@@ -62,8 +62,15 @@ No local Gradle run (other builds were running on the machine). CI ("Android CI"
 - Catalog and YouTube Music result taps record the typed query with no target (they cannot be reopened by id).
 - No Settings toggle ("Save search history") yet; the private session is the only switch.
 - A query that folds to nothing is dropped (also in migration and restore).
-- The fill arrow only fills the field. It does not move the caret to the end: the field is a `BasicTextField(String)`, whose caret on an
-  outside change is not verified.
+- The fill arrow only fills the field: `PlayerViewModel.fillSearchQuery` sets `searchQueryFilledOnly`, which holds the live search and keeps the
+  Recent list up (so a second row can be filled) until the user types or submits. It does not move the caret to the end: the field is a
+  `BasicTextField(String)`, whose caret on an outside change is not verified. If the keyboard is dismissed after a fill, the field shows the
+  text with the genre grid under it and nothing searched, until the user focuses it again or presses the search key.
+- Recent strip and list show one row per thing opened (`SearchHistoryRules.collapseByTarget`, newest row wins). Storage stays one row per
+  typed query (the key), as in the brief and on iOS; the X on a collapsed row removes every row that points at the same target (one Undo).
+- Lengths are UTF-16 units (the iOS twin counts `utf16` too); a cut never splits a surrogate pair (a trailing high surrogate goes).
+- Keyboard hidden with Back: a keyboard that was shown and then hidden clears the field's focus, so the list gives way to the genre grid.
+- The new strings exist in `values/` only (like `strings_brain.xml`); the other languages fall back to English.
 
 ## Unverified (no phone)
 
@@ -71,3 +78,9 @@ Everything visual and every gesture: the swap between the genre grid and the lis
 padding, the snackbar position over the nav pill and mini player, long-press removal on the strip, the caret after the fill arrow,
 that the focus callback fires `false` when the field leaves composition (a guard sets it when Search is left), the migration on a real
 version 5 file.
+
+## Review pass (same day)
+
+Fixed after an independent review: duplicate Recent tiles per target, genre grid scroll reset (the grid's `LazyGridState` is hoisted into
+`SearchScreen`), fill arrow ran a search, emoji split at the 100-unit cut, Recent list staying up after Back, per-row remove labels and kind
+in the tile's spoken text. Deferred: translations of the new strings.

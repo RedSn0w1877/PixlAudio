@@ -39,7 +39,7 @@ data class SearchHistoryBackupRow(
             key = foldedKey,
             kind = if (opened) knownKind!!.wire else null,
             targetId = if (opened) targetId else null,
-            targetTitle = if (opened) targetTitle?.take(SearchHistoryRules.MAX_QUERY_LENGTH * 2) else null,
+            targetTitle = if (opened) targetTitle?.let { SearchHistoryRules.cutUnits(it, SearchHistoryRules.MAX_TARGET_TITLE_LENGTH) } else null,
             imageUrl = if (opened) imageUrl else null,
             count = (count ?: 1).coerceIn(1, MAX_COUNT),
         )

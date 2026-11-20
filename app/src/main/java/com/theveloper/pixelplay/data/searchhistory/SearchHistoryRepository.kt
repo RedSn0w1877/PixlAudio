@@ -44,7 +44,7 @@ class SearchHistoryRepository(
             key = key,
             kind = if (opened) kind!!.wire else null,
             targetId = if (opened) targetId else null,
-            targetTitle = if (opened) targetTitle?.trim()?.take(SearchHistoryRules.MAX_QUERY_LENGTH * 2) else null,
+            targetTitle = if (opened) targetTitle?.trim()?.let { SearchHistoryRules.cutUnits(it, SearchHistoryRules.MAX_TARGET_TITLE_LENGTH) } else null,
             imageUrl = if (opened) imageUrl else null,
         )
         withContext(Dispatchers.IO) { dao.upsert(entry) }
@@ -57,6 +57,11 @@ class SearchHistoryRepository(
     }
 
     suspend fun remove(id: Long) = withContext(Dispatchers.IO) { dao.deleteById(id) }
+
+    suspend fun remove(ids: List<Long>) {
+        if (ids.isEmpty()) return
+        withContext(Dispatchers.IO) { dao.deleteByIds(ids) }
+    }
 
     suspend fun clear() = withContext(Dispatchers.IO) { dao.clearAll() }
 

@@ -29,6 +29,10 @@ interface SearchHistoryDao {
     @Query("DELETE FROM search_history WHERE id = :id")
     suspend fun deleteById(id: Long)
 
+    /** Rows of one thing opened from several typed queries go together (the Recent list shows them as one). */
+    @Query("DELETE FROM search_history WHERE id IN (:ids)")
+    suspend fun deleteByIds(ids: List<Long>)
+
     @Query("DELETE FROM search_history WHERE `key` = :key")
     suspend fun deleteByKey(key: String)
 

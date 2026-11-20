@@ -47,6 +47,37 @@ class SearchHistoryRulesTest {
     }
 
     @Test
+    fun `lengths are UTF-16 units and a cut never splits an emoji`() {
+        val emoji = "\uD83D\uDE00"
+        // 99 letters then an emoji: the cut at 100 units would split the pair, so the whole emoji goes.
+        val cut = SearchHistoryRules.normalise("a".repeat(99) + emoji)!!
+        assertEquals("a".repeat(99), cut)
+        assertFalse(cut.any { Character.isSurrogate(it) })
+        // 98 letters then an emoji fits exactly (100 units) and is kept whole.
+        assertEquals("a".repeat(98) + emoji, SearchHistoryRules.normalise("a".repeat(98) + emoji))
+        // One emoji is 2 units: it is long enough to store, the same as a Swift utf16 count.
+        assertEquals(emoji, SearchHistoryRules.normalise(emoji))
+        assertEquals("abc", SearchHistoryRules.cutUnits("abc", 5))
+        assertEquals("", SearchHistoryRules.cutUnits(emoji, 1))
+    }
+
+    @Test
+    fun `the same thing reached from two typed queries is one row in the list`() {
+        val rows = listOf(
+            row("beyonce", 30, kind = "artist", targetId = "42", id = 3),
+            row("plain words", 25, id = 4),
+            row("bey", 20, kind = "artist", targetId = "42", id = 2),
+            row("bey song", 10, kind = "song", targetId = "42", id = 1),
+            row("more words", 5, id = 5),
+        )
+        val shown = SearchHistoryRules.collapseByTarget(rows) { r ->
+            SearchHistoryKind.fromWire(r.kind)?.let { "${it.wire}:${r.targetId}" }
+        }
+        // The newest row stands for the artist; a song with the same id is another kind; plain queries all stay.
+        assertEquals(listOf("beyonce", "plain words", "bey song", "more words"), shown.map { it.query })
+    }
+
+    @Test
     fun `spellings of one query share a key`() {
         val keys = listOf("Beyonc\u00e9", "BEYONCE", "beyonce", "  Beyonce  ", "Beyonc\u00e9!").map { SearchHistoryRules.keyOf(it) }
         assertEquals(setOf("beyonce"), keys.toSet())

@@ -18,7 +18,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ViewList
@@ -65,6 +67,7 @@ import androidx.compose.animation.core.tween
 @OptIn(UnstableApi::class)
 @Composable
 fun GenreCategoriesGrid(
+    gridState: LazyGridState = rememberLazyGridState(),
     genres: List<Genre>,
     onGenreClick: (Genre) -> Unit,
     playerViewModel: PlayerViewModel,
@@ -88,6 +91,7 @@ fun GenreCategoriesGrid(
     val navBarCompactMode by playerViewModel.navBarCompactMode.collectAsStateWithLifecycle()
 
     LazyVerticalGrid(
+        state = gridState,
         columns = if (isGridView) GridCells.Fixed(2) else GridCells.Fixed(1),
         modifier = modifier
             .fillMaxSize()

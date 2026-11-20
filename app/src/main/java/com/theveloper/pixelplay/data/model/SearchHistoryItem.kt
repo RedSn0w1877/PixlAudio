@@ -25,6 +25,9 @@ data class SearchHistoryItem(
     val openKind: SearchHistoryKind?
         get() = SearchHistoryKind.fromWire(kind)?.takeIf { it != SearchHistoryKind.QUERY && !targetId.isNullOrBlank() }
 
+    /** Identity of what the row opens ("artist:42"), or null for a plain query: rows with the same one are the same thing. */
+    val targetKey: String? get() = openKind?.let { "${it.wire}:$targetId" }
+
     /** What a row calls itself: the thing it opens, or the words that were typed. */
     val title: String get() = if (openKind != null) targetTitle?.takeIf { it.isNotBlank() } ?: query else query
 }

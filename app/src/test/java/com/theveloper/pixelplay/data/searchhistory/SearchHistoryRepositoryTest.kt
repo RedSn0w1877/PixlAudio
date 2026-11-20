@@ -110,6 +110,18 @@ class SearchHistoryRepositoryTest {
     }
 
     @Test
+    fun `removing several rows at once takes them all and put back restores them`() = runTest {
+        repo.record("bey", SearchHistoryKind.ARTIST, "42", "Beyonce")
+        repo.record("beyonce", SearchHistoryKind.ARTIST, "42", "Beyonce")
+        repo.record("other")
+        val all = repo.recent()
+        repo.remove(all.filter { it.targetId == "42" }.map { it.id })
+        assertEquals(listOf("other"), repo.recent().map { it.query })
+        repo.putBack(all)
+        assertEquals(3, repo.recent().size)
+    }
+
+    @Test
     fun `remove and clear take rows out, put back brings them back as they were`() = runTest {
         repo.record("alpha")
         repo.record("beta")

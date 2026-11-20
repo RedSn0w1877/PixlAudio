@@ -1317,6 +1317,20 @@ class PlayerViewModel @Inject constructor(
         private set
 
     fun updateSearchQuery(query: String) {
+        searchQueryFilledOnly = false
+        searchQuery = query
+    }
+
+    /**
+     * True while [searchQuery] was only copied in from a Recent row's up-left arrow: it shows in the field but is not
+     * searched yet. Typing or submitting clears it. Read in the Search screen through a derived state.
+     */
+    var searchQueryFilledOnly by mutableStateOf(false)
+        private set
+
+    /** Puts [query] in the field without searching (the arrow on a Recent row). */
+    fun fillSearchQuery(query: String) {
+        searchQueryFilledOnly = true
         searchQuery = query
     }
 
@@ -2870,6 +2884,7 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun onSearchQuerySubmitted(query: String) {
+        searchQueryFilledOnly = false
         searchStateHolder.onSearchQuerySubmitted(query)
     }
 

@@ -95,6 +95,7 @@
     <string name="search_cd_delete_search_history_item">Delete search history item</string>
     <string name="search_recent_strip_title">Recent</string>
     <string name="search_history_fill_cd">Put %1$s in the search field</string>
+    <string name="search_history_remove_item_cd">Remove %1$s from recent searches</string>
     <string name="search_history_remove_action">Remove from recent</string>
     <string name="search_history_removed">Removed from recent searches</string>
     <string name="search_history_cleared">Recent searches cleared</string>

@@ -44,6 +44,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
@@ -137,6 +138,9 @@ private fun RecentTile(
     val haptic = LocalHapticFeedback.current
     val removeLabel = stringResource(R.string.search_history_remove_action)
     val kind = item.openKind
+    // Says what the tile is ("Adele, Artist"), so an artist and an album with one name do not sound alike.
+    val spokenKind = kindLabel(kind)
+    val spoken = if (spokenKind != null) "${item.title}, $spokenKind" else item.title
     val tileModifier = Modifier
         .combinedClickable(
             onClick = { onOpen(item) },
@@ -145,7 +149,10 @@ private fun RecentTile(
                 onRemove(item)
             },
         )
-        .semantics { customActions = listOf(CustomAccessibilityAction(removeLabel) { onRemove(item); true }) }
+        .semantics(mergeDescendants = true) {
+            contentDescription = spoken
+            customActions = listOf(CustomAccessibilityAction(removeLabel) { onRemove(item); true })
+        }
 
     when (kind) {
         SearchHistoryKind.ARTIST, SearchHistoryKind.ALBUM, SearchHistoryKind.PLAYLIST -> {
@@ -277,7 +284,7 @@ private fun HistoryRow(
     onRemove: (SearchHistoryItem) -> Unit,
 ) {
     val kind = item.openKind
-    val removeLabel = stringResource(R.string.search_cd_delete_search_history_item)
+    val removeLabel = stringResource(R.string.search_history_remove_item_cd, item.title)
     ListItem(
         headlineContent = {
             Text(text = item.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -289,7 +296,7 @@ private fun HistoryRow(
             if (kind == null) {
                 Icon(
                     imageVector = Icons.Rounded.History,
-                    contentDescription = stringResource(R.string.search_cd_search_history_icon),
+                    contentDescription = null,
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(24.dp),
                 )
@@ -372,7 +379,7 @@ fun SearchHistorySuggestions(
                     leadingContent = {
                         Icon(
                             imageVector = Icons.Rounded.History,
-                            contentDescription = stringResource(R.string.search_cd_search_history_icon),
+                            contentDescription = null,
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(24.dp),
                         )
