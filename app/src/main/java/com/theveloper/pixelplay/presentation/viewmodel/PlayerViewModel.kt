@@ -47,6 +47,8 @@ import com.theveloper.pixelplay.data.model.Genre
 import com.theveloper.pixelplay.data.model.Lyrics
 import com.theveloper.pixelplay.data.model.LyricsSourcePreference
 import com.theveloper.pixelplay.data.model.SearchFilterType
+import com.theveloper.pixelplay.data.searchhistory.SearchHistoryKind
+import com.theveloper.pixelplay.data.searchhistory.SearchHistoryRules
 import com.theveloper.pixelplay.data.model.Song
 import com.theveloper.pixelplay.data.model.SortOption
 import com.theveloper.pixelplay.data.model.toLibraryTabIdOrNull
@@ -1318,6 +1320,20 @@ class PlayerViewModel @Inject constructor(
         searchQuery = query
     }
 
+    /**
+     * Whether the nav bar's search field has focus. Written by the field's focus callback, read in the Search screen
+     * through a derived state so only the swap between the genre grid and the recent searches recomposes, never a keystroke.
+     */
+    var searchFieldFocused by mutableStateOf(false)
+        private set
+
+    fun updateSearchFieldFocused(focused: Boolean) {
+        if (searchFieldFocused != focused) searchFieldFocused = focused
+    }
+
+    /** The remembered searches, newest use first (50 at most); changes only on a write or a remove, never while typing. */
+    val searchHistory = searchStateHolder.searchHistory
+
     private var mediaController: MediaController? = null
     private val _isMediaControllerReady = MutableStateFlow(false)
     val isMediaControllerReady: StateFlow<Boolean> = _isMediaControllerReady.asStateFlow()
@@ -1836,7 +1852,7 @@ class PlayerViewModel @Inject constructor(
         // launchColorSchemeProcessor() - Handled by ThemeStateHolder and on-demand calls
 
         loadPersistedDailyMix()
-        loadSearchHistory()
+        // The search history is read when the Search screen appears (and after a write), not at start-up.
 
         viewModelScope.launch {
             isSyncingStateFlow.collect { isSyncing ->
@@ -2849,12 +2865,23 @@ class PlayerViewModel @Inject constructor(
         searchStateHolder.updateSearchFilter(filterType)
     }
 
-    fun loadSearchHistory(limit: Int = 15) {
+    fun loadSearchHistory(limit: Int = SearchHistoryRules.CAP) {
         searchStateHolder.loadSearchHistory(limit)
     }
 
     fun onSearchQuerySubmitted(query: String) {
         searchStateHolder.onSearchQuerySubmitted(query)
+    }
+
+    /** A search result was opened or played: remembers the typed [query] with what it opened. */
+    fun onSearchResultOpened(
+        query: String,
+        kind: SearchHistoryKind?,
+        targetId: String?,
+        targetTitle: String?,
+        imageUrl: String?,
+    ) {
+        searchStateHolder.onSearchResultOpened(query, kind, targetId, targetTitle, imageUrl)
     }
 
     fun performSearch(query: String) {
@@ -2918,8 +2945,13 @@ class PlayerViewModel @Inject constructor(
         }
     }
 
-    fun deleteSearchHistoryItem(query: String) {
-        searchStateHolder.deleteSearchHistoryItem(query)
+    /** Removes the remembered search with this folded [key]. */
+    fun deleteSearchHistoryItem(key: String) {
+        searchStateHolder.deleteSearchHistoryItem(key)
+    }
+
+    fun undoSearchHistoryRemoval() {
+        searchStateHolder.undoSearchHistoryRemoval()
     }
 
     fun clearSearchHistory() {

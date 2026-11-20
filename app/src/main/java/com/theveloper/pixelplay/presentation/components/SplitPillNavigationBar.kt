@@ -239,6 +239,8 @@ fun SplitPillNavigationBar(
     searchQuery: () -> String,
     onSearchQueryChange: (String) -> Unit,
     onSearchSubmit: (String) -> Unit,
+    /** Tells the Search screen whether the field has focus (the focused, empty field shows the recent searches). */
+    onSearchFocusChange: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val isSearch = currentRoute == Screen.Search.route
@@ -297,6 +299,9 @@ fun SplitPillNavigationBar(
                 focusManager.clearFocus(force = true)
                 keyboard?.hide()
             }
+            // The field may leave composition before it reports losing focus.
+            fieldFocused = false
+            onSearchFocusChange(false)
         }
     }
 
@@ -450,7 +455,10 @@ fun SplitPillNavigationBar(
                             compactMode = compactMode,
                             pendingFocus = pendingFieldFocus,
                             onPendingFocusConsumed = { pendingFieldFocus = false },
-                            onFocusChanged = { fieldFocused = it },
+                            onFocusChanged = {
+                                fieldFocused = it
+                                onSearchFocusChange(it)
+                            },
                             modifier = Modifier
                                 .laidOutAtWidth({ metrics.bigPx }, bias = 0f)
                                 .graphicsLayer { alpha = SplitPillMath.fadeIn(morph.value) }

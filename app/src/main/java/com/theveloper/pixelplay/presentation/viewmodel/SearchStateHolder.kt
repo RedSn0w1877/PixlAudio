@@ -6,6 +6,11 @@ import com.theveloper.pixelplay.data.database.SpotifyMatchState
 import com.theveloper.pixelplay.data.model.CatalogTrack
 import com.theveloper.pixelplay.data.model.SearchFilterType
 import com.theveloper.pixelplay.data.model.SearchHistoryItem
+import com.theveloper.pixelplay.data.model.toEntity
+import com.theveloper.pixelplay.data.model.toSearchHistoryItem
+import com.theveloper.pixelplay.data.searchhistory.SearchHistoryKind
+import com.theveloper.pixelplay.data.searchhistory.SearchHistoryRepository
+import com.theveloper.pixelplay.data.searchhistory.SearchHistoryRules
 import com.theveloper.pixelplay.data.model.SearchResultItem
 import com.theveloper.pixelplay.data.model.Song
 import com.theveloper.pixelplay.data.model.YouTubeMusicTrack
@@ -49,11 +54,12 @@ import kotlinx.coroutines.FlowPreview
  * Responsibilities:
  * - Search query execution
  * - Search filter management
- * - Search history CRUD operations
+ * - Search history (50 rows, loaded once and after a write; never per keystroke)
  */
 @Singleton
 class SearchStateHolder @Inject constructor(
     private val musicRepository: MusicRepository,
+    private val searchHistoryRepository: SearchHistoryRepository,
     private val spotifyRepository: SpotifyRepository,
     private val spotifyDao: SpotifyDao,
     private val trackMatcher: TrackMatcher,
@@ -464,30 +470,52 @@ class SearchStateHolder @Inject constructor(
         _selectedSearchFilter.value = filterType
     }
 
-    fun loadSearchHistory(limit: Int = 15) {
-        scope?.launch {
-            try {
-                val history = withContext(Dispatchers.IO) {
-                    musicRepository.getRecentSearchHistory(limit)
-                }
-                _searchHistory.value = history.toImmutableList()
-            } catch (e: Exception) {
-                Timber.e(e, "Error loading search history")
-            }
+    /** Reads the whole history (50 rows at most) once; called at start-up and after every write, not while typing. */
+    fun loadSearchHistory(limit: Int = SearchHistoryRules.CAP) {
+        scope?.launch { reloadSearchHistory(limit) }
+    }
+
+    private suspend fun reloadSearchHistory(limit: Int = SearchHistoryRules.CAP) {
+        try {
+            val rows = searchHistoryRepository.recent()
+            _searchHistory.value = rows.asSequence().take(limit).map { it.toSearchHistoryItem() }.toList().toImmutableList()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Timber.e(e, "Error loading search history")
         }
     }
 
+    /** The IME search key or a voice result: remember the query (nothing is written in a private session). */
     fun onSearchQuerySubmitted(query: String) {
+        recordSearch(query, null, null, null, null)
+    }
+
+    /** A result was opened or played: remember the query together with what it opened. */
+    fun onSearchResultOpened(
+        query: String,
+        kind: SearchHistoryKind?,
+        targetId: String?,
+        targetTitle: String?,
+        imageUrl: String?,
+    ) {
+        recordSearch(query, kind, targetId, targetTitle, imageUrl)
+    }
+
+    private fun recordSearch(
+        query: String,
+        kind: SearchHistoryKind?,
+        targetId: String?,
+        targetTitle: String?,
+        imageUrl: String?,
+    ) {
         scope?.launch {
-            if (query.isNotBlank()) {
-                try {
-                    withContext(Dispatchers.IO) {
-                        musicRepository.addSearchHistoryItem(query)
-                    }
-                    loadSearchHistory()
-                } catch (e: Exception) {
-                    Timber.e(e, "Error adding search history item")
-                }
+            try {
+                if (searchHistoryRepository.record(query, kind, targetId, targetTitle, imageUrl)) reloadSearchHistory()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Timber.e(e, "Error adding search history item")
             }
         }
     }
@@ -506,28 +534,55 @@ class SearchStateHolder @Inject constructor(
         searchRequests.tryEmit(SearchRequest(normalizedQuery, requestId))
     }
 
-    fun deleteSearchHistoryItem(query: String) {
+    /** What the last remove or Clear all took out, kept for exactly one Undo. */
+    private var lastRemoved: List<SearchHistoryItem> = emptyList()
+
+    /** Removes the row with this [key] (what the X on a row does). */
+    fun deleteSearchHistoryItem(key: String) {
         scope?.launch {
             try {
-                withContext(Dispatchers.IO) {
-                    musicRepository.deleteSearchHistoryItemByQuery(query)
-                }
-                loadSearchHistory()
+                val item = _searchHistory.value.firstOrNull { it.key == key } ?: return@launch
+                val id = item.id ?: return@launch
+                lastRemoved = listOf(item)
+                _searchHistory.value = _searchHistory.value.filterNot { it.key == key }.toImmutableList()
+                searchHistoryRepository.remove(id)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Timber.e(e, "Error deleting search history item")
+                reloadSearchHistory()
             }
         }
     }
 
+    /** Clear all: no confirmation, the screen offers Undo instead. */
     fun clearSearchHistory() {
         scope?.launch {
             try {
-                withContext(Dispatchers.IO) {
-                    musicRepository.clearSearchHistory()
-                }
+                lastRemoved = _searchHistory.value
                 _searchHistory.value = persistentListOf()
+                searchHistoryRepository.clear()
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Timber.e(e, "Error clearing search history")
+                reloadSearchHistory()
+            }
+        }
+    }
+
+    /** Puts back what the last remove or Clear all took out. */
+    fun undoSearchHistoryRemoval() {
+        scope?.launch {
+            try {
+                val rows = lastRemoved
+                lastRemoved = emptyList()
+                if (rows.isNotEmpty()) searchHistoryRepository.putBack(rows.map { it.toEntity() })
+                reloadSearchHistory()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Timber.e(e, "Error restoring search history")
             }
         }
     }
