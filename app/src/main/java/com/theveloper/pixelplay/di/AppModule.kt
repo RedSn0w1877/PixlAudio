@@ -163,7 +163,8 @@ object AppModule {
                 PixelPlayDatabase.MIGRATION_1_2,
                 PixelPlayDatabase.MIGRATION_2_3,
                 PixelPlayDatabase.MIGRATION_3_4,
-                PixelPlayDatabase.MIGRATION_4_5
+                PixelPlayDatabase.MIGRATION_4_5,
+                PixelPlayDatabase.MIGRATION_5_6
             )
             .setJournalMode(RoomDatabase.JournalMode.WRITE_AHEAD_LOGGING)
 
@@ -317,7 +318,6 @@ object AppModule {
         @ApplicationContext context: Context,
         userPreferencesRepository: UserPreferencesRepository,
         playlistPreferencesRepository: PlaylistPreferencesRepository,
-        searchHistoryDao: SearchHistoryDao,
         musicDao: MusicDao,
         lyricsRepository: LyricsRepository,
         songRepository: SongRepository,
@@ -331,7 +331,6 @@ object AppModule {
             context = context,
             userPreferencesRepository = userPreferencesRepository,
             playlistPreferencesRepository = playlistPreferencesRepository,
-            searchHistoryDao = searchHistoryDao,
             musicDao = musicDao,
             lyricsRepository = lyricsRepository,
             songRepository = songRepository,

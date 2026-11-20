@@ -4,6 +4,8 @@ import androidx.room.Database
 import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import com.theveloper.pixelplay.data.searchhistory.LegacySearchRow
+import com.theveloper.pixelplay.data.searchhistory.SearchHistoryRules
 
 @Database(
     entities = [
@@ -26,7 +28,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         AiUsageEntity::class,
         SongCacheEntity::class
     ],
-    version = 5,
+    version = 6,
     exportSchema = true
 )
 abstract class PixelPlayDatabase : RoomDatabase() {
@@ -109,6 +111,52 @@ abstract class PixelPlayDatabase : RoomDatabase() {
                         )
                     """.trimIndent()
                 )
+            }
+        }
+        /** The 5-to-6 column additions, exactly as the exported schema 6 declares them (held against 6.json by a unit test). */
+        val SEARCH_HISTORY_ADD_COLUMNS: List<String> = listOf(
+            "ALTER TABLE `search_history` ADD COLUMN `key` TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE `search_history` ADD COLUMN `kind` TEXT",
+            "ALTER TABLE `search_history` ADD COLUMN `target_id` TEXT",
+            "ALTER TABLE `search_history` ADD COLUMN `target_title` TEXT",
+            "ALTER TABLE `search_history` ADD COLUMN `image_url` TEXT",
+            "ALTER TABLE `search_history` ADD COLUMN `count` INTEGER NOT NULL DEFAULT 1",
+        )
+        const val SEARCH_HISTORY_KEY_INDEX =
+            "CREATE UNIQUE INDEX IF NOT EXISTS `index_search_history_key` ON `search_history` (`key`)"
+
+        /**
+         * Search history grows a fold key, what was opened from a search (kind, target, title, image) and a use
+         * count. Existing rows survive: each gets its key (`BrainText.fold`, the same rule as the iOS app), rows
+         * that now share a key collapse into the newest one (counts add up), rows that fold to nothing and rows
+         * beyond the cap of 50 go, then the unique index on the key is created. The index comes last: the
+         * collapse has to happen before two rows may no longer share a key.
+         */
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                SEARCH_HISTORY_ADD_COLUMNS.forEach { db.execSQL(it) }
+
+                val rows = ArrayList<LegacySearchRow>()
+                db.query("SELECT `id`, `query`, `timestamp` FROM search_history").use { cursor ->
+                    while (cursor.moveToNext()) {
+                        rows += LegacySearchRow(
+                            id = cursor.getLong(0),
+                            query = cursor.getString(1) ?: "",
+                            timestamp = cursor.getLong(2),
+                        )
+                    }
+                }
+                val plan = SearchHistoryRules.planMigration(rows)
+                for (id in plan.deleteIds) {
+                    db.execSQL("DELETE FROM search_history WHERE `id` = ?", arrayOf<Any>(id))
+                }
+                for (row in plan.survivors) {
+                    db.execSQL(
+                        "UPDATE search_history SET `query` = ?, `key` = ?, `timestamp` = ?, `count` = ? WHERE `id` = ?",
+                        arrayOf<Any>(row.query, row.key, row.timestamp, row.count, row.id)
+                    )
+                }
+                db.execSQL(SEARCH_HISTORY_KEY_INDEX)
             }
         }
         /**

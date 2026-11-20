@@ -2,7 +2,6 @@ package com.theveloper.pixelplay.data.repository
 
 import android.content.Context
 import com.theveloper.pixelplay.data.database.MusicDao
-import com.theveloper.pixelplay.data.database.SearchHistoryDao
 import com.theveloper.pixelplay.data.database.SongEntity // Necesario para datos de prueba
 import com.theveloper.pixelplay.data.database.AlbumEntity
 import com.theveloper.pixelplay.data.database.ArtistEntity
@@ -32,7 +31,6 @@ class MusicRepositoryImplTest {
 
     private lateinit var musicRepository: MusicRepositoryImpl
     private val mockMusicDao: MusicDao = mockk()
-    private val mockSearchHistoryDao: SearchHistoryDao = mockk(relaxed = true) // relaxed para evitar mockear todos los métodos de historial
     private val mockContext: Context = mockk(relaxed = true) // relaxed para getAllUniqueAudioDirectories si no se testea a fondo aquí
     private val mockUserPreferencesRepository: UserPreferencesRepository = mockk()
     private val mockPlaylistPreferencesRepository: PlaylistPreferencesRepository = mockk(relaxed = true)
@@ -97,7 +95,6 @@ class MusicRepositoryImplTest {
             context = mockContext,
             userPreferencesRepository = mockUserPreferencesRepository,
             playlistPreferencesRepository = mockPlaylistPreferencesRepository,
-            searchHistoryDao = mockSearchHistoryDao,
             musicDao = mockMusicDao,
             lyricsRepository = mockLyricsRepository,
             songRepository = mockSongRepository,
@@ -337,24 +334,7 @@ class MusicRepositoryImplTest {
         assertEquals("Song A", result.first().title)
     }
 
-    @Nested
-    @DisplayName("Search History Functions")
-    inner class SearchHistoryFunctions {
-        @Test
-        fun `addSearchHistoryItem calls dao methods`() = runTest {
-            val query = "test query"
-            coEvery { mockSearchHistoryDao.deleteByQuery(query) } just runs
-            coEvery { mockSearchHistoryDao.insert(any()) } just runs
-
-            musicRepository.addSearchHistoryItem(query)
-
-            coVerifyOrder {
-                mockSearchHistoryDao.deleteByQuery(query)
-                mockSearchHistoryDao.insert(any())
-            }
-        }
-        // TODO: Añadir más tests para el historial si es necesario
-    }
+    // Search history moved to SearchHistoryRepository (see SearchHistoryRepositoryTest).
 
     // TODO: Añadir tests para:
     // - getSongsForAlbum, getSongsForArtist, getSongsByIds

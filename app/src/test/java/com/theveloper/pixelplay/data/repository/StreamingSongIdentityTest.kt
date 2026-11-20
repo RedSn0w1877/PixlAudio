@@ -28,7 +28,7 @@ class StreamingSongIdentityTest {
             every { allowedDirectoriesFlow } returns flowOf(emptySet())
             every { blockedDirectoriesFlow } returns flowOf(emptySet())
         }
-        return MusicRepositoryImpl(mockk(), preferences, mockk(), mockk(), musicDao,
+        return MusicRepositoryImpl(mockk(), preferences, mockk(), musicDao,
             mockk(), mockk(), mockk(), mockk(), mockk(), spotifyDao)
     }
 
