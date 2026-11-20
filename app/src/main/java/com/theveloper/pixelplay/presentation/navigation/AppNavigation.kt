@@ -628,6 +628,13 @@ fun AppNavigation(
                 }
             }
             composable(
+                Screen.SongTap.route,
+            ) {
+                ScreenWrapper(navController = navController, playerViewModel = playerViewModel, animatedVisibilityScope = this) {
+                    com.theveloper.pixelplay.presentation.songtap.SongTapScreen(navController = navController)
+                }
+            }
+            composable(
                 Screen.DeviceCapabilities.route,
             ) {
                 ScreenWrapper(navController = navController, playerViewModel = playerViewModel, animatedVisibilityScope = this) {

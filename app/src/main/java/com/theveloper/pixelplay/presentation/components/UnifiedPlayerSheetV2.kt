@@ -942,7 +942,8 @@ fun UnifiedPlayerSheetV2(
                 onNavigateToArtist = sheetActionHandlers.onNavigateToArtist,
                 onNavigateToGenre = sheetActionHandlers.onNavigateToGenre,
                 queuePredictiveBackProgress = queuePredictiveBackProgress,
-                queuePredictiveBackSwipeEdge = queuePredictiveBackSwipeEdgeState
+                queuePredictiveBackSwipeEdge = queuePredictiveBackSwipeEdgeState,
+                onOpenSongTap = sheetActionHandlers.onOpenSongTap
             )
         }
     }

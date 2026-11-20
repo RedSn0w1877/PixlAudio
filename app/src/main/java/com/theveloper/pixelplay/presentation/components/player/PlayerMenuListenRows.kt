@@ -18,6 +18,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.MicOff
+import androidx.compose.material.icons.rounded.PhonelinkRing
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MaterialTheme
@@ -43,6 +44,7 @@ import com.theveloper.pixelplay.R
 import com.theveloper.pixelplay.presentation.spatial.SpatialButtonUi
 import com.theveloper.pixelplay.presentation.viewmodel.SingPhase
 import com.theveloper.pixelplay.presentation.viewmodel.SingUi
+import com.theveloper.pixelplay.presentation.viewmodel.SongTapSettingsViewModel
 import com.theveloper.pixelplay.presentation.viewmodel.SpatialAudioViewModel
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -67,9 +69,12 @@ internal fun PlayerMenuListenRows(
     singUiFlow: StateFlow<SingUi>,
     onSpatialClick: () -> Unit,
     onSingClick: () -> Unit,
+    onSongTapClick: () -> Unit,
     modifier: Modifier = Modifier,
     spatialViewModel: SpatialAudioViewModel = hiltViewModel(),
+    songTapSettings: SongTapSettingsViewModel = hiltViewModel(),
 ) {
+    val songTapOn by songTapSettings.allowed.collectAsStateWithLifecycle()
     val holder = spatialViewModel.spatial
     val spatialUi by remember(holder) {
         combine(holder.storedSettings, holder.audible) { stored, heard ->
@@ -106,10 +111,7 @@ internal fun PlayerMenuListenRows(
             onClick = onSpatialClick
         )
         ListenRow(
-            shape = RoundedCornerShape(
-                topStart = ListenRowInner, topEnd = ListenRowInner,
-                bottomStart = ListenRowOuter, bottomEnd = ListenRowOuter
-            ),
+            shape = RoundedCornerShape(ListenRowInner),
             badgeShape = MaterialShapes.Sunny.toShape(),
             icon = rememberVectorPainter(if (sing.active) Icons.Rounded.MicOff else Icons.Rounded.Mic),
             title = stringResource(R.string.lyrics_sing),
@@ -117,6 +119,19 @@ internal fun PlayerMenuListenRows(
             trailingLabel = null,
             trailingEmphasized = false,
             onClick = onSingClick
+        )
+        ListenRow(
+            shape = RoundedCornerShape(
+                topStart = ListenRowInner, topEnd = ListenRowInner,
+                bottomStart = ListenRowOuter, bottomEnd = ListenRowOuter
+            ),
+            badgeShape = MaterialShapes.Cookie6Sided.toShape(),
+            icon = rememberVectorPainter(Icons.Rounded.PhonelinkRing),
+            title = stringResource(R.string.songtap_title),
+            supporting = stringResource(R.string.songtap_menu_supporting),
+            trailingLabel = stringResource(if (songTapOn) R.string.songtap_menu_on else R.string.songtap_menu_off),
+            trailingEmphasized = songTapOn,
+            onClick = onSongTapClick
         )
     }
 }
