@@ -38,17 +38,27 @@ object Grounding {
         /** Free text the model may quote from, or numbers it may read: a tool result as text, lyrics, what the user said. */
         fun addText(raw: String?) {
             if (raw == null || raw.isEmpty()) return
-            corpus.add(BrainText.fold(raw))
+            // Padded with a space on both sides, so a lookup is a whole-word match ("sia" is not inside "asia").
+            corpus.add(" " + BrainText.fold(raw) + " ")
             for (n in numbersIn(raw)) numbers.add(n)
         }
 
         /** True when [folded] is a name a tool returned. */
         fun hasName(folded: String): Boolean = folded in names
 
-        /** True when [folded] is a part of some registered free text. */
+        /** True when [folded] is a run of whole words of some registered free text. */
         fun inText(folded: String): Boolean {
             if (folded.isEmpty()) return false
-            for (t in corpus) if (t.contains(folded)) return true
+            val needle = " $folded "
+            for (t in corpus) if (t.contains(needle)) return true
+            return false
+        }
+
+        /** True when [folded] is a run of whole words of some name a tool returned ("Good Luck" of "Good Luck, Babe!"). Only the unmarked scan uses it. */
+        fun inName(folded: String): Boolean {
+            if (folded.isEmpty()) return false
+            val needle = " $folded "
+            for (n in names) if ((" $n ").contains(needle)) return true
             return false
         }
 
@@ -60,7 +70,7 @@ object Grounding {
         val size: Int get() = names.size
     }
 
-    class Span(val start: Int, val end: Int, val inner: String, val marked: Boolean)
+    class Span(val start: Int, val end: Int, val inner: String, val marked: Boolean, val bad: Boolean = false)
 
     /** The `[[...]]` marks of [text], in order (an unclosed mark, an empty one and a long one are not spans). */
     fun markedSpans(text: String): List<Span> {
@@ -87,25 +97,52 @@ object Grounding {
         return out
     }
 
-    private const val LEFT_QUOTE = 0x201C
-    private const val RIGHT_QUOTE = 0x201D
+    private const val NO_CLOSE = '\u0000'
 
-    private fun isOpenQuote(c: Char): Boolean = c == '"' || c.code == LEFT_QUOTE
-    private fun isCloseQuote(c: Char, open: Char): Boolean = if (open == '"') c == '"' else c.code == RIGHT_QUOTE
+    /**
+     * The character that closes a quote opened at [i] of [text], or [NO_CLOSE] when [i] does not open one. Double quotes (straight and curly),
+     * guillemets and curly single quotes always open one; a straight single quote opens one only at a word start followed by a letter or digit
+     * (an apostrophe in "don't" is not a quote).
+     */
+    private fun closeFor(text: String, i: Int): Char {
+        val c = text[i]
+        return when {
+            c == '"' -> '"'
+            c.code == 0x201C -> 0x201D.toChar()
+            c.code == 0x00AB -> 0x00BB.toChar()
+            c.code == 0x2018 -> 0x2019.toChar()
+            c == '\'' -> {
+                val before = if (i == 0) ' ' else text[i - 1]
+                val startsWord = before == ' ' || before == '(' || before == '[' || before == '\n' || before == '\t'
+                if (startsWord && i + 1 < text.length && (text[i + 1].isLetterOrDigit())) '\'' else NO_CLOSE
+            }
+            else -> NO_CLOSE
+        }
+    }
 
-    /** Double-quoted phrases of [text] that are not inside a `[[...]]` mark: a title the model quoted without marking it. */
+    /** True when the character at [j] closes a quote that [close] ends (a single quote only when no letter follows it: "Rock'n'roll" stays whole). */
+    private fun closesAt(text: String, j: Int, close: Char): Boolean {
+        if (text[j] != close) return false
+        if (close == '\'' || close.code == 0x2019) return j + 1 >= text.length || !text[j + 1].isLetterOrDigit()
+        return true
+    }
+
+    /**
+     * Quoted phrases of [text] that are not inside a `[[...]]` mark: a title the model quoted without marking it. Double quotes, curly single
+     * quotes, straight single quotes at a word start, and guillemets.
+     */
     fun quotedSpans(text: String, marked: List<Span>): List<Span> {
         val out = ArrayList<Span>()
         var i = 0
         while (i < text.length) {
             val inMark = marked.any { i >= it.start && i < it.end }
-            if (!inMark && isOpenQuote(text[i])) {
-                val open = text[i]
+            val close = if (inMark) NO_CLOSE else closeFor(text, i)
+            if (close != NO_CLOSE) {
                 var j = i + 1
                 var closed = -1
                 while (j < text.length && j - i <= MAX_QUOTED + 1) {
                     if (text[j] == '\n') break
-                    if (isCloseQuote(text[j], open)) { closed = j; break }
+                    if (closesAt(text, j, close)) { closed = j; break }
                     j++
                 }
                 if (closed > 0) {
@@ -139,7 +176,7 @@ object Grounding {
         if (clean.isNotEmpty() && registry.hasName(clean)) return true
         if (!marked) {
             if (registry.inText(folded)) return true
-            if (userText.isNotEmpty() && BrainText.fold(userText).contains(folded)) return true
+            if (userText.isNotEmpty() && (" " + BrainText.fold(userText) + " ").contains(" $folded ")) return true
         } else if (userText.isNotEmpty() && folded.length >= MIN_USER_NAME) {
             // A name the listener typed is theirs: the assistant may say it back ("Espresso is a good place to start"). Whole words only.
             if ((" " + BrainText.fold(userText) + " ").contains(" $folded ")) return true
@@ -187,6 +224,128 @@ object Grounding {
         }
         return true
     }
+
+    // ---- Names the model wrote with no mark (the second pass) ----
+
+    /**
+     * Words that start with a capital but are not names: the pronoun, the app's own words, the days and the months. A reply may use them anywhere.
+     * (Folded.) A name-like word in this list is never flagged; it is also never a name the model may claim.
+     */
+    private val NOT_NAMES = setOf(
+        "i", "im", "ill", "ive", "id", "ai", "dj", "ep", "lp", "url", "ui", "tv", "usb", "wifi", "bluetooth", "flac", "mp3",
+        "taizo", "pixlaudio", "pixl", "spotify", "youtube", "music", "home", "settings", "android", "google", "premium", "plus",
+        "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
+        "january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december",
+    )
+
+    /** Lower-case words that may sit inside a name between two capitalised words ("Kind of Blue", "Tyler the Creator"). */
+    private val NAME_CONNECTORS = setOf("of", "the", "and", "de", "la", "le", "da", "van", "von", "x")
+
+    private class Word(val start: Int, val end: Int, val text: String, val cap: Boolean, val connector: Boolean)
+
+    private fun isWordChar(c: Char): Boolean = c.isLetterOrDigit()
+
+    /** The words of [text] in [from] until [to] (letters and digits, with an apostrophe or hyphen between two of them, and `&`). */
+    private fun wordsOf(text: String, from: Int, to: Int, out: ArrayList<Word>) {
+        var i = from
+        while (i < to) {
+            val c = text[i]
+            if (c == '&') {
+                out.add(Word(i, i + 1, "&", cap = false, connector = true))
+                i++
+            } else if (isWordChar(c)) {
+                var j = i + 1
+                while (j < to) {
+                    val d = text[j]
+                    if (isWordChar(d)) j++
+                    else if ((d == '\'' || d.code == 0x2019 || d == '-' || d == '.') && j + 1 < to && isWordChar(text[j + 1]) && (d != '.' || text[j - 1].isUpperCase())) j++
+                    else break
+                }
+                var end = j
+                // A possessive is not part of the name.
+                if (end - i > 2 && (text[end - 2] == '\'' || text[end - 2].code == 0x2019) && (text[end - 1] == 's' || text[end - 1] == 'S')) end -= 2
+                val w = text.substring(i, end)
+                out.add(Word(i, end, w, cap = c.isUpperCase() && NOT_NAMES.contains(BrainText.fold(w).replace(" ", "")).not(), connector = BrainText.fold(w) in NAME_CONNECTORS))
+                i = j
+            } else {
+                i++
+            }
+        }
+    }
+
+    /** True when the word at [at] starts a sentence or a line (or a list item): its capital is grammar, not a name. */
+    private fun startsSentence(text: String, at: Int): Boolean {
+        var k = at - 1
+        while (k >= 0) {
+            val c = text[k]
+            if (c == ' ' || c == '*' || c == '_' || c == '(' || c == '"' || c == '-' || c.code == 0x2022 || c == '>' || c == '#' || c.code == 0x201C) { k--; continue }
+            if (c in '0'..'9') { k--; continue }
+            return c == '.' || c == '!' || c == '?' || c == '\n'
+        }
+        return true
+    }
+
+    private fun runGrounded(run: String, registry: Registry, userText: String): Boolean =
+        isGrounded(run, registry, false, userText) || registry.inName(BrainText.fold(run).trim())
+
+    /** True when only spaces lie between two words (no punctuation, no line break). */
+    private fun adjacent(text: String, a: Word, b: Word): Boolean {
+        var k = a.end
+        while (k < b.start) { if (text[k] != ' ') return false; k++ }
+        return true
+    }
+
+    /**
+     * Runs of capitalised words that lie outside every span of [taken]: a name written with no mark and no quote ("You might also try
+     * Radiohead or OK Computer"). A run that is not grounded ([isGrounded]) comes back as a bad span. A single capitalised word that starts a
+     * sentence is skipped (a sentence opener is not a name); a run of two or more that starts a sentence is checked whole and then without its
+     * first word ("Try Radiohead"). Lower-case names are not found: the check can only see what capitals show.
+     */
+    fun unmarkedNames(text: String, taken: List<Span>, registry: Registry, userText: String): List<Span> {
+        val out = ArrayList<Span>()
+        val sorted = taken.sortedBy { it.start }
+        val words = ArrayList<Word>()
+        var at = 0
+        for (s in sorted) {
+            if (s.start > at) wordsOf(text, at, s.start, words)
+            // A mark or a quote is a hard break between words.
+            words.add(Word(s.start, s.start, "", cap = false, connector = false))
+            if (s.end > at) at = s.end
+        }
+        if (at < text.length) wordsOf(text, at, text.length, words)
+        var i = 0
+        while (i < words.size) {
+            if (!words[i].cap) { i++; continue }
+            var j = i
+            while (true) {
+                if (j + 1 < words.size && words[j + 1].cap && adjacent(text, words[j], words[j + 1])) { j++; continue }
+                if (j + 2 < words.size && words[j + 1].connector && words[j + 2].cap && adjacent(text, words[j], words[j + 1]) && adjacent(text, words[j + 1], words[j + 2])) { j += 2; continue }
+                break
+            }
+            val initial = startsSentence(text, words[i].start)
+            if (!(initial && j == i)) {
+                val full = text.substring(words[i].start, words[j].end)
+                if (!runGrounded(full, registry, userText)) {
+                    var from = i
+                    if (initial && j > i) {
+                        // "Try Radiohead": the first word may be grammar.
+                        var k = i + 1
+                        if (words[k].connector) k++
+                        if (k <= j) {
+                            val rest = text.substring(words[k].start, words[j].end)
+                            if (runGrounded(rest, registry, userText)) { i = j + 1; continue }
+                            from = k
+                        }
+                    }
+                    val inner = text.substring(words[from].start, words[j].end)
+                    out.add(Span(words[from].start, words[j].end, inner, false, bad = true))
+                }
+            }
+            i = j + 1
+        }
+        return out
+    }
+
     // ---- Numbers ----
 
     /** Units that make a number a statement about the listener ("212 plays", "9%", "3 hours"). */
@@ -303,19 +462,22 @@ object Grounding {
         userText: String,
         placeholder: String,
         dropUngroundedNumbers: Boolean,
+        scanUnmarked: Boolean = false,
     ): Verdict {
         val marked = markedSpans(text)
         val quoted = quotedSpans(text, marked)
         val all = ArrayList<Span>(marked.size + quoted.size)
         all.addAll(marked)
         all.addAll(quoted)
+        // A name the model wrote with no mark and no quote: found as a run of capitalised words outside every span.
+        if (scanUnmarked) all.addAll(unmarkedNames(text, all, registry, userText))
         all.sortBy { it.start }
         val badNames = ArrayList<String>()
         val sb = StringBuilder()
         var at = 0
         for (s in all) {
             sb.append(text, at, s.start)
-            val grounded = isGrounded(s.inner, registry, s.marked, userText)
+            val grounded = !s.bad && isGrounded(s.inner, registry, s.marked, userText)
             if (grounded) {
                 // A mark is only a mark: the name stays, the brackets go. A quote stays as written.
                 if (s.marked) sb.append(s.inner) else sb.append(text, s.start, s.end)

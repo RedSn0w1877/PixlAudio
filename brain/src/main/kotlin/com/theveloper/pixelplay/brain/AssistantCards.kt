@@ -77,37 +77,57 @@ object AssistantCards {
     /** A genre or an artist that a tool result held (so it is real) and that a "Less X" could be about. */
     class Named(val kind: Int, val name: String)
 
+    /** Words that, just before a name, say the listener likes it: no "Less X" is offered for a name they praised. */
+    private val LIKING = setOf("love", "loves", "like", "likes", "enjoy", "enjoys", "adore", "favourite", "favorite", "into", "want")
+
+    /** How many words before a name are read for a liking word. */
+    private const val LIKING_WINDOW = 3
+
     /**
-     * Which of [named] the listener asked about in [userText] ("Why do I keep getting trap?" names trap): the longest of them that is a
-     * whole-word run of what they wrote, ties to the earlier one. null when none is, and then no chip is offered: a "Less X" for a thing
-     * the listener did not ask about would be a guess. Names shorter than two characters never match (a one-letter name is in every sentence).
+     * Which of [named] the listener asked about in [userText] ("Why do I keep getting trap?" names trap). Exactly one name must be a
+     * whole-word run of what they wrote (a name inside a longer one that also matches, "rock" in "indie rock", does not count), and no
+     * liking word may stand in the three words before it ("I love rock though"): a listener who names two things, or praises the thing they
+     * named, gets no chip, because a "Less X" for the wrong one would be a guess. Names shorter than two characters never match.
      */
     fun lessTarget(userText: String, named: List<Named>): Named? {
         val text = " " + BrainText.fold(userText).trim() + " "
-        var best: Named? = null
-        var bestLen = 0
+        class Hit(val named: Named, val at: Int, val end: Int)
+        val hits = ArrayList<Hit>()
         for (n in named) {
             val f = BrainText.fold(n.name).trim()
             if (f.length < 2) continue
-            if (containsWords(text, f) && f.length > bestLen) {
-                best = n
-                bestLen = f.length
+            var from = 0
+            while (true) {
+                val at = indexOfWords(text, f, from)
+                if (at < 0) break
+                hits.add(Hit(n, at, at + f.length))
+                from = at + 1
             }
         }
-        return best
+        // A hit inside a longer hit is the same mention.
+        val outer = hits.filter { h -> hits.none { o -> o !== h && o.at <= h.at && o.end >= h.end && (o.end - o.at) > (h.end - h.at) } }
+        val liked = HashSet<String>()
+        val wanted = LinkedHashMap<String, Named>()
+        for (h in outer) {
+            val key = h.named.kind.toString() + ":" + BrainText.fold(h.named.name)
+            val before = text.substring(0, h.at).trim().split(' ').filter { it.isNotEmpty() }.takeLast(LIKING_WINDOW)
+            if (before.any { it in LIKING }) liked.add(key) else wanted.putIfAbsent(key, h.named)
+        }
+        for (k in liked) wanted.remove(k)
+        return if (wanted.size == 1) wanted.values.first() else null
     }
 
-    /** True when [needle] occurs in [haystack] with no word character on either side. */
-    private fun containsWords(haystack: String, needle: String): Boolean {
-        var from = 0
+    /** The index of [needle] in [haystack] with no word character on either side, from [from]; -1 when there is none. */
+    private fun indexOfWords(haystack: String, needle: String, from: Int): Int {
+        var start = from
         while (true) {
-            val at = haystack.indexOf(needle, from)
-            if (at < 0) return false
+            val at = haystack.indexOf(needle, start)
+            if (at < 0) return -1
             val before = if (at > 0) haystack[at - 1] else ' '
             val afterIndex = at + needle.length
             val after = if (afterIndex < haystack.length) haystack[afterIndex] else ' '
-            if (!isWordChar(before) && !isWordChar(after)) return true
-            from = at + 1
+            if (!isWordChar(before) && !isWordChar(after)) return at
+            start = at + 1
         }
     }
 

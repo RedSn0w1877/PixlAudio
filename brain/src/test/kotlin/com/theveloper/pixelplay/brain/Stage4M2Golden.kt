@@ -83,6 +83,9 @@ object Stage4M2Golden {
             Case("Why is so much V-pop in my mixes", listOf(AssistantCards.Named(0, "V-pop"), AssistantCards.Named(0, "Pop"))),
             Case("tại sao Sơn Tùng M-TP", listOf(AssistantCards.Named(1, "Sơn Tùng M-TP"))),
             Case("a b c", listOf(AssistantCards.Named(0, "A"), AssistantCards.Named(0, ""))),
+            Case("why do I keep getting pop? I love rock though", listOf(AssistantCards.Named(0, "Pop"), AssistantCards.Named(0, "Rock"))),
+            Case("why do I keep getting pop and rock", listOf(AssistantCards.Named(0, "Pop"), AssistantCards.Named(0, "Rock"))),
+            Case("i love trap, why so much trap", listOf(AssistantCards.Named(0, "Trap"))),
         )
         for (c in cases) {
             val t = AssistantCards.lessTarget(c.user, c.named)
@@ -234,7 +237,7 @@ object Stage4M2Golden {
         - `assistantcards.jsonl` (stage 4, milestone 2): `AssistantCards`. `allChips`: `AssistantRules.Query` from the fields of `in` (the
           genre ids are `genreIds`, no moods, no years, no excluded genres), then `allChips(q, topArtistRef, topGenreId, unsupported)` is
           `chips` (`[kind, ref, genreId]` each). `chipLabel`: `chipLabel(Chip(kind, "yt:aaaaaaaaaaa", 5), artist, genre)`. `lessTarget`:
-          `lessTarget(user, [Named(kind, name)])`, then `lessLabel(target.name)`. Names are compared folded, whole words, two characters or more.
+          `lessTarget(user, [Named(kind, name)])`, then `lessLabel(target.name)`. Names are compared folded, whole words, two characters or more; exactly one name may remain (a name inside a longer matching name is the same mention; a name with `love`, `like`, `enjoy`, `adore`, `favourite`, `into` or `want` in the three words before it is dropped).
         - `setnotes.jsonl`: `SetNotes.notes(slots)` for `slots` = `[artist, genre, known 1|0]`, each note `[index, kind, count, genre,
           artist, newArtist, text]` with `text = SetNotes.text(note)`. `firstGenre`: `SetNotes.firstGenre(raw)`.
         - `weeklynote.jsonl`: `WeeklyNote.Evidence(tracks, newSongs, artists, genre, island, newSharePct)` (-1 and "" are unknown).

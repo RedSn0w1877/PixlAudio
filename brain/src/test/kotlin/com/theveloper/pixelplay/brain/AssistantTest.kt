@@ -296,4 +296,55 @@ class AssistantTest {
         assertEquals(emptyList<Grounding.Span>().size, Grounding.markedSpans("no marks [x] here").size)
         assertEquals(1, Grounding.markedSpans("a [[b]] c [[").size)
     }
+
+    // ── Review fixes: unmarked names, whole-word text, negative affinities ──
+
+    private fun scan(reply: String, reg: Grounding.Registry, user: String = "") =
+        Grounding.check(reply, reg, user, "(unverified)", true, scanUnmarked = true)
+
+    @Test
+    fun `a name with no mark and no quote is found by the second pass`() {
+        val reg = registry(listOf("Espresso", "Sabrina Carpenter"))
+        val v = scan("You might also try Radiohead or OK Computer.", reg)
+        assertFalse(v.ok)
+        assertEquals(listOf("Radiohead", "OK Computer"), v.ungroundedNames)
+        assertEquals("You might also try (unverified) or (unverified).", v.cleaned)
+        // A returned name is fine bare, a sentence opener and the app's own words are not names.
+        assertTrue(scan("Sabrina Carpenter and Espresso fit. Great. I think Taizo and Spotify agree on Monday.", reg).ok)
+        // The first word of a run may be grammar ("Try Radiohead").
+        assertEquals(listOf("Radiohead"), scan("Try Radiohead.", reg).ungroundedNames)
+        // Part of a returned name counts ("Good Luck" of "Good Luck, Babe!").
+        assertTrue(scan("Then comes Good Luck in the middle.", registry(listOf("Good Luck, Babe!"))).ok)
+        // Off by default: the plain check does not look for them.
+        assertTrue(check("You might also try Radiohead.", reg).ok)
+    }
+
+    @Test
+    fun `single quotes and guillemets are quoted names, and a quote matches whole words of a text only`() {
+        val reg = registry(emptyList(), listOf("{\"genre\":\"asia\"}"))
+        assertEquals(listOf("Chappell Roan"), check("Try 'Chappell Roan' now.", reg).ungroundedNames)
+        assertEquals(listOf("Lorde"), check("Try «Lorde».", reg).ungroundedNames)
+        // "Sia" is inside "asia" but is not a word of it.
+        assertEquals(listOf("Sia"), check("Try \"Sia\".", reg).ungroundedNames)
+        // An apostrophe is not a quote.
+        assertTrue(check("It's what you don't skip.", reg).ok)
+    }
+
+    @Test
+    fun `a negative affinity is said as a skip and is never a reason in its favour`() {
+        val x = DoubleArray(Ranker.D)
+        x[0] = 1.0
+        x[2] = -1.5
+        x[8] = 1.0
+        val w = Ranker.weights(0.6)
+        val factors = AssistantRules.topFactors(x, w)
+        val skip = factors.firstOrNull { it.name == "you often skip this artist" }
+        assertNotNull(skip)
+        assertFalse(skip!!.up)
+        assertTrue(factors.none { it.name == "you play this artist" })
+        // With a weight of the other sign the skip would read as a reason for the pick: it is left out.
+        val negW = w.copyOf()
+        negW[2] = -kotlin.math.abs(negW[2]) - 0.5
+        assertTrue(AssistantRules.topFactors(x, negW).none { it.name == "you often skip this artist" })
+    }
 }

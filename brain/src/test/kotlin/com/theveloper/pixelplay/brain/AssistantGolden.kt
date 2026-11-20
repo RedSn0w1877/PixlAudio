@@ -236,6 +236,29 @@ object AssistantGolden {
                 string("cleaned", v.cleaned); strings("ungroundedNames", v.ungroundedNames); strings("ungroundedNumbers", v.ungroundedNumbers)
             }))
         }
+        // The second pass (stage 4 review): names with no mark and no quote, single quotes and guillemets, whole-word text lookups.
+        val scanCases = listOf(
+            Case(
+                listOf("Espresso", "Sabrina Carpenter", "Tyler, The Creator"), listOf("{\"genre\":\"asia\"}"), "something like Espresso",
+                "You might also try Radiohead or OK Computer. Sabrina Carpenter is a good start, and so is Tyler.", false,
+            ),
+            Case(
+                emptyList(), listOf("{\"genre\":\"asia\"}"), "",
+                "Try \"Sia\" or 'Chappell Roan' or " + 0x00AB.toChar() + "Lorde" + 0x00BB.toChar() + ". It's Monday and I'm here for Spotify and Taizo.", false,
+            ),
+            Case(listOf("Good Luck, Babe!", "Espresso"), emptyList(), "", "Great pick. Espresso and Good Luck fit; so does Pink Pony Club.", false),
+        )
+        for (c in scanCases) {
+            val reg = Grounding.Registry()
+            for (n in c.names) reg.addName(n)
+            for (t in c.texts) reg.addText(t)
+            val v = Grounding.check(c.reply, reg, c.user, "(unverified)", c.drop, scanUnmarked = true)
+            sb.append(line("grounding2", {
+                strings("names", c.names); strings("texts", c.texts); string("user", c.user); string("reply", c.reply); bool("drop", c.drop)
+            }, {
+                string("cleaned", v.cleaned); strings("ungroundedNames", v.ungroundedNames); strings("ungroundedNumbers", v.ungroundedNumbers)
+            }))
+        }
         for (t in listOf("1,240 plays and 9.50% and 007 times, 2pac 3rd, R3 day 12 days; 45 minutes", "no numbers", "0.0 skips 100% 5 hours.")) {
             sb.append(line("numbers", { string("text", t) }, {
                 strings("all", Grounding.numbersIn(t))
@@ -255,6 +278,9 @@ object AssistantGolden {
           `topFactors`: `AssistantRules.topFactors(x, Ranker.weights(p0))`, each factor `[name, 1 up | 0 down]`.
           `grounding`: a `Grounding.Registry` with `addName` for each of `names` and `addText` for each of `texts`, then `Grounding.check(reply,
           registry, user, "(unverified)", drop)`. `numbers`: `Grounding.numbersIn(text)` and the tokens of `Grounding.listenerNumbers(text)`.
+          `grounding2` is the same call with the fifth argument `scanUnmarked = true` (the second pass of the review): runs of capitalised words outside every
+          mark and quote are checked too (`Grounding.unmarkedNames`), quotes include single quotes at a word start and guillemets, and a registered free text
+          matches whole words only. A skipped sentence opener, `NOT_NAMES` and `NAME_CONNECTORS` are in `Grounding.kt`.
           A marked name that is a whole-word run of the user's own words (two letters or more) is grounded too. No regular expressions anywhere: a Swift port scans UTF-16 units, as the Kotlin does.
     """
 }

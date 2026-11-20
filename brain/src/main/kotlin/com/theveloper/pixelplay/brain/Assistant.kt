@@ -421,6 +421,19 @@ object AssistantRules {
         it[39] = "it is a new release"
     }
 
+    /**
+     * The words of an affinity feature (1, 2, 3, 4, 36) when its value is NEGATIVE: the listener skips this artist, they do not play it. An
+     * affinity runs from -3 to 3, so a negative one needs its own sentence; a feature with no entry here has no negative form and a negative
+     * value is read as its ordinary name (only the affinities can be negative).
+     */
+    val NEGATIVE_NAMES: Array<String?> = arrayOfNulls<String>(Ranker.D).also {
+        it[1] = "you have skipped this track before"
+        it[2] = "you often skip this artist"
+        it[3] = "you have been skipping this artist lately"
+        it[4] = "its genres match what you skip"
+        it[36] = "this kind of pick has not worked for you"
+    }
+
     /** A factor is reported when its contribution is at least this far from 0. */
     const val FACTOR_MIN = 0.05
 
@@ -436,6 +449,9 @@ object AssistantRules {
         for (i in 1 until Ranker.D) {
             if (FACTOR_NAMES[i] == null) continue
             val c = w[i] * x[i]
+            // A negative affinity with a positive weight is a reason it was held back, said as a skip. With a negative weight the product is
+            // positive and "you skip this artist" would read as a reason in its favour: such a factor is not reported.
+            if (NEGATIVE_NAMES[i] != null && x[i] < 0.0 && c > 0.0) continue
             contrib[i] = c
             val a = if (c < 0.0) -c else c
             if (a >= FACTOR_MIN) idx.add(i)
@@ -456,7 +472,8 @@ object AssistantRules {
             }
             if (best < 0) break
             taken[best] = true
-            out.add(Factor(FACTOR_NAMES[best]!!, contrib[best] > 0.0))
+            val negative = NEGATIVE_NAMES[best] != null && x[best] < 0.0
+            out.add(Factor(if (negative) NEGATIVE_NAMES[best]!! else FACTOR_NAMES[best]!!, contrib[best] > 0.0))
         }
         return out
     }

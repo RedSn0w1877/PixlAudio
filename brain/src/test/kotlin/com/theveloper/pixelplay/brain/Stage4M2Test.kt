@@ -68,6 +68,10 @@ class Stage4M2Test {
         // A word inside another word is not a match; nothing named means no chip.
         assertNull(AssistantCards.lessTarget("why so much entrapment", named))
         assertNull(AssistantCards.lessTarget("why so much of it", named))
+        // The question is about one thing: a name the listener praised, or a second name, gives no chip.
+        val pair = listOf(AssistantCards.Named(0, "Pop"), AssistantCards.Named(0, "Rock"))
+        assertEquals("Pop", AssistantCards.lessTarget("why do I keep getting pop? I love rock though", pair)?.name)
+        assertNull(AssistantCards.lessTarget("why do I keep getting pop and rock", pair))
         // The longest name wins.
         val both = listOf(AssistantCards.Named(0, "Trap"), AssistantCards.Named(0, "Latin Trap"))
         assertEquals("Latin Trap", AssistantCards.lessTarget("why latin trap", both)?.name)
@@ -75,7 +79,7 @@ class Stage4M2Test {
 
     @Test
     fun `the names explain_track may use contain no word the app never says`() {
-        for (n in AssistantRules.FACTOR_NAMES) {
+        for (n in AssistantRules.FACTOR_NAMES.toList() + AssistantRules.NEGATIVE_NAMES.toList()) {
             if (n == null) continue
             val f = BrainText.fold(n)
             for (w in WeeklyNote.FORBIDDEN) {
