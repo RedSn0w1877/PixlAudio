@@ -32,6 +32,19 @@ object SongTapTuning {
     /** Without a jerk, the jump must hold this long (a gentle tap). */
     const val DWELL_MS = 400L
 
+    /**
+     * ...and the smoothed signal must also be at least this strong. A slow approach, or a phone that raises its
+     * transmit power, can make a 15 dB jump at arm's length; only a phone that is right there reads this strong. A jump
+     * that is not this strong still fires with a jerk (the loose near floor above). Calibrate on the real phones.
+     */
+    const val DWELL_MIN_DBM = -58
+
+    /**
+     * A jump that has held this long without firing is the new normal level, not a tap: the baseline catches up to it
+     * (otherwise a phone parked at a new distance would keep the baseline frozen for good).
+     */
+    const val FREEZE_MAX_MS = 2_000L
+
     /** A jerk counts when it was within this long of the moment the jump has been held. */
     const val IMPULSE_WINDOW_MS = 400L
 
@@ -103,7 +116,7 @@ object SongTapDetector {
         }
         val fastQ = s.fastQ + ((sampleQ - s.fastQ) shr SongTapTuning.FAST_SHIFT)
         val deltaQ = fastQ - s.baselineQ
-        val baselineQ = if (deltaQ < SongTapTuning.FREEZE_DB * RSSI_SCALE) {
+        var baselineQ = if (deltaQ < SongTapTuning.FREEZE_DB * RSSI_SCALE) {
             s.baselineQ + ((sampleQ - s.baselineQ) shr SongTapTuning.BASELINE_SHIFT)
         } else {
             s.baselineQ
@@ -120,11 +133,17 @@ object SongTapDetector {
             val heldFor = sample.tMs - held
             val jerkNear = impulseMs >= 0L && absDiff(sample.tMs, impulseMs) <= SongTapTuning.IMPULSE_WINDOW_MS
             if (heldFor >= SongTapTuning.HOLD_MS && jerkNear) fire = FireReason.IMPULSE
-            else if (heldFor >= SongTapTuning.DWELL_MS) fire = FireReason.DWELL
+            else if (heldFor >= SongTapTuning.DWELL_MS && fastDbm >= SongTapTuning.DWELL_MIN_DBM) fire = FireReason.DWELL
         }
         if (fire != FireReason.NONE) {
             lastFire = sample.tMs
             held = -1L
+            // The phones stay together after a tap: the signal stays high, so the baseline must catch up or the
+            // same contact would fire again as soon as the cooldown ends.
+            baselineQ = fastQ
+        } else if (held >= 0L && sample.tMs - held >= SongTapTuning.FREEZE_MAX_MS) {
+            held = -1L
+            baselineQ = fastQ
         }
         val next = DetectorState(true, sample.tMs, baselineQ, fastQ, near, held, lastFire)
         return DetectorStep(next, fire, glowPermille(fastQ))

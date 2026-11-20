@@ -20,7 +20,7 @@ class SessionTest {
         val r = run(true, Arm(Role.SEND, true), PeerFound(1), PeerNear(1), TapDetected(1, v1), AckReceived(1000, 80), BeamFinished)
         assertEquals(listOf("startTransport(send)"), r[0].fx())
         assertEquals(Phase.NEAR, r[2].state.phase)
-        assertEquals(listOf("publishOffer(1,$v1)", "haptic(tick)", "scheduleTimeout(ack,15000)"), r[3].fx())
+        assertEquals(listOf("publishOffer(1,$v1)", "haptic(tick)", "scheduleTimeout(ack,45000)"), r[3].fx())
         assertEquals(Phase.OFFERED, r[3].state.phase)
         assertEquals(listOf("sendGo(1,1150)", "startBeam(send,1150)"), r[4].fx())
         assertEquals(Phase.TRANSFERRING, r[4].state.phase)
@@ -30,20 +30,23 @@ class SessionTest {
 
     @Test
     fun `the receiver asks the first time and saves after a yes`() {
-        val r = run(true, Arm(Role.RECEIVE, true), PeerFound(1), PeerNear(1), TapDetected(1, ""), OfferReceived(1, v1, 7, 1000), Accept(1500), GoReceived(1700, 60), SaveResult(SaveOutcome.SAVED, 1800))
+        val r = run(true, Arm(Role.RECEIVE, true), PeerFound(1), PeerNear(1), TapDetected(1, ""), OfferReceived(1, v1, 7, 1000), Accept(1500), SaveResult(SaveOutcome.SAVED, 1800), GoReceived(1900, 60))
         assertEquals(listOf("readOffer(1)", "haptic(tick)", "scheduleTimeout(read,8000)"), r[3].fx())
         assertEquals(Phase.OFFERED, r[4].state.phase)
         assertEquals(listOf("scheduleTimeout(consent,20000)"), r[4].fx())
-        assertEquals(listOf("saveSong($v1)", "scheduleTimeout(save,30000)", "sendAck(1)"), r[5].fx())
+        // The sender is told only once the song is saved.
+        assertEquals(listOf("saveSong($v1)", "scheduleTimeout(save,20000)"), r[5].fx())
         assertFalse(r[5].state.askFirst)
-        assertEquals(listOf("startBeam(receive,1820)"), r[6].fx())
-        assertEquals(Phase.SAVED, r[7].state.phase)
+        assertEquals(Phase.SAVED, r[6].state.phase)
+        assertEquals(listOf("sendAck(1)", "haptic(success)"), r[6].fx())
+        assertEquals(listOf("startBeam(receive,2020)"), r[7].fx())
     }
 
     @Test
     fun `later beams save at once and undo works once`() {
         val r = run(false, Arm(Role.RECEIVE, false), PeerFound(1), PeerNear(1), TapDetected(1, ""), OfferReceived(1, v1, 7, 1000), SaveResult(SaveOutcome.SAVED, 1400), Undo(3000), Undo(3100))
-        assertEquals(listOf("saveSong($v1)", "scheduleTimeout(save,30000)", "sendAck(1)"), r[4].fx())
+        assertEquals(listOf("saveSong($v1)", "scheduleTimeout(save,20000)"), r[4].fx())
+        assertEquals(listOf("sendAck(1)", "haptic(success)"), r[5].fx())
         assertEquals(listOf("undoSave($v1)"), r[6].fx())
         assertEquals(Phase.ARMED, r[6].state.phase)
         assertTrue(r[7].fx().isEmpty())
@@ -54,7 +57,7 @@ class SessionTest {
         val r = run(false, Arm(Role.RECEIVE, false), OfferRejected, OfferReceived(0, v1, 0, 5000), SaveResult(SaveOutcome.SAVED, 5100))
         assertEquals(listOf("noticeInvalidCode"), r[1].fx())
         assertEquals(Phase.ARMED, r[1].state.phase)
-        assertEquals(listOf("saveSong($v1)", "scheduleTimeout(save,30000)", "startBeam(receive,5000)"), r[2].fx())
+        assertEquals(listOf("saveSong($v1)", "scheduleTimeout(save,20000)", "startBeam(receive,5000)"), r[2].fx())
         assertEquals(Phase.SAVED, r[3].state.phase)
     }
 
@@ -84,17 +87,74 @@ class SessionTest {
     }
 
     @Test
-    fun `a dropped peer fails a transfer in flight and aborts it`() {
-        val r = run(false, Arm(Role.RECEIVE, false), PeerFound(1), PeerNear(1), TapDetected(1, ""), OfferReceived(1, v1, 7, 1000), PeerLost(1))
+    fun `a dropped peer fails a beam that was still being read and aborts it`() {
+        val r = run(false, Arm(Role.RECEIVE, false), PeerFound(1), PeerNear(1), TapDetected(1, ""), PeerLost(1))
         assertEquals(FailReason.PEER_LOST, r.last().state.fail)
-        assertEquals(listOf("abortTransfer(1)", "undoSave($v1)", "haptic(warn)"), r.last().fx())
+        assertEquals(listOf("abortTransfer(1)", "haptic(warn)"), r.last().fx())
     }
 
     @Test
-    fun `cancel mid transfer undoes a save in flight and a late result is ignored`() {
+    fun `a receiver that holds a checked offer keeps saving when the phones come apart`() {
+        val r = run(false, Arm(Role.RECEIVE, false), PeerFound(1), PeerNear(1), TapDetected(1, ""), OfferReceived(1, v1, 7, 1000), PeerLost(1), SaveResult(SaveOutcome.SAVED, 1500))
+        assertEquals(Phase.TRANSFERRING, r[5].state.phase)
+        assertEquals(0, r[5].state.peer)
+        assertTrue(r[5].fx().isEmpty())
+        // There is no one to answer, so nobody is acknowledged, and the song is still saved.
+        assertEquals(Phase.SAVED, r[6].state.phase)
+        assertEquals(listOf("haptic(success)"), r[6].fx())
+    }
+
+    @Test
+    fun `the first beam's Add still works after the phones come apart, and the beam plays at once`() {
+        val r = run(true, Arm(Role.RECEIVE, true), PeerFound(1), PeerNear(1), TapDetected(1, ""), OfferReceived(1, v1, 7, 1000), PeerLost(1), Accept(9_000), SaveResult(SaveOutcome.SAVED, 9_200))
+        assertEquals(Phase.OFFERED, r[5].state.phase)
+        assertEquals(v1, r[5].state.videoId)
+        assertTrue(r[5].fx().isEmpty())
+        assertEquals(listOf("saveSong($v1)", "scheduleTimeout(save,20000)", "startBeam(receive,9000)"), r[6].fx())
+        assertEquals(Phase.SAVED, r[7].state.phase)
+    }
+
+    @Test
+    fun `a failed save tells the sender and counts towards the limits`() {
+        val r = run(false, Arm(Role.RECEIVE, false), PeerFound(1), PeerNear(1), TapDetected(1, ""), OfferReceived(1, v1, 7, 10_000), SaveResult(SaveOutcome.NOT_FOUND, 10_100), Dismiss,
+            TapDetected(1, ""), OfferReceived(1, v2, 7, 11_000))
+        assertEquals(listOf("sendDecline(1)", "notice(not_found)", "haptic(warn)"), r[5].fx())
+        assertEquals(FailReason.TOO_SOON, r.last().state.fail)
+    }
+
+    @Test
+    fun `a beam of a song the listener has is never undone by a teardown`() {
+        // Cancel, disarm and the timeouts only stop the transfer: the save's own outcome decides whether anything is taken back.
+        val cancel = run(false, Arm(Role.RECEIVE, false), PeerFound(1), PeerNear(1), TapDetected(1, ""), OfferReceived(1, v1, 7, 1000), Cancel)
+        assertTrue(cancel.last().fx().none { it.startsWith("undoSave") })
+        val timeout = run(false, Arm(Role.RECEIVE, false), OfferReceived(0, v1, 0, 1000), Timeout(TimeoutTag.SAVE))
+        assertTrue(timeout.last().fx().none { it.startsWith("undoSave") })
+    }
+
+    @Test
+    fun `every fifth beam saved without asking makes the next one ask again`() {
+        val events = ArrayList<SessionEvent>()
+        events += Arm(Role.RECEIVE, false)
+        var now = 10_000L
+        for (i in 0 until SongTapSession.ASK_AGAIN_AFTER) {
+            events += OfferReceived(0, "video$i".padEnd(11, 'x'), 0, now)
+            events += SaveResult(SaveOutcome.SAVED, now + 100)
+            events += Dismiss
+            now += 10_000L
+        }
+        val r = SongTapSession.run(SessionState.initial(false), events)
+        // After four saves it still does not ask; after the fifth it does.
+        assertFalse(r[3 * 4].state.askFirst)
+        assertTrue(r.last().state.askFirst)
+        val next = SongTapSession.reduce(r.last().state, OfferReceived(0, "zzzzzzzzzzz", 0, now))
+        assertEquals(Phase.OFFERED, next.state.phase)
+    }
+
+    @Test
+    fun `cancel mid transfer stops the transfer and a late result is ignored`() {
         val r = run(false, Arm(Role.RECEIVE, false), PeerFound(1), PeerNear(1), TapDetected(1, ""), OfferReceived(1, v1, 7, 1000), Cancel, SaveResult(SaveOutcome.SAVED, 1100))
         assertEquals(Phase.CANCELLED, r[5].state.phase)
-        assertEquals(listOf("abortTransfer(1)", "undoSave($v1)"), r[5].fx())
+        assertEquals(listOf("abortTransfer(1)"), r[5].fx())
         assertEquals(Phase.CANCELLED, r[6].state.phase)
         assertTrue(r[6].fx().isEmpty())
     }
@@ -173,7 +233,7 @@ class SessionTest {
     fun `disarm tears everything down`() {
         val r = run(false, Arm(Role.RECEIVE, false), PeerFound(1), PeerNear(1), TapDetected(1, ""), OfferReceived(1, v1, 7, 1000), Disarm, Disarm)
         assertEquals(Phase.IDLE, r[5].state.phase)
-        assertEquals(listOf("abortTransfer(1)", "undoSave($v1)", "stopTransport"), r[5].fx())
+        assertEquals(listOf("abortTransfer(1)", "stopTransport"), r[5].fx())
         assertTrue(r[6].fx().isEmpty())
     }
 

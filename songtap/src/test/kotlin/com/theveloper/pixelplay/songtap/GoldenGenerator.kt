@@ -19,7 +19,7 @@ object GoldenGenerator {
     const val GOLDEN_DIR = "src/test/resources/songtap-golden"
     const val MANIFEST = "MANIFEST.sha256"
     const val SPEC_VERSION_FILE = "SPEC_VERSION"
-    const val SPEC_VERSION = 2
+    const val SPEC_VERSION = 3
 
     @JvmStatic
     fun main(args: Array<String>) {
@@ -364,11 +364,11 @@ object GoldenGenerator {
             add("switch role while searching", true, Arm(Role.SEND, true), SetRole(Role.RECEIVE), PeerFound(1), PeerNear(1), SetRole(Role.SEND), SetRole(Role.SEND), TapDetected(1, V1))
             add("switch role is ignored mid offer", true, Arm(Role.SEND, true), PeerFound(1), PeerNear(1), TapDetected(1, V1), SetRole(Role.RECEIVE))
             add("receive: first beam asks, then saves", true, Arm(Role.RECEIVE, true), PeerFound(1), PeerNear(1), TapDetected(1, ""),
-                OfferReceived(1, V1, 7, 1000), Accept(1500), GoReceived(1700, 60), SaveResult(SaveOutcome.SAVED, 1800), Dismiss)
+                OfferReceived(1, V1, 7, 1000), Accept(1500), SaveResult(SaveOutcome.SAVED, 1800), GoReceived(1900, 60), Dismiss)
             add("receive: first beam declined", true, Arm(Role.RECEIVE, true), PeerFound(1), PeerNear(1), TapDetected(1, ""), OfferReceived(1, V1, 7, 1000), Decline, Dismiss)
             add("receive: consent card times out", true, Arm(Role.RECEIVE, true), PeerFound(1), PeerNear(1), TapDetected(1, ""), OfferReceived(1, V1, 7, 1000), Timeout(TimeoutTag.CONSENT), Dismiss)
             add("receive: later beams save at once and can be undone", false, Arm(Role.RECEIVE, false), PeerFound(1), PeerNear(1), TapDetected(1, ""),
-                OfferReceived(1, V1, 7, 1000), GoReceived(1200, 40), SaveResult(SaveOutcome.SAVED, 1400), Undo(3000), Undo(3100))
+                OfferReceived(1, V1, 7, 1000), SaveResult(SaveOutcome.SAVED, 1400), GoReceived(1500, 40), Undo(3000), Undo(3100))
             add("receive: save finishes before go", false, Arm(Role.RECEIVE, false), PeerFound(1), PeerNear(1), TapDetected(1, ""),
                 OfferReceived(1, V1, 7, 1000), SaveResult(SaveOutcome.SAVED, 1100), GoReceived(1300, 40), Dismiss)
             add("receive: already in the library", false, Arm(Role.RECEIVE, false), PeerFound(1), PeerNear(1), TapDetected(1, ""),
@@ -386,6 +386,24 @@ object GoldenGenerator {
                 OfferReceived(1, V1, 7, 1000), Cancel, SaveResult(SaveOutcome.SAVED, 1100), Dismiss)
             add("receive: peer drops while saving", false, Arm(Role.RECEIVE, false), PeerFound(1), PeerNear(1), TapDetected(1, ""),
                 OfferReceived(1, V1, 7, 1000), PeerLost(1), SaveResult(SaveOutcome.SAVED, 1100), Dismiss)
+            add("receive: first beam, phones come apart before Add", true, Arm(Role.RECEIVE, true), PeerFound(1), PeerNear(1), TapDetected(1, ""),
+                OfferReceived(1, V1, 7, 1000), PeerLost(1), Accept(9000), SaveResult(SaveOutcome.SAVED, 9200), Dismiss)
+            add("receive: phones come apart while the beam is still being read", false, Arm(Role.RECEIVE, false), PeerFound(1), PeerNear(1), TapDetected(1, ""), PeerLost(1), Dismiss)
+            add("receive: not found tells the sender", false, Arm(Role.RECEIVE, false), PeerFound(1), PeerNear(1), TapDetected(1, ""),
+                OfferReceived(1, V1, 7, 10_000), SaveResult(SaveOutcome.NOT_FOUND, 10_100), Dismiss, TapDetected(1, ""), OfferReceived(1, V2, 7, 11_000))
+            add("receive: disarm while saving stops only the transfer", false, Arm(Role.RECEIVE, false), PeerFound(1), PeerNear(1), TapDetected(1, ""),
+                OfferReceived(1, V1, 7, 1000), Disarm)
+            run {
+                val events = ArrayList<SessionEvent>()
+                events += Arm(Role.RECEIVE, false)
+                var at = 10_000L
+                for (v in listOf(V1, V2, "bbbbbbbbbbb", "ccccccccccc", "ddddddddddd")) {
+                    events += OfferReceived(0, v, 0, at); events += SaveResult(SaveOutcome.SAVED, at + 100); events += Dismiss
+                    at += 10_000L
+                }
+                events += OfferReceived(0, "eeeeeeeeeee", 0, at)
+                t += Trace("receive: the fifth beam saved without asking makes the next one ask", false, events)
+            }
             add("receive: disarm mid transfer", false, Arm(Role.RECEIVE, false), PeerFound(1), PeerNear(1), TapDetected(1, ""), OfferReceived(1, V1, 7, 1000), Disarm, Disarm)
             add("receive: qr, strangers and then a song", true, Arm(Role.RECEIVE, true), OfferRejected, OfferRejected, OfferReceived(0, V1, 0, 5000), Accept(6000), SaveResult(SaveOutcome.SAVED, 6100))
             add("receive: qr without asking", false, Arm(Role.RECEIVE, false), OfferReceived(0, V1, 0, 5000), SaveResult(SaveOutcome.SAVED, 5100), Dismiss)
@@ -496,6 +514,11 @@ object GoldenGenerator {
         out += "a gap resets the peer" to listOf(
             Sig(0, -62, -1), Sig(100, -62, -1), Sig(200, -62, -1), Sig(300, -42, -1), Sig(400, -42, -1), Sig(5_000, -42, -1), Sig(5_100, -42, -1), Sig(5_200, -42, -1),
         )
+        series("phones stay together", listOf(Triple(20, -62, 0), Triple(80, -42, 0)), impulseAt = 2_050L)
+        series("phones stay together, no jerk", listOf(Triple(20, -62, 0), Triple(80, -42, 0)))
+        series("a slow approach that stops short", (0 until 30).map { Triple(1, -90 + it, 0) } + listOf(Triple(40, -61, 0)))
+        series("a slow approach to contact", (0 until 45).map { Triple(1, -90 + it, 0) } + listOf(Triple(20, -45, 0)))
+        series("tap, apart for a second, tap again", listOf(Triple(20, -62, 0), Triple(5, -42, 0), Triple(12, -62, 0), Triple(14, -42, 0)), impulseAt = 2_050L)
         series("signal fades away", listOf(Triple(10, -50, 0), Triple(10, -65, 0), Triple(10, -80, 0), Triple(10, -95, 0)))
         val rng = SplitMix64(0x44455443L)
         for (n in 0 until 60) {
@@ -597,6 +620,11 @@ object GoldenGenerator {
         hour += "admit,3100001,hx,1"; hour += "admit,3700000,hx,1"
         scripts += "thirty an hour" to hour
         scripts += "an unknown sender is never muted" to listOf("undone,0,0", "undone,1000,0", "admit,2000,a,0")
+        scripts += "attempts count" to listOf("attempted,0", "admit,2999,a,1", "admit,3000,a,1", "attempted,3000", "admit,4000,a,1")
+        val attempts = ArrayList<String>()
+        for (i in 0 until 11) { attempts += "admit,${i * 5000},v$i,1"; attempts += "attempted,${i * 5000}" }
+        attempts += "admit,56000,vx,1"; attempts += "admit,61000,vx,1"
+        scripts += "ten attempts a minute" to attempts
         scripts += "mute" to listOf("undone,0,5", "admit,100,a,5", "undone,1000,5", "admit,1001,a,5", "admit,1001,a,6", "admit,3601000,a,5", "admit,3601001,a,5")
         val rng = SplitMix64(0x52415445L)
         for (n in 0 until 40) {
@@ -606,9 +634,10 @@ object GoldenGenerator {
                 now += rng.nextInt(20_000).toLong()
                 val v = "v${rng.nextInt(4)}"
                 val key = 1 + rng.nextInt(2)
-                ops += when (rng.nextInt(4)) {
+                ops += when (rng.nextInt(5)) {
                     0, 1 -> "admit,$now,$v,$key"
                     2 -> "accepted,$now,$v"
+                    3 -> "attempted,$now"
                     else -> "undone,$now,$key"
                 }
             }
@@ -622,6 +651,7 @@ object GoldenGenerator {
                 when (p[0]) {
                     "admit" -> verdicts += limits.admit(p[1].toLong(), p[2], p[3].toInt()).code
                     "accepted" -> { limits = limits.accepted(p[1].toLong(), p[2]); verdicts += "-" }
+                    "attempted" -> { limits = limits.attempted(p[1].toLong()); verdicts += "-" }
                     else -> { limits = limits.undone(p[1].toLong(), p[2].toInt()); verdicts += "-" }
                 }
             }
@@ -771,7 +801,7 @@ object GoldenGenerator {
         - detector.jsonl: `detector`: samples `"t,rssi,impulseMs"` from `DetectorState.INITIAL`; each step is
           `"fire,glow,baselineQ,fastQ,near"`. Also `glow` and `floorDiv`.
         - impulse.jsonl: `impulse`: samples `"t,x,y,z"` from `ImpulseState.INITIAL`; out `hits` 0/1.
-        - ratelimit.jsonl: `limits`: ops `admit,now,videoId,key`, `accepted,now,videoId`, `undone,now,key`
+        - ratelimit.jsonl: `limits`: ops `admit,now,videoId,key`, `accepted,now,videoId`, `attempted,now`, `undone,now,key`
           from an empty `RateLimits`; out `verdicts` (`-` for the two that return no verdict).
         - timeline.jsonl: `ease`, `frame` (role, t, reduced), `total`.
         - wire.jsonl: the Bluetooth wire format (`SongTapWire`): `constants` (the UUIDs), `infoEncode`, `infoDecode`,

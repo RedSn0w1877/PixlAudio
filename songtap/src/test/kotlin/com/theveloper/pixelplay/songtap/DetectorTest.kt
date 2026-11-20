@@ -46,6 +46,31 @@ class DetectorTest {
     }
 
     @Test
+    fun `phones that stay together fire once and not again every cooldown`() {
+        // The signal stays 20 dB up for 8 seconds after the tap (the phones are still touching).
+        val f = fires(series(20 to -62, 80 to -42), impulseAt = 2_050L)
+        assertEquals(1, f.size)
+        val noJerk = fires(series(20 to -62, 80 to -42))
+        assertEquals(1, noJerk.size)
+    }
+
+    @Test
+    fun `a slow approach that stops short of contact does not fire`() {
+        // From far to about one metre in 3 seconds, then it stays there: not a tap (the dwell path needs a much stronger signal).
+        val ramp = (0 until 30).map { -90 + it }
+        assertTrue(fires(ramp + series(40 to -61)).isEmpty())
+    }
+
+    @Test
+    fun `a jump that holds for good is taken as the new level after a while`() {
+        var state = DetectorState.INITIAL
+        for (i in 0 until 20) state = SongTapDetector.step(state, RssiSample(i * 100L, -90), -1L).state
+        for (i in 20 until 60) state = SongTapDetector.step(state, RssiSample(i * 100L, -70), -1L).state
+        assertTrue(state.heldSinceMs < 0L)
+        assertTrue(state.baselineQ > -75 * RSSI_SCALE)
+    }
+
+    @Test
     fun `a spike that does not hold does not fire`() {
         assertTrue(fires(series(20 to -62, 1 to -40, 20 to -62), impulseAt = 2_000L).isEmpty())
     }
@@ -71,11 +96,11 @@ class DetectorTest {
 
     @Test
     fun `a second tap inside the cooldown does not fire`() {
-        // The first tap fires at 2400; the second jump holds from 3200 to 3700, long enough for the dwell, but the cooldown runs to 4400.
-        val f = fires(series(20 to -62, 5 to -42, 5 to -62, 8 to -42), impulseAt = 2_050L)
+        // The first tap fires at 2300 and the baseline then follows the phones apart for 1.2 s; the second jump is inside the cooldown, which runs to 4300.
+        val f = fires(series(20 to -62, 5 to -42, 12 to -62, 8 to -42), impulseAt = 2_050L)
         assertEquals(1, f.size)
         // The same second tap, long enough to outlast the cooldown, fires.
-        val g = fires(series(20 to -62, 5 to -42, 5 to -62, 14 to -42), impulseAt = 2_050L)
+        val g = fires(series(20 to -62, 5 to -42, 12 to -62, 14 to -42), impulseAt = 2_050L)
         assertEquals(2, g.size)
         assertTrue(g[1].first - g[0].first >= SongTapTuning.COOLDOWN_MS)
     }

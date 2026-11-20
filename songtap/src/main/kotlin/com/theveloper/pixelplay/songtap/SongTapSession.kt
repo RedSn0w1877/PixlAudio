@@ -55,6 +55,8 @@ data class SessionState(
     /** The number [SongTapSigning.senderKey] gave the sender of the offer on the table, 0 when unknown. */
     val senderKey: Int,
     val limits: RateLimits,
+    /** Beams saved without asking since the listener last said yes; at [SongTapSession.ASK_AGAIN_AFTER] the next one asks again. */
+    val autoSaves: Int = 0,
 ) {
     fun describe(): String =
         "${phase.code} role=${role.code} peer=$peer vid=${videoId.ifEmpty { "-" }} fail=${fail?.code ?: "-"} " +
@@ -139,10 +141,17 @@ data class Reduction(val state: SessionState, val effects: List<SessionEffect>)
 
 object SongTapSession {
 
-    const val ACK_TIMEOUT_MS = 15_000L
+    /**
+     * How long a sender waits to hear back. The receiver may first ask its listener (up to [CONSENT_TIMEOUT_MS]) and then
+     * save (up to [SAVE_TIMEOUT_MS]) before it answers, so this is longer than both together.
+     */
+    const val ACK_TIMEOUT_MS = 45_000L
     const val READ_TIMEOUT_MS = 8_000L
     const val CONSENT_TIMEOUT_MS = 20_000L
-    const val SAVE_TIMEOUT_MS = 30_000L
+    const val SAVE_TIMEOUT_MS = 20_000L
+
+    /** After this many beams saved without asking, the next one asks (Add / Not now) again. */
+    const val ASK_AGAIN_AFTER = 5
 
     /** How long the saved card offers Undo. */
     const val UNDO_WINDOW_MS = 6_000L
@@ -202,13 +211,14 @@ object SongTapSession {
         )
     }
 
-    /** What to undo when a session is torn down in the middle of something. */
+    /**
+     * What to stop when a session is torn down in the middle of something. A save that is still running is not undone
+     * here: its outcome is not known yet, and a song the listener already had must never be removed. The controller
+     * takes back a save that finishes after the session is gone, and only when that save really added the song.
+     */
     private fun teardown(s: SessionState): List<SessionEffect> {
-        val out = ArrayList<SessionEffect>(2)
         val inFlight = s.phase == Phase.OFFERED || s.phase == Phase.TRANSFERRING
-        if (inFlight && s.peer != 0) out.add(SessionEffect.AbortTransfer(s.peer))
-        if (s.role == Role.RECEIVE && s.phase == Phase.TRANSFERRING && s.videoId.isNotEmpty()) out.add(SessionEffect.UndoSave(s.videoId))
-        return out
+        return if (inFlight && s.peer != 0) listOf(SessionEffect.AbortTransfer(s.peer)) else NONE
     }
 
     private fun disarm(s: SessionState): Reduction {
@@ -235,7 +245,10 @@ object SongTapSession {
         return when (s.phase) {
             Phase.FOUND, Phase.NEAR -> Reduction(s.copy(phase = Phase.ARMED, peer = 0), NONE)
             Phase.OFFERED, Phase.TRANSFERRING ->
-                Reduction(fail(s, FailReason.PEER_LOST), teardown(s) + SessionEffect.Haptic(HapticCue.WARN))
+                // A receiver that holds a checked offer does not need the sender any more: pulling the phones apart after
+                // a tap is normal, and Add / save must still work. Only a beam still being read is lost.
+                if (s.role == Role.RECEIVE && s.videoId.isNotEmpty()) Reduction(s.copy(peer = 0), NONE)
+                else Reduction(fail(s, FailReason.PEER_LOST), teardown(s) + SessionEffect.Haptic(HapticCue.WARN))
             else -> stay(s)
         }
     }
@@ -333,12 +346,15 @@ object SongTapSession {
         return Reduction(known.copy(phase = Phase.TRANSFERRING), saveEffects(e.peer, e.videoId, e.nowMs))
     }
 
-    /** Saving starts, and either the sender is told (Bluetooth) or the beam starts at once (QR, no peer). */
+    /**
+     * Saving starts. Over Bluetooth the sender is told only when the save is done ([saveResult]), so it never celebrates a
+     * beam that did not land; without a peer (a QR code, or the phones already apart) the beam starts at once.
+     */
     private fun saveEffects(peer: Int, videoId: String, nowMs: Long): List<SessionEffect> {
         val out = ArrayList<SessionEffect>(3)
         out.add(SessionEffect.SaveSong(videoId))
         out.add(SessionEffect.ScheduleTimeout(TimeoutTag.SAVE, SAVE_TIMEOUT_MS))
-        if (peer != 0) out.add(SessionEffect.SendAck(peer)) else out.add(SessionEffect.StartBeam(Role.RECEIVE, nowMs))
+        if (peer == 0) out.add(SessionEffect.StartBeam(Role.RECEIVE, nowMs))
         return out
     }
 
@@ -371,7 +387,7 @@ object SongTapSession {
     private fun accept(s: SessionState, nowMs: Long): Reduction {
         if (s.role != Role.RECEIVE || s.phase != Phase.OFFERED || s.videoId.isEmpty()) return stay(s)
         // The beam of a Bluetooth offer starts when the sender answers, a QR beam now.
-        return Reduction(s.copy(phase = Phase.TRANSFERRING, askFirst = false), saveEffects(s.peer, s.videoId, nowMs))
+        return Reduction(s.copy(phase = Phase.TRANSFERRING, askFirst = false, autoSaves = 0), saveEffects(s.peer, s.videoId, nowMs))
     }
 
     private fun decline(s: SessionState): Reduction {
@@ -382,17 +398,34 @@ object SongTapSession {
 
     private fun saveResult(s: SessionState, e: SessionEvent.SaveResult): Reduction {
         if (s.role != Role.RECEIVE || s.phase != Phase.TRANSFERRING || s.videoId.isEmpty()) return stay(s)
+        val linked = s.peer != 0
         return when (e.outcome) {
-            SaveOutcome.SAVED -> Reduction(
-                s.copy(phase = Phase.SAVED, askFirst = false, alreadyHad = false, limits = s.limits.accepted(e.nowMs, s.videoId)),
-                listOf(SessionEffect.Haptic(HapticCue.SUCCESS)),
-            )
+            SaveOutcome.SAVED -> {
+                // Every ASK_AGAIN_AFTER-th beam saved without asking makes the next one ask: consent is not for ever.
+                val auto = s.autoSaves + 1
+                val ask = auto >= ASK_AGAIN_AFTER
+                Reduction(
+                    s.copy(
+                        phase = Phase.SAVED, askFirst = ask, alreadyHad = false, autoSaves = if (ask) 0 else auto,
+                        limits = s.limits.accepted(e.nowMs, s.videoId),
+                    ),
+                    (if (linked) listOf(SessionEffect.SendAck(s.peer)) else NONE) + SessionEffect.Haptic(HapticCue.SUCCESS),
+                )
+            }
             SaveOutcome.ALREADY_HAD -> Reduction(
-                s.copy(phase = Phase.SAVED, askFirst = false, alreadyHad = true, limits = s.limits.accepted(e.nowMs, s.videoId)),
-                listOf(SessionEffect.Haptic(HapticCue.TICK)),
+                s.copy(phase = Phase.SAVED, alreadyHad = true, limits = s.limits.accepted(e.nowMs, s.videoId)),
+                (if (linked) listOf(SessionEffect.SendAck(s.peer)) else NONE) + SessionEffect.Haptic(HapticCue.TICK),
             )
-            SaveOutcome.NOT_FOUND -> Reduction(fail(s, FailReason.NOT_FOUND), listOf(SessionEffect.Notice(FailReason.NOT_FOUND), SessionEffect.Haptic(HapticCue.WARN)))
-            SaveOutcome.FAILED -> Reduction(fail(s, FailReason.SAVE_FAILED), listOf(SessionEffect.Notice(FailReason.SAVE_FAILED), SessionEffect.Haptic(HapticCue.WARN)))
+            SaveOutcome.NOT_FOUND -> Reduction(
+                fail(s, FailReason.NOT_FOUND).copy(limits = s.limits.attempted(e.nowMs)),
+                (if (linked) listOf(SessionEffect.SendDecline(s.peer)) else NONE) +
+                    listOf(SessionEffect.Notice(FailReason.NOT_FOUND), SessionEffect.Haptic(HapticCue.WARN)),
+            )
+            SaveOutcome.FAILED -> Reduction(
+                fail(s, FailReason.SAVE_FAILED).copy(limits = s.limits.attempted(e.nowMs)),
+                (if (linked) listOf(SessionEffect.SendDecline(s.peer)) else NONE) +
+                    listOf(SessionEffect.Notice(FailReason.SAVE_FAILED), SessionEffect.Haptic(HapticCue.WARN)),
+            )
         }
     }
 

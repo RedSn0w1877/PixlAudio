@@ -33,6 +33,16 @@ class MiscTest {
     }
 
     @Test
+    fun `an offer that ended in no song still counts towards the gap and the minute`() {
+        var l = RateLimits()
+        for (i in 0 until 10) l = l.attempted(i * 5_000L)
+        assertEquals(LimitVerdict.TOO_SOON, RateLimits().attempted(0).admit(2_999, "x", 1))
+        assertEquals(LimitVerdict.MINUTE_LIMIT, l.admit(55_000, "x", 1))
+        // The song is not remembered: the same one may be tried again once the gap has passed.
+        assertEquals(LimitVerdict.ALLOWED, RateLimits().attempted(0).admit(3_000, "a", 1))
+    }
+
+    @Test
     fun `two undos mute for an hour then it lifts`() {
         var l = RateLimits().undone(0, 5)
         assertEquals(LimitVerdict.ALLOWED, l.admit(100, "a", 5))
