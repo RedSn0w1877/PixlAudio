@@ -11,6 +11,7 @@ import androidx.media3.common.C
 import com.theveloper.pixelplay.R
 import com.theveloper.pixelplay.brain.HostVoice
 import com.theveloper.pixelplay.data.brain.HostNoteFacts
+import com.theveloper.pixelplay.data.brain.HostNoteMemory
 import com.theveloper.pixelplay.data.brain.SetNoteHistory
 import com.theveloper.pixelplay.data.brain.StationStore
 import com.theveloper.pixelplay.data.model.Song
@@ -25,6 +26,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -66,13 +68,17 @@ class HostVoiceStateHolder @Inject constructor(
     private val preferences: UserPreferencesRepository,
     private val stations: StationStore,
     private val hostNoteFacts: HostNoteFacts,
+    private val hostNoteMemory: HostNoteMemory,
     private val setNoteHistory: SetNoteHistory,
     private val engine: DualPlayerEngine,
     private val playback: PlaybackStateHolder,
     private val speaker: HostSpeaker,
     @AppScope private val appScope: CoroutineScope,
 ) {
-    private val main = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    // A failure nobody expected (a player call after release, an audio service error) is logged and the voice stays silent: it never reaches the app.
+    private val main = CoroutineScope(
+        SupervisorJob() + Dispatchers.Main + CoroutineExceptionHandler { _, e -> Timber.w(e, "host voice: unexpected failure") },
+    )
 
     /** "Spoken host notes": off by default. */
     val spokenNotes: StateFlow<Boolean> = preferences.endlessSpokenNotesFlow
@@ -133,7 +139,16 @@ class HostVoiceStateHolder @Inject constructor(
                             playback.stablePlayerState
                                 .map { Track(it.currentSong?.id, it.currentMediaItemIndex) }
                                 .distinctUntilChanged()
-                                .collectLatest { handleTrack(it) }
+                                .collectLatest { track ->
+                                    try {
+                                        handleTrack(track)
+                                    } catch (e: CancellationException) {
+                                        throw e
+                                    } catch (e: Exception) {
+                                        Timber.w(e, "host voice: a note failed")
+                                        record(spoke = false, cancelled = false, reason = "error", text = "")
+                                    }
+                                }
                         }
                     } finally {
                         unwatchRoute()
@@ -157,7 +172,8 @@ class HostVoiceStateHolder @Inject constructor(
         trackCounter++
         val myCounter = trackCounter
         val note = noteFor(songId, track.index) ?: return
-        val line = HostVoice.line(note)
+        // The note is the app's own (its banned words were looked for in what the app wrote, not in a name): only its length is checked again.
+        val line = HostVoice.line(note, noteChecked = true)
         if (line.isEmpty()) {
             record(spoke = false, cancelled = false, reason = "no_line", text = note)
             return
@@ -196,6 +212,7 @@ class HostVoiceStateHolder @Inject constructor(
             islandOf = hostNoteFacts.islandNames(window),
             whyKeyOf = keys,
             genreFact = hostNoteFacts::genreFact,
+            memory = hostNoteMemory,
         )
         SetNoteLines.forQueue(queue, at, heard, facts).current
     }

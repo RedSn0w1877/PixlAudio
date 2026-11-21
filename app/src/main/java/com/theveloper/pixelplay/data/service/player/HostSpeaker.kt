@@ -55,7 +55,11 @@ class HostSpeaker @Inject constructor(
         if (tts != null || starting || unavailable) return
         starting = true
         try {
-            tts = TextToSpeech(context.applicationContext) { status -> onInit(status) }
+            // The callback belongs to this very engine: a callback of an engine that was shut down meanwhile must not touch a newer one.
+            val made = arrayOfNulls<TextToSpeech>(1)
+            val created = TextToSpeech(context.applicationContext) { status -> onInit(made[0], status) }
+            made[0] = created
+            tts = created
         } catch (e: Exception) {
             Timber.w(e, "host voice: the system voice could not start")
             starting = false
@@ -64,13 +68,18 @@ class HostSpeaker @Inject constructor(
         }
     }
 
-    private fun onInit(status: Int) {
-        starting = false
+    private fun onInit(owner: TextToSpeech?, status: Int) {
         val engine = tts
-        if (status != TextToSpeech.SUCCESS || engine == null) {
+        if (owner == null || owner !== engine) {
+            // An older engine answering after a shutdown (or a newer start): free it and leave the current one alone.
+            runCatching { owner?.shutdown() }
+            return
+        }
+        starting = false
+        if (status != TextToSpeech.SUCCESS) {
             unavailable = true
             voiceState = HostVoice.VOICE_NONE
-            engine?.shutdown()
+            engine.shutdown()
             tts = null
             return
         }

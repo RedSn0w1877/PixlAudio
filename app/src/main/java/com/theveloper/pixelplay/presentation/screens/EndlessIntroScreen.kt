@@ -1,5 +1,6 @@
 package com.theveloper.pixelplay.presentation.screens
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateDpAsState
@@ -101,8 +102,11 @@ fun EndlessIntroScreen(
     val pagerState = rememberPagerState(pageCount = { PAGES })
     val motion = remember { MotionScheme.expressive() }
 
-    // However the screen is left (a button, the back gesture), it was seen.
-    DisposableEffect(viewModel) { onDispose { viewModel.markSeen() } }
+    // Seen means dismissed or finished: Start, Not now or the back gesture. A rotation or a theme change recreates the screen and is not either.
+    BackHandler {
+        viewModel.markSeen()
+        navController.popBackStack()
+    }
 
     CompositionLocalProvider(LocalSetupReduceMotion provides reduceMotion) {
         Box(
