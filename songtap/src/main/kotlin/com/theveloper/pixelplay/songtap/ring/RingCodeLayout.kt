@@ -6,13 +6,17 @@ package com.theveloper.pixelplay.songtap.ring
  * the way from the centre to the plate's edge). Angles run clockwise from 12 o'clock.
  *
  * ```
- *   centre            art disc, radius 300 (the album art), a dark outline ring 300..325 around it
+ *   centre            art disc, radius 280 (the album art), a light gap, then a dark outline ring 305..330
  *   ring 0..4         24, 32, 40, 48, 56 slots at radius 420, 515, 610, 705, 800 (pitch 95)
  *   slot i of N       angle i/N of a turn, i = 0 at 12 o'clock
  *   one dot per slot  BIG (radius 32) = bit 1, SMALL (radius 16) = bit 0: the dot's centre never moves,
  *                     so the scanner always knows where to look and only measures a size
  *   start dot         orange, radius 42, at 12 o'clock at radius 895: one ring pitch outside the outer ring
  * ```
+ *
+ * The outline ring and the light gap inside it are additions to RING-CODE-SPEC.md (which has the art at radius 300 and
+ * nothing around it): the scanner finds the code by the outline, which is a closed ellipse whatever the album art
+ * holds (the gap keeps dark artwork from touching it), and which still shows as an arc when a smudge hides part of it.
  *
  * The 200 slots carry exactly one 25-byte Reed-Solomon codeword. The start dot is a 201st mark that carries
  * nothing: it only tells the scanner which way is up.
@@ -37,9 +41,9 @@ object RingCodeLayout {
     const val BITS_PER_BYTE = 8
 
     // ── geometry, permille of the plate half-size ──────────────────────────────────
-    const val ART_RADIUS = 300
-    const val BEZEL_INNER = 300
-    const val BEZEL_OUTER = 325
+    const val ART_RADIUS = 280
+    const val BEZEL_INNER = 305
+    const val BEZEL_OUTER = 330
     val RING_RADIUS = intArrayOf(420, 515, 610, 705, 800)
     const val BIG_RADIUS = 32
     const val SMALL_RADIUS = 16
