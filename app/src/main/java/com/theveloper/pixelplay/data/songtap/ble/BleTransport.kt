@@ -356,6 +356,8 @@ class BleTransport internal constructor(
 
     override fun withdrawOffer() {
         synchronized(lock) {
+            // A receiver that fetched the offer ahead of the tap must not keep it once the sender has let go of it.
+            if (offer != null) for (client in challenges.keys.toList()) radio.notify(client, SongTapWire.encodeOfferWithdrawn())
             offer = null
             offerClient = null
             ackClient = null
@@ -636,7 +638,11 @@ class BleTransport internal constructor(
             p.readInFlight = false
             val t = clock.elapsedMs()
             if (value == null) {
-                if (!p.inTransfer) return // a prefetch with nothing to give yet: the sender's notification (or the retry) comes later
+                if (!p.inTransfer) {
+                    // A prefetch with nothing to give: the sender's notification (or the retry) comes later, and an offer held from before is no good now.
+                    dropPrefetch(p)
+                    return
+                }
                 p.readAttempts++
                 if (p.readAttempts < BleTuning.MAX_READ_ATTEMPTS) {
                     scope.launch {
@@ -727,7 +733,12 @@ class BleTransport internal constructor(
     override fun onNotified(address: String, value: ByteArray) {
         synchronized(lock) {
             val p = peers[address] ?: return
-            // The only event is "the sender has an offer to read" (EVENT_GO of spec 4 is gone and ignored).
+            // The events are "the sender has an offer to read" and "the sender has none any more" (EVENT_GO of spec 4 is gone and ignored).
+            if (SongTapWire.isOfferWithdrawn(value)) {
+                diag.log(clock.elapsedMs(), "the sender withdrew its offer")
+                dropPrefetch(p)
+                return
+            }
             if (!SongTapWire.isOfferReady(value)) return
             diag.log(clock.elapsedMs(), "the sender has an offer ready")
             if (p.detector.near) startPrefetch(p, clock.elapsedMs())

@@ -16,7 +16,7 @@ package com.theveloper.pixelplay.songtap
  * | [CHAR_OFFER] | read | the signed frame ([SongTapSigning.encodeFrame]); an application error until an offer exists |
  * | [CHAR_CONTROL] | write | a [ControlMessage] from the receiver: Hello (challenge), Tap, Ack, Decline |
  * | [CHAR_NAME] | read | [encodeName]: the sender's full name (spec 5) |
- * | [CHAR_EVENT] | notify | [EVENT_OFFER_READY] when the sender has (a new) offer to read; [EVENT_GO] is reserved and no longer sent (spec 5) |
+ * | [CHAR_EVENT] | notify | [EVENT_OFFER_READY] when the sender has (a new) offer to read, [EVENT_OFFER_WITHDRAWN] when it has none any more; [EVENT_GO] is reserved and no longer sent (spec 5) |
  *
  * The flow (spec 5, "prefetch"): the receiver connects while the sender is inside the STRICT near gate, writes Hello
  * with a fresh 16 byte challenge, subscribes to [CHAR_EVENT], reads Name, and as soon as the sender has an offer for it
@@ -25,7 +25,7 @@ package com.theveloper.pixelplay.songtap
  * Nothing slow is left for the tap: when a phone's detector fires, the data is in hand, so both phones start the beam
  * at once (the receiver writes Tap, and Ack after it has saved; there is no Go and no start delay).
  *
- * Advertisement (spec 5): each phone also advertises a short name, see [SongTapNames].
+ * Advertisement (spec 5): each phone also advertises a short name, see [SongTapNames]. (Spec 4 had no name: nothing but the UUID.)
  */
 object SongTapWire {
 
@@ -59,6 +59,9 @@ object SongTapWire {
 
     /** The sender has an offer (a new one) for the connected receiver to read. */
     const val EVENT_OFFER_READY = 0x02
+
+    /** The sender no longer offers anything (its listener cancelled, the time ran out, the beam is over): a receiver that holds an offer fetched ahead lets it go. */
+    const val EVENT_OFFER_WITHDRAWN = 0x03
 
     /** "No jerk to report" in an age field. */
     const val NO_AGE = 0xFFFF_FFFFL
@@ -145,6 +148,10 @@ object SongTapWire {
     fun isOfferReady(bytes: ByteArray): Boolean = bytes.size == 1 && (bytes[0].toInt() and 0xFF) == EVENT_OFFER_READY
 
     fun encodeOfferReady(): ByteArray = byteArrayOf(EVENT_OFFER_READY.toByte())
+
+    fun isOfferWithdrawn(bytes: ByteArray): Boolean = bytes.size == 1 && (bytes[0].toInt() and 0xFF) == EVENT_OFFER_WITHDRAWN
+
+    fun encodeOfferWithdrawn(): ByteArray = byteArrayOf(EVENT_OFFER_WITHDRAWN.toByte())
 
     // ── Names ────────────────────────────────────────────────────────────────────────
 

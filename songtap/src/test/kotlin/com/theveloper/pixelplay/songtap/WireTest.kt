@@ -113,6 +113,10 @@ class WireTest {
         assertTrue(!SongTapWire.isOfferReady(SongTapWire.encodeGo()))
         assertTrue(!SongTapWire.isGo(SongTapWire.encodeOfferReady()))
         assertEquals(2, SongTapWire.EVENT_OFFER_READY)
+        assertTrue(SongTapWire.isOfferWithdrawn(SongTapWire.encodeOfferWithdrawn()))
+        assertTrue(!SongTapWire.isOfferWithdrawn(SongTapWire.encodeOfferReady()))
+        assertTrue(!SongTapWire.isOfferReady(SongTapWire.encodeOfferWithdrawn()))
+        assertEquals(3, SongTapWire.EVENT_OFFER_WITHDRAWN)
     }
 
     @Test

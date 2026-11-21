@@ -192,6 +192,39 @@ class BleTransportTest {
     }
 
     @Test
+    fun `an offer in hand is let go when the sender withdraws it, or answers a refresh with nothing`() = runTest {
+        val rig = connectedReceiver()
+        val peer = rig.of<TransportEvent.PeerFound>().last().peer
+        rig.radio.listener.onOfferRead("S", frame(lastHelloBefore(rig), rig.clock.wall))
+        assertThat(rig.of<TransportEvent.OfferPrefetched>()).hasSize(1)
+        rig.radio.listener.onNotified("S", SongTapWire.encodeOfferWithdrawn())
+        assertThat(rig.of<TransportEvent.OfferGone>().map { it.peer }).containsExactly(peer)
+
+        // The same when a refresh read finds the sender with nothing.
+        rig.radio.listener.onNotified("S", SongTapWire.encodeOfferReady())
+        rig.radio.listener.onOfferRead("S", frame(lastHello(rig), rig.clock.wall))
+        assertThat(rig.of<TransportEvent.OfferPrefetched>()).hasSize(2)
+        rig.radio.listener.onNotified("S", SongTapWire.encodeOfferReady())
+        rig.radio.listener.onOfferRead("S", null)
+        assertThat(rig.of<TransportEvent.OfferGone>()).hasSize(2)
+    }
+
+    @Test
+    fun `withdrawing tells the phones that are connected to let the offer go`() = runTest {
+        val rig = sender()
+        rig.transport.publishOffer(rig.peerOf(), payloadBytes)
+        rig.transport.serverControl("c", SongTapWire.encodeHello(ByteArray(16))!!)
+        rig.radio.notifications.clear()
+        rig.transport.withdrawOffer()
+        assertThat(rig.radio.notifications.map { it.first }).containsExactly("c")
+        assertThat(SongTapWire.isOfferWithdrawn(rig.radio.notifications.single().second)).isTrue()
+        // Nothing on offer, nothing to withdraw.
+        rig.radio.notifications.clear()
+        rig.transport.withdrawOffer()
+        assertThat(rig.radio.notifications).isEmpty()
+    }
+
+    @Test
     fun `an offer that fails its check ahead of the tap is not held`() = runTest {
         val rig = connectedReceiver()
         rig.radio.listener.onOfferRead("S", frame(ByteArray(16) { 9 }, rig.clock.wall))

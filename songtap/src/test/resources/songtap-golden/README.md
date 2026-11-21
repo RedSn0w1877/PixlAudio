@@ -34,7 +34,7 @@ exactly `out`. Signatures are never part of a golden, only the bytes that are si
 - timeline.jsonl: `ease`, `frame` (role, t, reduced), `total`.
 - wire.jsonl: the Bluetooth wire format (`SongTapWire`): `constants` (the UUIDs), `infoEncode`, `infoDecode`,
   `helloEncode`, `ackEncode`, `declineEncode`, `goEncode`, `tapEncode`, `controlDecode` (`kind` hello, ack, decline,
-  tap or none), `isGo`, `roleOfService` (case sensitive). Spec 5 adds `offerReadyEncode`, `isOfferReady`, `nameEncode`
+  tap or none), `isGo`, `roleOfService` (case sensitive). Spec 5 adds `offerReadyEncode`, `isOfferReady`, `offerWithdrawnEncode`, `isOfferWithdrawn`, `nameEncode`
   (hex of the Name characteristic value for a raw name), `advertEncode` (hex of the manufacturer block data for a raw name),
   `nameDecode` and `advertDecode` (`name` = the clean name or null), and the `constants` line has the name characteristic,
   the two event ids and the advertisement's company id and version.

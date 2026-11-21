@@ -767,7 +767,7 @@ object GoldenGenerator {
             str("info", SongTapWire.CHAR_INFO); str("offer", SongTapWire.CHAR_OFFER)
             str("control", SongTapWire.CHAR_CONTROL); str("event", SongTapWire.CHAR_EVENT); str("name", SongTapWire.CHAR_NAME)
             int("notReady", SongTapWire.ERROR_NOT_READY); int("mtu", SongTapWire.WANTED_MTU)
-            int("eventGo", SongTapWire.EVENT_GO); int("eventOfferReady", SongTapWire.EVENT_OFFER_READY)
+            int("eventGo", SongTapWire.EVENT_GO); int("eventOfferReady", SongTapWire.EVENT_OFFER_READY); int("eventOfferWithdrawn", SongTapWire.EVENT_OFFER_WITHDRAWN)
             int("advertCompanyId", SongTapWire.ADVERT_COMPANY_ID); int("advertVersion", SongTapWire.ADVERT_VERSION)
         }))
         for (age in longArrayOf(-1L, 0L, 1L, 150L, 4_999L, 5_000L, 5_001L, 1_000_000L)) {
@@ -807,6 +807,10 @@ object GoldenGenerator {
             sb.append(line("isGo", { str("hex", h) }, { bool("go", SongTapWire.isGo(fromHex(h))) }))
         }
         sb.append(line("offerReadyEncode", { }, { hex("hex", SongTapWire.encodeOfferReady()) }))
+        sb.append(line("offerWithdrawnEncode", { }, { hex("hex", SongTapWire.encodeOfferWithdrawn()) }))
+        for (h in listOf("03", "02", "00", "0301", "")) {
+            sb.append(line("isOfferWithdrawn", { str("hex", h) }, { bool("withdrawn", SongTapWire.isOfferWithdrawn(fromHex(h))) }))
+        }
         for (h in listOf("02", "01", "00", "0201", "")) {
             sb.append(line("isOfferReady", { str("hex", h) }, { bool("offerReady", SongTapWire.isOfferReady(fromHex(h))) }))
         }
@@ -954,7 +958,7 @@ object GoldenGenerator {
         - timeline.jsonl: `ease`, `frame` (role, t, reduced), `total`.
         - wire.jsonl: the Bluetooth wire format (`SongTapWire`): `constants` (the UUIDs), `infoEncode`, `infoDecode`,
           `helloEncode`, `ackEncode`, `declineEncode`, `goEncode`, `tapEncode`, `controlDecode` (`kind` hello, ack, decline,
-          tap or none), `isGo`, `roleOfService` (case sensitive). Spec 5 adds `offerReadyEncode`, `isOfferReady`, `nameEncode`
+          tap or none), `isGo`, `roleOfService` (case sensitive). Spec 5 adds `offerReadyEncode`, `isOfferReady`, `offerWithdrawnEncode`, `isOfferWithdrawn`, `nameEncode`
           (hex of the Name characteristic value for a raw name), `advertEncode` (hex of the manufacturer block data for a raw name),
           `nameDecode` and `advertDecode` (`name` = the clean name or null), and the `constants` line has the name characteristic,
           the two event ids and the advertisement's company id and version.
