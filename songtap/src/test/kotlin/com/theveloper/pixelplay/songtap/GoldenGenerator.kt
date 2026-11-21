@@ -19,7 +19,7 @@ object GoldenGenerator {
     const val GOLDEN_DIR = "src/test/resources/songtap-golden"
     const val MANIFEST = "MANIFEST.sha256"
     const val SPEC_VERSION_FILE = "SPEC_VERSION"
-    const val SPEC_VERSION = 5
+    const val SPEC_VERSION = 6
 
     @JvmStatic
     fun main(args: Array<String>) {
@@ -45,6 +45,7 @@ object GoldenGenerator {
         files["names.jsonl"] = names()
         files["nearby.jsonl"] = nearby()
         files["impulse.jsonl"] = impulse()
+        files["peertap.jsonl"] = peerTap()
         files["ratelimit.jsonl"] = rateLimits()
         files["timeline.jsonl"] = timeline()
         files["haptics.jsonl"] = haptics()
@@ -568,6 +569,10 @@ object GoldenGenerator {
         series("a hold, apart, a hold again", listOf(Triple(20, -75, 0), Triple(12, -50, 0), Triple(20, -75, 0), Triple(12, -50, 0)))
         series("inside the old near gate but outside the strict one", listOf(Triple(20, -90, 0), Triple(20, -66, 0)), impulseAt = 2_000L)
         series("signal fades away", listOf(Triple(10, -50, 0), Triple(10, -65, 0), Triple(10, -80, 0), Triple(10, -95, 0)))
+        out += "real iphone, first tap (its own scale)" to RealTraces.IPHONE_FIRST_TAP.map { Sig(it.t, it.raw, -1L) }
+        out += "real iphone, idle near" to RealTraces.IPHONE_IDLE.map { Sig(it.t, it.raw, -1L) }
+        out += "real pixel, two touches (raw -15)" to RealTraces.PIXEL_SESSION.map { Sig(it.t, it.raw - 15, -1L) }
+        out += "real pixel, resting (raw -15)" to RealTraces.PIXEL_IDLE.map { Sig(it.t, it.raw - 15, -1L) }
         val rng = SplitMix64(0x44455443L)
         for (n in 0 until 60) {
             val list = ArrayList<Sig>()
@@ -587,21 +592,33 @@ object GoldenGenerator {
 
     private fun detector(): String {
         val sb = StringBuilder()
-        for ((name, samples) in detectorTraces()) {
+        for (profile in SongTapSensitivity.entries) for ((name, samples) in detectorTraces()) {
             val w = GoldenJson().obj()
             w.str("fn", "detector")
-            w.obj("in"); w.str("name", name)
+            w.obj("in"); w.str("name", name); w.str("profile", profile.code)
             w.arr("samples"); for (s in samples) w.strItem("${s.t},${s.rssi},${s.impulse}"); w.endArr(); w.end()
             w.obj("out").arr("steps")
             var state = DetectorState.INITIAL
             for (s in samples) {
-                val step = SongTapDetector.step(state, RssiSample(s.t, s.rssi), s.impulse)
+                val step = SongTapDetector.step(state, RssiSample(s.t, s.rssi), s.impulse, profile)
                 state = step.state
                 w.strItem("${step.fire.code},${step.glowPermille},${state.baselineQ},${state.fastQ},${if (state.near) 1 else 0}")
             }
             w.endArr(); w.end()
             sb.append(w.end().toString()).append('\n')
         }
+        for (profile in SongTapSensitivity.entries) {
+            sb.append(line("tuning", { str("profile", profile.code) }, {
+                int("baselineShift", profile.baselineShift); int("fastShift", profile.fastShift); int("jumpDb", profile.jumpDb); int("freezeDb", profile.freezeDb)
+                long("holdMs", profile.holdMs); long("dwellMs", profile.dwellMs); long("impulseWindowMs", profile.impulseWindowMs)
+                int("jerkMilliG", profile.jerkMilliG); long("cooldownMs", profile.cooldownMs)
+            }))
+        }
+        sb.append(line("gates", { }, {
+            int("nearEnter", SongTapTuning.NEAR_ENTER_DBM); int("nearExit", SongTapTuning.NEAR_EXIT_DBM); int("listEnter", SongTapTuning.LIST_ENTER_DBM); int("listExit", SongTapTuning.LIST_EXIT_DBM)
+            int("closeHoldDbm", SongTapTuning.CLOSE_HOLD_DBM); long("closeHoldMs", SongTapTuning.CLOSE_HOLD_MS); int("closeReleaseDbm", SongTapTuning.CLOSE_RELEASE_DBM); int("dwellMinDbm", SongTapTuning.DWELL_MIN_DBM)
+            long("freezeMaxMs", SongTapTuning.FREEZE_MAX_MS); long("gapResetMs", SongTapTuning.GAP_RESET_MS); long("jerkDebounceMs", SongTapTuning.JERK_DEBOUNCE_MS)
+        }))
         for (q in intArrayOf(-100 * 256, -80 * 256, -79 * 256 - 1, -62 * 256, -45 * 256, -44 * 256, 0)) {
             sb.append(line("glow", { int("fastQ", q) }, { int("permille", SongTapDetector.glowPermille(q)) }))
         }
@@ -634,20 +651,35 @@ object GoldenGenerator {
             }
             traces += "random $n" to rows
         }
-        for ((name, rows) in traces) {
+        for (profile in SongTapSensitivity.entries) for ((name, rows) in traces) {
             val w = GoldenJson().obj()
             w.str("fn", "impulse")
-            w.obj("in"); w.str("name", name)
+            w.obj("in"); w.str("name", name); w.str("profile", profile.code)
             w.arr("samples"); for (r in rows) w.strItem("${r.tMs},${r.xMg},${r.yMg},${r.zMg}"); w.endArr(); w.end()
             w.obj("out").arr("hits")
             var state = ImpulseState.INITIAL
             for (r in rows) {
-                val step = SongTapImpulse.step(state, r)
+                val step = SongTapImpulse.step(state, r, profile)
                 state = step.state
                 w.intItem(if (step.impulse) 1 else 0)
             }
             w.endArr(); w.end()
             sb.append(w.end().toString()).append('\n')
+        }
+        return sb.toString()
+    }
+
+    // ── peertap.jsonl ────────────────────────────────────────────────────────────────
+
+    private fun peerTap(): String {
+        val sb = StringBuilder()
+        sb.append(line("constants", { }, { int("minDbm", SongTapTuning.NEAR_ENTER_DBM); long("minGapMs", SongTapPeerTap.MIN_GAP_MS) }))
+        for (dbm in intArrayOf(-95, -78, -71, -70, -69, -60, -45, -33)) for (followed in listOf(false, true)) for (yes in listOf(false, true)) {
+            for (last in longArrayOf(-1L, 8_800L, 8_801L, 9_999L)) {
+                sb.append(line("peerTap", {
+                    int("dbm", dbm); bool("followed", followed); bool("yes", yes); long("now", 10_000L); long("last", last)
+                }, { str("verdict", SongTapPeerTap.judge(dbm, followed, yes, 10_000L, last).code) }))
+            }
         }
         return sb.toString()
     }
@@ -767,7 +799,7 @@ object GoldenGenerator {
             str("info", SongTapWire.CHAR_INFO); str("offer", SongTapWire.CHAR_OFFER)
             str("control", SongTapWire.CHAR_CONTROL); str("event", SongTapWire.CHAR_EVENT); str("name", SongTapWire.CHAR_NAME)
             int("notReady", SongTapWire.ERROR_NOT_READY); int("mtu", SongTapWire.WANTED_MTU)
-            int("eventGo", SongTapWire.EVENT_GO); int("eventOfferReady", SongTapWire.EVENT_OFFER_READY); int("eventOfferWithdrawn", SongTapWire.EVENT_OFFER_WITHDRAWN)
+            int("eventGo", SongTapWire.EVENT_GO); int("eventOfferReady", SongTapWire.EVENT_OFFER_READY); int("eventOfferWithdrawn", SongTapWire.EVENT_OFFER_WITHDRAWN); int("eventTap", SongTapWire.EVENT_TAP)
             int("advertCompanyId", SongTapWire.ADVERT_COMPANY_ID); int("advertVersion", SongTapWire.ADVERT_VERSION)
         }))
         for (age in longArrayOf(-1L, 0L, 1L, 150L, 4_999L, 5_000L, 5_001L, 1_000_000L)) {
@@ -813,6 +845,10 @@ object GoldenGenerator {
         }
         for (h in listOf("02", "01", "00", "0201", "")) {
             sb.append(line("isOfferReady", { str("hex", h) }, { bool("offerReady", SongTapWire.isOfferReady(fromHex(h))) }))
+        }
+        sb.append(line("tapEventEncode", { }, { hex("hex", SongTapWire.encodeTapEvent()) }))
+        for (h in listOf("04", "03", "02", "00", "0401", "")) {
+            sb.append(line("isTapEvent", { str("hex", h) }, { bool("tapEvent", SongTapWire.isTapEvent(fromHex(h))) }))
         }
         for (n in nameSamples()) {
             sb.append(line("nameEncode", { str("name", n) }, { hex("hex", SongTapWire.encodeName(n)) }))
@@ -950,9 +986,13 @@ object GoldenGenerator {
           tags `ack|read|consent|save|target`). Spec 5 adds the events `approve(peer,vid)`, `republish(vid)`, `offerRead(peer,now)`,
           `offerReadLost(peer)`, `offerPrefetched(peer,vid,key)`, `offerGone(peer)` and gives `tap` a third argument (this phone's
           time); `go` is gone. A state line may end with extra ` tgt=N read=1 tapseen=1 acked=1 beamdone=1 pre=1` words.
-        - detector.jsonl: `detector`: samples `"t,rssi,impulseMs"` from `DetectorState.INITIAL`; each step is
-          `"fire,glow,baselineQ,fastQ,near"` (fire is `none`, `impulse`, `dwell` or, from spec 5, `hold`). Also `glow` and `floorDiv`.
-        - impulse.jsonl: `impulse`: samples `"t,x,y,z"` from `ImpulseState.INITIAL`; out `hits` 0/1.
+        - detector.jsonl: `detector`: in `profile` (`normal` or `high`, spec 6) and samples `"t,rssi,impulseMs"` from `DetectorState.INITIAL`, fed to
+          `step(state, sample, impulse, profile)`; each step is `"fire,glow,baselineQ,fastQ,near"` (fire is `none`, `impulse`, `dwell` or, from
+          spec 5, `hold`). The rssi is already NORMALISED to the iPhone scale (the Android app adds its `rssiOffsetDb` before the core; an
+          iPhone adds nothing). Also `tuning` (the constants of each profile), `gates` (the constants of the gates and the hold), `glow` and `floorDiv`.
+        - impulse.jsonl: `impulse`: in `profile` and samples `"t,x,y,z"` from `ImpulseState.INITIAL`; the jerk threshold is the profile's `jerkMilliG`; out `hits` 0/1.
+        - peertap.jsonl (spec 6): `peerTap`: in `dbm` (own smoothed normalised signal for the peer, whole dBm), `followed`, `yes`, `now`, `last` (-1 = never);
+          out `verdict` (`accept`, `too_weak`, `not_followed`, `no_yes`, `too_soon`, checked in that order: followed, yes, signal at least `minDbm`, gap at least `minGapMs`). `constants` has `minDbm` and `minGapMs`.
         - ratelimit.jsonl: `limits`: ops `admit,now,videoId,key`, `accepted,now,videoId`, `attempted,now`, `undone,now,key`
           from an empty `RateLimits`; out `verdicts` (`-` for the two that return no verdict).
         - timeline.jsonl: `ease`, `frame` (role, t, reduced), `total`.
@@ -961,7 +1001,7 @@ object GoldenGenerator {
           tap or none), `isGo`, `roleOfService` (case sensitive). Spec 5 adds `offerReadyEncode`, `isOfferReady`, `offerWithdrawnEncode`, `isOfferWithdrawn`, `nameEncode`
           (hex of the Name characteristic value for a raw name), `advertEncode` (hex of the manufacturer block data for a raw name),
           `nameDecode` and `advertDecode` (`name` = the clean name or null), and the `constants` line has the name characteristic,
-          the two event ids and the advertisement's company id and version.
+          the two event ids and the advertisement's company id and version. Spec 6 adds `tapEventEncode` (`04`) and `isTapEvent`, and `eventTap` in `constants`.
         - names.jsonl (spec 5): `clean` (raw `name` to `name`), `orFallback`, `advertName` (the cut for the advertisement), `isValid`
           (`valid`), `fromAdvert` (`name` or null). Names are worked on as Unicode scalars: at most 20, control, zero width and
           bidirectional characters stripped, spaces collapsed and trimmed, the advert name cut at a scalar boundary to 24 UTF-8 bytes.

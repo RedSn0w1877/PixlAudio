@@ -26,9 +26,13 @@ exactly `out`. Signatures are never part of a golden, only the bytes that are si
   tags `ack|read|consent|save|target`). Spec 5 adds the events `approve(peer,vid)`, `republish(vid)`, `offerRead(peer,now)`,
   `offerReadLost(peer)`, `offerPrefetched(peer,vid,key)`, `offerGone(peer)` and gives `tap` a third argument (this phone's
   time); `go` is gone. A state line may end with extra ` tgt=N read=1 tapseen=1 acked=1 beamdone=1 pre=1` words.
-- detector.jsonl: `detector`: samples `"t,rssi,impulseMs"` from `DetectorState.INITIAL`; each step is
-  `"fire,glow,baselineQ,fastQ,near"` (fire is `none`, `impulse`, `dwell` or, from spec 5, `hold`). Also `glow` and `floorDiv`.
-- impulse.jsonl: `impulse`: samples `"t,x,y,z"` from `ImpulseState.INITIAL`; out `hits` 0/1.
+- detector.jsonl: `detector`: in `profile` (`normal` or `high`, spec 6) and samples `"t,rssi,impulseMs"` from `DetectorState.INITIAL`, fed to
+  `step(state, sample, impulse, profile)`; each step is `"fire,glow,baselineQ,fastQ,near"` (fire is `none`, `impulse`, `dwell` or, from
+  spec 5, `hold`). The rssi is already NORMALISED to the iPhone scale (the Android app adds its `rssiOffsetDb` before the core; an
+  iPhone adds nothing). Also `tuning` (the constants of each profile), `gates` (the constants of the gates and the hold), `glow` and `floorDiv`.
+- impulse.jsonl: `impulse`: in `profile` and samples `"t,x,y,z"` from `ImpulseState.INITIAL`; the jerk threshold is the profile's `jerkMilliG`; out `hits` 0/1.
+- peertap.jsonl (spec 6): `peerTap`: in `dbm` (own smoothed normalised signal for the peer, whole dBm), `followed`, `yes`, `now`, `last` (-1 = never);
+  out `verdict` (`accept`, `too_weak`, `not_followed`, `no_yes`, `too_soon`, checked in that order: followed, yes, signal at least `minDbm`, gap at least `minGapMs`). `constants` has `minDbm` and `minGapMs`.
 - ratelimit.jsonl: `limits`: ops `admit,now,videoId,key`, `accepted,now,videoId`, `attempted,now`, `undone,now,key`
   from an empty `RateLimits`; out `verdicts` (`-` for the two that return no verdict).
 - timeline.jsonl: `ease`, `frame` (role, t, reduced), `total`.
@@ -37,7 +41,7 @@ exactly `out`. Signatures are never part of a golden, only the bytes that are si
   tap or none), `isGo`, `roleOfService` (case sensitive). Spec 5 adds `offerReadyEncode`, `isOfferReady`, `offerWithdrawnEncode`, `isOfferWithdrawn`, `nameEncode`
   (hex of the Name characteristic value for a raw name), `advertEncode` (hex of the manufacturer block data for a raw name),
   `nameDecode` and `advertDecode` (`name` = the clean name or null), and the `constants` line has the name characteristic,
-  the two event ids and the advertisement's company id and version.
+  the two event ids and the advertisement's company id and version. Spec 6 adds `tapEventEncode` (`04`) and `isTapEvent`, and `eventTap` in `constants`.
 - names.jsonl (spec 5): `clean` (raw `name` to `name`), `orFallback`, `advertName` (the cut for the advertisement), `isValid`
   (`valid`), `fromAdvert` (`name` or null). Names are worked on as Unicode scalars: at most 20, control, zero width and
   bidirectional characters stripped, spaces collapsed and trimmed, the advert name cut at a scalar boundary to 24 UTF-8 bytes.

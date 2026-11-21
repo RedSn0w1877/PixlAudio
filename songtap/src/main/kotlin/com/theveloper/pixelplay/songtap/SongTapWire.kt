@@ -16,7 +16,7 @@ package com.theveloper.pixelplay.songtap
  * | [CHAR_OFFER] | read | the signed frame ([SongTapSigning.encodeFrame]); an application error until an offer exists |
  * | [CHAR_CONTROL] | write | a [ControlMessage] from the receiver: Hello (challenge), Tap, Ack, Decline |
  * | [CHAR_NAME] | read | [encodeName]: the sender's full name (spec 5) |
- * | [CHAR_EVENT] | notify | [EVENT_OFFER_READY] when the sender has (a new) offer to read, [EVENT_OFFER_WITHDRAWN] when it has none any more; [EVENT_GO] is reserved and no longer sent (spec 5) |
+ * | [CHAR_EVENT] | notify | [EVENT_OFFER_READY] when the sender has (a new) offer to read, [EVENT_OFFER_WITHDRAWN] when it has none any more, [EVENT_TAP] when the sender's detector fired (spec 6); [EVENT_GO] is reserved and no longer sent (spec 5) |
  *
  * The flow (spec 5, "prefetch"): the receiver connects while the sender is inside the STRICT near gate, writes Hello
  * with a fresh 16 byte challenge, subscribes to [CHAR_EVENT], reads Name, and as soon as the sender has an offer for it
@@ -62,6 +62,13 @@ object SongTapWire {
 
     /** The sender no longer offers anything (its listener cancelled, the time ran out, the beam is over): a receiver that holds an offer fetched ahead lets it go. */
     const val EVENT_OFFER_WITHDRAWN = 0x03
+
+    /**
+     * The sender's detector fired (spec 6, the one-sided tap): a one byte notification on Event, `04`, sent at once to the central that
+     * read the offer. The receiver commits only if [SongTapPeerTap.judge] accepts it. (The receiver's own tap message is the Control
+     * write [OP_TAP]; the two share the number 4 on different characteristics.)
+     */
+    const val EVENT_TAP = 0x04
 
     /** "No jerk to report" in an age field. */
     const val NO_AGE = 0xFFFF_FFFFL
@@ -152,6 +159,10 @@ object SongTapWire {
     fun isOfferWithdrawn(bytes: ByteArray): Boolean = bytes.size == 1 && (bytes[0].toInt() and 0xFF) == EVENT_OFFER_WITHDRAWN
 
     fun encodeOfferWithdrawn(): ByteArray = byteArrayOf(EVENT_OFFER_WITHDRAWN.toByte())
+
+    fun isTapEvent(bytes: ByteArray): Boolean = bytes.size == 1 && (bytes[0].toInt() and 0xFF) == EVENT_TAP
+
+    fun encodeTapEvent(): ByteArray = byteArrayOf(EVENT_TAP.toByte())
 
     // ── Names ────────────────────────────────────────────────────────────────────────
 

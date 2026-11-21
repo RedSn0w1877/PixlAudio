@@ -1,4 +1,4 @@
-{"fn":"constants","in":{},"out":{"sendService":"b7f3a1c0-5d2e-4c9a-8e61-3f4d7a2b9c01","receiveService":"b7f3a1c0-5d2e-4c9a-8e61-3f4d7a2b9c02","info":"b7f3a1c0-5d2e-4c9a-8e61-3f4d7a2b9c11","offer":"b7f3a1c0-5d2e-4c9a-8e61-3f4d7a2b9c12","control":"b7f3a1c0-5d2e-4c9a-8e61-3f4d7a2b9c13","event":"b7f3a1c0-5d2e-4c9a-8e61-3f4d7a2b9c14","name":"b7f3a1c0-5d2e-4c9a-8e61-3f4d7a2b9c15","notReady":128,"mtu":517,"eventGo":1,"eventOfferReady":2,"eventOfferWithdrawn":3,"advertCompanyId":65535,"advertVersion":1}}
+{"fn":"constants","in":{},"out":{"sendService":"b7f3a1c0-5d2e-4c9a-8e61-3f4d7a2b9c01","receiveService":"b7f3a1c0-5d2e-4c9a-8e61-3f4d7a2b9c02","info":"b7f3a1c0-5d2e-4c9a-8e61-3f4d7a2b9c11","offer":"b7f3a1c0-5d2e-4c9a-8e61-3f4d7a2b9c12","control":"b7f3a1c0-5d2e-4c9a-8e61-3f4d7a2b9c13","event":"b7f3a1c0-5d2e-4c9a-8e61-3f4d7a2b9c14","name":"b7f3a1c0-5d2e-4c9a-8e61-3f4d7a2b9c15","notReady":128,"mtu":517,"eventGo":1,"eventOfferReady":2,"eventOfferWithdrawn":3,"eventTap":4,"advertCompanyId":65535,"advertVersion":1}}
 {"fn":"infoEncode","in":{"age":"-1"},"out":{"hex":"01ffffffff"}}
 {"fn":"infoEncode","in":{"age":"0"},"out":{"hex":"0100000000"}}
 {"fn":"infoEncode","in":{"age":"1"},"out":{"hex":"0100000001"}}
@@ -61,6 +61,13 @@
 {"fn":"isOfferReady","in":{"hex":"00"},"out":{"offerReady":false}}
 {"fn":"isOfferReady","in":{"hex":"0201"},"out":{"offerReady":false}}
 {"fn":"isOfferReady","in":{"hex":""},"out":{"offerReady":false}}
+{"fn":"tapEventEncode","in":{},"out":{"hex":"04"}}
+{"fn":"isTapEvent","in":{"hex":"04"},"out":{"tapEvent":true}}
+{"fn":"isTapEvent","in":{"hex":"03"},"out":{"tapEvent":false}}
+{"fn":"isTapEvent","in":{"hex":"02"},"out":{"tapEvent":false}}
+{"fn":"isTapEvent","in":{"hex":"00"},"out":{"tapEvent":false}}
+{"fn":"isTapEvent","in":{"hex":"0401"},"out":{"tapEvent":false}}
+{"fn":"isTapEvent","in":{"hex":""},"out":{"tapEvent":false}}
 {"fn":"nameEncode","in":{"name":"Pixel 10 Pro"},"out":{"hex":"01506978656c2031302050726f"}}
 {"fn":"advertEncode","in":{"name":"Pixel 10 Pro"},"out":{"hex":"01506978656c2031302050726f"}}
 {"fn":"nameEncode","in":{"name":"  Hoa's   Pixel  "},"out":{"hex":"01486f61277320506978656c"}}

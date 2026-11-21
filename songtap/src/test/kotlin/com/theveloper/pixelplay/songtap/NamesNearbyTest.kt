@@ -67,7 +67,7 @@ class NamesNearbyTest {
     fun `a phone is listed inside the list gate and not outside it`() {
         val book = NearbyBook()
         book.update(1, "Ann", Role.RECEIVE, q(-70), false, 1_000)
-        book.update(2, "Bo", Role.RECEIVE, q(-80), false, 1_000)
+        book.update(2, "Bo", Role.RECEIVE, q(-90), false, 1_000)
         assertEquals(listOf(1), book.visible(Role.RECEIVE, 1_000).map { it.id })
         // The list gate is broader than the strict near gate and never needs a connection.
         assertTrue(SongTapTuning.LIST_ENTER_DBM < SongTapTuning.NEAR_ENTER_DBM)
@@ -77,13 +77,13 @@ class NamesNearbyTest {
     @Test
     fun `a listed phone leaves the list only below the exit level`() {
         val book = NearbyBook()
-        book.update(1, "Ann", Role.RECEIVE, q(-77), false, 1_000)
-        book.update(1, "Ann", Role.RECEIVE, q(-84), false, 1_100)
+        book.update(1, "Ann", Role.RECEIVE, q(-84), false, 1_000)
+        book.update(1, "Ann", Role.RECEIVE, q(-91), false, 1_100)
         assertEquals(1, book.visible(Role.RECEIVE, 1_100).size)
-        book.update(1, "Ann", Role.RECEIVE, q(-86), false, 1_200)
+        book.update(1, "Ann", Role.RECEIVE, q(-93), false, 1_200)
         assertTrue(book.visible(Role.RECEIVE, 1_200).isEmpty())
         // And needs the enter level again to come back.
-        book.update(1, "Ann", Role.RECEIVE, q(-80), false, 1_300)
+        book.update(1, "Ann", Role.RECEIVE, q(-88), false, 1_300)
         assertTrue(book.visible(Role.RECEIVE, 1_300).isEmpty())
     }
 
