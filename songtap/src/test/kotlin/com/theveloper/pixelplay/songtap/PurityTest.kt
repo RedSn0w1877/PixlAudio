@@ -107,6 +107,17 @@ class PurityTest {
         assertFalse(containsCall(codeOnly("val x = MyMath.f()"), "Math."))
     }
 
+    /**
+     * The ring code's image side (`ring/image`: style, renderer, scanner) measures pixels and needs floating
+     * point and `kotlin.math`; it is checked by round trips, not by golden vectors. Everything else in the
+     * core, the ring code's layout, Reed-Solomon, payload and timeline included, stays integer only.
+     */
+    private val floatingPointOk = setOf(
+        "kotlin.math." , "Math.", "StrictMath", "Double", "Float", ".toDouble(", ".toFloat(",
+    )
+
+    private fun isImageSide(file: File): Boolean = file.invariantSeparatorsPath.contains("/ring/image/")
+
     @Test
     fun `no banned import or call in the core sources`() {
         val root = File("src/main/kotlin")
@@ -117,9 +128,21 @@ class PurityTest {
         for (file in files) {
             val code = codeOnly(file.readText())
             for ((needle, why) in banned) {
+                if (isImageSide(file) && needle in floatingPointOk) continue
                 if (containsCall(code, needle)) violations.add("${file.name}: `$needle` ($why)")
             }
         }
         assertTrue(violations.isEmpty(), violations.joinToString("\n"))
+    }
+
+    @Test
+    fun `the image side is the only place floating point may live`() {
+        val root = File("src/main/kotlin")
+        val ringStrict = root.walkTopDown().filter { it.isFile && it.extension == "kt" && it.invariantSeparatorsPath.contains("/ring/") && !isImageSide(it) }.toList()
+        assertTrue(ringStrict.size >= 5, "the strict ring files: ${ringStrict.map { it.name }}")
+        for (file in ringStrict) {
+            val code = codeOnly(file.readText())
+            for (needle in floatingPointOk) assertFalse(containsCall(code, needle), "${file.name} uses `$needle`")
+        }
     }
 }

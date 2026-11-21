@@ -19,7 +19,7 @@ object GoldenGenerator {
     const val GOLDEN_DIR = "src/test/resources/songtap-golden"
     const val MANIFEST = "MANIFEST.sha256"
     const val SPEC_VERSION_FILE = "SPEC_VERSION"
-    const val SPEC_VERSION = 3
+    const val SPEC_VERSION = 4
 
     @JvmStatic
     fun main(args: Array<String>) {
@@ -48,7 +48,8 @@ object GoldenGenerator {
         files["haptics.jsonl"] = haptics()
         files["handshake.jsonl"] = handshake()
         files["wire.jsonl"] = wire()
-        files["README.md"] = README
+        files.putAll(com.theveloper.pixelplay.songtap.ring.RingGolden.generate())
+        files["README.md"] = README + com.theveloper.pixelplay.songtap.ring.RingGolden.README
         val manifest = StringBuilder()
         for ((name, content) in files) {
             manifest.append(sha256(content.toByteArray(Charsets.UTF_8))).append("  ").append(name).append('\n')

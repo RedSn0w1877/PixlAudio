@@ -34,3 +34,20 @@ exactly `out`. Signatures are never part of a golden, only the bytes that are si
   `helloEncode`, `ackEncode`, `declineEncode`, `goEncode`, `tapEncode`, `controlDecode` (`kind` hello, ack, decline,
   tap or none), `isGo`, `roleOfService` (case sensitive).
 - haptics.jsonl: `cues`. handshake.jsonl: `senderStart`, `receiverStart`, `impulseAge`, `peerImpulse`.
+
+## Pixl ring code (the ring-*.jsonl files; handoff/2026-11-21-ring-code.md)
+
+- ring-layout.jsonl: `constants` (the geometry in permille of the plate half-size, ring sizes, the orange
+  start dot colour as a signed Int32), `slot` (slot id to ring, index, count, microTurns = index*1e6/count
+  rounded down, byte, bit), `codewordToSlots` / `slotsToCodeword` (25 bytes hex to 200 characters of 0/1).
+- ring-rs.jsonl: `gfMul`, `gfInv` (GF(256), polynomial 0x11D), `rsEncode` (11 data bytes to the 25-byte word,
+  data then 14 parity bytes, generator roots alpha^0..alpha^13), `rsDecode` (`received` hex, `erasures` positions;
+  out `ok` and the corrected `codeword` and `corrected` (unknown-position errors repaired); includes words
+  beyond capacity, where a port must give the same answer as the listed one: `ok:false`, or the same miscorrection).
+- ring-payload.jsonl: `pack` (id, bucket, random to the 11 data bytes, null when invalid), `encodeSlots`
+  (the 200 slot bits), `unpack` (11 bytes to id/bucket/random or the reject reason), `bucketOf`, `freshness`.
+- ring-timeline.jsonl: `frame` (scenario, t, approachStart, approachEnd, beamStart in ms with
+  -9223372036854775808 = NONE, reduced; out `frame` = RingFrameBuffer.describe(), `progressChecksum` =
+  sum of slotProgress * (slot id + 1), `samples` = slotProgress of nine fixed slots, `marker`), `slotStart`,
+  `beamTotal`, `sway` (idle angle and breath), `easeNoop`.
+The image side of the ring code (renderer, scanner, style) is floating point and has no goldens.
