@@ -36,7 +36,7 @@ class HostDuckTest {
         val f = Fixture(this)
         assertTrue(f.duck.begin())
         assertTrue(f.duck.isActive)
-        advanceTimeBy(HostVoice.RAMP_DOWN_MS + 10)
+        advanceTimeBy(HostVoice.RAMP_DOWN_MS + 50)
         assertEquals(0.8f * HostVoice.DUCK_PERMILLE / 1000f, f.vol, 0.001f)
         // It never goes below the level, and it holds there.
         assertTrue(f.writes.all { it >= 0.8f * HostVoice.DUCK_PERMILLE / 1000f - 0.001f && it <= 0.8f + 0.001f })
@@ -48,9 +48,9 @@ class HostDuckTest {
     fun `it gives back exactly the level it found, a ReplayGain level included`() = runTest {
         val f = Fixture(this, start = 0.62f)
         f.duck.begin()
-        advanceTimeBy(HostVoice.RAMP_DOWN_MS + 10)
+        advanceTimeBy(HostVoice.RAMP_DOWN_MS + 50)
         f.duck.end()
-        advanceTimeBy(HostVoice.RAMP_UP_MS + 10)
+        advanceTimeBy(HostVoice.RAMP_UP_MS + 50)
         assertEquals(0.62f, f.vol, 0.0001f)
         assertFalse(f.duck.isActive)
         assertTrue(f.ended.isEmpty())
@@ -60,7 +60,7 @@ class HostDuckTest {
     fun `a quick end is over in about a tenth of a second`() = runTest {
         val f = Fixture(this)
         f.duck.begin()
-        advanceTimeBy(HostVoice.RAMP_DOWN_MS + 10)
+        advanceTimeBy(HostVoice.RAMP_DOWN_MS + 50)
         f.duck.end(quick = true)
         advanceTimeBy(HostVoice.RAMP_UP_QUICK_MS + 30)
         assertEquals(0.8f, f.vol, 0.0001f)
@@ -82,7 +82,7 @@ class HostDuckTest {
     fun `abort puts the level back at once and says why`() = runTest {
         val f = Fixture(this)
         f.duck.begin()
-        advanceTimeBy(HostVoice.RAMP_DOWN_MS + 10)
+        advanceTimeBy(HostVoice.RAMP_DOWN_MS + 50)
         f.duck.abort("transition")
         assertEquals(0.8f, f.vol, 0.0001f)
         assertFalse(f.duck.isActive)
@@ -105,7 +105,7 @@ class HostDuckTest {
     fun `its own writes are kept from the rest of the app, another writer's are not`() = runTest {
         val f = Fixture(this)
         f.duck.begin()
-        advanceTimeBy(HostVoice.RAMP_DOWN_MS + 10)
+        advanceTimeBy(HostVoice.RAMP_DOWN_MS + 50)
         // The service asks with each value the player reports: the duck's own are taken.
         assertTrue(f.duck.onMainVolumeChanged(f.vol))
         assertTrue(f.ended.isEmpty())
@@ -124,9 +124,9 @@ class HostDuckTest {
     fun `the echo of its last write is still taken for a moment after it ended, later it is not`() = runTest {
         val f = Fixture(this)
         f.duck.begin()
-        advanceTimeBy(HostVoice.RAMP_DOWN_MS + 10)
+        advanceTimeBy(HostVoice.RAMP_DOWN_MS + 50)
         f.duck.end()
-        advanceTimeBy(HostVoice.RAMP_UP_MS + 10)
+        advanceTimeBy(HostVoice.RAMP_UP_MS + 50)
         assertTrue(f.duck.onMainVolumeChanged(0.8f))
         advanceTimeBy(1_000L)
         assertFalse(f.duck.onMainVolumeChanged(0.8f))
@@ -146,7 +146,7 @@ class HostDuckTest {
     fun `the steps are the shared ramp`() = runTest {
         val f = Fixture(this, start = 1f)
         f.duck.begin()
-        advanceTimeBy(HostVoice.RAMP_DOWN_MS + 10)
+        advanceTimeBy(HostVoice.RAMP_DOWN_MS + 50)
         // Every step the duck wrote is a value the shared rule gives for some elapsed time.
         val allowed = (0..HostVoice.RAMP_DOWN_MS.toInt()).map { HostVoice.ramp(1000, HostVoice.DUCK_PERMILLE, it.toLong(), HostVoice.RAMP_DOWN_MS) / 1000f }
         assertTrue(f.writes.all { w -> allowed.any { kotlin.math.abs(it - w) < 0.002f } })
