@@ -1090,7 +1090,7 @@ class RingScanner(private val maxSide: Int = 800) {
     companion object {
         /** How many of the least certain bytes are flagged as erasures, in the order they are tried. More than 10 is not tried: see RingPayloadTest. */
         private const val MAX_OUTLINES = 4
-        private val MAX_ERASURE_STEPS = intArrayOf(0, 3, 5, 7, 10, 12)
+        private val MAX_ERASURE_STEPS = intArrayOf(0, 3, 5, 7, 10)
         private val STAGE_RINGS = intArrayOf(1, 1, 2, 3, 4)
         private val STAGE_TOLERANCE = doubleArrayOf(0.46, 0.36, 0.40, 0.40, 0.40)
     }
