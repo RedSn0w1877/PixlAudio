@@ -10,7 +10,8 @@ import com.theveloper.pixelplay.data.database.FavoritesEntity
 import com.theveloper.pixelplay.data.database.LyricsDao
 import com.theveloper.pixelplay.data.database.LyricsEntity
 import com.theveloper.pixelplay.data.database.SearchHistoryDao
-import com.theveloper.pixelplay.data.database.SearchHistoryEntity
+import com.theveloper.pixelplay.data.searchhistory.SearchHistoryBackupRow
+import com.theveloper.pixelplay.data.searchhistory.SearchHistoryRules
 import com.theveloper.pixelplay.data.database.SongEngagementEntity
 import com.theveloper.pixelplay.data.database.TransitionDao
 import com.theveloper.pixelplay.data.database.TransitionRuleEntity
@@ -113,7 +114,7 @@ data class AppDataBackupPayload(
     val preferences: List<PreferenceBackupEntry>? = null,
     val favorites: List<FavoritesEntity>? = null,
     val lyrics: List<LyricsEntity>? = null,
-    val searchHistory: List<SearchHistoryEntity>? = null,
+    val searchHistory: List<SearchHistoryBackupRow>? = null,
     val transitions: List<TransitionRuleEntity>? = null,
     val engagementStats: List<SongEngagementEntity>? = null,
     val playbackHistory: List<PlaybackHistoryBackupEntry>? = null
@@ -177,7 +178,7 @@ class AppDataBackupManager @Inject constructor(
             var globalSettings: List<PreferenceBackupEntry>? = null
             var favorites: List<FavoritesEntity>? = null
             var lyrics: List<LyricsEntity>? = null
-            var searchHistory: List<SearchHistoryEntity>? = null
+            var searchHistory: List<SearchHistoryBackupRow>? = null
             var transitions: List<TransitionRuleEntity>? = null
             var engagementStats: List<SongEngagementEntity>? = null
             var playbackHistory: List<PlaybackHistoryBackupEntry>? = null
@@ -197,7 +198,7 @@ class AppDataBackupManager @Inject constructor(
                     BackupSection.GLOBAL_SETTINGS -> globalSettings = globalPreferences
                     BackupSection.FAVORITES -> favorites = favoritesDao.getAllFavoritesOnce()
                     BackupSection.LYRICS -> lyrics = lyricsDao.getAll()
-                    BackupSection.SEARCH_HISTORY -> searchHistory = searchHistoryDao.getAll()
+                    BackupSection.SEARCH_HISTORY -> searchHistory = searchHistoryDao.getAll().map { SearchHistoryBackupRow.from(it) }
                     BackupSection.TRANSITIONS -> transitions = transitionDao.getAllRulesOnce()
                     BackupSection.ENGAGEMENT_STATS -> engagementStats = engagementDao.getAllEngagements()
                     BackupSection.PLAYBACK_HISTORY -> {
@@ -341,10 +342,8 @@ class AppDataBackupManager @Inject constructor(
                     }
                     BackupSection.SEARCH_HISTORY -> {
                         payload.searchHistory?.let { history ->
-                            searchHistoryDao.clearAll()
-                            if (history.isNotEmpty()) {
-                                searchHistoryDao.insertAll(history)
-                            }
+                            // Merged by key, never cleared (an old backup has no keys or counts).
+                            searchHistoryDao.writeMerged(SearchHistoryRules.mergeRestore(searchHistoryDao.getAll(), history))
                         }
                     }
                     BackupSection.TRANSITIONS -> {

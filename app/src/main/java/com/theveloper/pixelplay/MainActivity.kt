@@ -960,6 +960,9 @@ class MainActivity : ComponentActivity() {
                         val onSearchSubmit = remember(playerViewModel) {
                             { query: String -> playerViewModel.onSearchQuerySubmitted(query) }
                         }
+                        val onSearchFocusChange = remember(playerViewModel) {
+                            { focused: Boolean -> playerViewModel.updateSearchFieldFocused(focused) }
+                        }
 
                         Box(
                             modifier = Modifier
@@ -978,6 +981,7 @@ class MainActivity : ComponentActivity() {
                                 searchQuery = searchQueryProvider,
                                 onSearchQueryChange = onSearchQueryChange,
                                 onSearchSubmit = onSearchSubmit,
+                                onSearchFocusChange = onSearchFocusChange,
                                 modifier = Modifier
                                     .align(Alignment.BottomCenter)
                                     .onSizeChanged { componentHeightPx = it.height }

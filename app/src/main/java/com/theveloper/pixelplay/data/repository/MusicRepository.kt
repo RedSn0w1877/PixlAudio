@@ -8,7 +8,6 @@ import com.theveloper.pixelplay.data.model.Lyrics
 import com.theveloper.pixelplay.data.model.LyricsSourcePreference
 import com.theveloper.pixelplay.data.model.Playlist
 import com.theveloper.pixelplay.data.model.SearchFilterType
-import com.theveloper.pixelplay.data.model.SearchHistoryItem
 import com.theveloper.pixelplay.data.model.SearchResultItem
 import com.theveloper.pixelplay.data.model.Song
 import kotlinx.coroutines.flow.Flow
@@ -233,10 +232,6 @@ interface MusicRepository {
     fun searchAll(query: String, filterType: SearchFilterType): Flow<List<SearchResultItem>>
 
     // Search History
-    suspend fun addSearchHistoryItem(query: String)
-    suspend fun getRecentSearchHistory(limit: Int): List<SearchHistoryItem>
-    suspend fun deleteSearchHistoryItemByQuery(query: String)
-    suspend fun clearSearchHistory()
 
     /**
      * Obtiene la lista de canciones para un género específico (placeholder implementation).
