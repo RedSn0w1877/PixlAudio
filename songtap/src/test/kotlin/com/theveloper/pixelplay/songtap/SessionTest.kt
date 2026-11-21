@@ -86,6 +86,13 @@ class SessionTest {
     }
 
     @Test
+    fun `a beam the limits refuse at the commit tells the sender, whose beam has already started`() {
+        val r = run(false, Arm(Role.RECEIVE, false), OfferReceived(0, v1, 3, 10_000), SaveResult(SaveOutcome.SAVED, 10_100), Dismiss,
+            PeerFound(1), PeerNear(1), OfferPrefetched(1, v2, 3), TapDetected(1, "", 11_000))
+        assertEquals(listOf("sendDecline(1)", "notice(too_soon)", "haptic(warn)"), r.last().fx())
+    }
+
+    @Test
     fun `the receiver that fetched the offer before the tap commits at the tap with nothing left to wait for`() {
         val r = run(false, Arm(Role.RECEIVE, false), PeerFound(1), PeerNear(1), OfferPrefetched(1, v1, 7), TapDetected(1, "", 2000), SaveResult(SaveOutcome.SAVED, 2100))
         assertTrue(r[3].state.pre)

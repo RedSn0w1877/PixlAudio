@@ -442,9 +442,11 @@ object SongTapSession {
         val verdict = s.limits.admit(nowMs, videoId, senderKey)
         if (verdict != LimitVerdict.ALLOWED) {
             val reason = verdictReason(verdict)
+            // The sender has already started its beam (spec 5): it is told this one will not be taken.
             return Reduction(
                 fail(s.copy(peer = peer), reason),
-                listOf(SessionEffect.Notice(reason), SessionEffect.Haptic(HapticCue.WARN)),
+                (if (peer != 0) listOf(SessionEffect.SendDecline(peer)) else NONE) +
+                    listOf(SessionEffect.Notice(reason), SessionEffect.Haptic(HapticCue.WARN)),
             )
         }
         val known = s.copy(peer = peer, videoId = videoId, senderKey = senderKey)
