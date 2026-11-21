@@ -31,6 +31,7 @@ import android.os.Build
 import android.os.ParcelUuid
 import androidx.core.content.ContextCompat
 import com.theveloper.pixelplay.songtap.Role
+import com.theveloper.pixelplay.songtap.SongTapNames
 import com.theveloper.pixelplay.songtap.SongTapWire
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.util.UUID
@@ -43,8 +44,9 @@ import timber.log.Timber
  * server, and be a client of somebody else's. Every decision is in [BleTransport]; this class only turns
  * platform callbacks into [BleRadioListener] calls and back, and keeps the GATT client's one-operation-at-a-time rule.
  *
- * Nothing is created until [start]. The advertisement is the service UUID alone: no name, no data, no TX
- * power, and the address Android gives an advertiser is a private one that changes every few minutes.
+ * Nothing is created until [start]. The advertisement is the service UUID, plus (spec 5) the listener's short Song Tap name
+ * in the scan response, at the lowest practical transmit power. Never the system device name, no TX power field, and
+ * the address Android gives an advertiser is a private one that changes every few minutes.
  */
 @SuppressLint("MissingPermission")
 @Singleton
@@ -57,6 +59,7 @@ class AndroidBleRadio @Inject constructor(
     private val lock = Any()
     @Volatile private var listener: BleRadioListener? = null
     private var role = Role.SEND
+    private var advertisedName = ""
     private var adapter: BluetoothAdapter? = null
     private var advertiser: BluetoothLeAdvertiser? = null
     private var scanner: BluetoothLeScanner? = null
@@ -75,10 +78,11 @@ class AndroidBleRadio @Inject constructor(
 
     // ── Start and stop ────────────────────────────────────────────────────────────────
 
-    override fun start(role: Role, listener: BleRadioListener): BleStatus = synchronized(lock) {
+    override fun start(role: Role, listener: BleRadioListener, name: String): BleStatus = synchronized(lock) {
         stopLocked()
         this.listener = listener
         this.role = role
+        this.advertisedName = name
         if (!context.packageManager.hasSystemFeature(PackageManager.FEATURE_BLUETOOTH_LE)) return BleStatus.UNSUPPORTED
         if (!hasPermissions()) return BleStatus.NO_PERMISSION
         val manager = context.getSystemService(BluetoothManager::class.java) ?: return BleStatus.UNSUPPORTED
@@ -195,9 +199,11 @@ class AndroidBleRadio @Inject constructor(
     }
 
     private fun startAdvertisingLocked() {
+        // Spec 5: the lowest transmit power that is calibrated to work at contact (see BleTuning.ADVERT_TX_POWER), so that a phone
+        // a few metres away is not even heard well enough to be connected to.
         val settings = AdvertiseSettings.Builder()
             .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
-            .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_MEDIUM)
+            .setTxPowerLevel(BleTuning.ADVERT_TX_POWER)
             .setConnectable(role == Role.SEND)
             .setTimeout(0)
             .build()
@@ -206,7 +212,14 @@ class AndroidBleRadio @Inject constructor(
             .setIncludeTxPowerLevel(false)
             .addServiceUuid(ParcelUuid(UUID.fromString(SongTapWire.serviceOf(role))))
             .build()
-        advertiser?.startAdvertising(settings, data, advertiseCallback)
+        // The short name travels in the scan response (the advertisement itself is full with the 128-bit UUID): a manufacturer
+        // block, company id 0xFFFF, version byte then the name in UTF-8 (SongTapWire.encodeAdvertName). Never the system device name.
+        val scanResponse = AdvertiseData.Builder()
+            .setIncludeDeviceName(false)
+            .setIncludeTxPowerLevel(false)
+            .addManufacturerData(SongTapWire.ADVERT_COMPANY_ID, SongTapWire.encodeAdvertName(advertisedName))
+            .build()
+        advertiser?.startAdvertising(settings, data, scanResponse, advertiseCallback)
     }
 
     private val scanCallback = object : ScanCallback() {
@@ -218,6 +231,10 @@ class AndroidBleRadio @Inject constructor(
                 if (r != null) { seen = r; break }
             }
             val peerRole = seen ?: return
+            val record = result.scanRecord
+            // An Android phone puts the short name in a manufacturer block; an iPhone can only advertise it as its local name.
+            val name = record?.getManufacturerSpecificData(SongTapWire.ADVERT_COMPANY_ID)?.let { SongTapWire.decodeAdvertName(it) }
+                ?: record?.deviceName?.let { SongTapNames.fromAdvert(it) }
             val address = result.device.address
             val l: BleRadioListener?
             synchronized(lock) {
@@ -225,7 +242,7 @@ class AndroidBleRadio @Inject constructor(
                 devices[address] = result.device
                 l = listener
             }
-            l?.onSeen(address, peerRole, result.rssi)
+            l?.onSeen(address, peerRole, result.rssi, name)
         }
 
         override fun onScanFailed(errorCode: Int) {
@@ -257,6 +274,9 @@ class AndroidBleRadio @Inject constructor(
         )
         service.addCharacteristic(
             BluetoothGattCharacteristic(UUID.fromString(SongTapWire.CHAR_OFFER), BluetoothGattCharacteristic.PROPERTY_READ, BluetoothGattCharacteristic.PERMISSION_READ),
+        )
+        service.addCharacteristic(
+            BluetoothGattCharacteristic(UUID.fromString(SongTapWire.CHAR_NAME), BluetoothGattCharacteristic.PROPERTY_READ, BluetoothGattCharacteristic.PERMISSION_READ),
         )
         service.addCharacteristic(
             BluetoothGattCharacteristic(UUID.fromString(SongTapWire.CHAR_CONTROL), BluetoothGattCharacteristic.PROPERTY_WRITE, BluetoothGattCharacteristic.PERMISSION_WRITE),
@@ -300,6 +320,7 @@ class AndroidBleRadio @Inject constructor(
             val l = listener
             val full: ByteArray? = when (characteristic.uuid) {
                 U_INFO -> l?.serverInfo()
+                U_NAME -> l?.serverName()
                 U_OFFER -> {
                     // A long read comes as several requests with growing offsets: sign once, on the first.
                     if (offset == 0) {
@@ -354,19 +375,18 @@ class AndroidBleRadio @Inject constructor(
         }
     }
 
-    override fun notifyGo(client: String) {
+    override fun notify(client: String, value: ByteArray) {
         synchronized(lock) {
             val device = serverClients[client] ?: return
             val s = server ?: return
             val characteristic = eventCharacteristic ?: return
-            val go = SongTapWire.encodeGo()
             try {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    s.notifyCharacteristicChanged(device, characteristic, false, go)
+                    s.notifyCharacteristicChanged(device, characteristic, false, value)
                 } else {
                     @Suppress("DEPRECATION")
                     run {
-                        characteristic.value = go
+                        characteristic.value = value
                         s.notifyCharacteristicChanged(device, characteristic, false)
                     }
                 }
@@ -387,6 +407,7 @@ class AndroidBleRadio @Inject constructor(
 
     private sealed interface Op {
         data object ReadInfo : Op
+        data object ReadName : Op
         data object ReadOffer : Op
         class Write(val value: ByteArray) : Op
     }
@@ -396,6 +417,7 @@ class AndroidBleRadio @Inject constructor(
         var ready = false
         var busy = false
         var info: BluetoothGattCharacteristic? = null
+        var name: BluetoothGattCharacteristic? = null
         var offer: BluetoothGattCharacteristic? = null
         var control: BluetoothGattCharacteristic? = null
         var event: BluetoothGattCharacteristic? = null
@@ -443,6 +465,8 @@ class AndroidBleRadio @Inject constructor(
 
     override fun readInfo(address: String) = enqueue(address, Op.ReadInfo)
 
+    override fun readName(address: String) = enqueue(address, Op.ReadName)
+
     override fun readOffer(address: String) = enqueue(address, Op.ReadOffer)
 
     override fun writeControl(address: String, value: ByteArray) = enqueue(address, Op.Write(value))
@@ -463,6 +487,7 @@ class AndroidBleRadio @Inject constructor(
     private fun fail(l: BleRadioListener, address: String, op: Op) {
         when (op) {
             Op.ReadInfo -> l.onInfoRead(address, null)
+            Op.ReadName -> l.onNameRead(address, null)
             Op.ReadOffer -> l.onOfferRead(address, null)
             is Op.Write -> l.onControlWritten(address, false)
         }
@@ -476,6 +501,7 @@ class AndroidBleRadio @Inject constructor(
             val started = try {
                 when (op) {
                     Op.ReadInfo -> c.info?.let { g.readCharacteristic(it) } ?: false
+                    Op.ReadName -> c.name?.let { g.readCharacteristic(it) } ?: false
                     Op.ReadOffer -> c.offer?.let { g.readCharacteristic(it) } ?: false
                     is Op.Write -> c.control?.let { writeCharacteristic(g, it, op.value) } ?: false
                 }
@@ -547,6 +573,8 @@ class AndroidBleRadio @Inject constructor(
             }
             synchronized(lock) {
                 c.info = service.getCharacteristic(U_INFO)
+                // The Name characteristic is new in spec 5; an older sender has none and its name is just not known.
+                c.name = service.getCharacteristic(U_NAME)
                 c.offer = service.getCharacteristic(U_OFFER)
                 c.control = service.getCharacteristic(U_CONTROL)
                 c.event = event
@@ -616,6 +644,7 @@ class AndroidBleRadio @Inject constructor(
         val bytes = if (status == BluetoothGatt.GATT_SUCCESS) value else null
         when (uuid) {
             U_INFO -> l?.onInfoRead(c.address, bytes)
+            U_NAME -> l?.onNameRead(c.address, bytes)
             U_OFFER -> l?.onOfferRead(c.address, bytes)
         }
         synchronized(lock) { pumpLocked(c) }
@@ -632,6 +661,7 @@ class AndroidBleRadio @Inject constructor(
         val CCCD: UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
         val U_INFO: UUID = UUID.fromString(SongTapWire.CHAR_INFO)
         val U_OFFER: UUID = UUID.fromString(SongTapWire.CHAR_OFFER)
+        val U_NAME: UUID = UUID.fromString(SongTapWire.CHAR_NAME)
         val U_CONTROL: UUID = UUID.fromString(SongTapWire.CHAR_CONTROL)
         val U_EVENT: UUID = UUID.fromString(SongTapWire.CHAR_EVENT)
         val U_SERVICE_SEND: UUID = UUID.fromString(SongTapWire.SERVICE_SEND)

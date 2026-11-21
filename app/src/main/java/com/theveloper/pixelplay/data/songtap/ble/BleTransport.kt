@@ -7,6 +7,8 @@ import com.theveloper.pixelplay.data.songtap.TransportEvent
 import com.theveloper.pixelplay.di.AppScope
 import com.theveloper.pixelplay.songtap.DetectorState
 import com.theveloper.pixelplay.songtap.FireReason
+import com.theveloper.pixelplay.songtap.NearbyBook
+import com.theveloper.pixelplay.songtap.NearbyEntry
 import com.theveloper.pixelplay.songtap.OfferCheck
 import com.theveloper.pixelplay.songtap.PayloadDecode
 import com.theveloper.pixelplay.songtap.RSSI_SCALE
@@ -15,6 +17,7 @@ import com.theveloper.pixelplay.songtap.RssiSample
 import com.theveloper.pixelplay.songtap.SignedOffer
 import com.theveloper.pixelplay.songtap.SongTapDetector
 import com.theveloper.pixelplay.songtap.SongTapHandshake
+import com.theveloper.pixelplay.songtap.SongTapNames
 import com.theveloper.pixelplay.songtap.SongTapPayloads
 import com.theveloper.pixelplay.songtap.SongTapSignatureVerifier
 import com.theveloper.pixelplay.songtap.SongTapSigning
@@ -71,6 +74,25 @@ object BleTuning {
 
     /** A signed frame is the payload plus this many bytes (see `SongTapSigning.encodeFrame`). */
     const val FRAME_OVERHEAD_BYTES = 142
+
+    /** The phone a sender is armed to is followed (and its offer served) even if its advertisements thin out for a while. */
+    const val PINNED_PEER_TIMEOUT_MS = 10_000L
+
+    /** A receiver that is connected and near but holds no offer asks again this often (the sender's notification is the fast path). */
+    const val PREFETCH_RETRY_MS = 2_000L
+
+    /** A prefetched offer older than this is read again (the signed frame and the payload carry times, the sender refreshes too). */
+    const val PREFETCH_MAX_AGE_MS = 20_000L
+
+    /** The nearby list and the prompt are republished at most this often. */
+    const val NEARBY_PUBLISH_MS = 250L
+
+    /**
+     * The advertising transmit power as `AdvertiseSettings.ADVERTISE_TX_POWER_*`: 1 is LOW (-15 dBm). ULTRA_LOW (0, -21 dBm) is the next step
+     * down if phones are still found too easily; the strict near gate (`SongTapTuning.NEAR_ENTER_DBM`) was set for LOW, so lowering this
+     * means calibrating that gate again. Used by `AndroidBleRadio`.
+     */
+    const val ADVERT_TX_POWER = 1
 }
 
 /**
@@ -82,6 +104,11 @@ object BleTuning {
  *
  * Nothing runs until [start], and [start] is only called while the Song Tap screen is armed in the foreground:
  * no scanning or advertising otherwise, and no sensor either.
+ *
+ * Spec 5, in short. A receiver connects only to a sender inside the STRICT near gate and, still before any tap, reads the
+ * sender's name and its signed offer (when the sender's listener has said yes to that phone), so when the detector fires the
+ * data is in hand and the beam starts at the first haptic, with nothing left to wait for. A sender serves the offer to the one
+ * phone it was armed to, only while that phone is near, and lists phones for the picker from advertisements alone.
  *
  * Roles. A phone sending advertises the send service and serves the offer; a phone receiving advertises the
  * receive service and connects, as a client, to the sender it is near. A beam therefore always travels one way over
@@ -149,7 +176,18 @@ class BleTransport internal constructor(
         var lastFire = FireReason.NONE
         var lastFireMs = -1L
         var lastJumpMs = -1L
+
+        /** The short name this phone advertised, and its full name once read from its Name characteristic. */
+        var name: String? = null
+        var fullName: String? = null
+        var nameAsked = false
+
+        /** Receiver: the offer read and checked before any tap, and when; null when none. */
+        var prefetched: Prefetch? = null
+        var lastPrefetchTryMs = 0L
     }
+
+    private class Prefetch(val payload: ByteArray, val senderKey: Int, val atMs: Long)
 
     private val lock = Any()
     private var started = false
@@ -161,6 +199,24 @@ class BleTransport internal constructor(
     private var focus: Peer? = null
     private var ownImpulseMs = -1L
 
+    /** The name this phone shows other phones (set by the controller before arming). */
+    @Volatile private var ownName = SongTapNames.FALLBACK
+
+    /** Sender: the phone the listener said yes to (the transport's number), 0 when none. */
+    private var pinnedId = 0
+
+    private val book = NearbyBook()
+    private var lastNearbyMs = -1_000_000L
+    private val _nearby = MutableStateFlow<List<NearbyEntry>>(emptyList())
+
+    /** Sender: the phones advertising as receivers inside the list gate, strongest first, from advertisements only (spec 5). */
+    val nearby: StateFlow<List<NearbyEntry>> = _nearby.asStateFlow()
+
+    private val _prompt = MutableStateFlow<NearbyEntry?>(null)
+
+    /** Sender: the phone to ask "Song drop to X?" about (inside the strict near gate, not told no), or null. */
+    val prompt: StateFlow<NearbyEntry?> = _prompt.asStateFlow()
+
     // The sender's side. Three separate facts about who is talking to our GATT server, because a control write is only
     // believed from the phone it is about: [tapClient] wrote the tap message, [offerClient] read the offer, [ackClient]
     // acknowledged it. An acknowledgement or a decline from any other connection is ignored, and Go goes to [ackClient].
@@ -170,6 +226,22 @@ class BleTransport internal constructor(
     private var tapClient: String? = null
     private var offerClient: String? = null
     private var ackClient: String? = null
+
+    /** Sets the name shown to other phones; it takes effect the next time the transport starts. */
+    fun setOwnName(name: String) {
+        ownName = SongTapNames.orFallback(name)
+    }
+
+    /** "No" on the prompt: that phone is not asked about for a minute. */
+    fun ignorePrompt(peer: Int) {
+        synchronized(lock) {
+            book.ignore(peer, clock.elapsedMs())
+            publishNearbyLocked(clock.elapsedMs(), force = true)
+        }
+    }
+
+    /** The name of [peer] for a card: its full name when it gave one, else the short one it advertised. */
+    fun nameOf(peer: Int): String? = synchronized(lock) { byId[peer]?.let { it.fullName ?: it.name } }
 
     private fun emit(e: TransportEvent) {
         _events.tryEmit(e)
@@ -215,7 +287,7 @@ class BleTransport internal constructor(
         role = newRole
         started = true
         signer = if (newRole == Role.SEND) newSigner() else null
-        val result = radio.start(newRole, this)
+        val result = radio.start(newRole, this, ownName)
         setStatus(result)
         if (result != BleStatus.ACTIVE) {
             diag.log(clock.elapsedMs(), "bluetooth unavailable: ${result.name.lowercase()}")
@@ -252,6 +324,10 @@ class BleTransport internal constructor(
         tapClient = null
         offerClient = null
         ackClient = null
+        pinnedId = 0
+        book.clear()
+        _nearby.value = emptyList()
+        _prompt.value = null
         ownImpulseMs = -1L
         _glow.value = 0
         setStatus(BleStatus.IDLE)
@@ -266,7 +342,15 @@ class BleTransport internal constructor(
             // A new offer starts with nobody having read or acknowledged it: a late answer to the last one is not an answer to this.
             offerClient = null
             ackClient = null
-            diag.log(clock.elapsedMs(), if (offer == null) "offer does not fit one frame" else "offer ready (${payload.size} bytes)")
+            tapClient = null
+            val first = pinnedId != peer
+            pinnedId = peer
+            val target = byId[peer]
+            if (first && target != null) setFocus(target, clock.elapsedMs())
+            diag.log(clock.elapsedMs(), if (offer == null) "offer does not fit one frame" else "offer ready for #$peer (${payload.size} bytes)")
+            // The phones already connected (they said Hello) are told there is something to read; others read when they connect.
+            if (offer != null) for (client in challenges.keys.toList()) radio.notify(client, SongTapWire.encodeOfferReady())
+            publishNearbyLocked(clock.elapsedMs(), force = true)
         }
     }
 
@@ -276,6 +360,9 @@ class BleTransport internal constructor(
             offerClient = null
             ackClient = null
             tapClient = null
+            val wasPinned = pinnedId != 0
+            pinnedId = 0
+            if (wasPinned && started) publishNearbyLocked(clock.elapsedMs(), force = true)
         }
     }
 
@@ -295,26 +382,25 @@ class BleTransport internal constructor(
         return null
     }
 
-    override fun sendGo(peer: Int, startMs: Long) {
-        synchronized(lock) {
-            val client = ackClient ?: return
-            radio.notifyGo(client)
-            diag.log(clock.elapsedMs(), "go sent")
-        }
-    }
-
     // Server callbacks (a receiver talking to our GATT server).
 
     override fun serverInfo(): ByteArray = synchronized(lock) {
         SongTapWire.encodeInfo(SongTapHandshake.impulseAgeMs(clock.elapsedMs(), ownImpulseMs))
     }
 
+    override fun serverName(): ByteArray = SongTapWire.encodeName(ownName)
+
     override fun serverOffer(client: String): ByteArray? = synchronized(lock) {
         if (!started || role != Role.SEND) return null
         val payload = offer ?: return null
-        // Only the phone that tapped (and, once somebody has read it, only that reader) is given the offer.
-        val taker = tapClient
-        if (taker != null && taker != client) return null
+        // Spec 5: the offer exists only for the phone the listener said yes to, and is served only while that phone is the one being
+        // followed AND inside the strict near gate, and no other phone that could be the reader is inside it too (a connection's own
+        // address is not the advertising address, so "which phone is this client" cannot be known: when two are close, serve nobody).
+        val target = byId[pinnedId] ?: return null
+        val f = focus
+        if (f !== target || !target.detector.near) return null
+        if (anotherReceiverNear(target)) return null
+        // Once somebody has read it, only that reader is given it again.
         val reader = offerClient
         if (reader != null && reader != client) return null
         val challenge = challenges[client] ?: return null
@@ -324,9 +410,22 @@ class BleTransport internal constructor(
         val frame = SongTapSigning.encodeFrame(SignedOffer(payload, ts, key.publicKey, key.sign(message)))
         // A challenge answers one read: the receiver sends a new one for the next beam.
         challenges.remove(client)
-        if (frame != null) offerClient = client
+        if (frame != null) {
+            offerClient = client
+            emit(TransportEvent.OfferRead(target.id))
+        }
         diag.log(clock.elapsedMs(), if (frame == null) "frame too big" else "offer read by a receiver (${frame.size} bytes)")
         frame
+    }
+
+    /** True when a phone other than [target] that advertises as a receiver is inside the strict near gate right now. */
+    private fun anotherReceiverNear(target: Peer): Boolean {
+        val t = clock.elapsedMs()
+        for (q in peers.values) {
+            if (q === target || q.role != Role.RECEIVE) continue
+            if (t - q.lastSeenMs <= BleTuning.PEER_TIMEOUT_MS && q.detector.near) return true
+        }
+        return false
     }
 
     override fun serverControl(client: String, value: ByteArray): Boolean = synchronized(lock) {
@@ -354,10 +453,11 @@ class BleTransport internal constructor(
             }
             is SongTapWire.ControlMessage.Tap -> {
                 val f = focus
-                // The tap is believed when this phone saw the signal of the phone it is following jump just now.
+                // The tap is believed when it comes from the phone that read the offer (the one the listener said yes to) and this
+                // phone saw the signal of the phone it is following jump just now.
                 val sawJump = f != null && f.lastJumpMs >= 0L && t - f.lastJumpMs <= BleTuning.PEER_TAP_JUMP_WINDOW_MS
                 diag.log(t, "receiver reports a tap (jerk ${message.ageMs} ms ago), own jump ${if (sawJump) "seen" else "not seen"}")
-                if (f != null && f.role == Role.RECEIVE && sawJump && offer == null) {
+                if (f != null && f.id == pinnedId && f.role == Role.RECEIVE && sawJump && offer != null && client == offerClient) {
                     tapClient = client
                     emit(TransportEvent.Tap(f.id))
                 }
@@ -369,12 +469,18 @@ class BleTransport internal constructor(
     override fun serverClientGone(client: String) {
         synchronized(lock) {
             challenges.remove(client)
-            val had = ackClient == client || offerClient == client
-            if (ackClient == client) ackClient = null
-            if (offerClient == client) offerClient = null
+            val acked = ackClient == client
+            val read = offerClient == client
+            if (acked) ackClient = null
+            if (read) offerClient = null
             if (tapClient == client) tapClient = null
-            // A receiver leaving in the middle of a beam is a lost peer; leaving afterwards is nothing.
-            if (had && offer != null) focus?.let { emit(TransportEvent.PeerLost(it.id)) }
+            // A reader that leaves before the beam is only a read lost (the session stays armed to that phone); in the middle of a
+            // beam, before its answer, it is a lost peer; after its answer it is nothing.
+            if (read && !acked && offer != null) {
+                val target = byId[pinnedId]
+                if (target != null) emit(TransportEvent.OfferReadLost(target.id))
+                focus?.let { if (it.id == pinnedId) emit(TransportEvent.PeerLost(it.id)) }
+            }
         }
     }
 
@@ -385,6 +491,13 @@ class BleTransport internal constructor(
             val p = byId[peer]
             if (p == null || role != Role.RECEIVE || p.role != Role.SEND) {
                 emit(TransportEvent.OfferInvalid)
+                return
+            }
+            // The offer was fetched before the tap: hand it over now (this is the fast path; the session normally already holds it).
+            val held = p.prefetched
+            if (held != null) {
+                p.prefetched = null
+                emit(TransportEvent.Offer(p.id, held.payload, held.senderKey, p.fullName ?: p.name))
                 return
             }
             p.inTransfer = true
@@ -409,6 +522,9 @@ class BleTransport internal constructor(
             val p = byId[peer]
             if (p == null || p.conn != Conn.READY) { emit(TransportEvent.PeerLost(peer)); return }
             queueWrite(p, Write.ACK, SongTapWire.encodeAck())
+            // The beam is saved and acknowledged: this phone is free again (nothing waits for a `go` any more).
+            p.inTransfer = false
+            p.prefetched = null
         }
     }
 
@@ -416,6 +532,7 @@ class BleTransport internal constructor(
         synchronized(lock) {
             val p = byId[peer] ?: return
             p.inTransfer = false
+            p.prefetched = null
             if (p.conn == Conn.READY) queueWrite(p, Write.DECLINE, SongTapWire.encodeDecline())
         }
     }
@@ -430,6 +547,7 @@ class BleTransport internal constructor(
             p.inTransfer = false
             p.wantRead = false
             p.readInFlight = false
+            p.prefetched = null
             if (p.conn != Conn.NONE) {
                 radio.disconnect(p.address)
                 p.conn = Conn.NONE
@@ -480,7 +598,9 @@ class BleTransport internal constructor(
             p.conn = Conn.READY
             diag.log(t, "connected to #${p.id}")
             sendHello(p)
-            if (p.wantRead) startRead(p)
+            // Spec 5: everything slow happens now, before any tap: the sender's name, then its offer (when it has one for us).
+            if (!p.nameAsked) { p.nameAsked = true; radio.readName(p.address) }
+            if (p.wantRead) startRead(p) else startPrefetch(p, t)
         }
     }
 
@@ -494,6 +614,8 @@ class BleTransport internal constructor(
             p.challenge = null
             p.nextConnectAtMs = t + BleTuning.RECONNECT_MS
             diag.log(t, "disconnected from #${p.id}")
+            dropPrefetch(p)
+            p.nameAsked = false
             if (p.inTransfer) failTransfer(p)
         }
     }
@@ -512,8 +634,9 @@ class BleTransport internal constructor(
         synchronized(lock) {
             val p = peers[address] ?: return
             p.readInFlight = false
-            if (!p.inTransfer) return
+            val t = clock.elapsedMs()
             if (value == null) {
+                if (!p.inTransfer) return // a prefetch with nothing to give yet: the sender's notification (or the retry) comes later
                 p.readAttempts++
                 if (p.readAttempts < BleTuning.MAX_READ_ATTEMPTS) {
                     scope.launch {
@@ -523,7 +646,7 @@ class BleTransport internal constructor(
                         }
                     }
                 } else {
-                    diag.log(clock.elapsedMs(), "the sender had no offer")
+                    diag.log(t, "the sender had no offer")
                     p.inTransfer = false
                     emit(TransportEvent.OfferInvalid)
                     if (p.conn == Conn.READY) sendHello(p)
@@ -538,13 +661,50 @@ class BleTransport internal constructor(
             p.challenge = null
             if (p.conn == Conn.READY) sendHello(p)
             if (verdict == OfferCheck.OK && frame != null) {
-                diag.log(clock.elapsedMs(), "offer read and checked")
-                emit(TransportEvent.Offer(p.id, frame.payload, SongTapSigning.senderKey(frame.publicKey)))
+                val name = p.fullName ?: p.name
+                if (p.inTransfer) {
+                    diag.log(t, "offer read and checked")
+                    emit(TransportEvent.Offer(p.id, frame.payload, SongTapSigning.senderKey(frame.publicKey), name))
+                } else {
+                    p.prefetched = Prefetch(frame.payload, SongTapSigning.senderKey(frame.publicKey), t)
+                    diag.log(t, "offer fetched ahead of the tap and checked (${frame.payload.size} bytes)")
+                    emit(TransportEvent.OfferPrefetched(p.id, frame.payload, SongTapSigning.senderKey(frame.publicKey), name))
+                }
             } else {
-                diag.log(clock.elapsedMs(), "offer refused: ${verdict.code}")
-                p.inTransfer = false
-                emit(TransportEvent.OfferInvalid)
+                diag.log(t, "offer refused: ${verdict.code}")
+                if (p.inTransfer) {
+                    p.inTransfer = false
+                    emit(TransportEvent.OfferInvalid)
+                } else {
+                    dropPrefetch(p)
+                }
             }
+        }
+    }
+
+    /** Receiver: ask the sender for its offer ahead of the tap (nothing happens when it has none yet). */
+    private fun startPrefetch(p: Peer, t: Long) {
+        if (role != Role.RECEIVE || p.role != Role.SEND || p.conn != Conn.READY || p.readInFlight || p.inTransfer) return
+        p.lastPrefetchTryMs = t
+        p.readInFlight = true
+        radio.readOffer(p.address)
+    }
+
+    /** Receiver: whatever was fetched ahead is no longer good. */
+    private fun dropPrefetch(p: Peer) {
+        if (p.prefetched != null) {
+            p.prefetched = null
+            emit(TransportEvent.OfferGone(p.id))
+        }
+    }
+
+    override fun onNameRead(address: String, value: ByteArray?) {
+        synchronized(lock) {
+            val p = peers[address] ?: return
+            val name = value?.let { SongTapWire.decodeName(it) } ?: return
+            p.fullName = name
+            diag.log(clock.elapsedMs(), "#${p.id} is called $name")
+            emit(TransportEvent.PeerName(p.id, name))
         }
     }
 
@@ -567,10 +727,10 @@ class BleTransport internal constructor(
     override fun onNotified(address: String, value: ByteArray) {
         synchronized(lock) {
             val p = peers[address] ?: return
-            if (!SongTapWire.isGo(value)) return
-            diag.log(clock.elapsedMs(), "go received (round trip ${p.rttMs} ms)")
-            p.inTransfer = false
-            emit(TransportEvent.Go(p.id, p.rttMs))
+            // The only event is "the sender has an offer to read" (EVENT_GO of spec 4 is gone and ignored).
+            if (!SongTapWire.isOfferReady(value)) return
+            diag.log(clock.elapsedMs(), "the sender has an offer ready")
+            if (p.detector.near) startPrefetch(p, clock.elapsedMs())
         }
     }
 
@@ -594,6 +754,10 @@ class BleTransport internal constructor(
             ackClient = null
             offerClient = null
             tapClient = null
+            pinnedId = 0
+            book.clear()
+            _nearby.value = emptyList()
+            _prompt.value = null
             _glow.value = 0
             ticker?.cancel()
             ticker = null
@@ -605,7 +769,7 @@ class BleTransport internal constructor(
 
     // ── Detection ─────────────────────────────────────────────────────────────────────
 
-    override fun onSeen(address: String, role: Role, rssi: Int) {
+    override fun onSeen(address: String, role: Role, rssi: Int, name: String?) {
         synchronized(lock) {
             if (!started) return
             val t = clock.elapsedMs()
@@ -620,6 +784,10 @@ class BleTransport internal constructor(
             p.role = role
             p.lastSeenMs = t
             p.rssi = rssi
+            if (name != null && name != p.name) {
+                p.name = name
+                if (p.fullName == null) emit(TransportEvent.PeerName(p.id, name))
+            }
 
             val impulse = impulseFor(p, ownImpulseMs)
             val wasHeld = p.detector.heldSinceMs >= 0L
@@ -631,6 +799,8 @@ class BleTransport internal constructor(
             if (jumping || step.fire != FireReason.NONE) p.lastJumpMs = t
             if (jumping && !wasHeld) onJumpStart(p, t)
 
+            book.update(p.id, p.fullName ?: p.name ?: SongTapNames.FALLBACK, p.role, step.state.fastQ, step.state.near, t)
+            publishNearbyLocked(t, force = false)
             updateFocus(t, p)
             if (p === focus) {
                 _glow.value = p.glow
@@ -671,6 +841,11 @@ class BleTransport internal constructor(
     private fun updateFocus(t: Long, seen: Peer) {
         val current = focus
         if (current === seen) return
+        // A sender armed to a phone follows that phone and nobody else.
+        if (pinnedId != 0) {
+            if (seen.id == pinnedId) setFocus(seen, t)
+            return
+        }
         if (current != null) {
             val busy = current.inTransfer || offer != null
             val gone = t - current.lastSeenMs > BleTuning.PEER_TIMEOUT_MS
@@ -685,6 +860,7 @@ class BleTransport internal constructor(
         if (old === next) return
         if (old != null) {
             emit(TransportEvent.PeerLost(old.id))
+            dropPrefetch(old)
             if (old.conn != Conn.NONE) {
                 radio.disconnect(old.address)
                 old.conn = Conn.NONE
@@ -701,13 +877,19 @@ class BleTransport internal constructor(
     }
 
     private fun onFire(p: Peer, reason: FireReason, t: Long) {
+        // A sender armed to a phone has no business with a stranger's tap: it does not even follow it.
+        if (pinnedId != 0 && p.id != pinnedId) return
         if (p !== focus) setFocus(p, t)
         p.lastFire = reason
         p.lastFireMs = t
-        diag.log(t, "tap detected (${reason.code}) with #${p.id}")
+        diag.log(t, "tap detected (${reason.code}) with #${p.id}${if (p.prefetched != null) ", offer already in hand" else ""}")
         emit(TransportEvent.PeerRole(p.id, p.role))
         if (role == Role.RECEIVE && p.role == Role.RECEIVE) return
+        // The phone that is not the one the listener said yes to cannot start a beam (the session ignores it too).
+        if (role == Role.SEND && p.id != pinnedId) return
         emit(TransportEvent.Tap(p.id))
+        // The session holds the offer from here on (it took it when the fetch finished); the next beam needs a new one.
+        if (role == Role.RECEIVE) p.prefetched = null
         if (role == Role.RECEIVE && p.role == Role.SEND && p.conn == Conn.READY) {
             val age = SongTapHandshake.impulseAgeMs(t, ownImpulseMs)
             queueWrite(p, Write.TAP, SongTapWire.encodeTap(age))
@@ -722,10 +904,11 @@ class BleTransport internal constructor(
 
     private fun evictOldestLocked() {
         var oldest: Peer? = null
-        for (q in peers.values) if (q !== focus && (oldest == null || q.lastSeenMs < oldest.lastSeenMs)) oldest = q
+        for (q in peers.values) if (q !== focus && q.id != pinnedId && (oldest == null || q.lastSeenMs < oldest.lastSeenMs)) oldest = q
         val gone = oldest ?: return
         peers.remove(gone.address)
         byId.remove(gone.id)
+        book.remove(gone.id)
         if (gone.conn != Conn.NONE) radio.disconnect(gone.address)
     }
 
@@ -734,9 +917,11 @@ class BleTransport internal constructor(
         val it = peers.values.iterator()
         while (it.hasNext()) {
             val p = it.next()
-            if (t - p.lastSeenMs <= BleTuning.PEER_TIMEOUT_MS) continue
+            val limit = if (p.id == pinnedId) BleTuning.PINNED_PEER_TIMEOUT_MS else BleTuning.PEER_TIMEOUT_MS
+            if (t - p.lastSeenMs <= limit) continue
             it.remove()
             byId.remove(p.id)
+            book.remove(p.id)
             if (p.conn != Conn.NONE) radio.disconnect(p.address)
             if (p === focus) {
                 focus = null
@@ -745,7 +930,7 @@ class BleTransport internal constructor(
                 diag.log(t, "#${p.id} is gone")
             }
         }
-        if (focus == null) {
+        if (focus == null && pinnedId == 0) {
             var best: Peer? = null
             for (p in peers.values) if (best == null || strength(p) > strength(best)) best = p
             if (best != null) setFocus(best, t)
@@ -757,10 +942,33 @@ class BleTransport internal constructor(
                 f.conn = Conn.NONE
                 f.writes.clear()
                 f.challenge = null
+                dropPrefetch(f)
+                f.nameAsked = false
             }
             maybeConnect(f, t)
+            // Keep the offer in hand fresh, and ask again when the sender had nothing the first time.
+            if (role == Role.RECEIVE && f.conn == Conn.READY && f.detector.near && !f.inTransfer) {
+                val held = f.prefetched
+                val due = if (held == null) t - f.lastPrefetchTryMs >= BleTuning.PREFETCH_RETRY_MS
+                else t - held.atMs >= BleTuning.PREFETCH_MAX_AGE_MS && t - f.lastPrefetchTryMs >= BleTuning.PREFETCH_RETRY_MS
+                if (due) startPrefetch(f, t)
+            }
         }
+        publishNearbyLocked(t, force = false)
         if (diag.isEnabled()) diag.publish(t) { snapshotLocked(t) }
+    }
+
+    /** The list and the prompt for the Song Drop picker: only a sender uses them, and only from advertisements. */
+    private fun publishNearbyLocked(t: Long, force: Boolean) {
+        if (!force && t - lastNearbyMs < BleTuning.NEARBY_PUBLISH_MS) return
+        lastNearbyMs = t
+        if (role != Role.SEND || !started) {
+            _nearby.value = emptyList()
+            _prompt.value = null
+            return
+        }
+        _nearby.value = book.visible(Role.RECEIVE, t)
+        _prompt.value = if (pinnedId != 0) null else book.promptFor(Role.RECEIVE, t)
     }
 
     private fun onImpulse(tMs: Long) {
@@ -797,6 +1005,16 @@ class BleTransport internal constructor(
             detector = label,
             lastFire = if (f == null || f.lastFireMs < 0L) "-" else "${f.lastFire.code} ${t - f.lastFireMs} ms ago",
             samples = diag.sampleCount(),
+            gate = when {
+                f == null || s == null -> "none"
+                s.near -> "strict near"
+                book.get(f.id)?.listed == true -> "list only"
+                else -> "outside"
+            },
+            mayConnect = s?.near == true,
+            listed = f != null && book.get(f.id)?.listed == true,
+            offerInHand = f?.prefetched != null,
+            names = if (f == null) "" else "${f.name ?: "-"} / ${f.fullName ?: "-"}",
         )
     }
 

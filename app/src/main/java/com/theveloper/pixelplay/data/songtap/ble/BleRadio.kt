@@ -29,8 +29,11 @@ enum class BleStatus {
  * an identity.
  */
 interface BleRadioListener {
-    /** A scan result: a phone advertising [role]'s service, with its signal strength in dBm. */
-    fun onSeen(address: String, role: Role, rssi: Int)
+    /**
+     * A scan result: a phone advertising [role]'s service, with its signal strength in dBm and the short name it advertised
+     * ([name], already clean, null when it advertised none).
+     */
+    fun onSeen(address: String, role: Role, rssi: Int, name: String?)
 
     /** Our connection to a sender's server is ready (MTU set, service found, notifications on), or failed. */
     fun onConnected(address: String, ok: Boolean)
@@ -38,6 +41,9 @@ interface BleRadioListener {
 
     /** The answer to [BleRadio.readInfo]; null when the read failed. */
     fun onInfoRead(address: String, value: ByteArray?)
+
+    /** The answer to [BleRadio.readName]; null when the read failed. */
+    fun onNameRead(address: String, value: ByteArray?)
 
     /** The answer to [BleRadio.readOffer]; null when the read failed or the sender had nothing to give yet. */
     fun onOfferRead(address: String, value: ByteArray?)
@@ -55,6 +61,9 @@ interface BleRadioListener {
     /** A client read Info. */
     fun serverInfo(): ByteArray
 
+    /** A client read Name: the value of `SongTapWire.encodeName` for this phone's name. */
+    fun serverName(): ByteArray
+
     /** A client read Offer. Null answers with the "not ready" error. */
     fun serverOffer(client: String): ByteArray?
 
@@ -69,10 +78,11 @@ interface BleRadioListener {
  */
 interface BleRadio {
     /**
-     * Starts advertising [role]'s service (the sender also opens its GATT server) and scanning for both services.
+     * Starts advertising [role]'s service (the sender also opens its GATT server) with [name] as the short name (spec 5, at
+     * the lowest transmit power the platform allows) and scanning for both services.
      * Returns [BleStatus.ACTIVE], or the reason it could not start; then nothing is running.
      */
-    fun start(role: Role, listener: BleRadioListener): BleStatus
+    fun start(role: Role, listener: BleRadioListener, name: String): BleStatus
 
     /** Stops advertising, scanning, the server and every connection. */
     fun stop()
@@ -81,11 +91,12 @@ interface BleRadio {
     fun connect(address: String)
     fun disconnect(address: String)
     fun readInfo(address: String)
+    fun readName(address: String)
     fun readOffer(address: String)
     fun writeControl(address: String, value: ByteArray)
 
-    /** Server: tell the connected client the beam starts. */
-    fun notifyGo(client: String)
+    /** Server: send [value] as a notification of the Event characteristic to the connected [client]. */
+    fun notify(client: String, value: ByteArray)
 
     /** Server: drop a client. */
     fun dropClient(client: String)

@@ -16,6 +16,7 @@ import com.theveloper.pixelplay.data.songtap.ble.SongTapDiagnostics
 import com.theveloper.pixelplay.di.AppScope
 import com.theveloper.pixelplay.songtap.FailReason
 import com.theveloper.pixelplay.songtap.HapticCue
+import com.theveloper.pixelplay.songtap.NearbyEntry
 import com.theveloper.pixelplay.songtap.PayloadDecode
 import com.theveloper.pixelplay.songtap.Phase
 import com.theveloper.pixelplay.songtap.Role
@@ -75,6 +76,14 @@ data class SongTapUiState(
     val beamReduced: Boolean = false,
     /** Whether Bluetooth is running, and if not why. The code route works either way. */
     val bluetooth: BleStatus = BleStatus.IDLE,
+    /** Song Drop (sender): phones advertising as receivers inside the list gate, strongest first, from advertisements only. */
+    val nearby: List<NearbyEntry> = emptyList(),
+    /** Song Drop (sender): the phone inside the strict near gate to ask "Song drop to X?" about, or null. */
+    val prompt: NearbyEntry? = null,
+    /** The other phone's name for the cards: the sender on a receiver, the target on a sender; null when unknown. */
+    val peerName: String? = null,
+    /** True while the song being offered is a Song Drop song picked from a song's options (not just the one that plays). */
+    val dropMode: Boolean = false,
 ) {
     val phase: Phase get() = session.phase
     val role: Role get() = session.role
@@ -127,6 +136,17 @@ class SongTapStateHolder @Inject constructor(
     private var saveJob: Job? = null
     private var pendingOffer: SongTapPayload? = null
 
+    /** Receiver (spec 5): the checked offer fetched ahead of the tap, kept until the session commits to it or lets it go. */
+    private var prefetched: SongTapPayload? = null
+
+    /** Song Drop from a song's options: this song is offered instead of the one that plays, until the screen is left. */
+    @Volatile private var dropSong: Song? = null
+
+    private val _dropRequests = MutableSharedFlow<Unit>(extraBufferCapacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+
+    /** Asks the navigation layer to open the Song Drop picker (a song's options sheet raised it). */
+    val dropRequests: SharedFlow<Unit> = _dropRequests.asSharedFlow()
+
     /** The offer the session accepted and is acting on (set only when the session took it, never by a mere arrival). */
     private var incoming: SongTapPayload? = null
 
@@ -159,18 +179,30 @@ class SongTapStateHolder @Inject constructor(
             launch { settings.allowed.collect { on -> _ui.update { it.copy(allowed = on) }; if (!on) disarm() } }
             launch {
                 playback.stablePlayerState.map { it.currentSong }.distinctUntilChanged { a, b -> a?.id == b?.id }.collectLatest { song ->
-                    _ui.update { it.copy(nowPlaying = song?.let(::nowPlayingOf)) }
+                    _ui.update { it.copy(nowPlaying = (dropSong ?: song)?.let(::nowPlayingOf)) }
                     // A code that is up is for the song that plays: when the track changes, the code changes with it.
                     if (session.role == Role.SEND && session.phase == Phase.OFFERED && session.peer == 0 && qr.code.value != null) {
                         hideCode()
                         showCode()
                     }
+                    // A phone armed to a phone nearby offers the song that plays: when the track changes, the offer changes with it.
+                    if (session.role == Role.SEND && session.phase == Phase.OFFERED && session.target != 0 && dropSong == null) republishTarget()
                 }
             }
+            launch { ble.nearby.collect { list -> _ui.update { it.copy(nearby = list) } } }
+            launch { ble.prompt.collect { entry -> _ui.update { it.copy(prompt = entry) } } }
             launch { qr.code.collect { code -> _ui.update { it.copy(code = code) } } }
             launch { qr.events.collect { handle(it) } }
             launch { ble.events.collect { handle(it) } }
-            launch { ble.status.collect { status -> _ui.update { it.copy(bluetooth = status) } } }
+            launch {
+                ble.status.collect { status ->
+                    _ui.update { it.copy(bluetooth = status) }
+                    // Bluetooth went away under a sender that was armed to a phone: the offer is gone with it.
+                    if (status != BleStatus.ACTIVE && status != BleStatus.IDLE && session.phase == Phase.OFFERED && session.target != 0) {
+                        dispatch(SessionEvent.Cancel); dispatch(SessionEvent.Dismiss)
+                    }
+                }
+            }
         }
     }
 
@@ -199,6 +231,7 @@ class SongTapStateHolder @Inject constructor(
         scope.launch {
             if (!settings.isAllowed()) return@launch
             val askFirst = settings.doesFirstBeamAsk()
+            ble.setOwnName(settings.nameNow())
             // The settings reads suspend: if the screen paused meanwhile, the arm is dropped (checked again inside dispatch).
             if (!wanted) return@launch
             dispatch(SessionEvent.Arm(role, askFirst))
@@ -215,6 +248,11 @@ class SongTapStateHolder @Inject constructor(
         wanted = false
         dispatch(SessionEvent.Disarm)
         cancelJobs()
+        // A Song Drop song is for the screen that was open; leaving it puts the playing song back.
+        if (dropSong != null) {
+            dropSong = null
+            _ui.update { it.copy(dropMode = false, nowPlaying = playback.stablePlayerState.value.currentSong?.let(::nowPlayingOf)) }
+        }
     }
 
     fun setRole(role: Role) = dispatch(SessionEvent.SetRole(role))
@@ -230,7 +268,7 @@ class SongTapStateHolder @Inject constructor(
     /** Sender: put the song that is playing up as a code. */
     fun showCode() {
         scope.launch {
-            val song = playback.stablePlayerState.value.currentSong
+            val song = offeredSong()
             val payload = song?.let { sender.payloadFor(it, now()) }
             pendingOffer = payload
             dispatch(SessionEvent.QrShown(payload?.songKey ?: ""))
@@ -258,6 +296,69 @@ class SongTapStateHolder @Inject constructor(
         dispatch(SessionEvent.Accept(now()))
     }
 
+    /** The song a sender offers: the one picked for Song Drop, else the one that plays. */
+    private fun offeredSong(): Song? = dropSong ?: playback.stablePlayerState.value.currentSong
+
+    /** A song's options raised "Song Drop": offer [song], and ask the navigation layer to open the picker. */
+    fun beginSongDrop(song: Song) {
+        dropSong = song
+        _ui.update { it.copy(dropMode = true, nowPlaying = nowPlayingOf(song)) }
+        _dropRequests.tryEmit(Unit)
+    }
+
+    /** The picker was opened without a song of its own (from the Song Tap screen): the song that plays is offered. */
+    fun endSongDrop() {
+        if (dropSong == null) return
+        dropSong = null
+        _ui.update { it.copy(dropMode = false, nowPlaying = playback.stablePlayerState.value.currentSong?.let(::nowPlayingOf)) }
+    }
+
+    /**
+     * "Song drop to X?" answered yes for the phone [peer] (a number from [SongTapUiState.nearby] or the prompt): the offer is published for
+     * that phone only and the beam starts when the two phones touch.
+     */
+    fun approve(peer: Int, name: String) {
+        scope.launch {
+            val song = offeredSong()
+            val payload = song?.let { sender.payloadFor(it, now()) }
+            pendingOffer = payload
+            _ui.update { it.copy(peerName = name) }
+            dispatch(SessionEvent.Approve(peer, payload?.songKey ?: ""))
+            if (payload != null) startTargetRefresh()
+        }
+    }
+
+    /** "No": that phone is not asked about for a minute. */
+    fun decideNo(peer: Int) = ble.ignorePrompt(peer)
+
+    /** Stop being armed to the phone that was said yes to. */
+    fun cancelDrop() {
+        refreshJob?.cancel()
+        dispatch(SessionEvent.Cancel)
+        dispatch(SessionEvent.Dismiss)
+    }
+
+    private fun republishTarget() {
+        scope.launch {
+            val song = offeredSong() ?: return@launch
+            val payload = sender.payloadFor(song, now()) ?: return@launch
+            pendingOffer = payload
+            dispatch(SessionEvent.Republish(payload.songKey))
+        }
+    }
+
+    /** The offer a sender holds for a phone has a time in it: while armed it is made again every [TARGET_REFRESH_MS]. */
+    private fun startTargetRefresh() {
+        refreshJob?.cancel()
+        refreshJob = scope.launch {
+            while (isActive) {
+                delay(TARGET_REFRESH_MS)
+                if (session.phase != Phase.OFFERED || session.target == 0) return@launch
+                republishTarget()
+            }
+        }
+    }
+
     fun decline() = dispatch(SessionEvent.Decline)
     fun undo() = dispatch(SessionEvent.Undo(now()))
     fun cancel() = dispatch(SessionEvent.Cancel)
@@ -278,6 +379,17 @@ class SongTapStateHolder @Inject constructor(
             effects = r.effects
             // The offer on the table is written down only now that the session has taken it: an offer the session ignored
             // (one already being asked about, or being saved) must not replace the card or the song that Undo would remove.
+            // A tap that committed to an offer that was fetched ahead: that offer is now the one on the table.
+            if (event is SessionEvent.TapDetected && previous.pre && !session.pre &&
+                (session.phase == Phase.OFFERED || session.phase == Phase.TRANSFERRING)
+            ) {
+                val held = prefetched
+                if (held != null && held.songKey == session.videoId) {
+                    incoming = held
+                    _ui.update { it.copy(card = cardOf(held)) }
+                }
+            }
+            if (!session.pre) prefetched = null
             if (event is SessionEvent.OfferReceived) {
                 val offered = candidate
                 candidate = null
@@ -291,8 +403,10 @@ class SongTapStateHolder @Inject constructor(
             publish(event)
         }
         for (effect in effects) perform(effect)
-        // A code is up, and an offer readable over Bluetooth, only while an offer is on the table.
-        if (session.phase != Phase.OFFERED) { qr.withdrawOffer(); ble.withdrawOffer() }
+        // A code is up, and an offer readable over Bluetooth, only while an offer is on the table. A sender keeps its Bluetooth offer
+        // through the beam (the receiver's answer still has to be matched to the phone that read it).
+        if (session.phase != Phase.OFFERED) qr.withdrawOffer()
+        if (session.phase != Phase.OFFERED && !(session.role == Role.SEND && session.phase == Phase.TRANSFERRING)) ble.withdrawOffer()
         // Back to waiting after a result: the phone that is close has to be announced again to be tappable.
         if (before != Phase.ARMED && before != Phase.IDLE && session.phase == Phase.ARMED) ble.resync()
         watchTerminal()
@@ -304,6 +418,7 @@ class SongTapStateHolder @Inject constructor(
             current.copy(
                 session = session,
                 card = if (clearCard) null else current.card,
+                peerName = if (clearCard) null else current.peerName,
                 notice = when {
                     event is SessionEvent.Dismiss || event is SessionEvent.Arm || event is SessionEvent.Disarm -> null
                     // A failure the session reports without a notice of its own (a lost peer, a timeout) is worded from its reason.
@@ -329,23 +444,34 @@ class SongTapStateHolder @Inject constructor(
             is TransportEvent.PeerNear -> dispatch(SessionEvent.PeerNear(event.peer))
             is TransportEvent.PeerFar -> dispatch(SessionEvent.PeerFar(event.peer))
             is TransportEvent.PeerRole -> dispatch(SessionEvent.PeerRole(event.peer, event.role))
-            is TransportEvent.Tap -> scope.launch {
-                if (session.role == Role.RECEIVE) {
-                    // The receiver sends nothing: the tap only means "read the offer now".
-                    dispatch(SessionEvent.TapDetected(event.peer, ""))
-                } else {
-                    val song = playback.stablePlayerState.value.currentSong
-                    val payload = song?.let { sender.payloadFor(it, now()) }
-                    pendingOffer = payload
-                    dispatch(SessionEvent.TapDetected(event.peer, payload?.songKey ?: ""))
+            // The commit: no coroutine hop and no work before it, so the haptic and the beam start at the moment of the tap. The sender's
+            // song is already made (at "Yes"), the receiver's offer is already in hand (prefetched).
+            is TransportEvent.Tap -> dispatch(
+                SessionEvent.TapDetected(event.peer, if (session.role == Role.RECEIVE) "" else pendingOffer?.songKey ?: "", now()),
+            )
+            is TransportEvent.OfferPrefetched -> {
+                val decoded = SongTapPayloads.decode(event.payload)
+                val fresh = decoded is PayloadDecode.Ok &&
+                    SongTapSigning.isFresh(decoded.payload.ts, now(), PREFETCH_PAYLOAD_WINDOW_MS)
+                if (decoded is PayloadDecode.Ok && fresh) {
+                    synchronized(lock) { prefetched = decoded.payload }
+                    event.name?.let { n -> _ui.update { it.copy(peerName = n) } }
+                    dispatch(SessionEvent.OfferPrefetched(event.peer, decoded.payload.songKey, event.senderKey))
                 }
             }
+            is TransportEvent.OfferGone -> {
+                dispatch(SessionEvent.OfferGone(event.peer))
+            }
+            is TransportEvent.OfferRead -> dispatch(SessionEvent.OfferRead(event.peer, now()))
+            is TransportEvent.OfferReadLost -> dispatch(SessionEvent.OfferReadLost(event.peer))
+            is TransportEvent.PeerName -> if (event.peer == session.peer && session.role == Role.RECEIVE) _ui.update { it.copy(peerName = event.name) }
             is TransportEvent.Offer -> {
                 val decoded = SongTapPayloads.decode(event.payload)
                 val fresh = decoded is PayloadDecode.Ok &&
-                    SongTapSigning.isFresh(decoded.payload.ts, now(), if (event.peer == 0) SongTapSigning.QR_WINDOW_MS else SongTapSigning.OFFER_WINDOW_MS)
+                    SongTapSigning.isFresh(decoded.payload.ts, now(), if (event.peer == 0) SongTapSigning.QR_WINDOW_MS else PREFETCH_PAYLOAD_WINDOW_MS)
                 if (decoded is PayloadDecode.Ok && fresh) {
                     synchronized(lock) { candidate = decoded.payload }
+                    event.name?.let { n -> _ui.update { it.copy(peerName = n) } }
                     dispatch(SessionEvent.OfferReceived(event.peer, decoded.payload.songKey, event.senderKey, now()))
                 } else {
                     dispatch(SessionEvent.OfferRejected)
@@ -353,7 +479,6 @@ class SongTapStateHolder @Inject constructor(
             }
             TransportEvent.OfferInvalid -> dispatch(SessionEvent.OfferRejected)
             is TransportEvent.Ack -> dispatch(SessionEvent.AckReceived(now(), 0L))
-            is TransportEvent.Go -> dispatch(SessionEvent.GoReceived(now(), event.rttMs))
             is TransportEvent.Declined -> dispatch(SessionEvent.PeerDeclined(event.peer))
         }
     }
@@ -372,7 +497,6 @@ class SongTapStateHolder @Inject constructor(
             }
             is SessionEffect.ReadOffer -> transportFor(effect.peer).readOffer(effect.peer)
             is SessionEffect.SendAck -> transportFor(effect.peer).sendAck(effect.peer)
-            is SessionEffect.SendGo -> transportFor(effect.peer).sendGo(effect.peer, effect.startMs)
             is SessionEffect.SendDecline -> transportFor(effect.peer).sendDecline(effect.peer)
             is SessionEffect.AbortTransfer -> transportFor(effect.peer).abort(effect.peer)
             is SessionEffect.StartBeam -> startBeam(effect.role, effect.startMs)
@@ -482,14 +606,7 @@ class SongTapStateHolder @Inject constructor(
         // A saved card that came with a beam is put away by the beam's own end (its Undo chip lives inside it).
         if (phase == Phase.SAVED && _ui.value.beamRole == Role.RECEIVE) return
         val stay = if (phase == Phase.SAVED) SongTapSession.UNDO_WINDOW_MS else RESULT_MS
-        // Over Bluetooth the receiver saves first and the sender's go (which starts the beam) arrives a moment later: the
-        // Undo window must not begin before the beam does, or the card would be taken away in the middle of it.
-        val waitForBeam = phase == Phase.SAVED && session.role == Role.RECEIVE && session.peer != 0
         dismissJob = scope.launch {
-            if (waitForBeam) {
-                delay(GO_GRACE_MS)
-                if (_ui.value.beamRole != null) return@launch
-            }
             delay(stay)
             dispatch(SessionEvent.Dismiss)
         }
@@ -525,7 +642,8 @@ class SongTapStateHolder @Inject constructor(
         const val QR_REFRESH_MS = 240_000L
         const val SAME_SCAN_MS = 10_000L
 
-        /** After a save over Bluetooth, how long to wait for the sender's go before the Undo window starts without a beam. */
-        const val GO_GRACE_MS = 3_000L
+        /** A sender armed to a phone makes its offer again this often (the offer carries a time), and a receiver accepts one this old. */
+        const val TARGET_REFRESH_MS = 20_000L
+        const val PREFETCH_PAYLOAD_WINDOW_MS = 120_000L
     }
 }

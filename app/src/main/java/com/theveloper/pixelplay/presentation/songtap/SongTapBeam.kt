@@ -74,8 +74,8 @@ private val RealSpeed = object : MotionDurationScale {
 }
 
 /**
- * Milliseconds since the beam's T0 (the sender's `go` plus its delay, see the handshake), or [NOT_PLAYING] (-1).
- * A beam whose T0 is still ahead waits; one that already started (a late `go`) joins part-way. The beam's haptic
+ * Milliseconds since the beam's T0 (the moment this phone committed, the first haptic: spec 5 has no `go` and no delay), or [NOT_PLAYING] (-1).
+ * A beam whose T0 is still ahead waits; one that already started joins part-way. The beam's haptic
  * cues are fired from here, on the same clock, and skipped when they are already long past.
  */
 @Composable
@@ -218,6 +218,8 @@ fun ReceiveBeamCard(
     rootHeight: IntState,
     onUndo: () -> Unit,
     modifier: Modifier = Modifier,
+    /** The sender's name ("From X"), when it is known. */
+    from: String? = null,
 ) {
     val frame = remember { BeamFrameBuffer() }
     val shape = remember { RoundedCornerShape(32.dp) }
@@ -276,6 +278,9 @@ fun ReceiveBeamCard(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
+                if (from != null) {
+                    Text(stringResource(R.string.songtap_from, from), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                }
                 Text(card.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(
                     card.artist,

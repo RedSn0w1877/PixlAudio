@@ -36,6 +36,14 @@ data class DiagSnapshot(
     val detector: String = "idle",
     val lastFire: String = "-",
     val samples: Int = 0,
+    /** Which gate the followed phone is in: "strict near" (may connect, may beam), "list only" (shown in the picker, nothing else), "outside" or "none". */
+    val gate: String = "none",
+    val mayConnect: Boolean = false,
+    val listed: Boolean = false,
+    /** Receiver: the sender's offer is already fetched and checked, ready for the tap. */
+    val offerInHand: Boolean = false,
+    /** The short name it advertised and the full name from its Name characteristic. */
+    val names: String = "",
 )
 
 /**
@@ -128,6 +136,8 @@ class SongTapDiagnostics @Inject constructor() {
         sb.append("device: ").append(Build.MANUFACTURER).append(' ').append(Build.MODEL).append(", Android ").append(Build.VERSION.RELEASE)
             .append(" (API ").append(Build.VERSION.SDK_INT).append(")\n")
         val s = _snapshot.value
+        sb.append("gate: ").append(s.gate).append(", may connect ").append(s.mayConnect).append(", listed ").append(s.listed)
+            .append(", offer in hand ").append(s.offerInHand).append(", names ").append(s.names).append(NL)
         sb.append("status ").append(s.status).append(", role ").append(s.role).append(", peers ").append(s.peersSeen).append('\n')
         sb.append("tuning: baselineShift=").append(SongTapTuning.BASELINE_SHIFT)
             .append(" fastShift=").append(SongTapTuning.FAST_SHIFT)
@@ -139,6 +149,11 @@ class SongTapDiagnostics @Inject constructor() {
             .append(" cooldownMs=").append(SongTapTuning.COOLDOWN_MS)
             .append(" nearEnter=").append(SongTapTuning.NEAR_ENTER_DBM)
             .append(" nearExit=").append(SongTapTuning.NEAR_EXIT_DBM)
+            .append(" listEnter=").append(SongTapTuning.LIST_ENTER_DBM)
+            .append(" listExit=").append(SongTapTuning.LIST_EXIT_DBM)
+            .append(" closeHoldDbm=").append(SongTapTuning.CLOSE_HOLD_DBM)
+            .append(" closeHoldMs=").append(SongTapTuning.CLOSE_HOLD_MS)
+            .append(" advertTxPower=").append(BleTuning.ADVERT_TX_POWER)
             .append(" jerkMilliG=").append(SongTapTuning.JERK_MILLI_G).append('\n')
         sb.append("last events (ms since boot, oldest first):\n")
         for (e in _events.value) sb.append("  ").append(e.tMs).append("  ").append(e.text).append('\n')
@@ -152,6 +167,7 @@ class SongTapDiagnostics @Inject constructor() {
     }
 
     companion object {
+        private const val NL = '\n'
         const val EVENT_CAPACITY = 20
         const val RING = 150
         const val PUBLISH_EVERY_MS = 150L

@@ -20,6 +20,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -33,6 +35,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.PhonelinkRing
+import androidx.compose.material.icons.rounded.Smartphone
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -84,6 +88,7 @@ import com.theveloper.pixelplay.presentation.viewmodel.SongTapNotice
 import com.theveloper.pixelplay.presentation.viewmodel.SongTapUiState
 import com.theveloper.pixelplay.presentation.viewmodel.SongTapViewModel
 import com.theveloper.pixelplay.songtap.HapticCue
+import com.theveloper.pixelplay.songtap.NearbyEntry
 import com.theveloper.pixelplay.songtap.Phase
 import com.theveloper.pixelplay.songtap.Role
 
@@ -104,6 +109,8 @@ fun SongTapScreen(
     val ui by viewModel.ui.collectAsStateWithLifecycle()
     var mode by rememberSaveable { mutableStateOf(Role.SEND) }
     var useCode by rememberSaveable { mutableStateOf(false) }
+    // A phone the listener picked from the nearby list, waiting for its "Song drop to X?" answer.
+    var picked by remember { mutableStateOf<NearbyEntry?>(null) }
     val view = LocalView.current
     val context = LocalContext.current
     val hapticsConfig = LocalAppHapticsConfig.current
@@ -124,6 +131,10 @@ fun SongTapScreen(
         onPauseOrDispose { viewModel.disarm() }
     }
 
+    // Song Drop from a song's options opens this screen as a sender.
+    LaunchedEffect(ui.dropMode) {
+        if (ui.dropMode && mode != Role.SEND) { mode = Role.SEND; useCode = false; viewModel.switchRole(Role.SEND) }
+    }
     val beamTime = rememberBeamTime(ui.beamRole, ui.beamStartMs, ui.beamReduced, perform)
     val approach = viewModel.glow.collectAsStateWithLifecycle()
     val pulse = remember { Animatable(0f) }
@@ -189,6 +200,8 @@ fun SongTapScreen(
                             rootHeight = rootHeight,
                             onShowCode = { useCode = true; viewModel.showCode() },
                             onHideCode = { useCode = false; viewModel.hideCode() },
+                            onPick = { picked = it },
+                            onCancelDrop = viewModel::cancelDrop,
                         )
                     } else {
                         ReceiveContent(ui = ui, onScanned = viewModel::onScanned)
@@ -199,6 +212,20 @@ fun SongTapScreen(
         }
 
         SongTapGlow(approach = approach, time = beamTime, role = ui.beamRole, reduced = ui.beamReduced, pulse = pulse.asState())
+
+        // "Song drop to X?": for a phone the listener picked from the list, or for one that came inside the strict near gate.
+        val waiting = ui.phase == Phase.ARMED || ui.phase == Phase.FOUND || ui.phase == Phase.NEAR
+        val canSend = ui.nowPlaying?.canSend == true
+        val asking = picked ?: ui.prompt.takeIf { ui.allowed && mode == Role.SEND && !useCode && waiting && canSend }
+        val song = ui.nowPlaying
+        if (asking != null && waiting && canSend && song != null) {
+            SongDropDialog(
+                name = asking.name,
+                songTitle = song.title,
+                onYes = { viewModel.approve(asking.id, asking.name); picked = null },
+                onNo = { viewModel.decideNo(asking.id); picked = null },
+            )
+        }
 
         val card = ui.card
         AnimatedVisibility(
@@ -212,6 +239,7 @@ fun SongTapScreen(
                     card = card,
                     phase = ui.phase,
                     alreadyHad = ui.session.alreadyHad,
+                    from = ui.peerName,
                     time = beamTime,
                     reduced = ui.beamReduced,
                     rootHeight = rootHeight,
@@ -318,6 +346,8 @@ private fun SendContent(
     rootHeight: androidx.compose.runtime.IntState,
     onShowCode: () -> Unit,
     onHideCode: () -> Unit,
+    onPick: (NearbyEntry) -> Unit,
+    onCancelDrop: () -> Unit,
 ) {
     val playing = ui.nowPlaying
     if (playing == null) {
@@ -355,15 +385,34 @@ private fun SendContent(
         )
         return
     }
-    val status = statusLine(ui)
-    Text(
-        status ?: stringResource(R.string.songtap_send_hint),
-        style = MaterialTheme.typography.titleSmall,
-        color = if (status != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-        textAlign = TextAlign.Center,
-        modifier = Modifier.animateContentSize(),
-    )
+    val armed = ui.session.target != 0 && ui.phase == Phase.OFFERED
+    if (!armed) {
+        val status = statusLine(ui)
+        Text(
+            status ?: stringResource(R.string.songtap_send_hint),
+            style = MaterialTheme.typography.titleSmall,
+            color = if (status != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.animateContentSize(),
+        )
+    }
+    val sending = ui.role == Role.SEND && ui.phase == Phase.TRANSFERRING
+    if (armed) {
+        ArmedCard(name = ui.peerName, onCancel = onCancelDrop)
+        return
+    }
+    if (sending && ui.beamRole == null && ui.session.beamDone) {
+        Text(
+            stringResource(R.string.songdrop_waiting, ui.peerName ?: stringResource(R.string.songdrop_other_phone)),
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.primary,
+        )
+    }
     val code = ui.code
+    val waitingPhase = ui.phase == Phase.ARMED || ui.phase == Phase.FOUND || ui.phase == Phase.NEAR
+    if (!useCode && waitingPhase) {
+        NearbyList(entries = ui.nearby, onPick = onPick)
+    }
     if (useCode && code != null) {
         val image = rememberQrImage(code)
         Box(
@@ -507,6 +556,13 @@ private fun ResultCard(ui: SongTapUiState, onAdd: () -> Unit, onNotNow: () -> Un
     ) {
         Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             if (showsSong && card != null) {
+                if (ui.peerName != null) {
+                    Text(
+                        stringResource(R.string.songtap_from, ui.peerName),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
                 SongRow(title = card.title, artist = card.artist, artUrl = card.artUrl)
                 when (phase) {
                     Phase.OFFERED -> {
@@ -558,4 +614,77 @@ private fun noticeText(ui: SongTapUiState): String {
         }
     }
     return stringResource(id)
+}
+
+/** The phones that advertise as receivers inside the list gate, strongest first. A row is "Close" inside the strict near gate, "Nearby" otherwise. */
+@Composable
+private fun NearbyList(entries: List<NearbyEntry>, onPick: (NearbyEntry) -> Unit) {
+    Column(Modifier.fillMaxWidth().animateContentSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(stringResource(R.string.songdrop_nearby_title), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+        if (entries.isEmpty()) {
+            Text(
+                stringResource(R.string.songdrop_nearby_empty),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        for (entry in entries) {
+            Card(
+                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).clickable { onPick(entry) },
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
+            ) {
+                Row(Modifier.padding(horizontal = 16.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Rounded.Smartphone, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(28.dp))
+                    Spacer(Modifier.width(14.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(entry.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(
+                            stringResource(if (entry.near) R.string.songdrop_signal_close else R.string.songdrop_signal_nearby),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** After a yes: the sender waits for the touch, armed to that one phone. */
+@Composable
+private fun ArmedCard(name: String?, onCancel: () -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(28.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+    ) {
+        Column(Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Icon(Icons.Rounded.PhonelinkRing, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimaryContainer, modifier = Modifier.size(40.dp))
+            Text(
+                stringResource(R.string.songdrop_armed_title),
+                style = MaterialTheme.typography.headlineSmall,
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                textAlign = TextAlign.Center,
+            )
+            Text(
+                stringResource(R.string.songdrop_armed_to, name ?: stringResource(R.string.songdrop_other_phone)),
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                textAlign = TextAlign.Center,
+            )
+            TextButton(onClick = onCancel) { Text(stringResource(R.string.songdrop_armed_cancel)) }
+        }
+    }
+}
+
+@Composable
+private fun SongDropDialog(name: String, songTitle: String, onYes: () -> Unit, onNo: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onNo,
+        title = { Text(stringResource(R.string.songdrop_confirm_title, name)) },
+        text = { Text(stringResource(R.string.songdrop_confirm_body, songTitle)) },
+        confirmButton = { Button(onClick = onYes) { Text(stringResource(R.string.songdrop_yes)) } },
+        dismissButton = { TextButton(onClick = onNo) { Text(stringResource(R.string.songdrop_no)) } },
+    )
 }

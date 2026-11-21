@@ -140,7 +140,12 @@ fun SongTapDiagnosticsScreen(
                 Line("jump", "${snap.jump} dB   (fires at ${SongTapTuning.JUMP_DB})")
                 Line("held for", if (snap.heldMs < 0) "-" else "${snap.heldMs} ms")
                 Line("near", if (snap.near) "yes" else "no")
+                Line("gate now", snap.gate)
+                Line("may connect and beam", if (snap.mayConnect) "yes" else "no")
+                Line("shown in the picker", if (snap.listed) "yes" else "no")
                 Line("connection", snap.connection)
+                Line("offer in hand", if (snap.offerInHand) "yes" else "no")
+                Line("name (advert / full)", snap.names.ifEmpty { "-" })
                 Line("readings", snap.samples.toString())
             }
             Block(stringResource(R.string.songtap_diag_motion)) {
@@ -155,7 +160,10 @@ fun SongTapDiagnosticsScreen(
             Block(stringResource(R.string.songtap_diag_tuning)) {
                 Line("jump", "${SongTapTuning.JUMP_DB} dB, hold ${SongTapTuning.HOLD_MS} ms, dwell ${SongTapTuning.DWELL_MS} ms")
                 Line("jerk window", "${SongTapTuning.IMPULSE_WINDOW_MS} ms, at least ${SongTapTuning.JERK_MILLI_G} milli g")
-                Line("near", "from ${SongTapTuning.NEAR_ENTER_DBM} to ${SongTapTuning.NEAR_EXIT_DBM} dBm")
+                Line("strict near (connect, beam)", "in ${SongTapTuning.NEAR_ENTER_DBM}, out ${SongTapTuning.NEAR_EXIT_DBM} dBm")
+                Line("list (picker only)", "in ${SongTapTuning.LIST_ENTER_DBM}, out ${SongTapTuning.LIST_EXIT_DBM} dBm")
+                Line("gentle hold", "${SongTapTuning.CLOSE_HOLD_DBM} dBm for ${SongTapTuning.CLOSE_HOLD_MS} ms")
+                Line("advert power", "level ${com.theveloper.pixelplay.data.songtap.ble.BleTuning.ADVERT_TX_POWER} (1 = low)")
                 Line("cooldown", "${SongTapTuning.COOLDOWN_MS} ms")
             }
 
@@ -208,7 +216,7 @@ private fun ageText(ms: Long): String = if (ms < 0) "none lately" else "$ms ms a
 
 /** The copied log leads with the numbers on screen at that moment. */
 private fun String.withSnapshot(s: DiagSnapshot): String =
-    "now: signal ${s.rssi} dBm, smoothed ${s.smoothed}, baseline ${s.baseline}, jump ${s.jump} dB, held ${s.heldMs} ms, near ${s.near}, " +
+    "now: signal ${s.rssi} dBm, smoothed ${s.smoothed}, baseline ${s.baseline}, jump ${s.jump} dB, held ${s.heldMs} ms, near ${s.near}, gate ${s.gate}, " +
         "${s.connection}, detector ${s.detector}\n" + this
 
 @Composable

@@ -39,6 +39,12 @@ class SongTapViewModel @Inject constructor(
     fun bluetoothChanged() = holder.bluetoothChanged()
     fun mark(label: String) = holder.mark(label)
 
+    // Song Drop (spec 5)
+    fun approve(peer: Int, name: String) = holder.approve(peer, name)
+    fun decideNo(peer: Int) = holder.decideNo(peer)
+    fun cancelDrop() = holder.cancelDrop()
+    fun endSongDrop() = holder.endSongDrop()
+
     override fun onCleared() {
         holder.detach(this)
     }
@@ -55,4 +61,27 @@ class SongTapSettingsViewModel @Inject constructor(
     fun setAllowed(on: Boolean) {
         viewModelScope.launch { settings.setAllowed(on) }
     }
+
+    /** The name other phones show for this one (the device's name until the listener types one). */
+    val name = settings.name.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), settings.defaultName())
+
+    /** Saves the name; an empty one goes back to the device's name. */
+    fun setName(raw: String) {
+        viewModelScope.launch { settings.setName(raw) }
+    }
+}
+
+/**
+ * The song options sheet's Song Drop button: hands the song to Song Tap and asks the navigation layer to open the picker.
+ * A view model of its own so every place that shows the sheet gets the button without being given a navigation handle.
+ */
+@HiltViewModel
+class SongDropViewModel @Inject constructor(
+    private val holder: SongTapStateHolder,
+) : ViewModel() {
+
+    /** Raised each time a song's options asked for Song Drop. */
+    val requests = holder.dropRequests
+
+    fun start(song: com.theveloper.pixelplay.data.model.Song) = holder.beginSongDrop(song)
 }

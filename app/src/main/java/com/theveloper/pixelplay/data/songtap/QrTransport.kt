@@ -48,7 +48,6 @@ class QrTransport @Inject constructor() : SongTapTransport {
 
     override fun readOffer(peer: Int) = Unit
     override fun sendAck(peer: Int) = Unit
-    override fun sendGo(peer: Int, startMs: Long) = Unit
     override fun sendDecline(peer: Int) = Unit
     override fun abort(peer: Int) = Unit
 

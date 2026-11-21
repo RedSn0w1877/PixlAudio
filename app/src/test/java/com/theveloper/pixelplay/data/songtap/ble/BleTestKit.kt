@@ -34,12 +34,14 @@ class FakeRadio : BleRadio {
     var role = Role.SEND
     val calls = ArrayList<String>()
     val controlWrites = ArrayList<ByteArray>()
-    val goNotifications = ArrayList<String>()
+    val notifications = ArrayList<Pair<String, ByteArray>>()
     val dropped = ArrayList<String>()
+    var advertisedName = ""
 
-    override fun start(role: Role, listener: BleRadioListener): BleStatus {
+    override fun start(role: Role, listener: BleRadioListener, name: String): BleStatus {
         this.listener = listener
         this.role = role
+        this.advertisedName = name
         calls += "start:${role.code}"
         running = startStatus == BleStatus.ACTIVE
         return startStatus
@@ -49,9 +51,10 @@ class FakeRadio : BleRadio {
     override fun connect(address: String) { calls += "connect:$address" }
     override fun disconnect(address: String) { calls += "disconnect:$address" }
     override fun readInfo(address: String) { calls += "readInfo:$address" }
+    override fun readName(address: String) { calls += "readName:$address" }
     override fun readOffer(address: String) { calls += "readOffer:$address" }
     override fun writeControl(address: String, value: ByteArray) { calls += "write:$address"; controlWrites += value }
-    override fun notifyGo(client: String) { calls += "go:$client"; goNotifications += client }
+    override fun notify(client: String, value: ByteArray) { calls += "notify:$client"; notifications += client to value }
     override fun dropClient(client: String) { calls += "drop:$client"; dropped += client }
 
     fun count(prefix: String) = calls.count { it.startsWith(prefix) }
@@ -83,19 +86,29 @@ class BleRig(testScope: TestScope, val diag: SongTapDiagnostics = SongTapDiagnos
     }
 
     /** One scan result, [stepMs] after the last. */
-    fun see(address: String, role: Role, rssi: Int, stepMs: Long = 100L) {
+    fun see(address: String, role: Role, rssi: Int, stepMs: Long = 100L, name: String? = null) {
         clock.advance(stepMs)
-        radio.listener.onSeen(address, role, rssi)
+        radio.listener.onSeen(address, role, rssi, name)
     }
 
-    /** A phone sits near at [rssi], long enough for the detector to settle. */
-    fun settle(address: String, role: Role, rssi: Int = -62, samples: Int = 8) {
+    /**
+     * A phone sits inside the strict near gate (the gate is -55) without being close enough for the hold path (-52), long enough for
+     * the detector to settle. The first reading is the baseline, so there is no jump.
+     */
+    fun settle(address: String, role: Role, rssi: Int = NEAR_DBM, samples: Int = 8, name: String? = null) {
+        repeat(samples) { see(address, role, rssi, name = name) }
+    }
+
+    /** The signal jumps 24 dB and stays: a tap that is held (the hold path fires at the fifth reading, a jerk makes it the fourth). */
+    fun touch(address: String, role: Role, rssi: Int = TOUCH_DBM, samples: Int = 8) {
         repeat(samples) { see(address, role, rssi) }
     }
 
-    /** The signal jumps and stays: a tap that is held. */
-    fun touch(address: String, role: Role, rssi: Int = -40, samples: Int = 8) {
-        repeat(samples) { see(address, role, rssi) }
+    companion object {
+        const val NEAR_DBM = -54
+        const val TOUCH_DBM = -30
+        /** Inside the broad list gate (-78) and outside the strict near gate (-55). */
+        const val LIST_ONLY_DBM = -70
     }
 
     inline fun <reified T : TransportEvent> of(): List<T> = events.filterIsInstance<T>()

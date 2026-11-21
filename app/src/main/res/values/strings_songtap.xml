@@ -30,7 +30,7 @@
     <string name="songtap_status_found">Phone nearby. Hold the backs together.</string>
     <string name="songtap_status_near">Almost there. Touch the phones together.</string>
     <string name="songtap_status_sent">Sent</string>
-    <string name="songtap_send_hint">Touch the backs of the two phones together.</string>
+    <string name="songtap_send_hint">Pick a phone below, then touch the phones together.</string>
     <string name="songtap_receive_hint">Touch the back of your phone to the one playing the song.</string>
     <string name="songtap_use_code">Use a code instead</string>
     <string name="songtap_scan_code">Scan a code instead</string>
@@ -98,4 +98,31 @@
     <string name="songtap_diag_copied">Copied</string>
     <string name="songtap_diag_clear">Clear</string>
     <string name="songtap_diag_tuning">Thresholds</string>
+
+    <!-- Your name (Settings > Song Tap) -->
+    <string name="songtap_name_title">Your name</string>
+    <string name="songtap_name_subtitle">Other phones see %1$s</string>
+    <string name="songtap_name_dialog_title">Your name</string>
+    <string name="songtap_name_dialog_body">Other phones show this when you share a song with them. Up to 20 characters.</string>
+    <string name="songtap_name_counter">%1$d of %2$d</string>
+    <string name="songtap_name_save">Save</string>
+    <string name="songtap_name_use_device">Use my phone\'s name</string>
+    <string name="songtap_from">From %1$s</string>
+
+    <!-- Song Drop -->
+    <string name="songdrop_button">Song Drop</string>
+    <string name="songdrop_button_cd">Song Drop: share this song with a phone nearby</string>
+    <string name="songdrop_nearby_title">Phones nearby</string>
+    <string name="songdrop_nearby_empty">No phones nearby yet. Ask them to open Song Tap and choose Receive.</string>
+    <string name="songdrop_signal_close">Close</string>
+    <string name="songdrop_signal_nearby">Nearby</string>
+    <string name="songdrop_confirm_title">Song drop to %1$s?</string>
+    <string name="songdrop_confirm_body">%1$s will be shared when you touch the phones together.</string>
+    <string name="songdrop_yes">Yes</string>
+    <string name="songdrop_no">No</string>
+    <string name="songdrop_armed_title">Tap phones together to share</string>
+    <string name="songdrop_armed_to">Sharing with %1$s</string>
+    <string name="songdrop_armed_cancel">Cancel</string>
+    <string name="songdrop_waiting">Waiting for %1$s</string>
+    <string name="songdrop_other_phone">the other phone</string>
 </resources>

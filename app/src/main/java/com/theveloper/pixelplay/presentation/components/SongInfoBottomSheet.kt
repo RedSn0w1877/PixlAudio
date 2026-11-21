@@ -58,6 +58,7 @@ import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Schedule
+import androidx.compose.material.icons.rounded.PhonelinkRing
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Info
@@ -153,7 +154,8 @@ fun SongInfoBottomSheet(
      * (the player's Spatial audio and Sing, new UI stage 3). Null everywhere else.
      */
     playerExtras: (@Composable () -> Unit)? = null,
-    songInfoViewModel: SongInfoBottomSheetViewModel = hiltViewModel()
+    songInfoViewModel: SongInfoBottomSheetViewModel = hiltViewModel(),
+    songDropViewModel: com.theveloper.pixelplay.presentation.viewmodel.SongDropViewModel = hiltViewModel(),
 ) {
     val context = LocalContext.current
     val ringtonePermissionMissingMsg = stringResource(R.string.song_info_ringtone_permission_missing)
@@ -530,6 +532,11 @@ fun SongInfoBottomSheet(
                                                         Toast.LENGTH_LONG
                                                     ).show()
                                                 }
+                                            },
+                                            onSongDropClick = {
+                                                // Song Drop: AirDrop style. The picker opens (Song Tap, Send) with this song; the nearby phone is chosen there.
+                                                songDropViewModel.start(song)
+                                                onDismiss()
                                             },
                                             playButtonShape = playButtonShape,
                                             evenCornerRadiusElems = evenCornerRadiusElems
@@ -1249,6 +1256,7 @@ private fun Row1Actions(
     onPlaySong: () -> Unit,
     onToggleFavorite: () -> Unit,
     onShareClick: () -> Unit,
+    onSongDropClick: () -> Unit,
     playButtonShape: Shape,
     evenCornerRadiusElems: androidx.compose.ui.unit.Dp
 ) {
@@ -1279,6 +1287,7 @@ private fun Row1Actions(
         }
     }
 
+    val songDropInteractionSource = remember { MutableInteractionSource() }
     val shareInteractionSource = remember { MutableInteractionSource() }
     val isSharePressed by shareInteractionSource.collectIsPressedAsState()
     var shareVisualPressed by remember { mutableStateOf(false) }
@@ -1454,6 +1463,37 @@ private fun Row1Actions(
                 imageVector = Icons.Rounded.Share,
                 contentDescription = stringResource(R.string.song_info_cd_share_song_file),
                 tint = MaterialTheme.colorScheme.onSecondaryContainer
+            )
+        }
+
+        // Song Drop, next to Share: opens the picker of phones nearby (spec 5).
+        Box(
+            modifier = Modifier
+                .weight(0.25f)
+                .fillMaxHeight()
+                .actionButtonSurface(CircleShape, MaterialTheme.colorScheme.tertiaryContainer)
+                .actionButtonClickable(
+                    onClick = {
+                        if (!clickPending) {
+                            clickPending = true
+                            coroutineScope.launch {
+                                kotlinx.coroutines.delay(120)
+                                clickPending = false
+                                onSongDropClick()
+                            }
+                        }
+                    },
+                    enabled = true,
+                    shape = CircleShape,
+                    interactionSource = songDropInteractionSource
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                modifier = Modifier.size(FloatingActionButtonDefaults.LargeIconSize),
+                imageVector = Icons.Rounded.PhonelinkRing,
+                contentDescription = stringResource(R.string.songdrop_button_cd),
+                tint = MaterialTheme.colorScheme.onTertiaryContainer
             )
         }
     }
