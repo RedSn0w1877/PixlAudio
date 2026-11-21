@@ -1064,23 +1064,7 @@ fun SettingsCategoryScreen(
                 }
                 SettingsCategory.ENDLESS -> {
                     item(key = "endless_section", contentType = "settings_subsection") {
-                        val endless = playerViewModel.brainSession.endless
-                        val hostNotes by endless.hostNotesEnabled.collectAsStateWithLifecycle()
-                        SettingsSubsection(title = stringResource(R.string.endless_settings_title)) {
-                            SwitchSettingItem(
-                                title = stringResource(R.string.endless_settings_host_notes),
-                                subtitle = stringResource(R.string.endless_settings_host_notes_summary),
-                                checked = hostNotes,
-                                onCheckedChange = endless::setHostNotes,
-                                leadingIcon = { Icon(Icons.Rounded.Notes, null, tint = MaterialTheme.colorScheme.secondary) }
-                            )
-                            SettingsItem(
-                                title = stringResource(R.string.endless_settings_how),
-                                subtitle = stringResource(R.string.endless_settings_how_summary),
-                                leadingIcon = { Icon(Icons.Rounded.TouchApp, null, tint = MaterialTheme.colorScheme.secondary) },
-                                onClick = { navController.navigateSafely(Screen.EndlessIntro.route) }
-                            )
-                        }
+                        EndlessSettingsSection(navController = navController, playerViewModel = playerViewModel)
                     }
                 }
                 SettingsCategory.BEHAVIOR -> {

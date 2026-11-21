@@ -2659,8 +2659,6 @@ private fun PlayerSongInfo(
         )
         // Set note (docs/brain-spec.md, 9.3): what the next few songs are, from a template over the queue. Nothing when there is none.
         com.theveloper.pixelplay.presentation.components.SetNoteLine(playerViewModel, artistTextColor)
-        // "Ask the host" (Endless Listening): only while that station is the queue.
-        com.theveloper.pixelplay.presentation.components.AskHostPlayerEntry(playerViewModel, Modifier.padding(top = 6.dp))
     }
 }
 

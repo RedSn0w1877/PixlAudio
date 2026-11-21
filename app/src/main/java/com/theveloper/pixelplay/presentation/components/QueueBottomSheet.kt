@@ -957,7 +957,7 @@ fun QueueBottomSheet(
                                             onRefreshPicks = if (hasUpcomingEngineItems) brainUi?.refreshPicks else null
                                         )
                                     }
-                                    setNotes[index + queueIndexOffset]?.let { note -> if (canReorder || index == currentSongDisplayIndex) SetNoteRowLabel(note) }
+                                    setNotes[index + queueIndexOffset]?.let { note -> if (canReorder || index == currentSongDisplayIndex) { if (endlessActive) HostNoteCard(note, Modifier.padding(horizontal = 4.dp, vertical = 2.dp)) else SetNoteRowLabel(note) } }
                                     val why = queueWhy[song.id]
                                     val whyText = if (why != null) whyLineText(why.key, why.arg) else null
                                     QueuePlaylistSongItem(

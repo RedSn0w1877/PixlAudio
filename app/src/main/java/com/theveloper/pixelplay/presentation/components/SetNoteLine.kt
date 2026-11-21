@@ -153,7 +153,22 @@ fun SetNoteLine(playerViewModel: PlayerViewModel, color: Color, modifier: Modifi
     }
     val host = rememberHostFacts(playerViewModel, queue, index)
     val note = remember(queue, index, heard, host) { SetNoteLines.forQueue(queue, index, heard, host).current }
-    if (note != null) {
+    val endlessActive = rememberEndlessActive(playerViewModel)
+    if (endlessActive) {
+        // Endless Listening: the note is a small card with "Ask the host" beside it; with no note the button stands alone.
+        val open = remember(playerViewModel) { { playerViewModel.brainSession.endless.openHostSheet() } }
+        if (note != null) {
+            HostNoteCard(
+                text = note,
+                onAskHost = open,
+                containerColor = color.copy(alpha = 0.14f),
+                contentColor = color,
+                modifier = modifier.padding(top = 6.dp),
+            )
+        } else {
+            AskHostChip(onClick = open, modifier = modifier.padding(top = 6.dp))
+        }
+    } else if (note != null) {
         Text(
             text = note,
             style = MaterialTheme.typography.labelLarge,
