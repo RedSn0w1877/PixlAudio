@@ -2,6 +2,7 @@ package com.theveloper.pixelplay.data.songtap.ble
 
 import android.os.Build
 import androidx.compose.runtime.Immutable
+import com.theveloper.pixelplay.songtap.SongTapSensitivity
 import com.theveloper.pixelplay.songtap.SongTapTuning
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -21,10 +22,17 @@ data class DiagSnapshot(
     val peersSeen: Int = 0,
     /** The peer the detector is following, as "#3 sending", or empty. */
     val focus: String = "",
+    /** The raw reading as the radio gave it. */
     val rssi: Int = 0,
+    /** The shift added to every raw reading (spec 6), and the reading after it: the iPhone scale every gate and the detector use. */
+    val offsetDb: Int = 0,
+    val normalised: Int = 0,
+    /** The sensitivity profile's code: "normal" or "high". */
+    val profile: String = "high",
+    /** Smoothed and baseline are normalised (after the offset). */
     val smoothed: Int = 0,
     val baseline: Int = 0,
-    /** Smoothed minus baseline, whole dB: a tap is a jump of at least [SongTapTuning.JUMP_DB]. */
+    /** Smoothed minus baseline, whole dB: a tap is a jump of at least the profile's jumpDb. */
     val jump: Int = 0,
     /** How long the jump has held, ms; -1 when there is none. */
     val heldMs: Long = -1,
@@ -36,7 +44,7 @@ data class DiagSnapshot(
     val detector: String = "idle",
     val lastFire: String = "-",
     val samples: Int = 0,
-    /** Which gate the followed phone is in: "strict near" (may connect, may beam), "list only" (shown in the picker, nothing else), "outside" or "none". */
+    /** Which gate the followed phone is in: "tap near" (may connect, may beam), "list only" (shown in the picker, nothing else), "outside" or "none". */
     val gate: String = "none",
     val mayConnect: Boolean = false,
     val listed: Boolean = false,
@@ -139,14 +147,17 @@ class SongTapDiagnostics @Inject constructor() {
         sb.append("gate: ").append(s.gate).append(", may connect ").append(s.mayConnect).append(", listed ").append(s.listed)
             .append(", offer in hand ").append(s.offerInHand).append(", names ").append(s.names).append(NL)
         sb.append("status ").append(s.status).append(", role ").append(s.role).append(", peers ").append(s.peersSeen).append('\n')
-        sb.append("tuning: baselineShift=").append(SongTapTuning.BASELINE_SHIFT)
-            .append(" fastShift=").append(SongTapTuning.FAST_SHIFT)
-            .append(" jumpDb=").append(SongTapTuning.JUMP_DB)
-            .append(" freezeDb=").append(SongTapTuning.FREEZE_DB)
-            .append(" holdMs=").append(SongTapTuning.HOLD_MS)
-            .append(" dwellMs=").append(SongTapTuning.DWELL_MS)
-            .append(" impulseWindowMs=").append(SongTapTuning.IMPULSE_WINDOW_MS)
-            .append(" cooldownMs=").append(SongTapTuning.COOLDOWN_MS)
+        val p = SongTapSensitivity.fromCode(s.profile)
+        sb.append("signal: offset ").append(s.offsetDb).append(" dB (raw + offset = normalised, the iPhone scale every gate uses), now raw ")
+            .append(s.rssi).append(" normalised ").append(s.normalised).append(", sensitivity ").append(p.code).append(NL)
+        sb.append("tuning: baselineShift=").append(p.baselineShift)
+            .append(" fastShift=").append(p.fastShift)
+            .append(" jumpDb=").append(p.jumpDb)
+            .append(" freezeDb=").append(p.freezeDb)
+            .append(" holdMs=").append(p.holdMs)
+            .append(" dwellMs=").append(p.dwellMs)
+            .append(" impulseWindowMs=").append(p.impulseWindowMs)
+            .append(" cooldownMs=").append(p.cooldownMs)
             .append(" nearEnter=").append(SongTapTuning.NEAR_ENTER_DBM)
             .append(" nearExit=").append(SongTapTuning.NEAR_EXIT_DBM)
             .append(" listEnter=").append(SongTapTuning.LIST_ENTER_DBM)
@@ -154,7 +165,7 @@ class SongTapDiagnostics @Inject constructor() {
             .append(" closeHoldDbm=").append(SongTapTuning.CLOSE_HOLD_DBM)
             .append(" closeHoldMs=").append(SongTapTuning.CLOSE_HOLD_MS)
             .append(" advertTxPower=").append(BleTuning.ADVERT_TX_POWER)
-            .append(" jerkMilliG=").append(SongTapTuning.JERK_MILLI_G).append('\n')
+            .append(" jerkMilliG=").append(p.jerkMilliG).append(NL)
         sb.append("last events (ms since boot, oldest first):\n")
         for (e in _events.value) sb.append("  ").append(e.tMs).append("  ").append(e.text).append('\n')
         sb.append("recent signal (t, rssi, smoothed, baseline), oldest first:\n")

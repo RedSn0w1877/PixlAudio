@@ -1,6 +1,7 @@
 package com.theveloper.pixelplay.data.songtap.ble
 
 import com.theveloper.pixelplay.songtap.Role
+import com.theveloper.pixelplay.songtap.SongTapSensitivity
 
 /** Whether the phone's Bluetooth can be used for Song Tap right now, and if not why. */
 enum class BleStatus {
@@ -112,4 +113,7 @@ interface SongTapClock {
 interface ImpulseSource {
     fun start(onImpulse: (Long) -> Unit)
     fun stop()
+
+    /** The sensitivity profile whose jerk threshold decides what counts as a jerk (spec 6); may change while running. */
+    fun setSensitivity(profile: SongTapSensitivity) {}
 }

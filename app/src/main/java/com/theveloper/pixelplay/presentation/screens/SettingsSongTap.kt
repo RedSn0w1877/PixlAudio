@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.Badge
+import androidx.compose.material.icons.rounded.Speed
 import androidx.compose.material.icons.rounded.PhonelinkRing
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
@@ -28,6 +29,7 @@ import com.theveloper.pixelplay.presentation.model.LocalDeveloperMode
 import com.theveloper.pixelplay.presentation.navigation.navigateSafely
 import com.theveloper.pixelplay.presentation.viewmodel.SongTapSettingsViewModel
 import com.theveloper.pixelplay.songtap.SongTapNames
+import com.theveloper.pixelplay.songtap.SongTapSensitivity
 import com.theveloper.pixelplay.songtap.SongTapText
 
 /**
@@ -41,7 +43,16 @@ fun SettingsSongTap(
 ) {
     val allowed by viewModel.allowed.collectAsStateWithLifecycle()
     val name by viewModel.name.collectAsStateWithLifecycle()
+    val sensitivity by viewModel.sensitivity.collectAsStateWithLifecycle()
     var editingName by remember { mutableStateOf(false) }
+    var editingSensitivity by remember { mutableStateOf(false) }
+    if (editingSensitivity) {
+        SensitivityDialog(
+            current = sensitivity,
+            onPick = { viewModel.setSensitivity(it); editingSensitivity = false },
+            onDismiss = { editingSensitivity = false },
+        )
+    }
     if (editingName) {
         NameDialog(
             current = name,
@@ -65,6 +76,13 @@ fun SettingsSongTap(
                 leadingIcon = { Icon(Icons.Rounded.Badge, null, tint = MaterialTheme.colorScheme.secondary) },
                 trailingIcon = { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, null) },
                 onClick = { editingName = true },
+            )
+            SettingsItem(
+                title = stringResource(R.string.songtap_sensitivity_title),
+                subtitle = stringResource(R.string.songtap_sensitivity_subtitle, stringResource(sensitivityLabelRes(sensitivity))),
+                leadingIcon = { Icon(Icons.Rounded.Speed, null, tint = MaterialTheme.colorScheme.secondary) },
+                trailingIcon = { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, null) },
+                onClick = { editingSensitivity = true },
             )
             SettingsItem(
                 title = stringResource(R.string.songtap_settings_open),
@@ -116,5 +134,32 @@ private fun NameDialog(current: String, onSave: (String) -> Unit, onUseDevice: (
                 TextButton(onClick = onDismiss) { Text(stringResource(R.string.songtap_card_not_now)) }
             }
         },
+    )
+}
+
+private fun sensitivityLabelRes(option: SongTapSensitivity): Int =
+    if (option == SongTapSensitivity.HIGH) R.string.songtap_sensitivity_high else R.string.songtap_sensitivity_normal
+
+/** "Sensitivity": Normal (a firmer touch) or High (a smaller, quicker one, the default). Applied at once, also to a phone that is armed. */
+@Composable
+private fun SensitivityDialog(current: SongTapSensitivity, onPick: (SongTapSensitivity) -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.songtap_sensitivity_dialog_title)) },
+        text = {
+            Column {
+                Text(stringResource(R.string.songtap_sensitivity_dialog_body), style = MaterialTheme.typography.bodyMedium)
+                for (option in SongTapSensitivity.entries) {
+                    androidx.compose.foundation.layout.Row(
+                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                    ) {
+                        androidx.compose.material3.RadioButton(selected = option == current, onClick = { onPick(option) })
+                        TextButton(onClick = { onPick(option) }) { Text(stringResource(sensitivityLabelRes(option))) }
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.songtap_card_not_now)) } },
     )
 }

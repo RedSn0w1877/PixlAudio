@@ -12,6 +12,7 @@ import com.theveloper.pixelplay.data.songtap.SongTapTransport
 import com.theveloper.pixelplay.data.songtap.TransportEvent
 import com.theveloper.pixelplay.data.songtap.ble.BleStatus
 import com.theveloper.pixelplay.data.songtap.ble.BleTransport
+import com.theveloper.pixelplay.data.songtap.ble.CalibrationState
 import com.theveloper.pixelplay.data.songtap.ble.SongTapDiagnostics
 import com.theveloper.pixelplay.di.AppScope
 import com.theveloper.pixelplay.songtap.FailReason
@@ -26,6 +27,7 @@ import com.theveloper.pixelplay.songtap.SessionEvent
 import com.theveloper.pixelplay.songtap.SessionState
 import com.theveloper.pixelplay.songtap.SongTapPayload
 import com.theveloper.pixelplay.songtap.SongTapPayloads
+import com.theveloper.pixelplay.songtap.SongTapSensitivity
 import com.theveloper.pixelplay.songtap.SongTapSession
 import com.theveloper.pixelplay.songtap.SongTapTimeline
 import com.theveloper.pixelplay.songtap.SongTapSigning
@@ -84,6 +86,10 @@ data class SongTapUiState(
     val peerName: String? = null,
     /** True while the song being offered is a Song Drop song picked from a song's options (not just the one that plays). */
     val dropMode: Boolean = false,
+    /** The shift added to every raw signal reading (spec 6, the iPhone scale), how sensitive the tap is, and what the Calibrate button is doing. */
+    val offsetDb: Int = 0,
+    val sensitivity: SongTapSensitivity = SongTapSensitivity.DEFAULT,
+    val calibration: CalibrationState = CalibrationState.Idle,
 ) {
     val phase: Phase get() = session.phase
     val role: Role get() = session.role
@@ -189,6 +195,15 @@ class SongTapStateHolder @Inject constructor(
                     if (session.role == Role.SEND && session.phase == Phase.OFFERED && session.target != 0 && dropSong == null) republishTarget()
                 }
             }
+            launch { settings.rssiOffsetDb.collect { db -> ble.setRssiOffset(db); _ui.update { it.copy(offsetDb = db) } } }
+            launch { settings.sensitivity.collect { value -> ble.setSensitivity(value); _ui.update { it.copy(sensitivity = value) } } }
+            launch {
+                ble.calibration.collect { c ->
+                    // A finished calibration is kept for good; the transport has already applied it live.
+                    if (c is CalibrationState.Done) settings.setRssiOffsetDb(c.offsetDb)
+                    _ui.update { it.copy(calibration = c) }
+                }
+            }
             launch { ble.nearby.collect { list -> _ui.update { it.copy(nearby = list) } } }
             launch { ble.prompt.collect { entry -> _ui.update { it.copy(prompt = entry) } } }
             launch { qr.code.collect { code -> _ui.update { it.copy(code = code) } } }
@@ -232,6 +247,8 @@ class SongTapStateHolder @Inject constructor(
             if (!settings.isAllowed()) return@launch
             val askFirst = settings.doesFirstBeamAsk()
             ble.setOwnName(settings.nameNow())
+            ble.setRssiOffset(settings.rssiOffsetNow())
+            ble.setSensitivity(settings.sensitivityNow())
             // The settings reads suspend: if the screen paused meanwhile, the arm is dropped (checked again inside dispatch).
             if (!wanted) return@launch
             dispatch(SessionEvent.Arm(role, askFirst))
@@ -240,6 +257,21 @@ class SongTapStateHolder @Inject constructor(
 
     /** The Bluetooth permission was just granted, or Bluetooth was turned on: try the radio again. */
     fun bluetoothChanged() = ble.restart()
+
+    /** Sensitivity (Normal or High), saved and applied live to the detector and the jerk threshold. */
+    fun setSensitivity(value: SongTapSensitivity) {
+        scope.launch { settings.setSensitivity(value) }
+    }
+
+    /** The Calibrate button went down (phones touching) or up; after [com.theveloper.pixelplay.data.songtap.ble.RssiCalibration.HOLD_MS] the offset is measured and saved. */
+    fun startCalibration() = ble.startCalibration()
+    fun endCalibration() = ble.endCalibration()
+
+    /** Forget the measured offset: the model's default is back. */
+    fun resetOffset() {
+        ble.clearCalibration()
+        scope.launch { settings.setRssiOffsetDb(null) }
+    }
 
     /** Developer mode diagnostics: write the current signal into the log under [label] ("touching", "1 cm"...). */
     fun mark(label: String) = ble.mark(label)

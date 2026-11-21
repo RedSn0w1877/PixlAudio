@@ -38,6 +38,10 @@ class SongTapViewModel @Inject constructor(
     fun dismiss() = holder.dismiss()
     fun bluetoothChanged() = holder.bluetoothChanged()
     fun mark(label: String) = holder.mark(label)
+    fun setSensitivity(value: com.theveloper.pixelplay.songtap.SongTapSensitivity) = holder.setSensitivity(value)
+    fun startCalibration() = holder.startCalibration()
+    fun endCalibration() = holder.endCalibration()
+    fun resetOffset() = holder.resetOffset()
 
     // Song Drop (spec 5)
     fun approve(peer: Int, name: String) = holder.approve(peer, name)
@@ -60,6 +64,13 @@ class SongTapSettingsViewModel @Inject constructor(
 
     fun setAllowed(on: Boolean) {
         viewModelScope.launch { settings.setAllowed(on) }
+    }
+
+    /** How sensitive the tap is: Normal or High (the default). */
+    val sensitivity = settings.sensitivity.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), com.theveloper.pixelplay.songtap.SongTapSensitivity.DEFAULT)
+
+    fun setSensitivity(value: com.theveloper.pixelplay.songtap.SongTapSensitivity) {
+        viewModelScope.launch { settings.setSensitivity(value) }
     }
 
     /** The name other phones show for this one (the device's name until the listener types one). */

@@ -98,6 +98,32 @@
     <string name="songtap_diag_copied">Copied</string>
     <string name="songtap_diag_clear">Clear</string>
     <string name="songtap_diag_tuning">Thresholds</string>
+    <string name="songtap_diag_scale">Signal scale</string>
+    <string name="songtap_diag_raw">Signal now, raw</string>
+    <string name="songtap_diag_offset">Offset</string>
+    <string name="songtap_diag_normalised">Signal now, normalised</string>
+    <string name="songtap_diag_smoothed">Smoothed, normalised</string>
+    <string name="songtap_diag_baseline">Baseline, normalised</string>
+    <string name="songtap_diag_profile">Sensitivity profile</string>
+    <string name="songtap_diag_active_gate">Gate now</string>
+    <string name="songtap_diag_hold_level">Gentle hold fires at</string>
+    <string name="songtap_diag_scale_hint">Every raw reading gets the offset added, so this phone reads like an iPhone: touching about -33 dBm, resting 20 to 30 cm apart about -60.</string>
+    <string name="songtap_diag_calibrate">Calibrate</string>
+    <string name="songtap_diag_calibrate_hint">Touch the two phones together, then press and hold Calibrate for 2 seconds.</string>
+    <string name="songtap_diag_calibrate_running">Keep holding, %1$d of %2$d ms</string>
+    <string name="songtap_diag_calibrate_done">Calibrated. Touching read %1$d dBm raw, so the offset is now %2$d dB.</string>
+    <string name="songtap_diag_calibrate_no_phone">No phone to calibrate with yet. Open Song Tap on the other phone first.</string>
+    <string name="songtap_diag_calibrate_too_few">Too few readings. Keep the phones touching and hold for the full 2 seconds.</string>
+    <string name="songtap_diag_calibrate_released">Let go too early. Hold for the full 2 seconds.</string>
+    <string name="songtap_diag_offset_reset">Use the default offset</string>
+
+    <!-- Sensitivity (Settings > Song Tap, and the diagnostics screen) -->
+    <string name="songtap_sensitivity_title">Sensitivity</string>
+    <string name="songtap_sensitivity_subtitle">How little it takes to count as a tap: %1$s</string>
+    <string name="songtap_sensitivity_normal">Normal</string>
+    <string name="songtap_sensitivity_high">High</string>
+    <string name="songtap_sensitivity_dialog_title">Sensitivity</string>
+    <string name="songtap_sensitivity_dialog_body">High reacts to a smaller, quicker touch. Normal needs a firmer one.</string>
 
     <!-- Your name (Settings > Song Tap) -->
     <string name="songtap_name_title">Your name</string>

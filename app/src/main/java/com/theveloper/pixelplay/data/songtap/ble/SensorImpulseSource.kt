@@ -9,6 +9,7 @@ import android.os.SystemClock
 import com.theveloper.pixelplay.songtap.AccelSample
 import com.theveloper.pixelplay.songtap.ImpulseState
 import com.theveloper.pixelplay.songtap.SongTapImpulse
+import com.theveloper.pixelplay.songtap.SongTapSensitivity
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -34,6 +35,11 @@ class SensorImpulseSource @Inject constructor(
     private var manager: SensorManager? = null
     private var callback: ((Long) -> Unit)? = null
     private var state = ImpulseState.INITIAL
+    @Volatile private var profile = SongTapSensitivity.DEFAULT
+
+    override fun setSensitivity(profile: SongTapSensitivity) {
+        this.profile = profile
+    }
 
     override fun start(onImpulse: (Long) -> Unit) {
         synchronized(lock) {
@@ -65,7 +71,7 @@ class SensorImpulseSource @Inject constructor(
         val sample = AccelSample(tMs, toMilliG(v[0]), toMilliG(v[1]), toMilliG(v[2]))
         val hit: ((Long) -> Unit)?
         synchronized(lock) {
-            val step = SongTapImpulse.step(state, sample)
+            val step = SongTapImpulse.step(state, sample, profile)
             state = step.state
             hit = if (step.impulse) callback else null
         }

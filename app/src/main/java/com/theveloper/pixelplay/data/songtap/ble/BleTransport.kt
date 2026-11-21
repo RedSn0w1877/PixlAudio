@@ -10,6 +10,7 @@ import com.theveloper.pixelplay.songtap.FireReason
 import com.theveloper.pixelplay.songtap.NearbyBook
 import com.theveloper.pixelplay.songtap.NearbyEntry
 import com.theveloper.pixelplay.songtap.OfferCheck
+import com.theveloper.pixelplay.songtap.PeerTapVerdict
 import com.theveloper.pixelplay.songtap.PayloadDecode
 import com.theveloper.pixelplay.songtap.RSSI_SCALE
 import com.theveloper.pixelplay.songtap.Role
@@ -17,6 +18,9 @@ import com.theveloper.pixelplay.songtap.RssiSample
 import com.theveloper.pixelplay.songtap.SignedOffer
 import com.theveloper.pixelplay.songtap.SongTapDetector
 import com.theveloper.pixelplay.songtap.SongTapHandshake
+import com.theveloper.pixelplay.songtap.SongTapPeerTap
+import com.theveloper.pixelplay.songtap.SongTapSensitivity
+import com.theveloper.pixelplay.songtap.SongTapTuning
 import com.theveloper.pixelplay.songtap.SongTapNames
 import com.theveloper.pixelplay.songtap.SongTapPayloads
 import com.theveloper.pixelplay.songtap.SongTapSignatureVerifier
@@ -37,6 +41,9 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+
+/** "No usable signal" for the one-sided tap rule: far below any gate. */
+private const val NO_SIGNAL_DBM = -200
 
 /** The numbers of the Bluetooth route that are not the tap detector's (those are `SongTapTuning`, in the core). */
 object BleTuning {
@@ -59,15 +66,13 @@ object BleTuning {
     const val READ_RETRY_MS = 250L
     const val MAX_READ_ATTEMPTS = 10
 
-    /** A sender takes a receiver's tap message as a tap when its own detector saw that receiver's signal jump within this long. */
-    const val PEER_TAP_JUMP_WINDOW_MS = 1_500L
-
     /**
-     * A jerk the other phone reports only counts when its signal is at least this strong. The other phone's word cannot
-     * be checked (anything that advertises our service can claim it was jerked just now), so it may shorten the hold
-     * only for a phone that is close, never for one that is merely in the room.
+     * A jerk the other phone reports only counts when its (normalised, iPhone scale) signal is at least this strong. The other phone's word
+     * cannot be checked (anything that advertises our service can claim it was jerked just now), so it may shorten the hold only for a
+     * phone that is close, never for one that is merely in the room. (-62 on the raw scale before spec 6; resting 20 to 30 cm apart is
+     * about -60 normalised, touching about -33.)
      */
-    const val PEER_IMPULSE_MIN_DBM = -62
+    const val PEER_IMPULSE_MIN_DBM = -55
 
     /** At most this many phones are tracked at once; a flood of made-up addresses pushes out the one heard longest ago (never the one being followed). */
     const val MAX_PEERS = 24
@@ -89,7 +94,7 @@ object BleTuning {
 
     /**
      * The advertising transmit power as `AdvertiseSettings.ADVERTISE_TX_POWER_*`: 1 is LOW (-15 dBm). ULTRA_LOW (0, -21 dBm) is the next step
-     * down if phones are still found too easily; the strict near gate (`SongTapTuning.NEAR_ENTER_DBM`) was set for LOW, so lowering this
+     * down if phones are still found too easily; the tap near gate (`SongTapTuning.NEAR_ENTER_DBM`, on the iPhone scale after the offset) was calibrated with LOW, so lowering this
      * means calibrating that gate again. Used by `AndroidBleRadio`.
      */
     const val ADVERT_TX_POWER = 1
@@ -157,7 +162,9 @@ class BleTransport internal constructor(
         var role = Role.SEND
         var lastSeenMs = 0L
         var lastNearMs = 0L
+        /** The last raw reading, and the same shifted by the rssi offset (the iPhone scale every gate and the detector use). */
         var rssi = 0
+        var rssiNorm = 0
         var detector = DetectorState.INITIAL
         var nearReported = false
         var glow = 0
@@ -202,6 +209,24 @@ class BleTransport internal constructor(
     /** The name this phone shows other phones (set by the controller before arming). */
     @Volatile private var ownName = SongTapNames.FALLBACK
 
+    /**
+     * Added to every raw reading before the detector, the gates and the nearby book (spec 6), so this phone reads on the iPhone's scale.
+     * 0 until the controller sets it from the settings (a Pixel: -15).
+     */
+    @Volatile private var rssiOffsetDb = 0
+    @Volatile private var profile = SongTapSensitivity.DEFAULT
+
+    /** When this phone last fired itself or took a peer's tap, and when it last took a peer's tap (for no echo). -1 = never. */
+    private var lastTapMs = -1L
+    private var lastPeerTapMs = -1L
+
+    private var calibStartMs = -1L
+    private val calibSamples = ArrayList<Int>()
+    private val _calibration = MutableStateFlow<CalibrationState>(CalibrationState.Idle)
+
+    /** What the Calibrate button is doing (diagnostics screen). */
+    val calibration: StateFlow<CalibrationState> = _calibration.asStateFlow()
+
     /** Sender: the phone the listener said yes to (the transport's number), 0 when none. */
     private var pinnedId = 0
 
@@ -214,7 +239,7 @@ class BleTransport internal constructor(
 
     private val _prompt = MutableStateFlow<NearbyEntry?>(null)
 
-    /** Sender: the phone to ask "Song drop to X?" about (inside the strict near gate, not told no), or null. */
+    /** Sender: the phone to ask "Song drop to X?" about (inside the tap near gate, not told no), or null. */
     val prompt: StateFlow<NearbyEntry?> = _prompt.asStateFlow()
 
     // The sender's side. Three separate facts about who is talking to our GATT server, because a control write is only
@@ -230,6 +255,111 @@ class BleTransport internal constructor(
     /** Sets the name shown to other phones; it takes effect the next time the transport starts. */
     fun setOwnName(name: String) {
         ownName = SongTapNames.orFallback(name)
+    }
+
+    /**
+     * Sets the shift added to every raw reading (spec 6). Live: the detectors restart from the next reading, because what they remember
+     * (baseline, smoothed level) was on the old scale.
+     */
+    fun setRssiOffset(db: Int) {
+        synchronized(lock) {
+            val clamped = RssiCalibration.clamp(db)
+            if (clamped == rssiOffsetDb) return
+            rssiOffsetDb = clamped
+            for (p in peers.values) {
+                p.detector = DetectorState.INITIAL.copy(lastFireMs = p.detector.lastFireMs)
+                p.nearReported = false
+            }
+            diag.log(clock.elapsedMs(), "signal offset set to $clamped dB")
+        }
+    }
+
+    fun rssiOffset(): Int = rssiOffsetDb
+
+    /** Sets how sensitive the tap is (spec 6). Live: the next reading and the next jerk already use it. */
+    fun setSensitivity(value: SongTapSensitivity) {
+        synchronized(lock) {
+            if (value == profile) return
+            profile = value
+            impulses.setSensitivity(value)
+            diag.log(clock.elapsedMs(), "sensitivity set to ${value.code}")
+        }
+    }
+
+    fun sensitivity(): SongTapSensitivity = profile
+
+    // ── Calibration (diagnostics: phones touching, button held) ──────────────────────
+
+    /**
+     * The Calibrate button went down with the phones touching: for [RssiCalibration.HOLD_MS] the smoothed raw readings of the phone being
+     * followed are collected; then offset = -(their 90th percentile - [RssiCalibration.TOUCH_REFERENCE_DBM]), clamped, is set live and
+     * [calibration] says Done (the controller saves it). Letting go earlier cancels.
+     */
+    fun startCalibration() {
+        synchronized(lock) {
+            val f = focus
+            if (!started || f == null) {
+                _calibration.value = CalibrationState.Failed("no_phone")
+                return
+            }
+            calibStartMs = clock.elapsedMs()
+            calibSamples.clear()
+            _calibration.value = CalibrationState.Running(0L, 0)
+            diag.log(calibStartMs, "calibrating: keep the phones touching")
+        }
+    }
+
+    /** The button went up: a calibration that has not finished is dropped. */
+    fun endCalibration() {
+        synchronized(lock) {
+            if (calibStartMs < 0L) return
+            calibStartMs = -1L
+            calibSamples.clear()
+            _calibration.value = CalibrationState.Failed("released")
+        }
+    }
+
+    fun clearCalibration() {
+        synchronized(lock) {
+            calibStartMs = -1L
+            calibSamples.clear()
+            _calibration.value = CalibrationState.Idle
+        }
+    }
+
+    /** One smoothed reading of the followed phone while calibrating (called with the lock held). */
+    private fun calibrationSample(t: Long, smoothedNormDbm: Int) {
+        if (calibStartMs < 0L) return
+        calibSamples.add(smoothedNormDbm - rssiOffsetDb)
+        calibrationProgress(t)
+    }
+
+    private fun calibrationProgress(t: Long) {
+        if (calibStartMs < 0L) return
+        val held = t - calibStartMs
+        if (held < RssiCalibration.HOLD_MS) {
+            _calibration.value = CalibrationState.Running(held, calibSamples.size)
+            return
+        }
+        val samples = calibSamples.size
+        val p90 = RssiCalibration.percentile90(calibSamples)
+        calibStartMs = -1L
+        calibSamples.clear()
+        if (p90 == null || samples < RssiCalibration.MIN_SAMPLES) {
+            _calibration.value = CalibrationState.Failed("too_few")
+            diag.log(t, "calibration failed: only $samples readings")
+            return
+        }
+        val offset = RssiCalibration.offsetFor(p90)
+        _calibration.value = CalibrationState.Done(offset, p90, samples)
+        diag.log(t, "calibrated: touching reads $p90 dBm raw, offset $offset dB ($samples readings)")
+        if (offset != rssiOffsetDb) {
+            rssiOffsetDb = offset
+            for (p in peers.values) {
+                p.detector = DetectorState.INITIAL.copy(lastFireMs = p.detector.lastFireMs)
+                p.nearReported = false
+            }
+        }
     }
 
     /** "No" on the prompt: that phone is not asked about for a minute. */
@@ -300,6 +430,7 @@ class BleTransport internal constructor(
     private fun beginActiveLocked() {
         if (ticker != null) return
         impulses.start(::onImpulse)
+        impulses.setSensitivity(profile)
         ticker = scope.launch {
             while (isActive) {
                 delay(BleTuning.TICK_MS)
@@ -328,6 +459,11 @@ class BleTransport internal constructor(
         book.clear()
         _nearby.value = emptyList()
         _prompt.value = null
+        calibStartMs = -1L
+        calibSamples.clear()
+        _calibration.value = CalibrationState.Idle
+        lastTapMs = -1L
+        lastPeerTapMs = -1L
         ownImpulseMs = -1L
         _glow.value = 0
         setStatus(BleStatus.IDLE)
@@ -396,7 +532,7 @@ class BleTransport internal constructor(
         if (!started || role != Role.SEND) return null
         val payload = offer ?: return null
         // Spec 5: the offer exists only for the phone the listener said yes to, and is served only while that phone is the one being
-        // followed AND inside the strict near gate, and no other phone that could be the reader is inside it too (a connection's own
+        // followed AND inside the tap near gate, and no other phone that could be the reader is inside it too (a connection's own
         // address is not the advertising address, so "which phone is this client" cannot be known: when two are close, serve nobody).
         val target = byId[pinnedId] ?: return null
         val f = focus
@@ -420,7 +556,7 @@ class BleTransport internal constructor(
         frame
     }
 
-    /** True when a phone other than [target] that advertises as a receiver is inside the strict near gate right now. */
+    /** True when a phone other than [target] that advertises as a receiver is inside the tap near gate right now. */
     private fun anotherReceiverNear(target: Peer): Boolean {
         val t = clock.elapsedMs()
         for (q in peers.values) {
@@ -455,11 +591,17 @@ class BleTransport internal constructor(
             }
             is SongTapWire.ControlMessage.Tap -> {
                 val f = focus
-                // The tap is believed when it comes from the phone that read the offer (the one the listener said yes to) and this
-                // phone saw the signal of the phone it is following jump just now.
-                val sawJump = f != null && f.lastJumpMs >= 0L && t - f.lastJumpMs <= BleTuning.PEER_TAP_JUMP_WINDOW_MS
-                diag.log(t, "receiver reports a tap (jerk ${message.ageMs} ms ago), own jump ${if (sawJump) "seen" else "not seen"}")
-                if (f != null && f.id == pinnedId && f.role == Role.RECEIVE && sawJump && offer != null && client == offerClient) {
+                // One-sided tap (spec 6): the receiver felt the tap first and says so; this phone commits at once, without waiting for its own
+                // detector, when [SongTapPeerTap.judge] accepts: the message is from the phone being followed (the one the listener said yes to),
+                // it is the reader of this offer, this phone's own normalised signal for it is at least the tap near gate, and nothing was taken lately.
+                val followed = f != null && f.id == pinnedId && f.role == Role.RECEIVE
+                val saidYes = offer != null && client == offerClient
+                val own = if (f == null || !f.detector.started) NO_SIGNAL_DBM else dbm(f.detector.fastQ)
+                val verdict = SongTapPeerTap.judge(own, followed, saidYes, t, lastTapMs)
+                diag.log(t, "receiver reports a tap (jerk ${message.ageMs} ms ago): ${verdict.code}, own signal $own dBm")
+                if (verdict == PeerTapVerdict.ACCEPT && f != null) {
+                    lastTapMs = t
+                    lastPeerTapMs = t
                     tapClient = client
                     emit(TransportEvent.Tap(f.id))
                 }
@@ -733,6 +875,25 @@ class BleTransport internal constructor(
     override fun onNotified(address: String, value: ByteArray) {
         synchronized(lock) {
             val p = peers[address] ?: return
+            // One-sided tap (spec 6): the sender's detector fired and it says so. This phone commits at once, without waiting for its own
+            // detector, only when [SongTapPeerTap.judge] accepts it: the notification is from the sender being followed, an offer fetched ahead
+            // is in hand (the sender said yes), this phone's own normalised signal for the sender is at least the tap near gate, nothing was taken lately.
+            if (SongTapWire.isTapEvent(value)) {
+                val t = clock.elapsedMs()
+                val followed = role == Role.RECEIVE && p === focus && p.role == Role.SEND && p.conn == Conn.READY
+                val saidYes = p.prefetched != null
+                val own = if (!p.detector.started) NO_SIGNAL_DBM else dbm(p.detector.fastQ)
+                val verdict = SongTapPeerTap.judge(own, followed, saidYes, t, lastTapMs)
+                diag.log(t, "the sender reports a tap: ${verdict.code}, own signal $own dBm")
+                if (verdict == PeerTapVerdict.ACCEPT) {
+                    lastTapMs = t
+                    lastPeerTapMs = t
+                    emit(TransportEvent.Tap(p.id))
+                    // The session holds the offer from here on, as after this phone's own tap.
+                    p.prefetched = null
+                }
+                return
+            }
             // The events are "the sender has an offer to read" and "the sender has none any more" (EVENT_GO of spec 4 is gone and ignored).
             if (SongTapWire.isOfferWithdrawn(value)) {
                 diag.log(clock.elapsedMs(), "the sender withdrew its offer")
@@ -795,6 +956,9 @@ class BleTransport internal constructor(
             p.role = role
             p.lastSeenMs = t
             p.rssi = rssi
+            // Everything from here on (smoothing, baseline, gates, the list, the detector) is on the iPhone's scale: the raw reading plus the offset.
+            val norm = rssi + rssiOffsetDb
+            p.rssiNorm = norm
             if (name != null && name != p.name) {
                 p.name = name
                 if (p.fullName == null) emit(TransportEvent.PeerName(p.id, name))
@@ -802,7 +966,7 @@ class BleTransport internal constructor(
 
             val impulse = impulseFor(p, ownImpulseMs)
             val wasHeld = p.detector.heldSinceMs >= 0L
-            val step = SongTapDetector.step(p.detector, RssiSample(t, rssi), impulse)
+            val step = SongTapDetector.step(p.detector, RssiSample(t, norm), impulse, profile)
             p.detector = step.state
             p.glow = step.glowPermille
             if (step.state.near) p.lastNearMs = t
@@ -821,6 +985,7 @@ class BleTransport internal constructor(
                     diag.log(t, if (step.state.near) "#${p.id} is near" else "#${p.id} moved away")
                 }
                 diag.sample(t, rssi, dbm(step.state.fastQ), dbm(step.state.baselineQ))
+                calibrationSample(t, dbm(step.state.fastQ))
             }
             if (step.fire != FireReason.NONE) onFire(p, step.fire, t)
             maybeConnect(p, t)
@@ -898,12 +1063,23 @@ class BleTransport internal constructor(
         if (role == Role.RECEIVE && p.role == Role.RECEIVE) return
         // The phone that is not the one the listener said yes to cannot start a beam (the session ignores it too).
         if (role == Role.SEND && p.id != pinnedId) return
+        // This phone already committed on the other phone's tap a moment ago: the session ignores a second tap, and nothing is sent back.
+        val echo = lastPeerTapMs >= 0L && t - lastPeerTapMs < SongTapPeerTap.MIN_GAP_MS
+        lastTapMs = t
         emit(TransportEvent.Tap(p.id))
         // The session holds the offer from here on (it took it when the fetch finished); the next beam needs a new one.
         if (role == Role.RECEIVE) p.prefetched = null
+        if (echo) return
+        // One-sided tap (spec 6): the first haptic tick is also the message to the other phone, sent at once and before anything else.
         if (role == Role.RECEIVE && p.role == Role.SEND && p.conn == Conn.READY) {
             val age = SongTapHandshake.impulseAgeMs(t, ownImpulseMs)
             queueWrite(p, Write.TAP, SongTapWire.encodeTap(age))
+        } else if (role == Role.SEND) {
+            val reader = offerClient
+            if (offer != null && reader != null) {
+                radio.notify(reader, SongTapWire.encodeTapEvent())
+                diag.log(t, "tap told to the receiver")
+            }
         }
     }
 
@@ -925,6 +1101,7 @@ class BleTransport internal constructor(
 
     private fun tickLocked() {
         val t = clock.elapsedMs()
+        calibrationProgress(t)
         val it = peers.values.iterator()
         while (it.hasNext()) {
             val p = it.next()
@@ -1005,6 +1182,9 @@ class BleTransport internal constructor(
             peersSeen = peers.size,
             focus = if (f == null) "" else "#${f.id} ${if (f.role == Role.SEND) "sending" else "receiving"}",
             rssi = f?.rssi ?: 0,
+            offsetDb = rssiOffsetDb,
+            normalised = if (f == null) 0 else f.rssiNorm,
+            profile = profile.code,
             smoothed = if (s == null) 0 else dbm(s.fastQ),
             baseline = if (s == null) 0 else dbm(s.baselineQ),
             jump = if (s == null) 0 else dbm(s.fastQ - s.baselineQ),
@@ -1018,7 +1198,7 @@ class BleTransport internal constructor(
             samples = diag.sampleCount(),
             gate = when {
                 f == null || s == null -> "none"
-                s.near -> "strict near"
+                s.near -> "tap near"
                 book.get(f.id)?.listed == true -> "list only"
                 else -> "outside"
             },
