@@ -319,9 +319,9 @@ private fun LyricsToolbarBackButton(
 }
 
 /** The split pills' height: the same 68 dp as the navigation bar and the player's bottom pills. */
-private val LyricsPillHeight = 68.dp
-private val LyricsPillGap = 10.dp
-private val LyricsPillInnerPadding = 8.dp
+internal val LyricsPillHeight = 68.dp
+internal val LyricsPillGap = 10.dp
+internal val LyricsPillInnerPadding = 8.dp
 private val LyricsPillToggleHeight = 52.dp
 
 // Material 3 mode: the back button press spring (unchanged).

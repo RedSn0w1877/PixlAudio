@@ -76,6 +76,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import timber.log.Timber
 import com.theveloper.pixelplay.data.equalizer.EqualizerManager
+import com.theveloper.pixelplay.data.equalizer.EqualizerPreset
 import com.theveloper.pixelplay.data.model.WidgetThemeColors
 import com.theveloper.pixelplay.data.preferences.AlbumArtColorAccuracy
 import com.theveloper.pixelplay.data.preferences.AlbumArtPaletteStyle
@@ -829,24 +830,19 @@ class MusicService : MediaLibraryService() {
         // Restore equalizer state from preferences and only attach audio effects when
         // the user actually has at least one effect enabled for the current session.
         serviceScope.launch {
-            // The equalizer is locked while it is broken ("Broken, fix soon" in Settings): every effect
-            // stays off, whatever an old build or a restored backup stored, so nothing half-works.
-            val eqEnabled = false
+            val eqEnabled = equalizerPreferencesRepository.equalizerEnabledFlow.first()
             val presetName = equalizerPreferencesRepository.equalizerPresetFlow.first()
             val customBands = equalizerPreferencesRepository.equalizerCustomBandsFlow.first()
-            val bassBoostEnabled = false
+            val preset = EqualizerPreset.resolve(presetName, customBands, equalizerPreferencesRepository.customPresetsFlow.first())
+            val bassBoostEnabled = equalizerPreferencesRepository.bassBoostEnabledFlow.first()
             val bassBoostStrength = equalizerPreferencesRepository.bassBoostStrengthFlow.first()
-            val virtualizerEnabled = false
+            val virtualizerEnabled = equalizerPreferencesRepository.virtualizerEnabledFlow.first()
             val virtualizerStrength = equalizerPreferencesRepository.virtualizerStrengthFlow.first()
-            val loudnessEnabled = false
+            val loudnessEnabled = equalizerPreferencesRepository.loudnessEnhancerEnabledFlow.first()
             val loudnessStrength = equalizerPreferencesRepository.loudnessEnhancerStrengthFlow.first()
-            if (equalizerPreferencesRepository.equalizerEnabledFlow.first()) equalizerPreferencesRepository.setEqualizerEnabled(false)
-            if (equalizerPreferencesRepository.bassBoostEnabledFlow.first()) equalizerPreferencesRepository.setBassBoostEnabled(false)
-            if (equalizerPreferencesRepository.virtualizerEnabledFlow.first()) equalizerPreferencesRepository.setVirtualizerEnabled(false)
-            if (equalizerPreferencesRepository.loudnessEnhancerEnabledFlow.first()) equalizerPreferencesRepository.setLoudnessEnhancerEnabled(false)
 
             equalizerManager.restoreState(
-                eqEnabled, presetName, customBands,
+                eqEnabled, preset,
                 bassBoostEnabled, bassBoostStrength,
                 virtualizerEnabled, virtualizerStrength,
                 loudnessEnabled, loudnessStrength
