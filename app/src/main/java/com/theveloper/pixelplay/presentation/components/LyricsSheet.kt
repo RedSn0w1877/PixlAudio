@@ -1252,7 +1252,8 @@ private fun LyricsControlCluster(
                 LyricsSyncControls(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(bottom = 8.dp),
+                        // 12 dp: the gap the play/seek row below uses between its own parts.
+                        .padding(bottom = 12.dp),
                     offsetMillis = lyricsSyncOffset,
                     onOffsetChange = onLyricsSyncOffsetChange,
                     backgroundColor = chrome.container,

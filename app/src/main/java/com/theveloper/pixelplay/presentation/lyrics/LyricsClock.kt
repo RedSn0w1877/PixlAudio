@@ -53,6 +53,7 @@ class LyricsClock(
 
     private var initialized = false
     private var lastFrameNanos = 0L
+    private var lastOffsetMs = 0L
     private var seekPending = false
     private var rebasePending = false
 
@@ -76,7 +77,10 @@ class LyricsClock(
      * @return `true` if this sample was a seek.
      */
     fun tick(frameNanos: Long): Boolean {
-        val raw = positionProvider.getAsLong() + offsetMsProvider.getAsLong()
+        val offset = offsetMsProvider.getAsLong()
+        val raw = positionProvider.getAsLong() + offset
+        val offsetChanged = offset != lastOffsetMs
+        lastOffsetMs = offset
         if (!initialized) {
             initialized = true
             lastFrameNanos = frameNanos
@@ -88,7 +92,8 @@ class LyricsClock(
         lastFrameNanos = frameNanos
 
         val predicted = if (isPlaying) currentMs + (elapsedMs * playbackSpeed).toLong() else currentMs
-        val isSeek = abs(raw - predicted) > SEEK_THRESHOLD_MS
+        // A user's timing nudge is intentional, even when it moves backwards by only 100 ms.
+        val isSeek = offsetChanged || abs(raw - predicted) > SEEK_THRESHOLD_MS
         if (isSeek) {
             seekPending = true
             seekCount++
