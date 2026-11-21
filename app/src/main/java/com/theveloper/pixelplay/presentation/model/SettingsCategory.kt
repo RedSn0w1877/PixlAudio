@@ -11,6 +11,7 @@ import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Palette
+import androidx.compose.material.icons.rounded.PhonelinkRing
 import androidx.compose.ui.graphics.vector.ImageVector
 import com.theveloper.pixelplay.R
 
@@ -67,6 +68,12 @@ enum class SettingsCategory(
         titleRes = R.string.endless_settings_title,
         subtitleRes = R.string.endless_settings_subtitle,
         icon = Icons.Rounded.AllInclusive
+    ),
+    SONG_TAP(
+        id = "song_tap",
+        titleRes = R.string.settings_category_song_tap_title,
+        subtitleRes = R.string.settings_category_song_tap_subtitle,
+        icon = Icons.Rounded.PhonelinkRing
     ),
     BEHAVIOR(
         id = "behavior",

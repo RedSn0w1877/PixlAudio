@@ -773,6 +773,8 @@ class MainActivity : ComponentActivity() {
                 Screen.PaletteStyle.route,
                 Screen.RecentlyPlayed.route,
                 Screen.DeviceCapabilities.route,
+                Screen.SongTap.route,
+                Screen.SongTapDiagnostics.route,
                 Screen.EasterEgg.route,
                 Screen.WordDelimiterConfig.route,
                 Screen.SpotifyDashboard.route,

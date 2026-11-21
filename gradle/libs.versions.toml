@@ -118,12 +118,22 @@ baselineprofile = "1.5.0"
 profileinstaller = "1.4.1"
 pagingCommon = "3.3.6"
 
+# Song Tap: the QR code route. CameraX for the preview and frames, zxing core to draw and read the code
+# (pure Java, about 0.5 MB, offline; no Play services, no model download).
+camerax = "1.6.2"
+zxingCore = "3.5.3"
+
 # Wear OS
 horologist = "0.7.15"
 wearCompose = "1.7.0"
 playServicesWearable = "20.0.1"
 
 [libraries]
+androidx-camera-core = { group = "androidx.camera", name = "camera-core", version.ref = "camerax" }
+androidx-camera-camera2 = { group = "androidx.camera", name = "camera-camera2", version.ref = "camerax" }
+androidx-camera-lifecycle = { group = "androidx.camera", name = "camera-lifecycle", version.ref = "camerax" }
+androidx-camera-view = { group = "androidx.camera", name = "camera-view", version.ref = "camerax" }
+zxing-core = { group = "com.google.zxing", name = "core", version.ref = "zxingCore" }
 accompanist-drawablepainter = { module = "com.google.accompanist:accompanist-drawablepainter", version.ref = "accompanistDrawablepainter" }
 aboutlibraries-core = { module = "com.mikepenz:aboutlibraries-core", version.ref = "aboutLibraries" }
 aboutlibraries-compose-m3 = { module = "com.mikepenz:aboutlibraries-compose-m3", version.ref = "aboutLibraries" }

@@ -20,3 +20,6 @@ brain/src/test/resources/atlas/*.sha256 text eol=lf
 tools/atlas/sources/* text eol=lf
 tools/atlas/hand/* text eol=lf
 app/src/test/resources/knowledge/* text eol=lf
+
+# Song Tap's golden vectors are compared byte for byte, here and in the iOS repo (Fixtures/songtap). Always LF.
+songtap/src/test/resources/songtap-golden/* text eol=lf

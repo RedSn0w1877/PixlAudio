@@ -93,6 +93,16 @@ fun AppNavigation(
         }
     }
 
+    // A song's options raised "Song Drop": open the picker (Song Tap, as a sender) from wherever the sheet was.
+    val songDrop: com.theveloper.pixelplay.presentation.viewmodel.SongDropViewModel = androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel()
+    LaunchedEffect(songDrop, navController) {
+        songDrop.requests.collect {
+            // The full player sits over every screen: put it away so the picker can be seen.
+            playerViewModel.collapsePlayerSheet()
+            navController.navigateSafely(Screen.SongTap.route)
+        }
+    }
+
     startDestination?.let { initialRoute ->
       // Lets empty states ("Connect Spotify") open the Spotify dashboard without threading a callback.
       CompositionLocalProvider(
@@ -632,6 +642,20 @@ fun AppNavigation(
                         navController = navController,
                         playerViewModel = playerViewModel
                     )
+                }
+            }
+            composable(
+                Screen.SongTap.route,
+            ) {
+                ScreenWrapper(navController = navController, playerViewModel = playerViewModel, animatedVisibilityScope = this) {
+                    com.theveloper.pixelplay.presentation.songtap.SongTapScreen(navController = navController)
+                }
+            }
+            composable(
+                Screen.SongTapDiagnostics.route,
+            ) {
+                ScreenWrapper(navController = navController, playerViewModel = playerViewModel, animatedVisibilityScope = this) {
+                    com.theveloper.pixelplay.presentation.songtap.SongTapDiagnosticsScreen(navController = navController)
                 }
             }
             composable(

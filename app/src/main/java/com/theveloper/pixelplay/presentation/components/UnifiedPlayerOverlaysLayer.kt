@@ -203,7 +203,8 @@ internal fun UnifiedPlayerSongInfoLayer(
     onDismissSongInfo: () -> Unit,
     onNavigateToAlbum: (Song) -> Unit,
     onNavigateToArtist: (Song) -> Unit,
-    onNavigateToGenre: (Song) -> Unit
+    onNavigateToGenre: (Song) -> Unit,
+    onOpenSongTap: () -> Unit = {}
 ) {
     selectedSongForInfo?.let { staticSong ->
         val context = LocalContext.current
@@ -238,6 +239,10 @@ internal fun UnifiedPlayerSongInfoLayer(
                         gestureHost.requestPlayerMenuAction(
                             com.theveloper.pixelplay.presentation.utils.PlayerMenuRequest.SING
                         )
+                    },
+                    onSongTapClick = {
+                        onDismissSongInfo()
+                        onOpenSongTap()
                     }
                 )
             }
@@ -345,7 +350,8 @@ internal fun UnifiedPlayerQueueAndSongInfoHost(
     onNavigateToArtist: (Song) -> Unit,
     onNavigateToGenre: (Song) -> Unit,
     queuePredictiveBackProgress: Animatable<Float, AnimationVector1D>,
-    queuePredictiveBackSwipeEdge: State<Int?>
+    queuePredictiveBackSwipeEdge: State<Int?>,
+    onOpenSongTap: () -> Unit = {}
 ) {
     if (!shouldRenderHost) return
 
@@ -505,7 +511,8 @@ internal fun UnifiedPlayerQueueAndSongInfoHost(
                 onDismissSongInfo = { onSelectedSongForInfoChange(null) },
                 onNavigateToAlbum = onNavigateToAlbum,
                 onNavigateToArtist = onNavigateToArtist,
-                onNavigateToGenre = onNavigateToGenre
+                onNavigateToGenre = onNavigateToGenre,
+                onOpenSongTap = onOpenSongTap
             )
         }
     }

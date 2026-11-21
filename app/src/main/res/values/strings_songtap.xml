@@ -1,0 +1,154 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Song Tap: send the song that is playing to a phone nearby, or take one from theirs. -->
+    <string name="songtap_title">Song Tap</string>
+
+    <!-- Player menu row -->
+    <string name="songtap_menu_supporting">Send this song to a phone nearby</string>
+    <string name="songtap_menu_on">On</string>
+    <string name="songtap_menu_off">Off</string>
+
+    <!-- Settings -->
+    <string name="settings_category_song_tap_title">Song Tap</string>
+    <string name="settings_category_song_tap_subtitle">Share songs with a phone nearby</string>
+    <string name="songtap_allow_title">Allow Song Tap</string>
+    <string name="songtap_allow_subtitle">Send the song that is playing to another phone with PixlAudio, and take songs from theirs. Nothing is sent without you opening Song Tap.</string>
+    <string name="songtap_settings_open">Open Song Tap</string>
+    <string name="songtap_settings_open_subtitle">Show a code, or scan one</string>
+
+    <!-- Turn on -->
+    <string name="songtap_off_headline">Share songs with a phone nearby</string>
+    <string name="songtap_off_body">Song Tap sends the song that is playing to another phone with PixlAudio, and adds it to their library. Only the song\'s name goes across: each phone plays it for itself. It works only while this screen is open.</string>
+    <string name="songtap_turn_on">Turn on Song Tap</string>
+
+    <!-- Modes -->
+    <string name="songtap_mode_send">Send</string>
+    <string name="songtap_mode_receive">Receive</string>
+
+    <!-- Status while two phones find each other -->
+    <string name="songtap_status_looking">Looking for the other phone</string>
+    <string name="songtap_status_found">Phone nearby. Hold the backs together.</string>
+    <string name="songtap_status_near">Almost there. Touch the phones together.</string>
+    <string name="songtap_status_sent">Sent</string>
+    <string name="songtap_send_hint">Pick a phone below, then touch the phones together.</string>
+    <string name="songtap_receive_hint">Touch the back of your phone to the one playing the song.</string>
+    <string name="songtap_use_code">Use a code instead</string>
+    <string name="songtap_scan_code">Scan a code instead</string>
+    <string name="songtap_back_to_tap">Back to touching phones</string>
+
+    <!-- Bluetooth -->
+    <string name="songtap_bt_permission">Song Tap needs Bluetooth to find the other phone.</string>
+    <string name="songtap_bt_allow">Allow Bluetooth</string>
+    <string name="songtap_bt_off">Bluetooth is off. Turn it on to find the other phone.</string>
+    <string name="songtap_bt_open_settings">Bluetooth settings</string>
+    <string name="songtap_bt_unsupported">This phone can\'t use Bluetooth for Song Tap. A code still works.</string>
+
+    <!-- Send -->
+    <string name="songtap_send_now_playing">Now playing</string>
+    <string name="songtap_send_nothing">Play a song to send it.</string>
+    <string name="songtap_send_cant">This song can\'t be shared yet.</string>
+    <string name="songtap_show_code">Show code</string>
+    <string name="songtap_hide_code">Done</string>
+    <string name="songtap_code_hint">Hold this up for the other phone to scan.</string>
+    <string name="songtap_code_description">Code for the song that is playing</string>
+
+    <!-- Receive -->
+    <string name="songtap_scan_hint">Point the camera at the other phone\'s code.</string>
+    <string name="songtap_camera_needed">Song Tap needs the camera to read a code.</string>
+    <string name="songtap_allow_camera">Allow camera</string>
+
+    <!-- The card -->
+    <string name="songtap_card_ask">Add to your library?</string>
+    <string name="songtap_card_add">Add</string>
+    <string name="songtap_card_not_now">Not now</string>
+    <string name="songtap_card_adding">Adding</string>
+    <string name="songtap_card_saved">Added to your library</string>
+    <string name="songtap_card_already">Already in your library</string>
+    <string name="songtap_card_undo">Undo</string>
+    <string name="songtap_card_ok">OK</string>
+
+    <!-- Things that did not work -->
+    <string name="songtap_notice_invalid_code">That isn\'t a PixlAudio song code.</string>
+    <string name="songtap_notice_not_found">Couldn\'t find this one here</string>
+    <string name="songtap_notice_save_failed">Something went wrong. Try again.</string>
+    <string name="songtap_notice_timeout">That took too long. Try again.</string>
+    <string name="songtap_notice_too_soon">Slow down a little.</string>
+    <string name="songtap_notice_limit">That\'s a lot of songs. Try again in a bit.</string>
+    <string name="songtap_notice_duplicate">You just got that one.</string>
+    <string name="songtap_notice_muted">Songs from that phone are paused for now.</string>
+    <string name="songtap_notice_both_sending">Both phones are sending. Switch one to Receive.</string>
+    <string name="songtap_notice_peer_lost">The other phone moved away.</string>
+    <string name="songtap_notice_invalid_offer">That song couldn\'t be read.</string>
+    <string name="songtap_notice_nothing">Play a song to send it.</string>
+    <string name="songtap_declined">Not added</string>
+    <string name="songtap_beam_art">Artwork of the song being sent</string>
+    <string name="songtap_cancelled">Cancelled</string>
+
+    <!-- Developer mode: Song Tap diagnostics -->
+    <string name="songtap_diag_title">Song Tap diagnostics</string>
+    <string name="songtap_diag_settings_subtitle">Live signal, baseline and jerk, to tune the tap on real phones</string>
+    <string name="songtap_diag_need_on">Turn on Song Tap to see live numbers.</string>
+    <string name="songtap_diag_signal">Signal</string>
+    <string name="songtap_diag_motion">Motion</string>
+    <string name="songtap_diag_detector">Detector</string>
+    <string name="songtap_diag_marks">Mark the signal</string>
+    <string name="songtap_diag_marks_hint">Hold the phones at a distance, then press the matching button. The numbers go into the log.</string>
+    <string name="songtap_diag_events">Last 20 events</string>
+    <string name="songtap_diag_copy">Copy log</string>
+    <string name="songtap_diag_copied">Copied</string>
+    <string name="songtap_diag_clear">Clear</string>
+    <string name="songtap_diag_tuning">Thresholds</string>
+    <string name="songtap_diag_scale">Signal scale</string>
+    <string name="songtap_diag_raw">Signal now, raw</string>
+    <string name="songtap_diag_offset">Offset</string>
+    <string name="songtap_diag_normalised">Signal now, normalised</string>
+    <string name="songtap_diag_smoothed">Smoothed, normalised</string>
+    <string name="songtap_diag_baseline">Baseline, normalised</string>
+    <string name="songtap_diag_profile">Sensitivity profile</string>
+    <string name="songtap_diag_active_gate">Gate now</string>
+    <string name="songtap_diag_hold_level">Gentle hold fires at</string>
+    <string name="songtap_diag_scale_hint">Every raw reading gets the offset added, so this phone reads like an iPhone: touching about -33 dBm, resting 20 to 30 cm apart about -60.</string>
+    <string name="songtap_diag_calibrate">Calibrate</string>
+    <string name="songtap_diag_calibrate_hint">Touch the two phones together, then press and hold Calibrate for 2 seconds.</string>
+    <string name="songtap_diag_calibrate_running">Keep holding, %1$d of %2$d ms</string>
+    <string name="songtap_diag_calibrate_done">Calibrated. Touching read %1$d dBm raw, so the offset is now %2$d dB.</string>
+    <string name="songtap_diag_calibrate_no_phone">No phone to calibrate with yet. Open Song Tap on the other phone first.</string>
+    <string name="songtap_diag_calibrate_too_few">Too few readings. Keep the phones touching and hold for the full 2 seconds.</string>
+    <string name="songtap_diag_calibrate_released">Let go too early. Hold for the full 2 seconds.</string>
+    <string name="songtap_diag_offset_reset">Use the default offset</string>
+
+    <!-- Sensitivity (Settings > Song Tap, and the diagnostics screen) -->
+    <string name="songtap_sensitivity_title">Sensitivity</string>
+    <string name="songtap_sensitivity_subtitle">How little it takes to count as a tap: %1$s</string>
+    <string name="songtap_sensitivity_normal">Normal</string>
+    <string name="songtap_sensitivity_high">High</string>
+    <string name="songtap_sensitivity_dialog_title">Sensitivity</string>
+    <string name="songtap_sensitivity_dialog_body">High reacts to a smaller, quicker touch. Normal needs a firmer one.</string>
+
+    <!-- Your name (Settings > Song Tap) -->
+    <string name="songtap_name_title">Your name</string>
+    <string name="songtap_name_subtitle">Other phones see %1$s</string>
+    <string name="songtap_name_dialog_title">Your name</string>
+    <string name="songtap_name_dialog_body">Other phones show this when you share a song with them. Up to 20 characters.</string>
+    <string name="songtap_name_counter">%1$d of %2$d</string>
+    <string name="songtap_name_save">Save</string>
+    <string name="songtap_name_use_device">Use my phone\'s name</string>
+    <string name="songtap_from">From %1$s</string>
+
+    <!-- Song Drop -->
+    <string name="songdrop_button">Song Drop</string>
+    <string name="songdrop_button_cd">Song Drop: share this song with a phone nearby</string>
+    <string name="songdrop_nearby_title">Phones nearby</string>
+    <string name="songdrop_nearby_empty">No phones nearby yet. Ask them to open Song Tap and choose Receive.</string>
+    <string name="songdrop_signal_close">Close</string>
+    <string name="songdrop_signal_nearby">Nearby</string>
+    <string name="songdrop_confirm_title">Song drop to %1$s?</string>
+    <string name="songdrop_confirm_body">%1$s will be shared when you touch the phones together.</string>
+    <string name="songdrop_yes">Yes</string>
+    <string name="songdrop_no">No</string>
+    <string name="songdrop_armed_title">Tap phones together to share</string>
+    <string name="songdrop_armed_to">Sharing with %1$s</string>
+    <string name="songdrop_armed_cancel">Cancel</string>
+    <string name="songdrop_waiting">Waiting for %1$s</string>
+    <string name="songdrop_other_phone">the other phone</string>
+</resources>

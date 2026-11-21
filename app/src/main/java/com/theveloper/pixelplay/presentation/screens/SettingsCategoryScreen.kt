@@ -1067,6 +1067,11 @@ fun SettingsCategoryScreen(
                         EndlessSettingsSection(navController = navController, playerViewModel = playerViewModel)
                     }
                 }
+                SettingsCategory.SONG_TAP -> {
+                    item(key = "song_tap_settings", contentType = "settings_subsection") {
+                        SettingsSongTap(navController = navController)
+                    }
+                }
                 SettingsCategory.BEHAVIOR -> {
                     item(key = "behavior_gestures_haptics", contentType = "settings_subsection") {
                         SettingsGesturesAndHaptics(

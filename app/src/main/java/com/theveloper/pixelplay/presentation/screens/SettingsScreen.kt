@@ -618,6 +618,7 @@ private fun getCategoryColors(category: SettingsCategory, isDark: Boolean): Pair
             SettingsCategory.LYRICS -> Color(0xFF4A4458) to Color(0xFFE8DEF8)
             SettingsCategory.SING -> Color(0xFF5C3B1E) to Color(0xFFFFDCC2)
             SettingsCategory.ENDLESS -> Color(0xFF1F4D45) to Color(0xFFBFF2E6)
+            SettingsCategory.SONG_TAP -> Color(0xFF00504B) to Color(0xFFA8F0E8)
             SettingsCategory.DEVICE_CAPABILITIES -> Color(0xFF004D61) to Color(0xFFACEFEE) // Custom teal/cyan mix
             SettingsCategory.ABOUT -> Color(0xFF3F474D) to Color(0xFFDEE3EB) 
         }
@@ -634,6 +635,7 @@ private fun getCategoryColors(category: SettingsCategory, isDark: Boolean): Pair
             SettingsCategory.LYRICS -> Color(0xFFE8DEF8) to Color(0xFF1D192B)
             SettingsCategory.SING -> Color(0xFFFFDCC2) to Color(0xFF2D1600)
             SettingsCategory.ENDLESS -> Color(0xFFBFF2E6) to Color(0xFF00201B)
+            SettingsCategory.SONG_TAP -> Color(0xFFA8F0E8) to Color(0xFF00201D)
             SettingsCategory.DEVICE_CAPABILITIES -> Color(0xFFACEFEE) to Color(0xFF002022)
             SettingsCategory.ABOUT -> Color(0xFFEFF1F7) to Color(0xFF44474F)
         }

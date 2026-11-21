@@ -79,6 +79,9 @@ sealed class Screen(val route: String) {
     object WordDelimiterConfig : Screen("word_delimiter_config")
     object Equalizer : Screen("equalizer")
     object DeviceCapabilities : Screen("device_capabilities")
+    /** Song Tap: send the playing song to a phone nearby, or take one (handoff/2026-11-20-song-tap.md). */
+    object SongTap : Screen("song_tap")
+    object SongTapDiagnostics : Screen("song_tap_diagnostics")
     object SpotifyDashboard : Screen("spotify_dashboard")
     object SpotifyBrowse : Screen("spotify_browse?q={query}") {
         /**
