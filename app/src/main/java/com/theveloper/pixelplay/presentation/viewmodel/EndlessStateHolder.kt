@@ -1,6 +1,9 @@
 package com.theveloper.pixelplay.presentation.viewmodel
 
+import com.theveloper.pixelplay.data.brain.HostNoteFacts
 import com.theveloper.pixelplay.data.brain.StationStore
+import com.theveloper.pixelplay.data.model.Song
+import com.theveloper.pixelplay.presentation.components.SetNoteLines
 import com.theveloper.pixelplay.data.preferences.UserPreferencesRepository
 import com.theveloper.pixelplay.di.AppScope
 import javax.inject.Inject
@@ -25,7 +28,8 @@ import timber.log.Timber
 @Singleton
 class EndlessStateHolder @Inject constructor(
     private val preferences: UserPreferencesRepository,
-    stations: StationStore,
+    private val stations: StationStore,
+    private val hostNoteFacts: HostNoteFacts,
     @AppScope private val scope: CoroutineScope,
 ) {
     /** True while the queue is the Endless Listening station. */
@@ -58,6 +62,22 @@ class EndlessStateHolder @Inject constructor(
 
     fun closeHostSheet() {
         _hostSheetOpen.value = false
+    }
+
+    /**
+     * What the host may say about [window] (the current song and the next few): the island name of each library song, the engine's reason key of
+     * each pick, and the atlas' description of a genre. Null while Endless Listening is not the queue's station: the other queues get the set
+     * notes only. Everything is read from what the engine already stored; a fact that is not there is simply absent.
+     */
+    suspend fun hostFacts(window: List<Song>, why: Map<String, QueueWhy>): SetNoteLines.HostFacts? {
+        if (stations.current.value?.isEndless != true || window.isEmpty()) return null
+        val keys = HashMap<String, String>(window.size * 2)
+        for (song in window) why[song.id]?.let { keys[song.id] = it.key }
+        return SetNoteLines.HostFacts(
+            islandOf = hostNoteFacts.islandNames(window),
+            whyKeyOf = keys,
+            genreFact = hostNoteFacts::genreFact,
+        )
     }
 
     fun markIntroSeen() = write { preferences.setEndlessIntroSeen(true) }

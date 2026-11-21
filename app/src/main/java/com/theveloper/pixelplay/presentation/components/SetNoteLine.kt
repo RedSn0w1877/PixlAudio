@@ -13,6 +13,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.theveloper.pixelplay.brain.HostNotes
 import com.theveloper.pixelplay.brain.SetNotes
 import com.theveloper.pixelplay.data.brain.BrainFeedback
 import com.theveloper.pixelplay.data.brain.EngineTrack
@@ -56,27 +57,88 @@ object SetNoteLines {
         )
     }
 
-    /** The notes of [queue] from [currentIndex]. [heard] null means the history is not loaded yet: no note is made (a note is true or absent). */
-    fun forQueue(queue: List<Song>, currentIndex: Int, heard: Set<String>?): Result {
+    /**
+     * What the host of Endless Listening knows about the window's songs, all of it real: the name of the taste island a library song sits in,
+     * and the reason key of an engine pick (`WhyLine` name). [genreFact] is the atlas' description of a genre ("" when the atlas does not describe it).
+     */
+    class HostFacts(
+        val islandOf: Map<String, String>,
+        val whyKeyOf: Map<String, String>,
+        val genreFact: (String) -> String,
+    )
+
+    /**
+     * The notes of [queue] from [currentIndex]. [heard] null means the history is not loaded yet: no note is made (a note is true or absent).
+     * With [host] (Endless Listening, the host's notes on) the host-only notes of [HostNotes] join the set notes: never on a track that already
+     * has one, and at most one note of either kind per five tracks.
+     */
+    fun forQueue(queue: List<Song>, currentIndex: Int, heard: Set<String>?, host: HostFacts? = null): Result {
         if (heard == null || currentIndex < 0 || currentIndex >= queue.size) return Result.NONE
         val end = minOf(queue.size, currentIndex + LOOKAHEAD)
         val slots = ArrayList<SetNotes.Slot>(end - currentIndex)
         for (i in currentIndex until end) slots.add(slotOf(queue[i], heard))
         val notes = SetNotes.notes(slots)
-        if (notes.isEmpty()) return Result.NONE
-        val byIndex = HashMap<Int, String>(notes.size * 2)
+        val hostNotes = if (host == null) emptyList() else HostNotes.notes(hostSlots(queue, currentIndex, end, host), taken(notes))
+        if (notes.isEmpty() && hostNotes.isEmpty()) return Result.NONE
+        val byIndex = HashMap<Int, String>((notes.size + hostNotes.size) * 2)
         var current: String? = null
         for (n in notes) {
             val text = SetNotes.text(n)
             if (n.index == 0) current = text
             byIndex[currentIndex + n.index] = text
         }
+        for (n in hostNotes) {
+            val text = HostNotes.text(n)
+            if (n.index == 0) current = text
+            byIndex[currentIndex + n.index] = text
+        }
         return Result(byIndex, current)
+    }
+
+    /** The set notes as the tracks they describe: a note's own tracks, and the new track it ends on. */
+    fun taken(notes: List<SetNotes.Note>): List<HostNotes.Taken> =
+        notes.map { HostNotes.Taken(it.index, it.count + if (it.newArtist.isNotEmpty()) 1 else 0) }
+
+    private fun hostSlots(queue: List<Song>, from: Int, end: Int, host: HostFacts): List<HostNotes.Slot> {
+        val out = ArrayList<HostNotes.Slot>(end - from)
+        for (i in from until end) {
+            val song = queue[i]
+            val genre = SetNotes.firstGenre(song.genre)
+            val why = host.whyKeyOf[song.id]
+            out.add(
+                HostNotes.Slot(
+                    artist = BrainFeedback.artistOf(song),
+                    genre = genre,
+                    genreFact = if (genre.isEmpty()) "" else host.genreFact(genre),
+                    year = song.year,
+                    island = host.islandOf[song.id].orEmpty(),
+                    // "New from an artist you play": the engine's own reason for the pick (the saved releases hold only artists the listener plays).
+                    newFromPlayedArtist = why == "new_release",
+                    sideways = why == "adjacent_genre",
+                )
+            )
+        }
+        return out
     }
 
     /** The songs a note looks at (the current one and the next few), so the history is read for those only. */
     fun window(queue: List<Song>, currentIndex: Int): List<Song> =
         if (currentIndex < 0 || currentIndex >= queue.size) emptyList() else queue.subList(currentIndex, minOf(queue.size, currentIndex + LOOKAHEAD))
+}
+
+/**
+ * The host's facts for [queue] while Endless Listening is the queue's station and its host notes are on; null otherwise (then only the set notes
+ * show). Read off the main thread for the few songs a note looks at, and only when the queue or the current song changes.
+ */
+@Composable
+fun rememberHostFacts(playerViewModel: PlayerViewModel, queue: List<Song>, index: Int): SetNoteLines.HostFacts? {
+    val endless = playerViewModel.brainSession.endless
+    val active by endless.active.collectAsStateWithLifecycle()
+    val enabled by endless.hostNotesEnabled.collectAsStateWithLifecycle()
+    val facts by produceState<SetNoteLines.HostFacts?>(null, queue, index, active, enabled) {
+        value = if (active && enabled) endless.hostFacts(SetNoteLines.window(queue, index), playerViewModel.brainSession.queueWhy.value) else null
+    }
+    return facts
 }
 
 /** The note under the player's title, or nothing. Reads the queue and the current index itself, so only this line recomposes. */
@@ -89,7 +151,8 @@ fun SetNoteLine(playerViewModel: PlayerViewModel, color: Color, modifier: Modifi
     val heard by produceState<Set<String>?>(null, queue, index) {
         value = playerViewModel.brainSession.setNoteHistory.heardSongIds(SetNoteLines.window(queue, index))
     }
-    val note = remember(queue, index, heard) { SetNoteLines.forQueue(queue, index, heard).current }
+    val host = rememberHostFacts(playerViewModel, queue, index)
+    val note = remember(queue, index, heard, host) { SetNoteLines.forQueue(queue, index, heard, host).current }
     if (note != null) {
         Text(
             text = note,

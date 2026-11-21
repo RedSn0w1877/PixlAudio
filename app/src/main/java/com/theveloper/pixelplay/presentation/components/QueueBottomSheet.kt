@@ -331,7 +331,9 @@ fun QueueBottomSheet(
     val heardSongIds by produceState<Set<String>?>(null, queue, currentSongIndex) {
         value = viewModel.brainSession.setNoteHistory.heardSongIds(SetNoteLines.window(queue, currentSongIndex))
     }
-    val setNotes = remember(queue, currentSongIndex, heardSongIds) { SetNoteLines.forQueue(queue, currentSongIndex, heardSongIds).byIndex }
+    val endlessActive = rememberEndlessActive(viewModel)
+    val hostFacts = rememberHostFacts(viewModel, queue, currentSongIndex)
+    val setNotes = remember(queue, currentSongIndex, heardSongIds, hostFacts) { SetNoteLines.forQueue(queue, currentSongIndex, heardSongIds, hostFacts).byIndex }
 
     // Offset to convert display indices to queue indices when history is hidden.
     val queueIndexOffset = if (showQueueHistory || currentSongIndex < 0) 0 else currentSongIndex
@@ -835,6 +837,7 @@ fun QueueBottomSheet(
                     onPrevious = { viewModel.previousSong() },
                     onPlayPause = { viewModel.playPause() },
                     onNext = { viewModel.nextSong() },
+                    onAskHost = if (endlessActive) ({ viewModel.brainSession.endless.openHostSheet() }) else null,
                     onLocateCurrentSong = {
                         if (currentSongDisplayIndex in 0..<displaySongCount) {
                             queueCoroutineScope.launch {
@@ -1384,6 +1387,7 @@ private fun QueueHeaderSection(
     onNext: () -> Unit,
     colorScheme: ColorScheme? = null,
     onLocateCurrentSong: () -> Unit = {},
+    onAskHost: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val colors = MaterialTheme.colorScheme
@@ -1413,7 +1417,8 @@ private fun QueueHeaderSection(
                 queueSourceName = queueSourceName,
                 queueCount = queueCount,
                 modifier = Modifier.fillMaxWidth(),
-                onLocateCurrentSong = onLocateCurrentSong
+                onLocateCurrentSong = onLocateCurrentSong,
+                onAskHost = onAskHost
             )
         }
     }
@@ -1424,7 +1429,8 @@ private fun QueueHeader(
     queueSourceName: String,
     queueCount: Int,
     modifier: Modifier = Modifier,
-    onLocateCurrentSong: () -> Unit = {}
+    onLocateCurrentSong: () -> Unit = {},
+    onAskHost: (() -> Unit)? = null
 ) {
     val view = LocalView.current
     val appHapticsConfig = LocalAppHapticsConfig.current
@@ -1469,6 +1475,8 @@ private fun QueueHeader(
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+            // Endless Listening: the host is one tap away from the queue (only while that station is the queue).
+            if (onAskHost != null) AskHostChip(onClick = onAskHost, modifier = Modifier.padding(top = 4.dp))
         }
         QueueSourceBadge(
             queueSourceName = queueSourceName,
