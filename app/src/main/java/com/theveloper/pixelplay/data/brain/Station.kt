@@ -176,6 +176,7 @@ class StationStore @Inject constructor(
 
     fun start(station: Station, sourceIds: Set<String> = emptySet()) {
         stationTouched = true
+        if (!station.isEndless) putBackHostNovelty()
         this.sourceIds = sourceIds
         _current.value = station
         persistStation(station)
@@ -185,14 +186,39 @@ class StationStore @Inject constructor(
     fun clear() {
         if (_current.value == null && stationTouched) return
         stationTouched = true
+        putBackHostNovelty()
         sourceIds = emptySet()
         _current.value = null
         persistStation(null)
     }
 
+    // The saved level while the host's chips ("Something new") hold another one for this listening only; null when they do not.
+    @Volatile private var levelBeforeHost: Int? = null
+
+    /**
+     * The host's "Something new" / "Back to familiar": [level] applies now, is not saved, and the saved level comes back when Endless Listening
+     * ends (or when the listener moves the switch themselves). So a chip never changes the switch for good.
+     */
+    fun setNoveltyForHost(level: Int) {
+        noveltyTouched = true
+        if (levelBeforeHost == null) levelBeforeHost = _novelty.value
+        _novelty.value = Novelty.clamp(level)
+    }
+
+    /** The level "Back to familiar" goes back to: the one saved before the chips, Blend when that was Discover or is not known. */
+    fun levelBeforeHost(): Int = levelBeforeHost?.takeIf { it != Novelty.DISCOVER } ?: _novelty.value.takeIf { it != Novelty.DISCOVER } ?: Novelty.BLEND
+
+    private fun putBackHostNovelty() {
+        val saved = levelBeforeHost ?: return
+        levelBeforeHost = null
+        _novelty.value = saved
+    }
+
     fun setNovelty(level: Int) {
         val next = Novelty.clamp(level)
         noveltyTouched = true
+        // The listener moved the switch themselves: their choice stands, nothing is put back.
+        levelBeforeHost = null
         if (_novelty.value == next) return
         _novelty.value = next
         scope.launch {

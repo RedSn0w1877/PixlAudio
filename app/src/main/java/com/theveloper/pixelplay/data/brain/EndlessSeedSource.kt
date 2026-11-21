@@ -11,7 +11,8 @@ class EndlessSeedPick(val song: Song, val rid: Long, val aid: Long, val islandId
 
 /**
  * The seeds of Endless Listening, drawn from the library tracks of the Your Mix pool (the shortlist of about 500 that Your Mix is planned from):
- * one for each taste island, biggest first, at most five; the listener's top artists with fewer than two islands ([EndlessSeeds]).
+ * one for each taste island, biggest first, at most five; the listener's top artists with fewer than two islands ([EndlessSeeds]). Only tracks
+ * the listener has played (a weight above zero) can be a seed.
  *
  * Reads the island fit the weekly build left, the shortlist (cached for the day) and the in-memory affinity tables; never the network, and
  * it does not open anything that is not already open. Empty when there is nothing to seed from.
@@ -27,10 +28,13 @@ internal suspend fun BrainMixes.endlessSeeds(now: Long): List<EndlessSeedPick> {
         val weights = HashMap<Long, Double>(library.size * 2)
         for (t in library) weights[t.rid] = Affinity.weight(st.affinity, Family.TRACK, t.rid, now)
         fun track(t: LibraryTrack) = EndlessSeeds.Track(t.rid, t.aid, weights[t.rid] ?: 0.0)
+        // "Starts from what you play" has to be true: a track with no weight in the listener's history is never a seed (without plays nothing
+        // starts, and the card says "play a few songs first" instead of beginning from an arbitrary song).
+        val played = library.filter { (weights[it.rid] ?: 0.0) > 0.0 }
         val islands = ArrayList<EndlessSeeds.IslandIn>()
         if (set != null) {
             val byIsland = HashMap<Int, ArrayList<EndlessSeeds.Track>>()
-            for (t in library) {
+            for (t in played) {
                 val id = memberOf[t.rid] ?: continue
                 byIsland.getOrPut(id) { ArrayList() }.add(track(t))
             }
@@ -40,7 +44,7 @@ internal suspend fun BrainMixes.endlessSeeds(now: Long): List<EndlessSeedPick> {
             }
         }
         val byArtist = LinkedHashMap<Long, ArrayList<EndlessSeeds.Track>>()
-        for (t in library) if (t.aid != 0L) byArtist.getOrPut(t.aid) { ArrayList() }.add(track(t))
+        for (t in played) if (t.aid != 0L) byArtist.getOrPut(t.aid) { ArrayList() }.add(track(t))
         val artists = byArtist.map { (aid, tracks) -> EndlessSeeds.ArtistIn(aid, Affinity.weight(st.affinity, Family.ARTIST, aid, now), tracks) }
         islands to artists
     }

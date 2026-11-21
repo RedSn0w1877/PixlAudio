@@ -24,11 +24,20 @@
     <string name="endless_chip_upbeat">More upbeat</string>
     <string name="endless_chip_slower">Slower</string>
     <string name="endless_chip_surprise">Surprise me</string>
-    <string name="endless_reply_new">Okay. The next songs lean towards new music.</string>
-    <string name="endless_reply_familiar">Okay. The next songs lean towards what you know.</string>
-    <string name="endless_reply_surprise">Okay. Five songs that lean new are next.</string>
-    <string name="endless_reply_upbeat">Okay. Five livelier songs are next.</string>
-    <string name="endless_reply_slower">Okay. Five slower songs are next.</string>
+    <string name="endless_reply_new">Okay. The next songs lean towards new music, until this station ends.</string>
+    <string name="endless_reply_familiar">Okay. Back to your usual mix of new and familiar.</string>
+    <plurals name="endless_reply_surprise">
+        <item quantity="one">Okay. One song that leans new is next.</item>
+        <item quantity="other">Okay. %1$d songs that lean new are next.</item>
+    </plurals>
+    <plurals name="endless_reply_upbeat">
+        <item quantity="one">Okay. One livelier song is next.</item>
+        <item quantity="other">Okay. %1$d livelier songs are next.</item>
+    </plurals>
+    <plurals name="endless_reply_slower">
+        <item quantity="one">Okay. One slower song is next.</item>
+        <item quantity="other">Okay. %1$d slower songs are next.</item>
+    </plurals>
     <string name="endless_reply_why">Here is why it is on.</string>
     <string name="endless_reply_no_why">You picked this one yourself, so there is no reason to give.</string>
     <string name="endless_reply_nothing">I could not change the queue just now.</string>

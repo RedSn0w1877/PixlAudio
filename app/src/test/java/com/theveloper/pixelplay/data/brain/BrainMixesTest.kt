@@ -366,4 +366,18 @@ class BrainMixesTest {
         coEvery { music.getAllSongsOnce() } returns emptyList()
         assertTrue(mixes().endlessSeeds(now).isEmpty())
     }
+
+    @Test
+    fun `Endless Listening has no seed until the listener has played something`() = runTest {
+        // A library with nothing played: "starts from what you play" would be false, so the card hides and a tap says to play a few songs first.
+        assertTrue(mixes().endlessSeeds(now).isEmpty())
+    }
+
+    @Test
+    fun `only songs the listener played can be a seed`() = runTest {
+        listen(plays = 3, seeds = 1)
+        val seeds = mixes().endlessSeeds(now)
+        assertTrue(seeds.size in 2..3, "the three played songs, one for each artist: $seeds")
+        assertTrue(seeds.all { it.song.id in setOf("s0", "s1", "s2") }, "never a song nobody played")
+    }
 }

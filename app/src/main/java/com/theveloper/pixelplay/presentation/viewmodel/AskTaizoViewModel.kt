@@ -237,11 +237,13 @@ class AskTaizoViewModel @Inject constructor(
 
     private suspend fun runHostChip(chip: HostChip): String = when (chip) {
         HostChip.NEW -> {
-            stationStore.setNovelty(com.theveloper.pixelplay.data.brain.Novelty.DISCOVER)
+            // For this listening only: not saved, and put back when Endless Listening ends.
+            stationStore.setNoveltyForHost(com.theveloper.pixelplay.data.brain.Novelty.DISCOVER)
             context.getString(R.string.endless_reply_new)
         }
         HostChip.FAMILIAR -> {
-            stationStore.setNovelty(com.theveloper.pixelplay.data.brain.Novelty.FAMILIAR)
+            // Back to the level the listener had (Blend when it was Discover or not known), not a harder Familiar they never chose.
+            stationStore.setNoveltyForHost(stationStore.levelBeforeHost())
             context.getString(R.string.endless_reply_familiar)
         }
         HostChip.WHY -> {
@@ -254,15 +256,20 @@ class AskTaizoViewModel @Inject constructor(
                 context.getString(R.string.endless_reply_why)
             }
         }
-        HostChip.UPBEAT -> steerHost("energy_up", context.getString(R.string.endless_reply_upbeat))
-        HostChip.SLOWER -> steerHost("energy_down", context.getString(R.string.endless_reply_slower))
-        HostChip.SURPRISE -> steerHost("more_new", context.getString(R.string.endless_reply_surprise))
+        HostChip.UPBEAT -> steerHost("energy_up", R.plurals.endless_reply_upbeat)
+        HostChip.SLOWER -> steerHost("energy_down", R.plurals.endless_reply_slower)
+        HostChip.SURPRISE -> steerHost("more_new", R.plurals.endless_reply_surprise)
     }
 
     /** `steer_session` for this queue only, run directly: five songs built for the change go next. What it cannot do, it says (no energy data, nothing playing). */
-    private suspend fun steerHost(change: String, done: String): String {
+    private suspend fun steerHost(change: String, @androidx.annotation.PluralsRes done: Int): String {
         val outcome = assistantEngine.steer(change, "", "session", hostPlayer)
-        return if (outcome.applied) done else outcome.note.ifBlank { context.getString(R.string.endless_reply_nothing) }
+        // The count is what the steer really queued (a thin pool may give fewer than five), never a number the host assumed.
+        return if (outcome.applied && outcome.tailChanged > 0) {
+            context.resources.getQuantityString(done, outcome.tailChanged, outcome.tailChanged)
+        } else {
+            outcome.note.ifBlank { context.getString(R.string.endless_reply_nothing) }
+        }
     }
 
     fun detachPlayer(player: TaizoPlayer) {

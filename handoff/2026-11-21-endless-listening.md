@@ -119,3 +119,32 @@ The sound of the system voice and whether an offline English voice is installed 
 ## How to test with a phone
 
 Settings, Endless Listening: switch Spoken host notes on, tap Test the voice (with a song playing: the song should dip, the sample should be heard, the song should come back at the same loudness). Start Endless Listening from the Home card and let songs play; a card appears when a song has a note and the voice says the same words 1.5 s into that song. Skip while it talks (stops at once, music back in about a tenth of a second); pause; unplug headphones; take a call; play with crossfade on. Developer mode, "Host voice log" shows each decision and why (`too_soon`, `transition`, `short_left`, `route_changed`...); use it to calibrate the numbers in `HostVoice`.
+
+## Review fixes (2026-11-21, after the two independent reviews)
+
+**Golden file `endless.jsonl` CHANGED (and `MANIFEST.sha256`, `README.md`). iOS must re-copy `brain/src/test/resources/brain-golden/` and port the same changes. `hostvoice.jsonl` did not change.**
+
+What changed, by finding (A = Android review, I = iOS review):
+
+- **A1 dead Home card after stop/clear**: `StationStateHolder.startEndless` resumes only when `player.queueHasAny(station.seedMediaIds)` and `resume()` returned true (it now prepares an idle queue and returns false on an empty one); otherwise it starts fresh.
+- **A2 / I1 one note per five tracks across windows**: pure core, `HostNotes.notes(slots, taken, sinceLast)` and `HostNotes.tracksSinceNote(ids, index, noted)`. The app keeps `HostNoteMemory` (a singleton set of song ids whose note was shown or spoken; `SetNoteLines.forQueue` marks the current track's note) and feeds the distance of the last note before the current track. One memory for the card, the queue rows and the voice (the voice builds its note through the same `forQueue`), so they agree.
+- **A3 TTS under package visibility**: `<intent><action android.intent.action.TTS_SERVICE/></intent>` added to `<queries>`.
+- **A4 sideways**: the note is now `A step sideways: <genre>.` (only the genre the engine flagged as `adjacent_genre`); the "from A to B" claim and `genreBefore` are gone, and the note can now be on slot 0.
+- **I2 "New from X, an artist you play"**: only for a song with no recorded play (`song.id !in heard`).
+- **A5 chip replies**: plurals with the real `SteerOutcome.tailChanged` (one / other); no "Five".
+- **A12 / I4 chips and the app-wide switch**: `StationStore.setNoveltyForHost` applies the level without saving it, remembers the saved level, and puts it back when any other station starts or Endless Listening ends (`clear`); a switch the listener moves themselves cancels the put-back. "Back to familiar" goes to the level before the chips (Blend when that was Discover or unknown), never to Familiar. Replies say so ("until this station ends").
+- **A6 seeds with real plays**: `endlessSeeds` only considers library tracks with a play weight above zero, so the card needs at least two such seeds and "Play a few songs first" can fire.
+- **A7 Host notes off**: `SetNoteLines.forQueue(..., notesOff)` returns nothing at all (set notes included) when Endless Listening is the queue and Host notes is off (`rememberHostNotesOff`).
+- **A8 island note**: only for a song with a recorded play (same "heard" rule as "your side" in the set notes).
+- **A9 forbidden words**: whole-word check (`HostNotes.isClean`), applied to the template and the atlas sentence, not to artist / genre names ("Claude Debussy", "Atmosphere" keep their notes); `HostVoice.line(text, noteChecked = true)` for the app's own notes re-checks only the length.
+- **A11 intro seen flag**: marked on Start, Not now and the back gesture (`BackHandler`), no longer on every disposal.
+- **A13 HostSpeaker init callback**: bound to its own engine; a late callback of a shut-down engine frees that engine and leaves the current one alone.
+- **A14 error guard**: the host voice scope has a `CoroutineExceptionHandler` and the per-track body catches (rethrowing cancellation), logging `error` in the host voice log.
+
+Not changed, and why: **A10** (engine picks have no genre or year, so only "New from X" fires for them) is a data limit, not a defect; judge the notes on a library-heavy queue. **A15** (repeated shortlist and alias reads) is deferred: sharing one `hostFacts` per queue and index is a refactor of three callers, all reads are off the main thread, and it is risky without a phone. **I3** is A5. I5 to I10 are iOS only (CXCallObserver, synthesizer creation, cosmetic).
+
+For iOS to port: `HostNotes.notes(sinceLast)` / `tracksSinceNote` and the new sideways text and whole-word `isClean` / `isShort` / `isSpeakable` split (then re-check `endless.jsonl` byte for byte); a memory of noted song ids feeding `sinceLast` in `SetNoteLines.forQueue`; the heard rule for island and new-from-artist; seeds need weight above zero; host-only novelty with put-back, "Back to familiar" = level before; real counts in chip replies; Host notes off hides the set notes too; `startEndless` resumes only when the queue holds a seed.
+
+Unverified on a phone: everything about sound (system voice, TTS now visible under package visibility, ducking against a crossfade), the card after Stop, the look of the host cards, the chips' real counts on a thin pool.
+
+New tests: `HostNotes` / `EndlessTest` (cadence across windows, sideways text, whole-word words), `SetNoteLinesHostTest` (heard rules, one note per five tracks while advancing one track at a time, sideways, notes off), `StationAndPlayTagsTest` (host novelty and put-back), `BrainMixesTest` (no seed without plays), `BrainCopyTest` (plural replies).

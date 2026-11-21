@@ -2239,9 +2239,21 @@ class PlayerViewModel @Inject constructor(
 
         override fun toast(message: String) = sendToast(message)
 
-        override fun resume() {
-            val controller = mediaController ?: return
+        override fun resume(): Boolean {
+            val controller = mediaController ?: return false
+            if (controller.mediaItemCount == 0) return false
+            // A queue that was stopped (not cleared) is idle: it must be prepared before play does anything.
+            if (controller.playbackState == androidx.media3.common.Player.STATE_IDLE) controller.prepare()
             if (!controller.isPlaying) controller.play()
+            return true
+        }
+
+        override fun queueHasAny(ids: List<String>): Boolean {
+            val controller = mediaController ?: return false
+            val count = controller.mediaItemCount
+            if (count == 0 || ids.isEmpty()) return false
+            for (i in 0 until count) if (controller.getMediaItemAt(i).mediaId in ids) return true
+            return false
         }
     }
 

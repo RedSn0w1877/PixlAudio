@@ -60,8 +60,11 @@ class StationStateHolder @Inject constructor(
 
         fun toast(message: String)
 
-        /** Plays the current queue if it is paused (a station that is already the queue's is picked up, not started again). */
-        fun resume()
+        /** Plays the current queue if it is paused (a station that is already the queue's is picked up, not started again). False when there is nothing to play. */
+        fun resume(): Boolean
+
+        /** True when the queue really holds one of [ids] (a station whose queue was stopped and cleared still looks live in the store). */
+        fun queueHasAny(ids: List<String>): Boolean
     }
 
     /** A station from [song]: it plays (or keeps playing), and music like it follows. */
@@ -157,10 +160,9 @@ class StationStateHolder @Inject constructor(
      */
     fun startEndless(player: Player) {
         val live = stations.current.value
-        if (live != null && live.isEndless) {
-            player.resume()
-            return
-        }
+        // Picked up only when the queue really holds the station's seeds: after "stop" or a cleared queue the saved station still looks live, and
+        // resuming it would play nothing. Then it starts fresh below.
+        if (live != null && live.isEndless && player.queueHasAny(live.seedMediaIds) && player.resume()) return
         player.scope.launch {
             val seeds = try {
                 withContext(Dispatchers.Default) { mixes.endlessSeeds(clock.nowMs()) }

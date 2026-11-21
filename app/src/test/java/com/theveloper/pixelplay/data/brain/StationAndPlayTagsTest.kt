@@ -83,6 +83,32 @@ class StationAndPlayTagsTest {
     }
 
     @Test
+    fun `the host chips change the level for this listening only and the saved level comes back`() {
+        val prefs = preferences(novelty = Novelty.BLEND)
+        val stations = store(prefs)
+        stations.start(Station.endless(listOf("a", "b"), "Endless Listening", 1L))
+        stations.setNoveltyForHost(Novelty.DISCOVER)
+        assertEquals(Novelty.DISCOVER, stations.novelty.value)
+        // Back to familiar returns to Blend (the level before), never to a harder Familiar the listener did not choose.
+        assertEquals(Novelty.BLEND, stations.levelBeforeHost())
+        stations.setNoveltyForHost(stations.levelBeforeHost())
+        assertEquals(Novelty.BLEND, stations.novelty.value)
+        stations.setNoveltyForHost(Novelty.DISCOVER)
+        coVerify(exactly = 0) { prefs.setBrainNovelty(any()) }
+        stations.clear()
+        assertEquals(Novelty.BLEND, stations.novelty.value)
+    }
+
+    @Test
+    fun `a switch the listener moves themselves is not put back`() {
+        val stations = store(preferences(novelty = Novelty.BLEND))
+        stations.setNoveltyForHost(Novelty.DISCOVER)
+        stations.setNovelty(Novelty.FAMILIAR)
+        stations.clear()
+        assertEquals(Novelty.FAMILIAR, stations.novelty.value)
+    }
+
+    @Test
     fun `the novelty switch is 0_4, 1 and 2, and anything else is Blend`() {
         assertEquals(0.4, Novelty.factor(Novelty.FAMILIAR))
         assertEquals(1.0, Novelty.factor(Novelty.BLEND))
