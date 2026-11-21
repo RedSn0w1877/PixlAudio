@@ -49,9 +49,24 @@
 
     <!-- Settings. -->
     <string name="endless_settings_title">Endless Listening</string>
-    <string name="endless_settings_subtitle">Host notes and how it works</string>
+    <string name="endless_settings_subtitle">Host notes, spoken notes and how it works</string>
     <string name="endless_settings_host_notes">Host notes</string>
     <string name="endless_settings_host_notes_summary">Short notes about the songs coming up in Endless Listening</string>
     <string name="endless_settings_how">How it works</string>
     <string name="endless_settings_how_summary">Replay the introduction</string>
+    <string name="endless_settings_spoken">Spoken host notes</string>
+    <string name="endless_settings_spoken_summary">The host says a note out loud now and then, with the music turned down. Uses the voice on this phone.</string>
+    <string name="endless_settings_voice_test">Test the voice</string>
+    <string name="endless_settings_voice_test_summary">Hear how the host sounds</string>
+    <string name="endless_settings_voice_test_running">Starting the voice</string>
+    <string name="endless_voice_test_line">This is how the host sounds.</string>
+    <string name="endless_voice_test_none">This phone has no English voice that works without the internet.</string>
+    <string name="endless_voice_test_busy">The host is talking right now.</string>
+    <string name="endless_voice_test_call">Not during a call.</string>
+    <string name="endless_voice_test_error">The voice did not start. Try again.</string>
+    <string name="endless_settings_advanced">Advanced</string>
+    <string name="endless_settings_voice_log">Host voice log</string>
+    <string name="endless_settings_voice_log_summary">The last 20 notes: said or skipped, and why</string>
+    <string name="endless_voice_log_empty">Nothing yet.</string>
+    <string name="endless_voice_log_close">Close</string>
 </resources>

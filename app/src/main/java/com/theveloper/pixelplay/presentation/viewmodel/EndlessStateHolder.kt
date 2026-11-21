@@ -30,6 +30,8 @@ class EndlessStateHolder @Inject constructor(
     private val preferences: UserPreferencesRepository,
     private val stations: StationStore,
     private val hostNoteFacts: HostNoteFacts,
+    /** The spoken host: its switch, its test and its developer log (it watches nothing until it is armed). */
+    val voice: HostVoiceStateHolder,
     @AppScope private val scope: CoroutineScope,
 ) {
     /** True while the queue is the Endless Listening station. */

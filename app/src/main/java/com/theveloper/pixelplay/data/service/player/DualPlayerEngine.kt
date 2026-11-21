@@ -412,7 +412,25 @@ class DualPlayerEngine @Inject constructor(
      */
     var incomingTrackReplayGainVolume: Float? = null
 
+    /**
+     * Brings the music down while the host of Endless Listening speaks (see [HostDuck]). Whoever is about to read or write the master
+     * volume aborts it first: a transition, [cancelNext], a rebuilt player, a focus loss, [release].
+     */
+    val hostDuck = HostDuck(scope = { scope }, player = { masterPlayerIfAlive })
+
+    /** Set by the service: true while Sing's instrumental or a Spatial audio render owns the master volume (the host must not touch it then). */
+    var hostDuckBlocked: () -> Boolean = { false }
+
+    /**
+     * True when the host may duck the music right now: playing, no transition, focus held, nobody else owning the volume, no duck running.
+     * A moment later this can change; [HostDuck] lets go when it does.
+     */
+    fun canDuckForHost(): Boolean =
+        !isReleased && ::playerA.isInitialized && !transitionRunning && !isFocusLossPause && !hostDuck.isActive &&
+            playerA.isPlaying && !hostDuckBlocked()
+
     private val focusChangeListener = AudioManager.OnAudioFocusChangeListener { focusChange ->
+        if (focusChange == AudioManager.AUDIOFOCUS_LOSS || focusChange == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT) hostDuck.abort("focus")
         when (focusChange) {
             AudioManager.AUDIOFOCUS_LOSS -> {
                 Timber.tag("TransitionDebug").d("AudioFocus LOSS. Pausing.")
@@ -1106,6 +1124,8 @@ class DualPlayerEngine @Inject constructor(
     }
 
     private fun rebuildPlayersPreservingMasterState(logMessage: String) {
+        // A ducked volume must not be copied to the new player as if it were the level.
+        hostDuck.abort("rebuild")
         cancelAudioOffloadFallback()
         AdvancedPerformanceDiagnostics.recordEventIfEnabled(
             type = AdvancedPerformanceDiagnostics.EventTypes.PLAYBACK,
@@ -1734,6 +1754,7 @@ class DualPlayerEngine @Inject constructor(
     }
 
     fun cancelNext() {
+        hostDuck.abort("transition")
         val shouldPublishMasterPlayer = transitionRunning
         transitionJob?.cancel()
         transitionRunning = false
@@ -1755,6 +1776,8 @@ class DualPlayerEngine @Inject constructor(
     }
 
     fun performTransition(settings: TransitionSettings) {
+        // The overlap reads the master volume as the outgoing level: the host's duck gives it back first (and stops talking).
+        hostDuck.abort("transition")
         transitionJob?.cancel()
         transitionRunning = true
         transitionStartedAtMs = SystemClock.elapsedRealtime()
@@ -1985,6 +2008,7 @@ class DualPlayerEngine @Inject constructor(
 
 
     fun release() {
+        hostDuck.abort("release")
         transitionJob?.cancel()
         preResolutionJob?.cancel()
         cancelAudioOffloadFallback()

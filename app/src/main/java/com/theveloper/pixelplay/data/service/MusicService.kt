@@ -797,6 +797,8 @@ class MusicService : MediaLibraryService() {
         
         // Ensure engine is ready (re-initialize if service was restarted)
         engine.initialize()
+        // The host never ducks the music while Sing or a Spatial audio render owns the volume.
+        engine.hostDuckBlocked = { alternateRenditionOwnsVolume }
         replayGainProcessor.captureUserVolume(engine.masterPlayer.volume)
         syncLocalListeningStatsFromPlayer(engine.masterPlayer)
 
@@ -1888,6 +1890,8 @@ class MusicService : MediaLibraryService() {
 
     private val playerListener = object : Player.Listener {
         override fun onVolumeChanged(volume: Float) {
+            // The host of Endless Listening brings the music down while it speaks: its own writes are not a volume the person chose.
+            if (engine.hostDuck.onMainVolumeChanged(volume)) return
             // Sing silences the main player on purpose while the instrumental plays: its fades, and any
             // write it absorbs, are neither the user's gestures nor "volume reached 0".
             if (instrumentalCrossfadeController.onMainVolumeChanged(mediaSession?.player ?: engine.masterPlayer, volume)) return

@@ -818,6 +818,8 @@ class PlayerViewModel @Inject constructor(
             }
         )
         themeStateHolder.initialize(viewModelScope)
+        // The spoken host of Endless Listening watches nothing and starts no voice until it is switched on and Endless Listening is the queue.
+        brainSession.endless.voice.attach(queue = { queueFlow.value }, why = { brainSession.queueWhy.value })
         playbackDispatchStateHolder.initialize(playbackDispatchCallbacks())
         mediaControllerSyncStateHolder.initialize(controllerSyncCallbacks())
 

@@ -260,6 +260,8 @@ class UserPreferencesRepository @Inject constructor(
         // Endless Listening: the intro was shown once, and the host's notes between songs (default on).
         val ENDLESS_INTRO_SEEN = booleanPreferencesKey("endless_intro_seen")
         val ENDLESS_HOST_NOTES = booleanPreferencesKey("endless_host_notes")
+        // The host says its notes aloud (off by default).
+        val ENDLESS_SPOKEN_NOTES = booleanPreferencesKey("endless_spoken_notes")
         val BRAIN_PENDING_HISTORY_IMPORT = booleanPreferencesKey("brain_pending_history_import")
         // Which engine ranks Daily Mix and Your Mix: 0 legacy, 1 brain (default). Developer mode flips it.
         val BRAIN_ENGINE = intPreferencesKey("brain_engine")
@@ -646,6 +648,14 @@ class UserPreferencesRepository @Inject constructor(
 
     suspend fun setEndlessHostNotes(enabled: Boolean) {
         dataStore.edit { it[PreferencesKeys.ENDLESS_HOST_NOTES] = enabled }
+    }
+
+    /** Endless Listening: the host says its notes aloud between songs. Off by default; the system voice is not touched while it is off. */
+    val endlessSpokenNotesFlow: Flow<Boolean> =
+        pref { it[PreferencesKeys.ENDLESS_SPOKEN_NOTES] ?: false }
+
+    suspend fun setEndlessSpokenNotes(enabled: Boolean) {
+        dataStore.edit { it[PreferencesKeys.ENDLESS_SPOKEN_NOTES] = enabled }
     }
 
     /** 0 Familiar, 1 Blend (default), 2 Discover. */
