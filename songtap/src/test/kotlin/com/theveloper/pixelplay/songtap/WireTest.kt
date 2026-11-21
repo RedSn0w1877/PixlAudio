@@ -72,7 +72,7 @@ class WireTest {
     fun `every uuid is a lower case 128 bit uuid and they are all different`() {
         val all = listOf(
             SongTapWire.SERVICE_SEND, SongTapWire.SERVICE_RECEIVE, SongTapWire.CHAR_INFO,
-            SongTapWire.CHAR_OFFER, SongTapWire.CHAR_CONTROL, SongTapWire.CHAR_EVENT,
+            SongTapWire.CHAR_OFFER, SongTapWire.CHAR_CONTROL, SongTapWire.CHAR_EVENT, SongTapWire.CHAR_NAME,
         )
         val shape = listOf(8, 4, 4, 4, 12)
         for (u in all) {
@@ -105,5 +105,39 @@ class WireTest {
         assertNull(over)
         val fits = SongTapSigning.encodeFrame(SignedOffer(ByteArray(SongTapSigning.MAX_FRAME_BYTES - 142) { 1 }, 1L, ByteArray(65), ByteArray(64)))
         assertNotNull(fits)
+    }
+
+    @Test
+    fun `offer ready is its own one byte event and go is no longer sent`() {
+        assertTrue(SongTapWire.isOfferReady(SongTapWire.encodeOfferReady()))
+        assertTrue(!SongTapWire.isOfferReady(SongTapWire.encodeGo()))
+        assertTrue(!SongTapWire.isGo(SongTapWire.encodeOfferReady()))
+        assertEquals(2, SongTapWire.EVENT_OFFER_READY)
+    }
+
+    @Test
+    fun `a name travels in the name characteristic and in the advertisement block`() {
+        assertEquals("Pixel 10 Pro", SongTapWire.decodeName(SongTapWire.encodeName("Pixel 10 Pro")))
+        assertEquals("Pixel 10 Pro", SongTapWire.decodeAdvertName(SongTapWire.encodeAdvertName("Pixel 10 Pro")))
+        // The advertisement is cut at a scalar boundary to 24 bytes; the characteristic carries all 20 scalars.
+        val long = "é".repeat(20)
+        assertEquals(long, SongTapWire.decodeName(SongTapWire.encodeName(long)))
+        assertEquals("é".repeat(12), SongTapWire.decodeAdvertName(SongTapWire.encodeAdvertName(long)))
+        assertTrue(SongTapWire.encodeAdvertName(long).size <= 1 + SongTapNames.ADVERT_NAME_MAX_BYTES)
+        assertEquals(SongTapWire.ADVERT_VERSION, SongTapWire.encodeAdvertName("x")[0].toInt())
+        assertEquals(SongTapWire.VERSION, SongTapWire.encodeName("x")[0].toInt())
+    }
+
+    @Test
+    fun `a name value that is not exactly a name is refused`() {
+        assertNull(SongTapWire.decodeName(ByteArray(0)))
+        assertNull(SongTapWire.decodeName(byteArrayOf(1)))
+        assertNull(SongTapWire.decodeName(byteArrayOf(2, 65)))
+        assertNull(SongTapWire.decodeName(byteArrayOf(1, 0xFF.toByte())))
+        assertNull(SongTapWire.decodeName(byteArrayOf(1, 0x20)))
+        assertNull(SongTapWire.decodeName(ByteArray(2 + SongTapNames.MAX_NAME_BYTES) { 65 }))
+        assertNull(SongTapWire.decodeAdvertName(byteArrayOf(1)))
+        assertNull(SongTapWire.decodeAdvertName(byteArrayOf(2, 65)))
+        assertNull(SongTapWire.decodeAdvertName(ByteArray(2 + SongTapNames.ADVERT_NAME_MAX_BYTES) { 65 }))
     }
 }

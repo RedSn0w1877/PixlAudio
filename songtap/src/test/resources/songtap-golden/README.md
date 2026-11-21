@@ -23,17 +23,28 @@ exactly `out`. Signatures are never part of a golden, only the bytes that are si
   has the state description and the effect descriptions after each. Event grammar:
   `name(arg,arg,...)` with the arguments exactly as `SessionEvent.describe()` prints them (roles
   `send`/`receive`, `-` for an empty video id, outcomes `saved|already_had|not_found|failed`, timeout
-  tags `ack|read|consent|save`).
+  tags `ack|read|consent|save|target`). Spec 5 adds the events `approve(peer,vid)`, `republish(vid)`, `offerRead(peer,now)`,
+  `offerReadLost(peer)`, `offerPrefetched(peer,vid,key)`, `offerGone(peer)` and gives `tap` a third argument (this phone's
+  time); `go` is gone. A state line may end with extra ` tgt=N read=1 tapseen=1 acked=1 beamdone=1 pre=1` words.
 - detector.jsonl: `detector`: samples `"t,rssi,impulseMs"` from `DetectorState.INITIAL`; each step is
-  `"fire,glow,baselineQ,fastQ,near"`. Also `glow` and `floorDiv`.
+  `"fire,glow,baselineQ,fastQ,near"` (fire is `none`, `impulse`, `dwell` or, from spec 5, `hold`). Also `glow` and `floorDiv`.
 - impulse.jsonl: `impulse`: samples `"t,x,y,z"` from `ImpulseState.INITIAL`; out `hits` 0/1.
 - ratelimit.jsonl: `limits`: ops `admit,now,videoId,key`, `accepted,now,videoId`, `attempted,now`, `undone,now,key`
   from an empty `RateLimits`; out `verdicts` (`-` for the two that return no verdict).
 - timeline.jsonl: `ease`, `frame` (role, t, reduced), `total`.
 - wire.jsonl: the Bluetooth wire format (`SongTapWire`): `constants` (the UUIDs), `infoEncode`, `infoDecode`,
   `helloEncode`, `ackEncode`, `declineEncode`, `goEncode`, `tapEncode`, `controlDecode` (`kind` hello, ack, decline,
-  tap or none), `isGo`, `roleOfService` (case sensitive).
-- haptics.jsonl: `cues`. handshake.jsonl: `senderStart`, `receiverStart`, `impulseAge`, `peerImpulse`.
+  tap or none), `isGo`, `roleOfService` (case sensitive). Spec 5 adds `offerReadyEncode`, `isOfferReady`, `nameEncode`
+  (hex of the Name characteristic value for a raw name), `advertEncode` (hex of the manufacturer block data for a raw name),
+  `nameDecode` and `advertDecode` (`name` = the clean name or null), and the `constants` line has the name characteristic,
+  the two event ids and the advertisement's company id and version.
+- names.jsonl (spec 5): `clean` (raw `name` to `name`), `orFallback`, `advertName` (the cut for the advertisement), `isValid`
+  (`valid`), `fromAdvert` (`name` or null). Names are worked on as Unicode scalars: at most 20, control, zero width and
+  bidirectional characters stripped, spaces collapsed and trimmed, the advert name cut at a scalar boundary to 24 UTF-8 bytes.
+- nearby.jsonl (spec 5): `nearby`: ops from an empty `NearbyBook`: `u,id,name,role,fastQ,near,now` (update), `r,id` (remove),
+  `c` (clear), `i,id,now` (ignore), `v,role,now` (visible) and `p,role,now` (promptFor); out `results` has one string per
+  op: `-` for the mutating ops, rows `id:name:dbm:near` joined by `|` for `v` (`[]` when empty), `id` or `-` for `p`.
+- haptics.jsonl: `cues`. handshake.jsonl: `constants`, `impulseAge`, `peerImpulse` (`senderStart` and `receiverStart` are gone in spec 5).
 
 ## Pixl ring code (the ring-*.jsonl files; handoff/2026-11-21-ring-code.md)
 

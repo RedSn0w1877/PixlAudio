@@ -6,8 +6,11 @@ package com.theveloper.pixelplay.songtap
  *
  * Why relative: the same tap reads very differently on different phones (antenna, case, the three
  * advertising channels differ by up to 15 dB), so the detector compares a peer with itself a moment ago.
- * The only absolute numbers are [NEAR_ENTER_DBM] and [NEAR_EXIT_DBM], a loose floor for "this peer is within
- * reach" that decides the Near state and gates a fire; they are not the tap threshold.
+ * The only absolute numbers are the coarse gates: [NEAR_ENTER_DBM] / [NEAR_EXIT_DBM], the STRICT near gate (a
+ * phone has to be right there before a receiver connects to it, before a sender serves it the song and before a
+ * tap can fire), [CLOSE_HOLD_DBM] for a gentle hold, and [LIST_ENTER_DBM] / [LIST_EXIT_DBM], the broader gate for
+ * the "nearby phones" list, which comes from advertisements only and never connects. They are guesses to be
+ * calibrated on the real phones with the diagnostics screen, and none of them is the tap threshold.
  *
  * Every number is a named constant so the diagnostics screen (Developer mode > Song Tap diagnostics) can
  * show them next to the live signal and the owner can calibrate on the real phones. All arithmetic is in
@@ -51,11 +54,30 @@ object SongTapTuning {
     /** After a fire, no new fire for this long. */
     const val COOLDOWN_MS = 2_000L
 
-    /** Within reach (loose): the smoothed signal rises above this to become Near. */
-    const val NEAR_ENTER_DBM = -70
+    /**
+     * STRICT near gate: the smoothed signal rises to this to become Near (about "the phones are almost touching").
+     * Everything that costs something needs it: connecting, serving the offer, firing. It was -70 before spec 5,
+     * which let a phone be found and connected from a few metres. Calibrate on the phones.
+     */
+    const val NEAR_ENTER_DBM = -55
 
-    /** And falls below this to stop being Near. */
-    const val NEAR_EXIT_DBM = -78
+    /** And falls below this to stop being Near (hysteresis). */
+    const val NEAR_EXIT_DBM = -63
+
+    /**
+     * The broader gate of the "nearby phones" list (the Song Drop picker). The list is built from advertisements only,
+     * with no connection, so a phone a couple of metres away may be listed; connecting and beaming still need the
+     * strict gate above. Enter and leave are different numbers so an entry does not flicker.
+     */
+    const val LIST_ENTER_DBM = -78
+    const val LIST_EXIT_DBM = -85
+
+    /**
+     * A gentle hold: the phones are brought close (no bump) and held. The smoothed signal staying at least this strong
+     * for [CLOSE_HOLD_MS] fires with reason HOLD, whatever the jump or the jerk did. Only inside the strict near gate.
+     */
+    const val CLOSE_HOLD_DBM = -52
+    const val CLOSE_HOLD_MS = 350L
 
     /** Samples this far apart (ms) reset the detector for the peer: it was gone. */
     const val GAP_RESET_MS = 3_000L
@@ -73,7 +95,7 @@ object SongTapTuning {
 
 const val RSSI_SCALE = 256
 
-enum class FireReason(val code: String) { NONE("none"), IMPULSE("impulse"), DWELL("dwell") }
+enum class FireReason(val code: String) { NONE("none"), IMPULSE("impulse"), DWELL("dwell"), HOLD("hold") }
 
 /** One reading of a peer's signal strength, [tMs] on this phone's monotonic clock. */
 data class RssiSample(val tMs: Long, val rssi: Int)
@@ -81,6 +103,8 @@ data class RssiSample(val tMs: Long, val rssi: Int)
 /**
  * The detector's memory for one peer. [baselineQ] and [fastQ] are dBm times 256; [heldSinceMs] is when the
  * signal first went [SongTapTuning.JUMP_DB] above the baseline and has stayed there (-1 when it has not).
+ * [closeSinceMs] is when the smoothed signal first reached [SongTapTuning.CLOSE_HOLD_DBM] and has stayed there: -1 when
+ * it is not that strong, [CLOSE_USED] after a fire (it must drop below the level before it can count again).
  */
 data class DetectorState(
     val started: Boolean,
@@ -90,9 +114,13 @@ data class DetectorState(
     val near: Boolean,
     val heldSinceMs: Long,
     val lastFireMs: Long,
+    val closeSinceMs: Long = -1L,
 ) {
     companion object {
-        val INITIAL = DetectorState(false, -1L, 0, 0, false, -1L, -1L)
+        val INITIAL = DetectorState(false, -1L, 0, 0, false, -1L, -1L, -1L)
+
+        /** [closeSinceMs] after a fire: consumed until the signal falls below the hold level. */
+        const val CLOSE_USED = -2L
     }
 }
 
@@ -112,7 +140,7 @@ object SongTapDetector {
         val sampleQ = sample.rssi * RSSI_SCALE
         var s = state
         if (!s.started || (s.lastMs >= 0L && sample.tMs - s.lastMs > SongTapTuning.GAP_RESET_MS)) {
-            s = DetectorState(true, sample.tMs, sampleQ, sampleQ, false, -1L, s.lastFireMs)
+            s = DetectorState(true, sample.tMs, sampleQ, sampleQ, false, -1L, s.lastFireMs, -1L)
         }
         val fastQ = s.fastQ + ((sampleQ - s.fastQ) shr SongTapTuning.FAST_SHIFT)
         val deltaQ = fastQ - s.baselineQ
@@ -126,6 +154,16 @@ object SongTapDetector {
         var held = s.heldSinceMs
         held = if (deltaQ >= SongTapTuning.JUMP_DB * RSSI_SCALE) (if (held < 0L) sample.tMs else held) else -1L
 
+        // The hold timer: running while the smoothed signal is at the hold level. After a fire it is consumed ([CLOSE_USED]) and
+        // stays so until the phones have come apart (the signal left the near gate), so one contact is one fire.
+        var close = s.closeSinceMs
+        close = when {
+            !near -> -1L
+            close == DetectorState.CLOSE_USED -> close
+            fastDbm >= SongTapTuning.CLOSE_HOLD_DBM -> if (close == -1L) sample.tMs else close
+            else -> -1L
+        }
+
         var fire = FireReason.NONE
         var lastFire = s.lastFireMs
         val cooled = lastFire < 0L || sample.tMs - lastFire >= SongTapTuning.COOLDOWN_MS
@@ -135,9 +173,13 @@ object SongTapDetector {
             if (heldFor >= SongTapTuning.HOLD_MS && jerkNear) fire = FireReason.IMPULSE
             else if (heldFor >= SongTapTuning.DWELL_MS && fastDbm >= SongTapTuning.DWELL_MIN_DBM) fire = FireReason.DWELL
         }
+        if (fire == FireReason.NONE && near && cooled && close >= 0L && sample.tMs - close >= SongTapTuning.CLOSE_HOLD_MS) {
+            fire = FireReason.HOLD
+        }
         if (fire != FireReason.NONE) {
             lastFire = sample.tMs
             held = -1L
+            close = DetectorState.CLOSE_USED
             // The phones stay together after a tap: the signal stays high, so the baseline must catch up or the
             // same contact would fire again as soon as the cooldown ends.
             baselineQ = fastQ
@@ -145,7 +187,7 @@ object SongTapDetector {
             held = -1L
             baselineQ = fastQ
         }
-        val next = DetectorState(true, sample.tMs, baselineQ, fastQ, near, held, lastFire)
+        val next = DetectorState(true, sample.tMs, baselineQ, fastQ, near, held, lastFire, close)
         return DetectorStep(next, fire, glowPermille(fastQ))
     }
 

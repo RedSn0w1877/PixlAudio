@@ -25,7 +25,36 @@ class DetectorTest {
     @Test
     fun `a steady signal never fires`() {
         assertTrue(fires(series(60 to -60)).isEmpty())
-        assertTrue(fires(series(60 to -45)).isEmpty())
+        // Outside the strict near gate nothing can fire, however the signal moves.
+        assertTrue(fires(series(20 to -90, 30 to -58)).isEmpty())
+    }
+
+    @Test
+    fun `phones brought close gently and held fire as hold, once, with no jump and no jerk`() {
+        // From far to touching over 4 seconds (no 15 dB jump at any moment), then held: the old rules never fire here.
+        val f = fires((0 until 120).map { -90 + it / 3 } + series(30 to -46))
+        assertEquals(1, f.size)
+        assertEquals(FireReason.HOLD, f[0].second)
+        assertTrue(f[0].first >= SongTapTuning.CLOSE_HOLD_MS, "fired at ${f[0].first}")
+    }
+
+    @Test
+    fun `a signal held just outside the hold level does not fire`() {
+        assertTrue(fires((0 until 105).map { -90 + it / 3 } + series(40 to -54)).isEmpty())
+    }
+
+    @Test
+    fun `a steady strong signal fires the hold once, and again only after the phones came apart`() {
+        assertEquals(1, fires(series(80 to -45)).size)
+        val again = fires(series(20 to -75, 12 to -50, 25 to -75, 25 to -50))
+        assertEquals(2, again.size)
+        assertTrue(again[1].first - again[0].first >= SongTapTuning.COOLDOWN_MS)
+    }
+
+    @Test
+    fun `a phone seen only inside the old loose gate cannot fire`() {
+        // -66 was near under spec 4. The strict gate keeps a connection and a tap from happening at that distance.
+        assertTrue(fires(series(20 to -90, 20 to -66), impulseAt = 2_000L).isEmpty())
     }
 
     @Test
@@ -40,7 +69,8 @@ class DetectorTest {
     fun `a gentle tap with no jerk fires only after the dwell`() {
         val f = fires(series(20 to -62, 10 to -42))
         assertEquals(1, f.size)
-        assertEquals(FireReason.DWELL, f[0].second)
+        // Both the dwell (a held jump) and the hold (a held strong signal) apply; the hold is the earlier of the two.
+        assertEquals(FireReason.HOLD, f[0].second)
         val withJerk = fires(series(20 to -62, 10 to -42), impulseAt = 2_050L)
         assertTrue(f[0].first > withJerk[0].first)
     }
@@ -78,7 +108,10 @@ class DetectorTest {
     @Test
     fun `a jerk long before the jump does not count`() {
         val f = fires(series(20 to -62, 10 to -42), impulseAt = 100L)
-        assertEquals(FireReason.DWELL, f[0].second)
+        assertEquals(FireReason.HOLD, f[0].second)
+        // At a signal inside the near gate but weaker than the hold level only the dwell path remains.
+        val dwell = fires(series(20 to -75, 15 to -54), impulseAt = 100L)
+        assertEquals(FireReason.DWELL, dwell[0].second)
     }
 
     @Test
@@ -87,18 +120,24 @@ class DetectorTest {
     }
 
     @Test
-    fun `the same jump reads the same on a phone that hears everything 20 dB louder`() {
-        val quiet = fires(series(20 to -80, 10 to -62), impulseAt = 2_050L)
-        val loud = fires(series(20 to -60, 10 to -42), impulseAt = 2_050L)
+    fun `the same jump fires the same way on phones that hear it a few dB louder or quieter`() {
+        // Relative, not absolute: the strict gate is the only absolute number, and it only says "close enough".
+        val quiet = fires(series(20 to -72, 10 to -54), impulseAt = 2_050L)
+        val loud = fires(series(20 to -69, 10 to -51), impulseAt = 2_050L)
         assertEquals(1, quiet.size)
-        assertEquals(quiet, loud)
+        assertEquals(FireReason.IMPULSE, quiet[0].second)
+        assertEquals(1, loud.size)
+        assertEquals(FireReason.IMPULSE, loud[0].second)
+        assertTrue((quiet[0].first - loud[0].first) in -200L..200L)
     }
 
     @Test
     fun `a second tap inside the cooldown does not fire`() {
         // The first tap fires at 2300 and the baseline then follows the phones apart for 1.2 s; the second jump is inside the cooldown, which runs to 4300.
         val f = fires(series(20 to -62, 5 to -42, 12 to -62, 8 to -42), impulseAt = 2_050L)
-        assertEquals(1, f.size)
+        assertEquals(1, f.filter { it.first < 4_000L }.size)
+        // Whatever fires next waits for the cooldown (the hold path is a second, deliberate, hold).
+        assertTrue(f.size == 1 || f[1].first - f[0].first >= SongTapTuning.COOLDOWN_MS)
         // The same second tap, long enough to outlast the cooldown, fires.
         val g = fires(series(20 to -62, 5 to -42, 12 to -62, 14 to -42), impulseAt = 2_050L)
         assertEquals(2, g.size)
@@ -118,12 +157,14 @@ class DetectorTest {
     fun `near has hysteresis`() {
         var state = DetectorState.INITIAL
         var near = ArrayList<Boolean>()
-        for ((i, r) in listOf(-80, -72, -69, -69, -69, -75, -75, -75, -75, -80, -80, -80, -80).withIndex()) {
+        for ((i, r) in listOf(-80, -66, -58, -56, -52, -52, -52, -60, -60, -60, -60, -68, -68, -68, -68).withIndex()) {
             state = SongTapDetector.step(state, RssiSample(i * 100L, r), -1L).state
             near += state.near
         }
         assertFalse(near[0])
-        assertTrue(near[5])
+        assertFalse(near[3], "-56 is outside the strict gate")
+        assertTrue(near[6])
+        assertTrue(near[10], "-60 is inside the exit level, so it stays near")
         assertFalse(near.last())
     }
 

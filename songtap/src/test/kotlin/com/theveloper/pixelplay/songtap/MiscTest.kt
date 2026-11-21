@@ -114,11 +114,8 @@ class MiscTest {
     }
 
     @Test
-    fun `handshake lines the two clocks up`() {
-        assertEquals(1150L, SongTapHandshake.senderStartMs(1000L))
-        assertEquals(10_000L + 150L - 20L, SongTapHandshake.receiverStartMs(10_000L, 40L))
-        assertEquals(10_000L + 150L - 500L, SongTapHandshake.receiverStartMs(10_000L, 50_000L))
-        assertEquals(10_150L, SongTapHandshake.receiverStartMs(10_000L, -5L))
+    fun `handshake keeps only the impulse helpers and no start delay`() {
+        assertEquals(0L, SongTapHandshake.GO_DELAY_MS)
         assertEquals(100L, SongTapHandshake.impulseAgeMs(1000L, 900L))
         assertEquals(-1L, SongTapHandshake.impulseAgeMs(1000L, 1001L))
         assertEquals(10_000L - 100L - 20L, SongTapHandshake.peerImpulseLocalMs(10_000L, 100L, 40L))

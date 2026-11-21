@@ -19,7 +19,7 @@ object GoldenGenerator {
     const val GOLDEN_DIR = "src/test/resources/songtap-golden"
     const val MANIFEST = "MANIFEST.sha256"
     const val SPEC_VERSION_FILE = "SPEC_VERSION"
-    const val SPEC_VERSION = 4
+    const val SPEC_VERSION = 5
 
     @JvmStatic
     fun main(args: Array<String>) {
@@ -42,6 +42,8 @@ object GoldenGenerator {
         files["signing.jsonl"] = signing()
         files["session.jsonl"] = session()
         files["detector.jsonl"] = detector()
+        files["names.jsonl"] = names()
+        files["nearby.jsonl"] = nearby()
         files["impulse.jsonl"] = impulse()
         files["ratelimit.jsonl"] = rateLimits()
         files["timeline.jsonl"] = timeline()
@@ -348,30 +350,63 @@ object GoldenGenerator {
         val t = ArrayList<Trace>()
         fun add(name: String, ask: Boolean, vararg e: SessionEvent) { t += Trace(name, ask, e.toList()) }
         run {
-            add("send happy path", true, Arm(Role.SEND, true), PeerFound(1), PeerRole(1, Role.RECEIVE), PeerNear(1), TapDetected(1, V1),
-                AckReceived(1000, 80), BeamFinished, Dismiss)
-            add("send: nothing playing", true, Arm(Role.SEND, true), PeerFound(1), PeerNear(1), TapDetected(1, ""), Dismiss)
-            add("send: the receiver declines", true, Arm(Role.SEND, true), PeerFound(1), PeerNear(1), TapDetected(1, V1), PeerDeclined(1), Dismiss)
-            add("send: no acknowledgement", true, Arm(Role.SEND, true), PeerFound(1), PeerNear(1), TapDetected(1, V1), Timeout(TimeoutTag.ACK), Dismiss)
-            add("send: late acknowledgement after cancel", true, Arm(Role.SEND, true), PeerFound(1), PeerNear(1), TapDetected(1, V1), Cancel, AckReceived(900, 50), Dismiss)
-            add("send: duplicate acknowledgement", true, Arm(Role.SEND, true), PeerFound(1), PeerNear(1), TapDetected(1, V1), AckReceived(900, 50), AckReceived(950, 50), BeamFinished, BeamFinished)
-            add("send: peer drops mid transfer", true, Arm(Role.SEND, true), PeerFound(1), PeerNear(1), TapDetected(1, V1), AckReceived(900, 50), PeerLost(1), Dismiss)
-            add("send: a stranger's signal is ignored", true, Arm(Role.SEND, true), PeerFound(1), PeerFound(2), PeerLost(2), PeerNear(2), PeerNear(1), TapDetected(2, V1), TapDetected(1, V1))
+            add("send happy path: yes, the receiver reads, the tap commits", true, Arm(Role.SEND, true), PeerFound(1), PeerRole(1, Role.RECEIVE), PeerNear(1),
+                Approve(1, V1), OfferRead(1, 900), TapDetected(1, V1, 1000), AckReceived(1100, 0), BeamFinished, Dismiss)
+            add("send: the beam ends before the acknowledgement", true, Arm(Role.SEND, true), PeerFound(1), PeerNear(1),
+                Approve(1, V1), OfferRead(1, 900), TapDetected(1, V1, 1000), BeamFinished, AckReceived(5000, 0), Dismiss)
+            add("send: a tap before the receiver has read the offer waits for the read", true, Arm(Role.SEND, true), PeerFound(1), PeerNear(1),
+                Approve(1, V1), TapDetected(1, V1, 1000), OfferRead(1, 1300), AckReceived(1500, 0), BeamFinished)
+            add("send: the receiver acknowledged before this phone noticed the tap", true, Arm(Role.SEND, true), PeerFound(1), PeerNear(1),
+                Approve(1, V1), OfferRead(1, 900), AckReceived(1100, 0), BeamFinished)
+            add("send: nothing playing", true, Arm(Role.SEND, true), PeerFound(1), PeerNear(1), Approve(1, ""), Dismiss)
+            add("send: a tap without a yes does nothing", true, Arm(Role.SEND, true), PeerFound(1), PeerNear(1), TapDetected(1, V1, 1000), OfferRead(1, 1100), AckReceived(1200, 0))
+            add("send: the receiver declines", true, Arm(Role.SEND, true), PeerFound(1), PeerNear(1), Approve(1, V1), OfferRead(1, 900), TapDetected(1, V1, 1000), PeerDeclined(1), Dismiss)
+            add("send: no acknowledgement", true, Arm(Role.SEND, true), PeerFound(1), PeerNear(1), Approve(1, V1), OfferRead(1, 900), TapDetected(1, V1, 1000), BeamFinished, Timeout(TimeoutTag.ACK), Dismiss)
+            add("send: the target is never tapped", true, Arm(Role.SEND, true), PeerFound(1), PeerNear(1), Approve(1, V1), Timeout(TimeoutTag.TARGET), Dismiss)
+            add("send: the target timeout after the beam started is nothing", true, Arm(Role.SEND, true), PeerFound(1), PeerNear(1), Approve(1, V1), OfferRead(1, 900), TapDetected(1, V1, 1000), Timeout(TimeoutTag.TARGET))
+            add("send: late acknowledgement after cancel", true, Arm(Role.SEND, true), PeerFound(1), PeerNear(1), Approve(1, V1), OfferRead(1, 900), TapDetected(1, V1, 1000), Cancel, AckReceived(900, 50), Dismiss)
+            add("send: duplicate acknowledgement", true, Arm(Role.SEND, true), PeerFound(1), PeerNear(1), Approve(1, V1), OfferRead(1, 900), TapDetected(1, V1, 1000), AckReceived(1100, 50), AckReceived(1150, 50), BeamFinished, BeamFinished)
+            add("send: peer drops mid transfer", true, Arm(Role.SEND, true), PeerFound(1), PeerNear(1), Approve(1, V1), OfferRead(1, 900), TapDetected(1, V1, 1000), PeerLost(1), Dismiss)
+            add("send: peer drops after the acknowledgement", true, Arm(Role.SEND, true), PeerFound(1), PeerNear(1), Approve(1, V1), OfferRead(1, 900), TapDetected(1, V1, 1000), AckReceived(1100, 0), PeerLost(1), BeamFinished)
+            add("send: the target phone drops before the tap and comes back", true, Arm(Role.SEND, true), PeerFound(1), PeerNear(1), Approve(1, V1), OfferRead(1, 900), PeerLost(1), TapDetected(1, V1, 1000), OfferRead(1, 1200))
+            add("send: the reader leaves before the tap", true, Arm(Role.SEND, true), PeerFound(1), PeerNear(1), Approve(1, V1), OfferRead(1, 900), OfferReadLost(1), TapDetected(1, V1, 1000), OfferRead(1, 1100))
+            add("send: the song changes while armed", true, Arm(Role.SEND, true), PeerFound(1), PeerNear(1), Approve(1, V1), OfferRead(1, 900), Republish(V2), TapDetected(1, V2, 1000), OfferRead(1, 1100), Republish(""))
+            add("send: only the chosen phone's tap counts", true, Arm(Role.SEND, true), PeerFound(1), PeerFound(2), PeerNear(1), Approve(1, V1), OfferRead(2, 900), OfferRead(1, 910), TapDetected(2, V1, 1000), TapDetected(1, V1, 1010))
+            add("send: approving twice keeps the first", true, Arm(Role.SEND, true), PeerFound(1), PeerNear(1), Approve(1, V1), Approve(2, V2))
+            add("send: a stranger's signal is ignored", true, Arm(Role.SEND, true), PeerFound(1), PeerFound(2), PeerLost(2), PeerNear(2), PeerNear(1), TapDetected(2, V1, 1000), TapDetected(1, V1, 1010))
             add("send: qr", true, Arm(Role.SEND, true), QrShown(V1), QrShown(V2), Cancel, Dismiss)
             add("send: qr with nothing playing", true, Arm(Role.SEND, true), QrShown(""), Dismiss)
             add("both phones send", true, Arm(Role.SEND, true), PeerFound(1), PeerNear(1), PeerRole(1, Role.SEND), Dismiss)
-            add("both phones send: offer arrives at the sender", true, Arm(Role.SEND, true), PeerFound(1), PeerNear(1), TapDetected(1, V1), OfferReceived(1, V2, 5, 1000), Dismiss)
+            add("both phones send: after a yes", true, Arm(Role.SEND, true), PeerFound(1), PeerNear(1), Approve(1, V1), PeerRole(1, Role.SEND), Dismiss)
+            add("both phones send: offer arrives at the sender", true, Arm(Role.SEND, true), PeerFound(1), PeerNear(1), Approve(1, V1), OfferReceived(1, V2, 5, 1000), Dismiss)
             add("both phones receive", true, Arm(Role.RECEIVE, true), PeerFound(1), PeerNear(1), PeerRole(1, Role.RECEIVE), TapDetected(1, ""), Timeout(TimeoutTag.READ), Dismiss)
             add("switch role while searching", true, Arm(Role.SEND, true), SetRole(Role.RECEIVE), PeerFound(1), PeerNear(1), SetRole(Role.SEND), SetRole(Role.SEND), TapDetected(1, V1))
-            add("switch role is ignored mid offer", true, Arm(Role.SEND, true), PeerFound(1), PeerNear(1), TapDetected(1, V1), SetRole(Role.RECEIVE))
+            add("switch role is ignored mid offer", true, Arm(Role.SEND, true), PeerFound(1), PeerNear(1), Approve(1, V1), SetRole(Role.RECEIVE))
             add("receive: first beam asks, then saves", true, Arm(Role.RECEIVE, true), PeerFound(1), PeerNear(1), TapDetected(1, ""),
-                OfferReceived(1, V1, 7, 1000), Accept(1500), SaveResult(SaveOutcome.SAVED, 1800), GoReceived(1900, 60), Dismiss)
+                OfferReceived(1, V1, 7, 1000), Accept(1500), SaveResult(SaveOutcome.SAVED, 1800), Dismiss)
             add("receive: first beam declined", true, Arm(Role.RECEIVE, true), PeerFound(1), PeerNear(1), TapDetected(1, ""), OfferReceived(1, V1, 7, 1000), Decline, Dismiss)
             add("receive: consent card times out", true, Arm(Role.RECEIVE, true), PeerFound(1), PeerNear(1), TapDetected(1, ""), OfferReceived(1, V1, 7, 1000), Timeout(TimeoutTag.CONSENT), Dismiss)
             add("receive: later beams save at once and can be undone", false, Arm(Role.RECEIVE, false), PeerFound(1), PeerNear(1), TapDetected(1, ""),
-                OfferReceived(1, V1, 7, 1000), SaveResult(SaveOutcome.SAVED, 1400), GoReceived(1500, 40), Undo(3000), Undo(3100))
-            add("receive: save finishes before go", false, Arm(Role.RECEIVE, false), PeerFound(1), PeerNear(1), TapDetected(1, ""),
-                OfferReceived(1, V1, 7, 1000), SaveResult(SaveOutcome.SAVED, 1100), GoReceived(1300, 40), Dismiss)
+                OfferReceived(1, V1, 7, 1000), SaveResult(SaveOutcome.SAVED, 1400), Undo(3000), Undo(3100))
+            add("receive: the offer was fetched before the tap, the tap commits and the beam starts at once", false, Arm(Role.RECEIVE, false), PeerFound(1), PeerNear(1),
+                OfferPrefetched(1, V1, 7), TapDetected(1, "", 2000), SaveResult(SaveOutcome.SAVED, 2100), Dismiss)
+            add("receive: prefetched, first beam asks", true, Arm(Role.RECEIVE, true), PeerFound(1), PeerNear(1),
+                OfferPrefetched(1, V1, 7), TapDetected(1, "", 2000), Accept(4000), SaveResult(SaveOutcome.SAVED, 4100), Dismiss)
+            add("receive: prefetched, a second tap while saving changes nothing", false, Arm(Role.RECEIVE, false), PeerFound(1), PeerNear(1),
+                OfferPrefetched(1, V1, 7), TapDetected(1, "", 2000), TapDetected(1, "", 2010), SaveResult(SaveOutcome.SAVED, 2100))
+            add("receive: prefetched offer withdrawn before the tap", false, Arm(Role.RECEIVE, false), PeerFound(1), PeerNear(1),
+                OfferPrefetched(1, V1, 7), OfferGone(1), TapDetected(1, "", 2000), Timeout(TimeoutTag.READ))
+            add("receive: prefetched offer is dropped when the sender leaves", false, Arm(Role.RECEIVE, false), PeerFound(1), PeerNear(1),
+                OfferPrefetched(1, V1, 7), PeerLost(1), PeerFound(1), PeerNear(1), TapDetected(1, "", 2000))
+            add("receive: prefetched offer from another phone is ignored", false, Arm(Role.RECEIVE, false), PeerFound(1), PeerNear(1),
+                OfferPrefetched(2, V1, 7), TapDetected(1, "", 2000))
+            add("receive: prefetched offer replaced by a newer one", false, Arm(Role.RECEIVE, false), PeerFound(1), PeerNear(1),
+                OfferPrefetched(1, V1, 7), OfferPrefetched(1, V2, 7), TapDetected(1, "", 2000), SaveResult(SaveOutcome.SAVED, 2100))
+            add("receive: prefetched, the limits still apply at the commit", false, Arm(Role.RECEIVE, false), OfferReceived(0, V1, 3, 10_000), SaveResult(SaveOutcome.SAVED, 10_100), Dismiss,
+                PeerFound(1), PeerNear(1), OfferPrefetched(1, V2, 3), TapDetected(1, "", 11_000), Dismiss)
+            add("send: a prefetched offer means nothing to a sender", true, Arm(Role.SEND, true), PeerFound(1), PeerNear(1), OfferPrefetched(1, V1, 7), TapDetected(1, V1, 1000))
+            add("receive: save finishes while the phones are still together", false, Arm(Role.RECEIVE, false), PeerFound(1), PeerNear(1), TapDetected(1, ""),
+                OfferReceived(1, V1, 7, 1000), SaveResult(SaveOutcome.SAVED, 1100), Dismiss)
             add("receive: already in the library", false, Arm(Role.RECEIVE, false), PeerFound(1), PeerNear(1), TapDetected(1, ""),
                 OfferReceived(1, V1, 7, 1000), SaveResult(SaveOutcome.ALREADY_HAD, 1100), Undo(1200), Dismiss)
             add("receive: not found", false, Arm(Role.RECEIVE, false), PeerFound(1), PeerNear(1), TapDetected(1, ""),
@@ -446,18 +481,25 @@ object GoldenGenerator {
                     7 -> SessionEvent.PeerFar(peer)
                     8 -> SessionEvent.PeerRole(peer, role)
                     9 -> SessionEvent.PeerDeclined(peer)
-                    10, 11 -> SessionEvent.TapDetected(peer, vids[rng.nextInt(vids.size)])
+                    10, 11 -> SessionEvent.TapDetected(peer, vids[rng.nextInt(vids.size)], now)
                     12 -> SessionEvent.QrShown(vids[rng.nextInt(vids.size)])
                     13, 14 -> SessionEvent.OfferReceived(if (rng.nextInt(3) == 0) 0 else peer, vids[rng.nextInt(3)], 1 + rng.nextInt(2), now)
                     15 -> SessionEvent.OfferRejected
                     16 -> SessionEvent.AckReceived(now, rng.nextInt(300).toLong())
-                    17 -> SessionEvent.GoReceived(now, rng.nextInt(300).toLong())
+                    17 -> when (rng.nextInt(6)) {
+                        0 -> SessionEvent.Approve(peer, vids[rng.nextInt(vids.size)])
+                        1 -> SessionEvent.Republish(vids[rng.nextInt(vids.size)])
+                        2 -> SessionEvent.OfferRead(peer, now)
+                        3 -> SessionEvent.OfferReadLost(peer)
+                        4 -> SessionEvent.OfferPrefetched(peer, vids[rng.nextInt(3)], 1 + rng.nextInt(2))
+                        else -> SessionEvent.OfferGone(peer)
+                    }
                     18 -> SessionEvent.BeamFinished
                     19 -> SessionEvent.Accept(now)
                     20 -> if (rng.nextInt(2) == 0) SessionEvent.Decline else SessionEvent.Cancel
                     21 -> SessionEvent.SaveResult(SaveOutcome.entries[rng.nextInt(4)], now)
                     22 -> if (rng.nextInt(2) == 0) SessionEvent.Undo(now) else SessionEvent.Dismiss
-                    else -> SessionEvent.Timeout(TimeoutTag.entries[rng.nextInt(4)])
+                    else -> SessionEvent.Timeout(TimeoutTag.entries[rng.nextInt(TimeoutTag.entries.size)])
                 }
                 if (rng.nextInt(10) == 0) events += SessionEvent.Arm(role, ask)
             }
@@ -520,6 +562,11 @@ object GoldenGenerator {
         series("a slow approach that stops short", (0 until 30).map { Triple(1, -90 + it, 0) } + listOf(Triple(40, -61, 0)))
         series("a slow approach to contact", (0 until 45).map { Triple(1, -90 + it, 0) } + listOf(Triple(20, -45, 0)))
         series("tap, apart for a second, tap again", listOf(Triple(20, -62, 0), Triple(5, -42, 0), Triple(12, -62, 0), Triple(14, -42, 0)), impulseAt = 2_050L)
+        series("a gentle hold: brought close slowly and held", (0 until 40).map { Triple(1, -85 + it, 0) } + listOf(Triple(20, -46, 0)))
+        series("held just outside the hold level", listOf(Triple(20, -70, 0), Triple(20, -54, 0), Triple(20, -53, 0)))
+        series("a hold at the level fires once and the phones stay", listOf(Triple(20, -75, 0), Triple(60, -50, 0)))
+        series("a hold, apart, a hold again", listOf(Triple(20, -75, 0), Triple(12, -50, 0), Triple(20, -75, 0), Triple(12, -50, 0)))
+        series("inside the old near gate but outside the strict one", listOf(Triple(20, -90, 0), Triple(20, -66, 0)), impulseAt = 2_000L)
         series("signal fades away", listOf(Triple(10, -50, 0), Triple(10, -65, 0), Triple(10, -80, 0), Triple(10, -95, 0)))
         val rng = SplitMix64(0x44455443L)
         for (n in 0 until 60) {
@@ -701,12 +748,7 @@ object GoldenGenerator {
 
     private fun handshake(): String {
         val sb = StringBuilder()
-        for (now in longArrayOf(0L, 1000L, 1_763_600_000_000L)) {
-            sb.append(line("senderStart", { long("now", now) }, { long("ms", SongTapHandshake.senderStartMs(now)) }))
-        }
-        for (rtt in longArrayOf(-5L, 0L, 1L, 40L, 81L, 999L, 1000L, 1001L, 50_000L)) {
-            sb.append(line("receiverStart", { long("receipt", 10_000L); long("rtt", rtt) }, { long("ms", SongTapHandshake.receiverStartMs(10_000L, rtt)) }))
-        }
+        sb.append(line("constants", { }, { long("goDelay", SongTapHandshake.GO_DELAY_MS); long("maxRtt", SongTapHandshake.MAX_RTT_MS) }))
         for ((now, at) in listOf(1000L to 900L, 1000L to 1000L, 1000L to 1001L, 1000L to -1L, 1000L to 0L)) {
             sb.append(line("impulseAge", { long("now", now); long("impulse", at) }, { long("ms", SongTapHandshake.impulseAgeMs(now, at)) }))
         }
@@ -723,8 +765,10 @@ object GoldenGenerator {
         sb.append(line("constants", { }, {
             str("sendService", SongTapWire.SERVICE_SEND); str("receiveService", SongTapWire.SERVICE_RECEIVE)
             str("info", SongTapWire.CHAR_INFO); str("offer", SongTapWire.CHAR_OFFER)
-            str("control", SongTapWire.CHAR_CONTROL); str("event", SongTapWire.CHAR_EVENT)
+            str("control", SongTapWire.CHAR_CONTROL); str("event", SongTapWire.CHAR_EVENT); str("name", SongTapWire.CHAR_NAME)
             int("notReady", SongTapWire.ERROR_NOT_READY); int("mtu", SongTapWire.WANTED_MTU)
+            int("eventGo", SongTapWire.EVENT_GO); int("eventOfferReady", SongTapWire.EVENT_OFFER_READY)
+            int("advertCompanyId", SongTapWire.ADVERT_COMPANY_ID); int("advertVersion", SongTapWire.ADVERT_VERSION)
         }))
         for (age in longArrayOf(-1L, 0L, 1L, 150L, 4_999L, 5_000L, 5_001L, 1_000_000L)) {
             sb.append(line("infoEncode", { long("age", age) }, { hex("hex", SongTapWire.encodeInfo(age)) }))
@@ -762,8 +806,109 @@ object GoldenGenerator {
         for (h in listOf("01", "00", "02", "0101", "")) {
             sb.append(line("isGo", { str("hex", h) }, { bool("go", SongTapWire.isGo(fromHex(h))) }))
         }
+        sb.append(line("offerReadyEncode", { }, { hex("hex", SongTapWire.encodeOfferReady()) }))
+        for (h in listOf("02", "01", "00", "0201", "")) {
+            sb.append(line("isOfferReady", { str("hex", h) }, { bool("offerReady", SongTapWire.isOfferReady(fromHex(h))) }))
+        }
+        for (n in nameSamples()) {
+            sb.append(line("nameEncode", { str("name", n) }, { hex("hex", SongTapWire.encodeName(n)) }))
+            sb.append(line("advertEncode", { str("name", n) }, { hex("hex", SongTapWire.encodeAdvertName(n)) }))
+        }
+        val nameValues = listOf(
+            "0150697865", "01", "", "0050697865", "02506978", "01ff", "01c328", "0120", "01e280ae41", "01" + toHex("a".repeat(80).toByteArray()), "01" + toHex("a".repeat(81).toByteArray()),
+            "01f09f8e8a", "014f6c61",
+        )
+        for (h in nameValues) {
+            sb.append(line("nameDecode", { str("hex", h) }, { strOrNull("name", SongTapWire.decodeName(fromHex(h))) }))
+        }
+        val advertValues = listOf(
+            "0150697865", "01", "", "0050697865", "01" + toHex("b".repeat(24).toByteArray()), "01" + toHex("b".repeat(25).toByteArray()), "01c328", "01e280ae41", "0120", "01f09f8e8a",
+        )
+        for (h in advertValues) {
+            sb.append(line("advertDecode", { str("hex", h) }, { strOrNull("name", SongTapWire.decodeAdvertName(fromHex(h))) }))
+        }
         for (u in listOf(SongTapWire.SERVICE_SEND, SongTapWire.SERVICE_RECEIVE, SongTapWire.CHAR_INFO, "B7F3A1C0-5D2E-4C9A-8E61-3F4D7A2B9C01")) {
             sb.append(line("roleOfService", { str("uuid", u) }, { strOrNull("role", SongTapWire.roleOfService(u)?.code) }))
+        }
+        return sb.toString()
+    }
+
+    private fun nameSamples(): List<String> = listOf(
+        "Pixel 10 Pro", "  Hoa's   Pixel  ", "", "   ", "Ab", "A".repeat(20), "A".repeat(21), "A".repeat(40), "Zo\u00eb's phone", "\u00e9".repeat(20), "\u00e9".repeat(25),
+        "\u4f60\u597d\u4e16\u754c".repeat(5), "tab\there", "line\nbreak", "bell\u0007x", "\u202eevil\u202c", "zero\u200bwidth", "\uD83C\uDF8A party", "\uD83C\uDF8A".repeat(10),
+        "\uFEFFbom", "caf\u00e9 ", "a b", "\uD800 lone", "x".repeat(19) + " y", "x".repeat(19) + "\uD83C\uDF8A", "\u00e9".repeat(11) + "a",
+    )
+
+    private fun names(): String {
+        val sb = StringBuilder()
+        for (n in nameSamples()) {
+            sb.append(line("clean", { str("name", n) }, { str("name", SongTapNames.clean(n)) }))
+            sb.append(line("orFallback", { str("name", n) }, { str("name", SongTapNames.orFallback(n)) }))
+            sb.append(line("advertName", { str("name", n) }, { str("name", SongTapNames.advertName(n)) }))
+            sb.append(line("isValid", { str("name", n) }, { bool("valid", SongTapNames.isValid(n)) }))
+            sb.append(line("fromAdvert", { str("name", n) }, { strOrNull("name", SongTapNames.fromAdvert(n)) }))
+        }
+        return sb.toString()
+    }
+
+    private fun nearby(): String {
+        fun q(dbm: Int) = dbm * 256
+        val scripts = ArrayList<Pair<String, List<String>>>()
+        fun script(name: String, vararg ops: String) { scripts += name to ops.toList() }
+        script("empty", "v,receive,0", "p,receive,0")
+        script("one phone inside the list gate", "u,1,Ann,receive,${q(-70)},0,1000", "v,receive,1000", "p,receive,1000")
+        script("outside the list gate is not listed", "u,1,Ann,receive,${q(-80)},0,1000", "v,receive,1000", "u,1,Ann,receive,${q(-78)},0,1100", "v,receive,1100")
+        script("hysteresis: leaves only below the exit level", "u,1,Ann,receive,${q(-77)},0,1000", "u,1,Ann,receive,${q(-84)},0,1100", "v,receive,1100", "u,1,Ann,receive,${q(-86)},0,1200", "v,receive,1200", "u,1,Ann,receive,${q(-80)},0,1300", "v,receive,1300")
+        script("strongest first, ties by number", "u,3,Cy,receive,${q(-60)},0,1000", "u,1,Ann,receive,${q(-70)},0,1000", "u,2,Bo,receive,${q(-60)},0,1000", "v,receive,1000")
+        script("a row goes stale", "u,1,Ann,receive,${q(-60)},0,1000", "v,receive,4999", "v,receive,5000", "v,receive,5001")
+        script("one row per phone", "u,1,Ann,receive,${q(-70)},0,1000", "u,1,Ann,receive,${q(-60)},0,1500", "v,receive,1500")
+        script("the same name under a new address shows once", "u,1,Ann,receive,${q(-60)},0,1000", "u,2,Ann,receive,${q(-60)},0,3000", "v,receive,3000", "u,1,Ann,receive,${q(-60)},0,3100", "v,receive,3100")
+        script("only phones of the asked role", "u,1,Ann,receive,${q(-60)},0,1000", "u,2,Bo,send,${q(-50)},0,1000", "v,receive,1000", "v,send,1000")
+        script("the prompt needs the strict gate", "u,1,Ann,receive,${q(-60)},0,1000", "p,receive,1000", "u,1,Ann,receive,${q(-52)},1,1100", "p,receive,1100")
+        script("no ignores a phone for a minute", "u,1,Ann,receive,${q(-52)},1,1000", "i,1,1000", "p,receive,1000", "u,1,Ann,receive,${q(-52)},1,60999", "p,receive,60999", "u,1,Ann,receive,${q(-52)},1,61000", "p,receive,61000")
+        script("the prompt skips an ignored phone for the next", "u,1,Ann,receive,${q(-50)},1,1000", "u,2,Bo,receive,${q(-53)},1,1000", "i,1,1000", "p,receive,1000")
+        script("remove and clear", "u,1,Ann,receive,${q(-60)},0,1000", "u,2,Bo,receive,${q(-60)},0,1000", "r,1", "v,receive,1000", "c", "v,receive,1000")
+        val rng = SplitMix64(0x4E454152L)
+        val names = listOf("Ann", "Bo", "Cy", "Ann")
+        for (n in 0 until 40) {
+            val ops = ArrayList<String>()
+            var now = 1_000L
+            for (i in 0 until 40) {
+                now += rng.nextInt(900).toLong()
+                val id = 1 + rng.nextInt(4)
+                val role = if (rng.nextInt(4) == 0) "send" else "receive"
+                ops += when (rng.nextInt(10)) {
+                    0, 1, 2, 3 -> "u,$id,${names[id - 1]},$role,${q(-95 + rng.nextInt(55))},${rng.nextInt(2)},$now"
+                    4 -> "r,$id"
+                    5 -> "i,$id,$now"
+                    6 -> "c"
+                    7, 8 -> "v,$role,$now"
+                    else -> "p,$role,$now"
+                }
+            }
+            scripts += "random $n" to ops
+        }
+        val sb = StringBuilder()
+        for ((name, ops) in scripts) {
+            val book = NearbyBook()
+            val results = ArrayList<String>()
+            for (op in ops) {
+                val f = op.split(",")
+                fun roleOf(x: String) = if (x == "send") Role.SEND else Role.RECEIVE
+                when (f[0]) {
+                    "u" -> { book.update(f[1].toInt(), f[2], roleOf(f[3]), f[4].toInt(), f[5] == "1", f[6].toLong()); results += "-" }
+                    "r" -> { book.remove(f[1].toInt()); results += "-" }
+                    "c" -> { book.clear(); results += "-" }
+                    "i" -> { book.ignore(f[1].toInt(), f[2].toLong()); results += "-" }
+                    "v" -> results += "[" + book.visible(roleOf(f[1]), f[2].toLong()).joinToString("|") { "${it.id}:${it.name}:${it.dbm}:${if (it.near) 1 else 0}" } + "]"
+                    else -> results += (book.promptFor(roleOf(f[1]), f[2].toLong())?.id?.toString() ?: "-")
+                }
+            }
+            val w = GoldenJson().obj()
+            w.str("fn", "nearby")
+            w.obj("in"); w.str("name", name); w.arr("ops"); for (o in ops) w.strItem(o); w.endArr(); w.end()
+            w.obj("out"); w.arr("results"); for (r in results) w.strItem(r); w.endArr(); w.end()
+            sb.append(w.end().toString()).append('\n')
         }
         return sb.toString()
     }
@@ -798,16 +943,27 @@ object GoldenGenerator {
           has the state description and the effect descriptions after each. Event grammar:
           `name(arg,arg,...)` with the arguments exactly as `SessionEvent.describe()` prints them (roles
           `send`/`receive`, `-` for an empty video id, outcomes `saved|already_had|not_found|failed`, timeout
-          tags `ack|read|consent|save`).
+          tags `ack|read|consent|save|target`). Spec 5 adds the events `approve(peer,vid)`, `republish(vid)`, `offerRead(peer,now)`,
+          `offerReadLost(peer)`, `offerPrefetched(peer,vid,key)`, `offerGone(peer)` and gives `tap` a third argument (this phone's
+          time); `go` is gone. A state line may end with extra ` tgt=N read=1 tapseen=1 acked=1 beamdone=1 pre=1` words.
         - detector.jsonl: `detector`: samples `"t,rssi,impulseMs"` from `DetectorState.INITIAL`; each step is
-          `"fire,glow,baselineQ,fastQ,near"`. Also `glow` and `floorDiv`.
+          `"fire,glow,baselineQ,fastQ,near"` (fire is `none`, `impulse`, `dwell` or, from spec 5, `hold`). Also `glow` and `floorDiv`.
         - impulse.jsonl: `impulse`: samples `"t,x,y,z"` from `ImpulseState.INITIAL`; out `hits` 0/1.
         - ratelimit.jsonl: `limits`: ops `admit,now,videoId,key`, `accepted,now,videoId`, `attempted,now`, `undone,now,key`
           from an empty `RateLimits`; out `verdicts` (`-` for the two that return no verdict).
         - timeline.jsonl: `ease`, `frame` (role, t, reduced), `total`.
         - wire.jsonl: the Bluetooth wire format (`SongTapWire`): `constants` (the UUIDs), `infoEncode`, `infoDecode`,
           `helloEncode`, `ackEncode`, `declineEncode`, `goEncode`, `tapEncode`, `controlDecode` (`kind` hello, ack, decline,
-          tap or none), `isGo`, `roleOfService` (case sensitive).
-        - haptics.jsonl: `cues`. handshake.jsonl: `senderStart`, `receiverStart`, `impulseAge`, `peerImpulse`.
+          tap or none), `isGo`, `roleOfService` (case sensitive). Spec 5 adds `offerReadyEncode`, `isOfferReady`, `nameEncode`
+          (hex of the Name characteristic value for a raw name), `advertEncode` (hex of the manufacturer block data for a raw name),
+          `nameDecode` and `advertDecode` (`name` = the clean name or null), and the `constants` line has the name characteristic,
+          the two event ids and the advertisement's company id and version.
+        - names.jsonl (spec 5): `clean` (raw `name` to `name`), `orFallback`, `advertName` (the cut for the advertisement), `isValid`
+          (`valid`), `fromAdvert` (`name` or null). Names are worked on as Unicode scalars: at most 20, control, zero width and
+          bidirectional characters stripped, spaces collapsed and trimmed, the advert name cut at a scalar boundary to 24 UTF-8 bytes.
+        - nearby.jsonl (spec 5): `nearby`: ops from an empty `NearbyBook`: `u,id,name,role,fastQ,near,now` (update), `r,id` (remove),
+          `c` (clear), `i,id,now` (ignore), `v,role,now` (visible) and `p,role,now` (promptFor); out `results` has one string per
+          op: `-` for the mutating ops, rows `id:name:dbm:near` joined by `|` for `v` (`[]` when empty), `id` or `-` for `p`.
+        - haptics.jsonl: `cues`. handshake.jsonl: `constants`, `impulseAge`, `peerImpulse` (`senderStart` and `receiverStart` are gone in spec 5).
     """.trimIndent() + "\n"
 }

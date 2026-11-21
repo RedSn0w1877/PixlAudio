@@ -17,35 +17,132 @@ class SessionTest {
 
     @Test
     fun `the sender's happy path`() {
-        val r = run(true, Arm(Role.SEND, true), PeerFound(1), PeerNear(1), TapDetected(1, v1), AckReceived(1000, 80), BeamFinished)
+        val r = run(true, Arm(Role.SEND, true), PeerFound(1), PeerNear(1), Approve(1, v1), OfferRead(1, 900), TapDetected(1, v1, 1000), AckReceived(1100, 80), BeamFinished)
         assertEquals(listOf("startTransport(send)"), r[0].fx())
         assertEquals(Phase.NEAR, r[2].state.phase)
-        assertEquals(listOf("publishOffer(1,$v1)", "haptic(tick)", "scheduleTimeout(ack,45000)"), r[3].fx())
+        // The yes publishes the offer for that phone only, before any tap.
+        assertEquals(listOf("publishOffer(1,$v1)", "scheduleTimeout(target,60000)"), r[3].fx())
         assertEquals(Phase.OFFERED, r[3].state.phase)
-        assertEquals(listOf("sendGo(1,1150)", "startBeam(send,1150)"), r[4].fx())
+        assertEquals(1, r[3].state.target)
+        assertTrue(r[4].state.offerRead)
+        // The tap is the commit: the haptic and the beam start right there, no go, no delay.
+        assertEquals(listOf("haptic(tick)", "startBeam(send,1000)", "scheduleTimeout(ack,45000)"), r[5].fx())
+        assertEquals(Phase.TRANSFERRING, r[5].state.phase)
+        assertTrue(r[6].state.acked)
+        assertEquals(Phase.SAVED, r[7].state.phase)
+        assertEquals(listOf("haptic(success)"), r[7].fx())
+    }
+
+    @Test
+    fun `the sender's beam waits for the acknowledgement when it ends first`() {
+        val r = run(true, Arm(Role.SEND, true), PeerFound(1), PeerNear(1), Approve(1, v1), OfferRead(1, 900), TapDetected(1, v1, 1000), BeamFinished, AckReceived(5000, 0))
+        assertEquals(Phase.TRANSFERRING, r[6].state.phase)
+        assertTrue(r[6].state.beamDone)
+        assertTrue(r[6].fx().isEmpty())
+        assertEquals(Phase.SAVED, r[7].state.phase)
+        assertEquals(listOf("haptic(success)"), r[7].fx())
+    }
+
+    @Test
+    fun `a tap before the offer was read waits for the read, a tap without a yes does nothing`() {
+        val early = run(true, Arm(Role.SEND, true), PeerFound(1), PeerNear(1), Approve(1, v1), TapDetected(1, v1, 1000), OfferRead(1, 1300))
+        assertTrue(early[4].fx().isEmpty())
+        assertTrue(early[4].state.tapSeen)
+        assertEquals(listOf("haptic(tick)", "startBeam(send,1300)", "scheduleTimeout(ack,45000)"), early[5].fx())
+        val noYes = run(true, Arm(Role.SEND, true), PeerFound(1), PeerNear(1), TapDetected(1, v1, 1000), OfferRead(1, 1100), AckReceived(1200, 0))
+        for (i in 3..5) { assertTrue(noYes[i].fx().isEmpty()); assertEquals(Phase.NEAR, noYes[i].state.phase) }
+    }
+
+    @Test
+    fun `the beam only ever reaches the phone the listener said yes to`() {
+        val r = run(true, Arm(Role.SEND, true), PeerFound(1), PeerFound(2), PeerNear(1), Approve(1, v1), OfferRead(2, 900), TapDetected(2, v1, 1000), OfferRead(1, 1010), TapDetected(1, v1, 1020))
+        // The other phone's read and tap change nothing; the chosen phone's do.
+        assertTrue(!r[5].state.offerRead)
+        assertTrue(r[6].fx().isEmpty())
+        assertTrue(r[7].state.offerRead)
+        assertEquals(listOf("haptic(tick)", "startBeam(send,1020)", "scheduleTimeout(ack,45000)"), r[8].fx())
+    }
+
+    @Test
+    fun `the sender stays armed when the phone's link drops before the tap, and gives up after the target timeout`() {
+        val r = run(true, Arm(Role.SEND, true), PeerFound(1), PeerNear(1), Approve(1, v1), OfferRead(1, 900), PeerLost(1), TapDetected(1, v1, 1000), OfferRead(1, 1200), Timeout(TimeoutTag.TARGET))
+        assertEquals(Phase.OFFERED, r[5].state.phase)
+        assertTrue(!r[5].state.offerRead)
+        assertTrue(r[6].state.tapSeen)
+        assertEquals(Phase.TRANSFERRING, r[7].state.phase)
+        assertEquals(Phase.TRANSFERRING, r[8].state.phase)
+        val idle = run(true, Arm(Role.SEND, true), PeerFound(1), PeerNear(1), Approve(1, v1), Timeout(TimeoutTag.TARGET))
+        assertEquals(Phase.CANCELLED, idle.last().state.phase)
+        assertEquals(listOf("abortTransfer(1)"), idle.last().fx())
+    }
+
+    @Test
+    fun `a new song or a refresh publishes again and needs a new read`() {
+        val r = run(true, Arm(Role.SEND, true), PeerFound(1), PeerNear(1), Approve(1, v1), OfferRead(1, 900), Republish(v2), Republish(""))
+        assertEquals(listOf("publishOffer(1,$v2)"), r[5].fx())
+        assertTrue(!r[5].state.offerRead)
+        assertEquals(v2, r[5].state.videoId)
+        assertTrue(r[6].fx().isEmpty())
+    }
+
+    @Test
+    fun `the receiver that fetched the offer before the tap commits at the tap with nothing left to wait for`() {
+        val r = run(false, Arm(Role.RECEIVE, false), PeerFound(1), PeerNear(1), OfferPrefetched(1, v1, 7), TapDetected(1, "", 2000), SaveResult(SaveOutcome.SAVED, 2100))
+        assertTrue(r[3].state.pre)
+        assertTrue(r[3].fx().isEmpty())
+        // Haptic first, then the save and the beam in the same step: no read, no ack, no go in between.
+        assertEquals(listOf("haptic(tick)", "saveSong($v1)", "scheduleTimeout(save,20000)", "startBeam(receive,2000)"), r[4].fx())
         assertEquals(Phase.TRANSFERRING, r[4].state.phase)
-        assertEquals(Phase.SAVED, r[5].state.phase)
-        assertEquals(listOf("haptic(success)"), r[5].fx())
+        assertTrue(!r[4].state.pre)
+        assertEquals(listOf("sendAck(1)", "haptic(success)"), r[5].fx())
+    }
+
+    @Test
+    fun `a prefetched first beam asks at the tap and starts the beam when the listener says add`() {
+        val r = run(true, Arm(Role.RECEIVE, true), PeerFound(1), PeerNear(1), OfferPrefetched(1, v1, 7), TapDetected(1, "", 2000), Accept(4000))
+        assertEquals(listOf("haptic(tick)", "scheduleTimeout(consent,20000)"), r[4].fx())
+        assertEquals(Phase.OFFERED, r[4].state.phase)
+        assertEquals(listOf("saveSong($v1)", "scheduleTimeout(save,20000)", "startBeam(receive,4000)"), r[5].fx())
+    }
+
+    @Test
+    fun `a prefetched offer is dropped when it is withdrawn, replaced or the sender leaves, and the limits still apply`() {
+        val gone = run(false, Arm(Role.RECEIVE, false), PeerFound(1), PeerNear(1), OfferPrefetched(1, v1, 7), OfferGone(1), TapDetected(1, "", 2000))
+        assertTrue(!gone[4].state.pre)
+        assertEquals(listOf("readOffer(1)", "scheduleTimeout(read,8000)"), gone[5].fx())
+        val left = run(false, Arm(Role.RECEIVE, false), PeerFound(1), PeerNear(1), OfferPrefetched(1, v1, 7), PeerLost(1), PeerFound(1), PeerNear(1), TapDetected(1, "", 2000))
+        assertTrue(!left[4].state.pre)
+        assertEquals("", left[4].state.videoId)
+        assertEquals(listOf("readOffer(1)", "scheduleTimeout(read,8000)"), left.last().fx())
+        val stranger = run(false, Arm(Role.RECEIVE, false), PeerFound(1), PeerNear(1), OfferPrefetched(2, v1, 7))
+        assertTrue(!stranger.last().state.pre)
+        val newer = run(false, Arm(Role.RECEIVE, false), PeerFound(1), PeerNear(1), OfferPrefetched(1, v1, 7), OfferPrefetched(1, v2, 7), TapDetected(1, "", 2000))
+        assertEquals("saveSong($v2)", newer.last().fx()[1])
+        val limited = run(false, Arm(Role.RECEIVE, false), OfferReceived(0, v1, 3, 10_000), SaveResult(SaveOutcome.SAVED, 10_100), Dismiss,
+            PeerFound(1), PeerNear(1), OfferPrefetched(1, v2, 3), TapDetected(1, "", 11_000))
+        assertEquals(FailReason.TOO_SOON, limited.last().state.fail)
+        val sender = run(true, Arm(Role.SEND, true), PeerFound(1), PeerNear(1), OfferPrefetched(1, v1, 7))
+        assertTrue(!sender.last().state.pre)
     }
 
     @Test
     fun `the receiver asks the first time and saves after a yes`() {
-        val r = run(true, Arm(Role.RECEIVE, true), PeerFound(1), PeerNear(1), TapDetected(1, ""), OfferReceived(1, v1, 7, 1000), Accept(1500), SaveResult(SaveOutcome.SAVED, 1800), GoReceived(1900, 60))
-        assertEquals(listOf("readOffer(1)", "haptic(tick)", "scheduleTimeout(read,8000)"), r[3].fx())
+        val r = run(true, Arm(Role.RECEIVE, true), PeerFound(1), PeerNear(1), TapDetected(1, ""), OfferReceived(1, v1, 7, 1000), Accept(1500), SaveResult(SaveOutcome.SAVED, 1800))
+        // No offer in hand at the tap: it is read now, and the haptic waits for the moment the data is here.
+        assertEquals(listOf("readOffer(1)", "scheduleTimeout(read,8000)"), r[3].fx())
         assertEquals(Phase.OFFERED, r[4].state.phase)
-        assertEquals(listOf("scheduleTimeout(consent,20000)"), r[4].fx())
-        // The sender is told only once the song is saved.
-        assertEquals(listOf("saveSong($v1)", "scheduleTimeout(save,20000)"), r[5].fx())
+        assertEquals(listOf("haptic(tick)", "scheduleTimeout(consent,20000)"), r[4].fx())
+        // The beam starts with the save, not after the sender's answer; the sender is told only once the song is saved.
+        assertEquals(listOf("saveSong($v1)", "scheduleTimeout(save,20000)", "startBeam(receive,1500)"), r[5].fx())
         assertFalse(r[5].state.askFirst)
         assertEquals(Phase.SAVED, r[6].state.phase)
         assertEquals(listOf("sendAck(1)", "haptic(success)"), r[6].fx())
-        assertEquals(listOf("startBeam(receive,2020)"), r[7].fx())
     }
 
     @Test
     fun `later beams save at once and undo works once`() {
         val r = run(false, Arm(Role.RECEIVE, false), PeerFound(1), PeerNear(1), TapDetected(1, ""), OfferReceived(1, v1, 7, 1000), SaveResult(SaveOutcome.SAVED, 1400), Undo(3000), Undo(3100))
-        assertEquals(listOf("saveSong($v1)", "scheduleTimeout(save,20000)"), r[4].fx())
+        assertEquals(listOf("haptic(tick)", "saveSong($v1)", "scheduleTimeout(save,20000)", "startBeam(receive,1000)"), r[4].fx())
         assertEquals(listOf("sendAck(1)", "haptic(success)"), r[5].fx())
         assertEquals(listOf("undoSave($v1)"), r[6].fx())
         assertEquals(Phase.ARMED, r[6].state.phase)
@@ -81,7 +178,7 @@ class SessionTest {
     fun `both phones sending is a conflict`() {
         val a = run(true, Arm(Role.SEND, true), PeerFound(1), PeerNear(1), PeerRole(1, Role.SEND))
         assertEquals(FailReason.BOTH_SENDING, a.last().state.fail)
-        val b = run(true, Arm(Role.SEND, true), PeerFound(1), PeerNear(1), TapDetected(1, v1), OfferReceived(1, v2, 5, 1000))
+        val b = run(true, Arm(Role.SEND, true), PeerFound(1), PeerNear(1), Approve(1, v1), OfferReceived(1, v2, 5, 1000))
         assertEquals(FailReason.BOTH_SENDING, b.last().state.fail)
         assertTrue(b.last().fx().contains("abortTransfer(1)"))
     }
@@ -161,7 +258,7 @@ class SessionTest {
 
     @Test
     fun `late and duplicate events change nothing`() {
-        val r = run(true, Arm(Role.SEND, true), PeerFound(1), PeerNear(1), TapDetected(1, v1), Cancel, AckReceived(900, 50), TapDetected(1, v1))
+        val r = run(true, Arm(Role.SEND, true), PeerFound(1), PeerNear(1), Approve(1, v1), Cancel, AckReceived(900, 50), TapDetected(1, v1, 1000))
         assertEquals(Phase.CANCELLED, r[6].state.phase)
         assertTrue(r[5].fx().isEmpty() && r[6].fx().isEmpty())
         val d = run(false, Arm(Role.RECEIVE, false), PeerFound(1), PeerNear(1), TapDetected(1, ""), OfferReceived(1, v1, 7, 1000), OfferReceived(1, v2, 7, 1010))
@@ -173,9 +270,9 @@ class SessionTest {
 
     @Test
     fun `timeouts only fire in the phase that waits for them`() {
-        val a = run(true, Arm(Role.SEND, true), PeerFound(1), PeerNear(1), TapDetected(1, v1), Timeout(TimeoutTag.READ), Timeout(TimeoutTag.ACK))
-        assertEquals(Phase.OFFERED, a[4].state.phase)
-        assertEquals(FailReason.TIMEOUT, a[5].state.fail)
+        val a = run(true, Arm(Role.SEND, true), PeerFound(1), PeerNear(1), Approve(1, v1), OfferRead(1, 900), TapDetected(1, v1, 1000), Timeout(TimeoutTag.READ), Timeout(TimeoutTag.ACK))
+        assertEquals(Phase.TRANSFERRING, a[6].state.phase)
+        assertEquals(FailReason.TIMEOUT, a[7].state.fail)
         val c = run(true, Arm(Role.RECEIVE, true), OfferReceived(0, v1, 1, 0), Timeout(TimeoutTag.CONSENT))
         assertEquals(Phase.DECLINED, c.last().state.phase)
     }
@@ -215,7 +312,7 @@ class SessionTest {
 
     @Test
     fun `nothing to send is a notice and not an offer`() {
-        val r = run(true, Arm(Role.SEND, true), PeerFound(1), PeerNear(1), TapDetected(1, ""))
+        val r = run(true, Arm(Role.SEND, true), PeerFound(1), PeerNear(1), Approve(1, ""))
         assertEquals(FailReason.NOTHING_TO_SEND, r.last().state.fail)
         val q = run(true, Arm(Role.SEND, true), QrShown(""))
         assertEquals(FailReason.NOTHING_TO_SEND, q.last().state.fail)
@@ -239,7 +336,7 @@ class SessionTest {
 
     @Test
     fun `a sender's decline reaches the sender`() {
-        val r = run(true, Arm(Role.SEND, true), PeerFound(1), PeerNear(1), TapDetected(1, v1), PeerDeclined(2), PeerDeclined(1))
+        val r = run(true, Arm(Role.SEND, true), PeerFound(1), PeerNear(1), Approve(1, v1), PeerDeclined(2), PeerDeclined(1))
         assertEquals(Phase.OFFERED, r[4].state.phase)
         assertEquals(Phase.DECLINED, r[5].state.phase)
     }
@@ -256,9 +353,9 @@ class SessionTest {
                     0 -> Arm(Role.entries[rng.nextInt(2)], true)
                     1 -> PeerFound(1 + rng.nextInt(2))
                     2 -> PeerNear(1 + rng.nextInt(2))
-                    3 -> TapDetected(1 + rng.nextInt(2), if (rng.nextInt(2) == 0) v1 else "")
+                    3 -> if (rng.nextInt(3) == 0) Approve(1 + rng.nextInt(2), v1) else if (rng.nextInt(2) == 0) OfferPrefetched(1 + rng.nextInt(2), v1, 1) else TapDetected(1 + rng.nextInt(2), if (rng.nextInt(2) == 0) v1 else "", now)
                     4 -> OfferReceived(rng.nextInt(2), v1, rng.nextInt(3), now)
-                    5 -> AckReceived(now, 10)
+                    5 -> if (rng.nextInt(2) == 0) AckReceived(now, 10) else OfferRead(1 + rng.nextInt(2), now)
                     6 -> SaveResult(SaveOutcome.entries[rng.nextInt(4)], now)
                     7 -> Cancel
                     8 -> Accept(now)

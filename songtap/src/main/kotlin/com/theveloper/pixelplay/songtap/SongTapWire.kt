@@ -15,12 +15,17 @@ package com.theveloper.pixelplay.songtap
  * | [CHAR_INFO] | read | [encodeInfo]: version and how long ago the sender's last jerk was |
  * | [CHAR_OFFER] | read | the signed frame ([SongTapSigning.encodeFrame]); an application error until an offer exists |
  * | [CHAR_CONTROL] | write | a [ControlMessage] from the receiver: Hello (challenge), Tap, Ack, Decline |
- * | [CHAR_EVENT] | notify | [EVENT_GO] once, when the sender starts the beam |
+ * | [CHAR_NAME] | read | [encodeName]: the sender's full name (spec 5) |
+ * | [CHAR_EVENT] | notify | [EVENT_OFFER_READY] when the sender has (a new) offer to read; [EVENT_GO] is reserved and no longer sent (spec 5) |
  *
- * The flow: the receiver connects while the sender is near, writes Hello with a fresh 16 byte challenge,
- * and subscribes to [CHAR_EVENT]. When the receiver's detector fires it writes Tap and reads Offer; the sender
- * signs payload, challenge and time with its per-session key on that read. The receiver checks the signature,
- * saves, and writes Ack; the sender answers with Go and both animations start (see [SongTapHandshake]).
+ * The flow (spec 5, "prefetch"): the receiver connects while the sender is inside the STRICT near gate, writes Hello
+ * with a fresh 16 byte challenge, subscribes to [CHAR_EVENT], reads Name, and as soon as the sender has an offer for it
+ * (the sender's listener said yes; the sender says so with [EVENT_OFFER_READY]) reads Offer: the sender signs payload,
+ * challenge and time with its per-session key on that read, and the receiver checks the signature and holds the result.
+ * Nothing slow is left for the tap: when a phone's detector fires, the data is in hand, so both phones start the beam
+ * at once (the receiver writes Tap, and Ack after it has saved; there is no Go and no start delay).
+ *
+ * Advertisement (spec 5): each phone also advertises a short name, see [SongTapNames].
  */
 object SongTapWire {
 
@@ -32,6 +37,11 @@ object SongTapWire {
     const val CHAR_OFFER = "b7f3a1c0-5d2e-4c9a-8e61-3f4d7a2b9c12"
     const val CHAR_CONTROL = "b7f3a1c0-5d2e-4c9a-8e61-3f4d7a2b9c13"
     const val CHAR_EVENT = "b7f3a1c0-5d2e-4c9a-8e61-3f4d7a2b9c14"
+    const val CHAR_NAME = "b7f3a1c0-5d2e-4c9a-8e61-3f4d7a2b9c15"
+
+    /** The company id of the manufacturer-specific block that carries the short name in an Android phone's scan response (0xFFFF: no company, as the spec reserves it for tests and internal use). */
+    const val ADVERT_COMPANY_ID = 0xFFFF
+    const val ADVERT_VERSION = 1
 
     /** The ATT application error a sender answers an Offer read with while it has nothing (yet) to give. */
     const val ERROR_NOT_READY = 0x80
@@ -44,8 +54,11 @@ object SongTapWire {
     const val OP_DECLINE = 0x03
     const val OP_TAP = 0x04
 
-    /** The one thing [CHAR_EVENT] says. */
+    /** Reserved: spec 4 sent it to start the animations. No phone sends it any more and every phone ignores it. */
     const val EVENT_GO = 0x01
+
+    /** The sender has an offer (a new one) for the connected receiver to read. */
+    const val EVENT_OFFER_READY = 0x02
 
     /** "No jerk to report" in an age field. */
     const val NO_AGE = 0xFFFF_FFFFL
@@ -128,6 +141,44 @@ object SongTapWire {
     fun isGo(bytes: ByteArray): Boolean = bytes.size == 1 && (bytes[0].toInt() and 0xFF) == EVENT_GO
 
     fun encodeGo(): ByteArray = byteArrayOf(EVENT_GO.toByte())
+
+    fun isOfferReady(bytes: ByteArray): Boolean = bytes.size == 1 && (bytes[0].toInt() and 0xFF) == EVENT_OFFER_READY
+
+    fun encodeOfferReady(): ByteArray = byteArrayOf(EVENT_OFFER_READY.toByte())
+
+    // ── Names ────────────────────────────────────────────────────────────────────────
+
+    /** [CHAR_NAME]: the version byte, then the clean name in UTF-8 (at most [SongTapNames.MAX_NAME_BYTES] bytes). */
+    fun encodeName(name: String): ByteArray {
+        val body = SongTapText.encodeUtf8(SongTapText.toCodePoints(SongTapNames.orFallback(name)))
+        val out = ByteArray(1 + body.size)
+        out[0] = VERSION.toByte()
+        body.copyInto(out, 1)
+        return out
+    }
+
+    /** The clean name in a Name value; null for a wrong version, bad UTF-8, too long or nothing usable. */
+    fun decodeName(bytes: ByteArray): String? {
+        if (bytes.size < 2 || bytes.size > 1 + SongTapNames.MAX_NAME_BYTES || bytes[0].toInt() != VERSION) return null
+        val cps = SongTapText.decodeUtf8(bytes, 1, bytes.size) ?: return null
+        return SongTapNames.fromAdvert(SongTapText.fromCodePoints(cps))
+    }
+
+    /** The data of the manufacturer block ([ADVERT_COMPANY_ID]) of an Android phone's scan response: [ADVERT_VERSION], then the short name in UTF-8. */
+    fun encodeAdvertName(name: String): ByteArray {
+        val body = SongTapText.encodeUtf8(SongTapText.toCodePoints(SongTapNames.advertName(SongTapNames.orFallback(name))))
+        val out = ByteArray(1 + body.size)
+        out[0] = ADVERT_VERSION.toByte()
+        body.copyInto(out, 1)
+        return out
+    }
+
+    /** The clean short name in a manufacturer block's data; null for a wrong version, bad UTF-8, too long or nothing usable. */
+    fun decodeAdvertName(bytes: ByteArray): String? {
+        if (bytes.size < 2 || bytes.size > 1 + SongTapNames.ADVERT_NAME_MAX_BYTES || bytes[0].toInt() != ADVERT_VERSION) return null
+        val cps = SongTapText.decodeUtf8(bytes, 1, bytes.size) ?: return null
+        return SongTapNames.fromAdvert(SongTapText.fromCodePoints(cps))
+    }
 
     private fun putU32(out: ByteArray, at: Int, v: Long) {
         for (k in 0 until 4) out[at + k] = (v shr (24 - 8 * k)).toByte()
