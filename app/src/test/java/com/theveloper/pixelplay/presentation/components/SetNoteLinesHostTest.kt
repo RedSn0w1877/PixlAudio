@@ -68,7 +68,7 @@ class SetNoteLinesHostTest {
     }
 
     @Test
-    fun `a track never has two notes: a set note keeps the host away from the tracks it describes`() {
+    fun `a track never has two notes, a set note keeps the host away from the tracks it describes`() {
         val queue = listOf(
             library("1", "A", "pop"), library("2", "B", "pop"), library("3", "C", "pop"),
             outside("4", "D"), library("5", "E"), library("6", "F"), library("7", "G"), library("8", "H"),

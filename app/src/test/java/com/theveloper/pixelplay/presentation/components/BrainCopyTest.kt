@@ -147,4 +147,29 @@ class BrainCopyTest {
         assertNull(WhyLineText.format(resources, "nonsense", "X"))
         assertNull(WhyLineText.format(resources, null, "X"))
     }
+
+    /**
+     * Endless Listening's words: never a forbidden word, never "learn", never the name or the branding of another service's host feature, and the
+     * intro says exactly what the design says.
+     */
+    @Test
+    fun `Endless Listening copy is plain, says no forbidden word and keeps the intro copy exact`() {
+        val endless = strings("strings_endless.xml")
+        assertTrue(endless.isNotEmpty())
+        for ((name, text) in endless) {
+            val lower = text.lowercase()
+            for (word in forbidden) assertTrue(word !in lower, "$name says \"$word\": $text")
+            assertTrue("learn" !in lower, "$name says \"learn\": $text")
+            assertTrue("spotify" !in lower && "dj" !in lower.split(Regex("[^a-z]+")), "$name names another service or its host: $text")
+        }
+        assertEquals("Music that keeps going.", endless["endless_intro_title_1"])
+        assertEquals("Endless Listening starts from what you play and keeps adding more until you stop it.", endless["endless_intro_body_1"])
+        assertEquals("A host, if you want one.", endless["endless_intro_title_2"])
+        assertEquals("Short notes between songs say why something is here. Ask for something new, or why a song was picked.", endless["endless_intro_body_2"])
+        assertEquals("You decide.", endless["endless_intro_title_3"])
+        assertEquals("Choose how much is new, skip anything, and turn the notes off any time.", endless["endless_intro_body_3"])
+        assertEquals("Start listening", endless["endless_intro_start"])
+        assertEquals("Not now", endless["endless_intro_not_now"])
+        assertEquals("Ask the host", endless["endless_ask_host"])
+    }
 }

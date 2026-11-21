@@ -346,4 +346,24 @@ class BrainMixesTest {
         assertNull(mixes().today(MixPlanner.KIND_DAILY))
         assertEquals(0, servedDao.rows.size)
     }
+
+    @Test
+    fun `Endless Listening seeds from the top artists when there are no islands, one library song for each, at most five`() = runTest {
+        listen(plays = 30, seeds = 6)
+        cacheRadios(6)
+        val seeds = mixes().endlessSeeds(now)
+        assertEquals(5, seeds.size)
+        assertEquals(5, seeds.map { it.aid }.toSet().size, "one seed for each artist")
+        assertEquals(5, seeds.map { it.song.id }.toSet().size)
+        assertTrue(seeds.all { it.islandId == -1 }, "no islands: the seeds stand for artists")
+        assertTrue(seeds.all { it.song.id.startsWith("s") }, "library songs only")
+        // No island, no island name: the card says nothing it cannot back.
+        assertTrue(mixes().endlessIslandNames(seeds).isEmpty())
+    }
+
+    @Test
+    fun `Endless Listening has no seeds in a library with nothing in it`() = runTest {
+        coEvery { music.getAllSongsOnce() } returns emptyList()
+        assertTrue(mixes().endlessSeeds(now).isEmpty())
+    }
 }

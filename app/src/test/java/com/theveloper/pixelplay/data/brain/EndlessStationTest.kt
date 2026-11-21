@@ -27,7 +27,7 @@ class EndlessStationTest {
     }
 
     @Test
-    fun `it is a station of its own: not the same as a playlist station from the same first seed`() {
+    fun `it is a station of its own, not the same as a playlist station from the same first seed`() {
         val endless = Station.endless(listOf("10", "11"), "Endless Listening", 1L)
         assertNotEquals(endless.id, Station.fromSource(Station.SOURCE_PLAYLIST, listOf("10", "11"), "Endless Listening", 1L).id)
         assertNotEquals(endless.id, Station.song("10", "T", "A", 1L).id)
