@@ -57,6 +57,9 @@ jobs:
           SPOTIFY_CLIENT_ID: ${{ secrets.SPOTIFY_CLIENT_ID }}
         run: ./gradlew :app:compileDebugKotlin
 
+      - name: Song Tap core tests (pure JVM, golden vectors)
+        run: ./gradlew :songtap:test
+
       - name: Unit tests
         env:
           CLOUD_DEFAULTS_KEY: ${{ secrets.CLOUD_DEFAULTS_KEY }}
