@@ -12,7 +12,7 @@ class RingCodeSongsTest {
     private fun row(
         title: String = "Never Gonna Give You Up",
         artists: List<RadioArtistRef> = listOf(RadioArtistRef("Rick Astley")),
-        thumb: String? = "https://lh3.googleusercontent.com/abcdefghijklmnopqrstuvwxyz0123456789=w544-h544-l90-rj",
+        thumb: String? = "https://lh3.googleusercontent.com/abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz=w544-h544-l90-rj",
         durationSec: Int = 213,
     ) = RadioRow(videoId = "dQw4w9WgXcQ", title = title, artists = artists, thumbnailUrl = thumb, durationSec = durationSec)
 
