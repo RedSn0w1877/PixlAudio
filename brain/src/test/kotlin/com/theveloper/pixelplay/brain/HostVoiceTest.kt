@@ -157,6 +157,9 @@ class HostVoiceTest {
         assertEquals("", HostVoice.line("A very very very very very very very very very very long sentence here."))
         assertEquals("", HostVoice.line("Learn the genre."))
         assertEquals("", HostVoice.line("Listen to the lossless sound."))
+        // The note the app made itself was already checked against its own words: a name such as Claude Debussy is said, a long one is not.
+        assertEquals("New from Claude Debussy, an artist you play.", HostVoice.line("New from Claude Debussy, an artist you play.", noteChecked = true))
+        assertEquals("", HostVoice.line("One. Two. Three.", noteChecked = true))
     }
 
     @Test

@@ -8,7 +8,7 @@ object EndlessGolden {
 
     fun generate(): LinkedHashMap<String, String> {
         val files = LinkedHashMap<String, String>()
-        files["endless.jsonl"] = seeds() + hostNotes() + facts()
+        files["endless.jsonl"] = seeds() + hostNotes() + facts() + notesSince() + sinceNote() + names()
         return files
     }
 
@@ -134,6 +134,89 @@ object EndlessGolden {
         return sb.toString()
     }
 
+    /** Review fix: the same notes with the last note's distance, so the cadence holds across windows. */
+    private fun notesSince(): String {
+        val sb = StringBuilder()
+        val rng = BrainHash.Rng(BrainHash.fnv1a64("golden:endless:since"))
+        val genres = listOf("V-pop", "Hip hop", "", "Shoegaze")
+        for (c in 0 until 30) {
+            val n = 1 + rng.int(14)
+            val slots = ArrayList<HostNotes.Slot>(n)
+            for (i in 0 until n) {
+                slots.add(
+                    HostNotes.Slot(
+                        artist = "Mono", genre = genres[rng.int(genres.size)], genreFact = "", year = if (rng.int(2) == 0) 1990 + rng.int(30) else 0,
+                        island = if (rng.int(3) == 0) "Bedroom pop" else "", newFromPlayedArtist = rng.int(5) == 0, sideways = rng.int(4) == 0,
+                    )
+                )
+            }
+            val since = 1 + rng.int(6)
+            val notes = HostNotes.notes(slots, emptyList(), since)
+            sb.append(line("notes_since", {
+                int("since", since)
+                beginArray("slots")
+                for (s in slots) {
+                    beginArray().stringItem(s.artist).stringItem(s.genre).stringItem(s.genreFact).intItem(s.year).stringItem(s.island)
+                        .intItem(if (s.newFromPlayedArtist) 1 else 0).intItem(if (s.sideways) 1 else 0).endArray()
+                }
+                endArray()
+            }, {
+                beginArray("notes")
+                for (x in notes) beginArray().intItem(x.index).intItem(x.kind).stringItem(x.a).stringItem(x.b).stringItem(HostNotes.text(x)).endArray()
+                endArray()
+            }))
+        }
+        return sb.toString()
+    }
+
+    /** Review fix: how far back the last shown or spoken note sits, from the queue's ids and the ids that had one. */
+    private fun sinceNote(): String {
+        val sb = StringBuilder()
+        val rng = BrainHash.Rng(BrainHash.fnv1a64("golden:endless:sincenote"))
+        for (c in 0 until 20) {
+            val n = 1 + rng.int(12)
+            val ids = List(n) { "s$it" }
+            val noted = HashSet<String>()
+            for (k in 0 until rng.int(4)) noted.add("s" + rng.int(n + 2))
+            val index = rng.int(n)
+            val sorted = noted.sorted()
+            sb.append(line("since_note", {
+                beginArray("ids"); for (id in ids) stringItem(id); endArray()
+                beginArray("noted"); for (id in sorted) stringItem(id); endArray()
+                int("index", index)
+            }, { int("since", HostNotes.tracksSinceNote(ids, index, noted)) }))
+        }
+        return sb.toString()
+    }
+
+    /** Review fix: a name is not copy: Claude Debussy or Atmosphere is kept; a forbidden word in the template or the fact still drops the note. */
+    private fun names(): String {
+        val sb = StringBuilder()
+        val cases = listOf(
+            HostNotes.Slot("Claude Debussy", "", "", 0, "", true, false),
+            HostNotes.Slot("Atmosphere", "", "", 0, "", true, false),
+            HostNotes.Slot("A", "Dance", "Made for learn and lossless nights.", 0, "", false, false),
+            HostNotes.Slot("A", "Dance", "Made for late nights.", 0, "", false, false),
+            HostNotes.Slot("A", "Bossa nova", "", 0, "", false, true),
+            HostNotes.Slot("A", "Dolby Atmos Jazz", "", 0, "", false, true),
+            HostNotes.Slot("A", "", "", 0, "Hi-Res side", false, false),
+        )
+        for (s in cases) {
+            val notes = HostNotes.notes(listOf(s))
+            sb.append(line("note_names", {
+                beginArray("slot")
+                stringItem(s.artist).stringItem(s.genre).stringItem(s.genreFact).intItem(s.year).stringItem(s.island)
+                    .intItem(if (s.newFromPlayedArtist) 1 else 0).intItem(if (s.sideways) 1 else 0)
+                endArray()
+            }, {
+                beginArray("notes")
+                for (x in notes) beginArray().intItem(x.index).intItem(x.kind).stringItem(x.a).stringItem(x.b).stringItem(HostNotes.text(x)).endArray()
+                endArray()
+            }))
+        }
+        return sb.toString()
+    }
+
     private fun facts(): String {
         val sb = StringBuilder()
         val raws = listOf(
@@ -154,6 +237,6 @@ object EndlessGolden {
           and `artists` = `[aid, weight, [[rid, aid, weight] ...]]`, the seeds `[rid, aid, islandId]` (-1 for the artist fallback). `notes`:
           `HostNotes.notes(slots, taken)` for `slots` = `[artist, genre, genreFact, year, island, newFromPlayedArtist 1|0, sideways 1|0]` and
           `taken` = `[index, span]` (the set notes already in the queue), each note `[index, kind, a, b, text]` with `text = HostNotes.text(note)`.
-          `fact`: `HostNotes.factOf(raw)`. `speakable`: `HostNotes.isSpeakable(text)`. Word and sentence counting splits on a space and on `.`, `!`, `?`; no regular expressions.
+          `notes_since`: `HostNotes.notes(slots, [], since)`, the same slots and note shape. `since_note`: `HostNotes.tracksSinceNote(ids, index, noted)`, `noted` sorted. `note_names`: `HostNotes.notes([slot])` for one slot. `fact`: `HostNotes.factOf(raw)`. `speakable`: `HostNotes.isSpeakable(text)`. Word and sentence counting splits on a space and on `.`, `!`, `?`; no regular expressions.
     """
 }

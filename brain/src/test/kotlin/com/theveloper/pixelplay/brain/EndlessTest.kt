@@ -100,12 +100,75 @@ class EndlessTest {
     }
 
     @Test
-    fun `a step sideways names the genre it comes from and needs one`() {
-        val slots = listOf(slot(genre = "Hip hop"), slot(genre = "Hip hop"), slot(genre = "Bedroom pop", side = true))
-        assertTrue(HostNotes.notes(slots.take(2) + slot(genre = "Hip hop", side = true)).isEmpty())
-        val note = HostNotes.notes(listOf(slots[0], slots[1], slot(genre = "Bedroom pop", side = true, island = "x"))).single()
-        assertEquals("A step sideways, from Hip hop to Bedroom pop.", HostNotes.text(note))
-        assertEquals(2, note.index)
+    fun `a step sideways names only the genre the engine flagged, with no from-genre`() {
+        // The engine computed one thing: this pick is from a genre next to the listener's own. No earlier track is needed and none is named.
+        val alone = HostNotes.notes(listOf(slot(genre = "Bossa nova", side = true))).single()
+        assertEquals("A step sideways: Bossa nova.", HostNotes.text(alone))
+        assertEquals(0, alone.index)
+        val after = HostNotes.notes(listOf(slot(genre = "K-pop"), slot(genre = "K-pop"), slot(genre = "Bossa nova", side = true)))
+        assertEquals("A step sideways: Bossa nova.", HostNotes.text(after.single()))
+        assertEquals(2, after.single().index)
+        // No genre, no note.
+        assertTrue(HostNotes.notes(listOf(slot(side = true))).isEmpty())
+    }
+
+    @Test
+    fun `the last note's distance keeps the cadence across windows`() {
+        val all = List(20) { slot(year = 2000 + it) }
+        // Nothing before: the current track has a note, then every fifth.
+        assertEquals(listOf(0, 5, 10, 15), HostNotes.notes(all).map { it.index })
+        // A note one track ago: the window starts four tracks later, the same absolute tracks as before.
+        assertEquals(listOf(4, 9, 14, 19), HostNotes.notes(all, emptyList(), 1).map { it.index })
+        assertEquals(listOf(2, 7, 12, 17), HostNotes.notes(all, emptyList(), 3).map { it.index })
+        // Four tracks ago: the current track is free again; five or more is the same as none.
+        assertEquals(listOf(1, 6, 11, 16), HostNotes.notes(all, emptyList(), 4).map { it.index })
+        assertEquals(HostNotes.notes(all).map { it.index }, HostNotes.notes(all, emptyList(), 5).map { it.index })
+        assertEquals(HostNotes.notes(all).map { it.index }, HostNotes.notes(all, emptyList(), 99).map { it.index })
+    }
+
+    @Test
+    fun `tracks since a note looks only at the four tracks before and only at songs that had one`() {
+        val ids = listOf("a", "b", "c", "d", "e", "f", "g")
+        assertEquals(HostNotes.MIN_GAP, HostNotes.tracksSinceNote(ids, 4, emptySet()))
+        assertEquals(1, HostNotes.tracksSinceNote(ids, 4, setOf("d")))
+        assertEquals(3, HostNotes.tracksSinceNote(ids, 4, setOf("b", "a")))
+        // The nearest one wins; five tracks back is out of reach; the song itself does not count.
+        assertEquals(2, HostNotes.tracksSinceNote(ids, 4, setOf("b", "c", "a")))
+        assertEquals(HostNotes.MIN_GAP, HostNotes.tracksSinceNote(ids, 5, setOf("a")))
+        assertEquals(HostNotes.MIN_GAP, HostNotes.tracksSinceNote(ids, 4, setOf("e")))
+        assertEquals(HostNotes.MIN_GAP, HostNotes.tracksSinceNote(ids, 0, setOf("a")))
+    }
+
+    @Test
+    fun `walking the queue one track at a time never shows two notes within five tracks`() {
+        val queue = List(30) { slot(year = 2000 + it, island = "Pop") }
+        val ids = List(queue.size) { "s$it" }
+        val noted = HashSet<String>()
+        var last = -100
+        for (current in queue.indices) {
+            val window = queue.subList(current, minOf(queue.size, current + 40))
+            val notes = HostNotes.notes(window, emptyList(), HostNotes.tracksSinceNote(ids, current, noted))
+            if (notes.firstOrNull()?.index == 0) {
+                assertTrue(current - last >= HostNotes.MIN_GAP, "a note on $current after one on $last")
+                noted.add(ids[current])
+                last = current
+            }
+        }
+        assertEquals(listOf(0, 5, 10, 15, 20, 25), ids.indices.filter { ids[it] in noted })
+    }
+
+    @Test
+    fun `a name is not copy but the template and the fact are`() {
+        assertEquals("New from Claude Debussy, an artist you play.", HostNotes.text(HostNotes.notes(listOf(slot(artist = "Claude Debussy", fresh = true))).single()))
+        assertEquals("New from Atmosphere, an artist you play.", HostNotes.text(HostNotes.notes(listOf(slot(artist = "Atmosphere", fresh = true))).single()))
+        // "learn" and "atmos" are whole words only: "learner" is not "learn".
+        assertTrue(HostNotes.isClean("A learner and the Atmosphere."))
+        assertFalse(HostNotes.isClean("Learn the genre."))
+        assertFalse(HostNotes.isClean("Dolby Atmos sound."))
+        assertFalse(HostNotes.isClean("Hi-Res audio."))
+        // A fact (the atlas' sentence) with a banned word is dropped, a clean one stays.
+        assertTrue(HostNotes.notes(listOf(slot(genre = "Dance", fact = "Made for learn and lossless nights."))).isEmpty())
+        assertEquals(1, HostNotes.notes(listOf(slot(genre = "Dance", fact = "Made for late nights."))).size)
     }
 
     @Test

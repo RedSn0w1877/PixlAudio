@@ -165,9 +165,11 @@ object HostVoice {
     /**
      * The line the host says for a note's [text], or "" when the note must stay on the screen only: at most [MAX_CHARS] characters, two
      * sentences of at most [HostNotes.MAX_WORDS] words, none of the words the app never says; marks a voice reads badly are taken out ("&" is
-     * said "and"). Text is never cut: a note that is too long is not said at all.
+     * said "and"). Text is never cut: a note that is too long is not said at all. [noteChecked] is true for the text of a note the app made
+     * itself ([HostNotes] looked for the banned words in what the app wrote and not in a name, so "Claude Debussy" stays): only its length is
+     * checked here.
      */
-    fun line(text: String): String {
+    fun line(text: String, noteChecked: Boolean = false): String {
         val sb = StringBuilder(text.length + 8)
         var lastSpace = true
         for (c in text) {
@@ -194,7 +196,7 @@ object HostVoice {
         var s = sb.toString()
         if (s.endsWith(" ")) s = s.substring(0, s.length - 1)
         if (s.isEmpty() || s.length > MAX_CHARS) return ""
-        return if (HostNotes.isSpeakable(s)) s else ""
+        return if (if (noteChecked) HostNotes.isShort(s) else HostNotes.isSpeakable(s)) s else ""
     }
 
     const val MAX_CHARS = 160

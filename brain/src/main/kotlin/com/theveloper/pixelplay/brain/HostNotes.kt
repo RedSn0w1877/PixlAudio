@@ -48,10 +48,14 @@ object HostNotes {
     /** [a] and [b] are what the template says: see [text]. */
     class Note(val index: Int, val kind: Int, val a: String, val b: String)
 
-    /** The host notes of [slots] (the current track first), in order. Never throws. */
-    fun notes(slots: List<Slot>, taken: List<Taken> = emptyList()): List<Note> {
+    /**
+     * The host notes of [slots] (the current track first), in order. Never throws. [sinceLast] is how many tracks ago the last note was shown or
+     * spoken before the current track (1 = the track just before it; [MIN_GAP] or more = none close enough): the window is made again at every
+     * track, so without it the current track would always be free for a note and one would land on almost every track (see [tracksSinceNote]).
+     */
+    fun notes(slots: List<Slot>, taken: List<Taken> = emptyList(), sinceLast: Int = MIN_GAP): List<Note> {
         val out = ArrayList<Note>()
-        var last = -MIN_GAP
+        var last = -(if (sinceLast < 1) 1 else if (sinceLast > MIN_GAP) MIN_GAP else sinceLast)
         for (i in slots.indices) {
             if (i - last < MIN_GAP) continue
             if (!free(i, taken)) continue
@@ -60,6 +64,20 @@ object HostNotes {
             last = i
         }
         return out
+    }
+
+    /**
+     * How many tracks before [index] (1 to [MIN_GAP] - 1) the nearest earlier queue position sits whose song is in [noted] (the songs whose
+     * note was shown or spoken); [MIN_GAP] when none of the [MIN_GAP] - 1 tracks before [index] is one. The queue is [ids] in order.
+     */
+    fun tracksSinceNote(ids: List<String>, index: Int, noted: Set<String>): Int {
+        var d = 1
+        while (d < MIN_GAP) {
+            val j = index - d
+            if (j >= 0 && j < ids.size && noted.contains(ids[j])) return d
+            d++
+        }
+        return MIN_GAP
     }
 
     /** True when a note at [index] is at least [MIN_GAP] tracks from every taken note and outside the tracks a taken note describes. */
@@ -79,10 +97,8 @@ object HostNotes {
         val genre = s.genre.trim()
         var note: Note? = null
         if (s.newFromPlayedArtist && artist.isNotEmpty()) note = checked(Note(i, KIND_NEW_FROM_ARTIST, artist, ""))
-        if (note == null && s.sideways && genre.isNotEmpty()) {
-            val from = genreBefore(slots, i, genre)
-            if (from.isNotEmpty()) note = checked(Note(i, KIND_SIDEWAYS, from, genre))
-        }
+        // The engine only says this pick comes from a genre next to the listener's own: the note says that and nothing more.
+        if (note == null && s.sideways && genre.isNotEmpty()) note = checked(Note(i, KIND_SIDEWAYS, genre, ""))
         if (note == null && s.island.trim().isNotEmpty()) note = checked(Note(i, KIND_ISLAND, s.island.trim(), ""))
         if (note == null && genre.isNotEmpty()) {
             val fact = factOf(s.genreFact)
@@ -90,18 +106,6 @@ object HostNotes {
         }
         if (note == null && s.year in 1900..2100) note = checked(Note(i, KIND_YEAR, s.year.toString(), ""))
         return note
-    }
-
-    /** The genre of the nearest earlier track that has one different from [genre] (compared folded), or "". */
-    private fun genreBefore(slots: List<Slot>, i: Int, genre: String): String {
-        val key = BrainText.fold(genre)
-        var j = i - 1
-        while (j >= 0) {
-            val g = slots[j].genre.trim()
-            if (g.isNotEmpty() && BrainText.fold(g) != key) return g
-            j--
-        }
-        return ""
     }
 
     /**
@@ -130,23 +134,40 @@ object HostNotes {
     /** The sentence of [note]. */
     fun text(note: Note): String = when (note.kind) {
         KIND_NEW_FROM_ARTIST -> "New from ${note.a}, an artist you play."
-        KIND_SIDEWAYS -> "A step sideways, from ${note.a} to ${note.b}."
+        KIND_SIDEWAYS -> "A step sideways: ${note.a}."
         KIND_ISLAND -> "From your ${note.a} side."
         KIND_GENRE_FACT -> "${note.a}: ${note.b}."
         KIND_YEAR -> "Released in ${note.a}."
         else -> ""
     }
 
-    /** [note] when its text is short and clean, else null (the kind is then not used for the track). */
+    /**
+     * [note] when its text is short and clean, else null (the kind is then not used for the track). The words the app never says are looked for
+     * in what the app wrote (the template and the atlas' sentence), not in a name: an artist called Claude Debussy or a group called Atmosphere is
+     * real data, not copy.
+     */
     private fun checked(note: Note): Note? {
         val text = text(note)
-        return if (text.isNotEmpty() && isSpeakable(text)) note else null
+        if (text.isEmpty() || !isShort(text)) return null
+        val ours = text(Note(note.index, note.kind, "", if (note.kind == KIND_GENRE_FACT) note.b else ""))
+        return if (isClean(ours)) note else null
     }
 
-    /** True when [text] has at most [MAX_SENTENCES] sentences of at most [MAX_WORDS] words and none of the words the app never says. */
-    fun isSpeakable(text: String): Boolean {
-        val folded = BrainText.fold(text)
-        for (w in WeeklyNote.FORBIDDEN) if (folded.contains(w)) return false
+    /** True when [text] is short (see [isShort]) and has none of the words the app never says (whole words, see [isClean]). */
+    fun isSpeakable(text: String): Boolean = isShort(text) && isClean(text)
+
+    /**
+     * True when no word or phrase of [WeeklyNote.FORBIDDEN] is in [text] as whole words: "Atmosphere" and "learner" are not "atmos" and "learn".
+     * Compared folded, so "Hi-Res" is "hi res" on both sides.
+     */
+    fun isClean(text: String): Boolean {
+        val padded = " " + BrainText.fold(text) + " "
+        for (w in WeeklyNote.FORBIDDEN) if (padded.contains(" " + BrainText.fold(w) + " ")) return false
+        return true
+    }
+
+    /** True when [text] has at most [MAX_SENTENCES] sentences of at most [MAX_WORDS] words. */
+    fun isShort(text: String): Boolean {
         var sentences = 0
         var words = 0
         var inWord = false
