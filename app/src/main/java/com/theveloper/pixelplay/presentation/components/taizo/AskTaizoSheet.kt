@@ -92,6 +92,7 @@ import com.theveloper.pixelplay.data.tais.dj.DjRouteResult
 import com.theveloper.pixelplay.presentation.components.AdaptiveModalBottomSheet
 import com.theveloper.pixelplay.presentation.components.SmartImage
 import com.theveloper.pixelplay.presentation.viewmodel.AskTaizoViewModel
+import com.theveloper.pixelplay.presentation.viewmodel.HostChip
 import com.theveloper.pixelplay.presentation.viewmodel.PlayerViewModel
 import com.theveloper.pixelplay.presentation.viewmodel.TaizoChatItem
 import com.theveloper.pixelplay.presentation.viewmodel.TaizoMode
@@ -110,11 +111,17 @@ fun AskTaizoSheet(
     onDismissRequest: () -> Unit,
     sheetState: SheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
     viewModel: AskTaizoViewModel = hiltViewModel(),
+    /** Opened from "Ask the host" of Endless Listening: the host's chips show above the input and typed text carries the host's addendum. */
+    hostMode: Boolean = false,
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
     val uriHandler = LocalUriHandler.current
 
+    DisposableEffect(hostMode, viewModel) {
+        viewModel.setDjMode(hostMode)
+        onDispose { viewModel.setDjMode(false) }
+    }
     val player = remember(playerViewModel) { PlayerViewModelTaizoPlayer(playerViewModel) }
     DisposableEffect(player) {
         viewModel.attachPlayer(player)
@@ -213,6 +220,10 @@ fun AskTaizoSheet(
                 }
             }
 
+            if (hostMode) {
+                Spacer(Modifier.height(8.dp))
+                HostChips(enabled = !uiState.isResponding, onChip = viewModel::hostChip)
+            }
             Spacer(Modifier.height(10.dp))
             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 OutlinedTextField(
@@ -313,6 +324,33 @@ private fun TaizoHeader(
         }
     }
 }
+
+/** The host's chips: one row that scrolls sideways. Each is answered on the phone, with no model call. */
+@Composable
+private fun HostChips(enabled: Boolean, onChip: (HostChip) -> Unit, modifier: Modifier = Modifier) {
+    androidx.compose.foundation.lazy.LazyRow(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        items(HOST_CHIPS, key = { it.first.name }, contentType = { "host_chip" }) { (chip, label) ->
+            SuggestionChip(
+                onClick = { onChip(chip) },
+                enabled = enabled,
+                label = { Text(stringResource(label)) },
+                colors = SuggestionChipDefaults.suggestionChipColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
+            )
+        }
+    }
+}
+
+private val HOST_CHIPS: List<Pair<HostChip, Int>> = listOf(
+    HostChip.NEW to R.string.endless_chip_new,
+    HostChip.FAMILIAR to R.string.endless_chip_familiar,
+    HostChip.WHY to R.string.endless_chip_why,
+    HostChip.UPBEAT to R.string.endless_chip_upbeat,
+    HostChip.SLOWER to R.string.endless_chip_slower,
+    HostChip.SURPRISE to R.string.endless_chip_surprise,
+)
 
 private val TAIZO_SUGGESTIONS = listOf(
     "What's this song about?",

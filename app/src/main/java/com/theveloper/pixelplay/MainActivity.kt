@@ -1231,11 +1231,22 @@ class MainActivity : ComponentActivity() {
     }
 
     /** "Why this song" and "How picks work" (docs/brain-spec.md, 8.8, 8.9), opened from anywhere. */
+    @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
     @Composable
     private fun BrainSheets(playerViewModel: PlayerViewModel, navController: NavHostController) {
         val actions = playerViewModel.brainSession.actions
         val whySheet by actions.whySheet.collectAsStateWithLifecycle()
         val howPicksWorkVisible by actions.howPicksWorkVisible.collectAsStateWithLifecycle()
+        // "Ask the host" of Endless Listening, from the queue header and the player: Ask Taizo in host mode (its chips, a short addendum).
+        val endless = playerViewModel.brainSession.endless
+        val hostSheetOpen by endless.hostSheetOpen.collectAsStateWithLifecycle()
+        if (hostSheetOpen) {
+            com.theveloper.pixelplay.presentation.components.taizo.AskTaizoSheet(
+                playerViewModel = playerViewModel,
+                onDismissRequest = { endless.closeHostSheet() },
+                hostMode = true,
+            )
+        }
         whySheet?.let { state ->
             val favoriteIds by playerViewModel.favoriteSongIds.collectAsStateWithLifecycle()
             com.theveloper.pixelplay.presentation.components.WhyThisSongSheet(

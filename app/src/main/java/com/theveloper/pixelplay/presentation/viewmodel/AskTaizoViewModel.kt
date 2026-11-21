@@ -135,7 +135,12 @@ data class AskTaizoUiState(
     val ownCloudName: String? = null,
     val recentChats: List<TaizoChatSummary> = emptyList(),
     val isResolvingTracks: Boolean = false,
+    /** The chat was opened from "Ask the host" of Endless Listening: the host chips show and typed text carries the host's short addendum. */
+    val djMode: Boolean = false,
 )
+
+/** The host's chips (Endless Listening): each is answered on the phone with no model call. */
+enum class HostChip { NEW, FAMILIAR, WHY, UPBEAT, SLOWER, SURPRISE }
 
 /**
  * Ask Taizo: the assistant chat. Online with the built-in key it is Claude Sonnet 5.5 with the
@@ -159,6 +164,8 @@ class AskTaizoViewModel @Inject constructor(
     private val musicRepository: MusicRepository,
     private val brainFeedback: BrainFeedback,
     private val assistantEngine: com.theveloper.pixelplay.data.ai.claude.taizo.music.BrainAssistantEngine,
+    private val stationStore: com.theveloper.pixelplay.data.brain.StationStore,
+    private val brainSession: BrainSessionStateHolder,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(AskTaizoUiState())
@@ -190,6 +197,72 @@ class AskTaizoViewModel @Inject constructor(
 
     fun attachPlayer(player: TaizoPlayer) {
         toolExecutor.player = player
+        hostPlayer = player
+    }
+
+    /** The player the sheet attached, for the host's chips. */
+    private var hostPlayer: TaizoPlayer? = null
+
+    /** Opened from "Ask the host" (true) or from anywhere else (false). */
+    fun setDjMode(on: Boolean) = _uiState.update { if (it.djMode == on) it else it.copy(djMode = on) }
+
+    /**
+     * A chip of the host. Every one is answered on the phone: the novelty switch, five songs built for the change put next in the queue, or the
+     * existing "Why this song" sheet. Nothing is sent to a model, so a chip costs no part of the monthly budget.
+     */
+    fun hostChip(chip: HostChip) {
+        if (_uiState.value.isResponding) return
+        appendItem(TaizoChatItem.User(nextId(), context.getString(hostChipLabel(chip))))
+        viewModelScope.launch {
+            val reply = try {
+                runHostChip(chip)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Timber.tag(TAG).w(e, "A host chip failed")
+                context.getString(R.string.endless_reply_nothing)
+            }
+            appendItem(TaizoChatItem.Assistant(nextId(), text = reply, streaming = false))
+        }
+    }
+
+    private fun hostChipLabel(chip: HostChip): Int = when (chip) {
+        HostChip.NEW -> R.string.endless_chip_new
+        HostChip.FAMILIAR -> R.string.endless_chip_familiar
+        HostChip.WHY -> R.string.endless_chip_why
+        HostChip.UPBEAT -> R.string.endless_chip_upbeat
+        HostChip.SLOWER -> R.string.endless_chip_slower
+        HostChip.SURPRISE -> R.string.endless_chip_surprise
+    }
+
+    private suspend fun runHostChip(chip: HostChip): String = when (chip) {
+        HostChip.NEW -> {
+            stationStore.setNovelty(com.theveloper.pixelplay.data.brain.Novelty.DISCOVER)
+            context.getString(R.string.endless_reply_new)
+        }
+        HostChip.FAMILIAR -> {
+            stationStore.setNovelty(com.theveloper.pixelplay.data.brain.Novelty.FAMILIAR)
+            context.getString(R.string.endless_reply_familiar)
+        }
+        HostChip.WHY -> {
+            val song = hostPlayer?.currentSong()
+            val why = song?.let { brainSession.queueWhy.value[it.id] }
+            if (song == null) context.getString(R.string.endless_reply_no_song)
+            else if (why == null) context.getString(R.string.endless_reply_no_why)
+            else {
+                brainSession.actions.showWhy(song, why.key, why.arg, why.servedX, why.model)
+                context.getString(R.string.endless_reply_why)
+            }
+        }
+        HostChip.UPBEAT -> steerHost("energy_up", context.getString(R.string.endless_reply_upbeat))
+        HostChip.SLOWER -> steerHost("energy_down", context.getString(R.string.endless_reply_slower))
+        HostChip.SURPRISE -> steerHost("more_new", context.getString(R.string.endless_reply_surprise))
+    }
+
+    /** `steer_session` for this queue only, run directly: five songs built for the change go next. What it cannot do, it says (no energy data, nothing playing). */
+    private suspend fun steerHost(change: String, done: String): String {
+        val outcome = assistantEngine.steer(change, "", "session", hostPlayer)
+        return if (outcome.applied) done else outcome.note.ifBlank { context.getString(R.string.endless_reply_nothing) }
     }
 
     fun detachPlayer(player: TaizoPlayer) {
@@ -509,7 +582,11 @@ class AskTaizoViewModel @Inject constructor(
 
         try {
             val profileText = profileBlock()
-            val system = ClaudeService.systemBlocks(TaizoContext.INSTRUCTIONS, profileText)
+            val system = ClaudeService.systemBlocks(
+                TaizoContext.INSTRUCTIONS, profileText,
+                // The host's short addendum, after the cache breakpoint: the cached prefix is the same with or without it.
+                volatileText = if (_uiState.value.djMode) TaizoContext.HOST_ADDENDUM else null,
+            )
             // What the model is shown (the profile, what is playing) and what earlier turns of this chat returned are things it may say back.
             val grounding = toolExecutor.grounding
             if (!grounding.isSeeded) grounding.noteHistory(history)

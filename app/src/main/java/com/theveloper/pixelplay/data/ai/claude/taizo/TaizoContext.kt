@@ -84,6 +84,16 @@ object TaizoContext {
         - Put [[double square brackets]] around every track, album and artist you name, spelled as a tool returned it. The app takes the brackets off.
     """.trimIndent()
 
+    /**
+     * Endless Listening, "Ask the host": added after the cache breakpoint (the cached prefix is the same with or without it) while the chat was
+     * opened from the host's button. It changes how short and how focused the reply is; the grounding rules above stay exactly as they are.
+     */
+    val HOST_ADDENDUM: String = """
+        The listener opened this chat from Endless Listening, where you are the host. Answer in one or two short sentences about the music
+        that is playing and coming up. To change what comes next call steer_session (scope session for this queue; always only if they ask for a
+        lasting change). Look with a tool before you say why something is in the queue, and say only what the tool returned.
+    """.trimIndent()
+
     val INSTRUCTIONS: String = """
         You are Taizo, PixlAudio's music assistant. PixlAudio is a music player on the user's phone; its
         Your name is Taizo and you are PixlAudio's built-in assistant. Never say which AI model, company or service is behind you; if asked, say you are Taizo, PixlAudio's assistant.
