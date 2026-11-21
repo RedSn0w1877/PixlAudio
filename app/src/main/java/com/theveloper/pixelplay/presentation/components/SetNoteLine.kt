@@ -17,6 +17,7 @@ import com.theveloper.pixelplay.brain.HostNotes
 import com.theveloper.pixelplay.brain.SetNotes
 import com.theveloper.pixelplay.data.brain.BrainFeedback
 import com.theveloper.pixelplay.data.brain.EngineTrack
+import com.theveloper.pixelplay.data.brain.HostNoteMemory
 import com.theveloper.pixelplay.data.model.Song
 import com.theveloper.pixelplay.presentation.viewmodel.PlayerViewModel
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -65,20 +66,26 @@ object SetNoteLines {
         val islandOf: Map<String, String>,
         val whyKeyOf: Map<String, String>,
         val genreFact: (String) -> String,
+        /** The songs whose note was shown or spoken: one memory for the card, the rows and the voice. */
+        val memory: HostNoteMemory = HostNoteMemory(),
     )
 
     /**
      * The notes of [queue] from [currentIndex]. [heard] null means the history is not loaded yet: no note is made (a note is true or absent).
      * With [host] (Endless Listening, the host's notes on) the host-only notes of [HostNotes] join the set notes: never on a track that already
-     * has one, and at most one note of either kind per five tracks.
+     * has one, and at most one note of either kind per five tracks: the window is made again at every track, so [HostFacts.memory] says how far
+     * back the last note shown or spoken was, and the note of the current track is remembered. [notesOff] (Endless Listening is the queue and the
+     * host's notes are off) gives no note at all, the set notes included.
      */
-    fun forQueue(queue: List<Song>, currentIndex: Int, heard: Set<String>?, host: HostFacts? = null): Result {
-        if (heard == null || currentIndex < 0 || currentIndex >= queue.size) return Result.NONE
+    fun forQueue(queue: List<Song>, currentIndex: Int, heard: Set<String>?, host: HostFacts? = null, notesOff: Boolean = false): Result {
+        if (heard == null || notesOff || currentIndex < 0 || currentIndex >= queue.size) return Result.NONE
         val end = minOf(queue.size, currentIndex + LOOKAHEAD)
         val slots = ArrayList<SetNotes.Slot>(end - currentIndex)
         for (i in currentIndex until end) slots.add(slotOf(queue[i], heard))
         val notes = SetNotes.notes(slots)
-        val hostNotes = if (host == null) emptyList() else HostNotes.notes(hostSlots(queue, currentIndex, end, host), taken(notes))
+        val hostNotes = if (host == null) emptyList() else HostNotes.notes(
+            hostSlots(queue, currentIndex, end, host, heard), taken(notes), sinceLastNote(queue, currentIndex, host.memory),
+        )
         if (notes.isEmpty() && hostNotes.isEmpty()) return Result.NONE
         val byIndex = HashMap<Int, String>((notes.size + hostNotes.size) * 2)
         var current: String? = null
@@ -92,14 +99,24 @@ object SetNoteLines {
             if (n.index == 0) current = text
             byIndex[currentIndex + n.index] = text
         }
+        // The current track's note is now on the screen (or about to be said): the next window counts from it.
+        if (host != null && current != null) host.memory.mark(queue[currentIndex].id)
         return Result(byIndex, current)
+    }
+
+    /** How many tracks before [currentIndex] the last note shown or spoken sits (see [HostNotes.tracksSinceNote]). */
+    private fun sinceLastNote(queue: List<Song>, currentIndex: Int, memory: HostNoteMemory): Int {
+        val from = maxOf(0, currentIndex - (HostNotes.MIN_GAP - 1))
+        val before = ArrayList<String>(currentIndex - from)
+        for (i in from until currentIndex) before.add(queue[i].id)
+        return HostNotes.tracksSinceNote(before, before.size, memory.snapshot())
     }
 
     /** The set notes as the tracks they describe: a note's own tracks, and the new track it ends on. */
     fun taken(notes: List<SetNotes.Note>): List<HostNotes.Taken> =
         notes.map { HostNotes.Taken(it.index, it.count + if (it.newArtist.isNotEmpty()) 1 else 0) }
 
-    private fun hostSlots(queue: List<Song>, from: Int, end: Int, host: HostFacts): List<HostNotes.Slot> {
+    private fun hostSlots(queue: List<Song>, from: Int, end: Int, host: HostFacts, heard: Set<String>): List<HostNotes.Slot> {
         val out = ArrayList<HostNotes.Slot>(end - from)
         for (i in from until end) {
             val song = queue[i]
@@ -111,9 +128,10 @@ object SetNoteLines {
                     genre = genre,
                     genreFact = if (genre.isEmpty()) "" else host.genreFact(genre),
                     year = song.year,
-                    island = host.islandOf[song.id].orEmpty(),
+                    // "Your side" and "new" follow the set notes' rule: only a song with no recorded play is new, only one with a play is "yours".
+                    island = if (song.id in heard) host.islandOf[song.id].orEmpty() else "",
                     // "New from an artist you play": the engine's own reason for the pick (the saved releases hold only artists the listener plays).
-                    newFromPlayedArtist = why == "new_release",
+                    newFromPlayedArtist = why == "new_release" && song.id !in heard,
                     sideways = why == "adjacent_genre",
                 )
             )
@@ -141,6 +159,15 @@ fun rememberHostFacts(playerViewModel: PlayerViewModel, queue: List<Song>, index
     return facts
 }
 
+/** True while Endless Listening is the queue's station and its Host notes switch is off: then the queue shows no note at all, the set notes included. */
+@Composable
+fun rememberHostNotesOff(playerViewModel: PlayerViewModel): Boolean {
+    val endless = playerViewModel.brainSession.endless
+    val active by endless.active.collectAsStateWithLifecycle()
+    val enabled by endless.hostNotesEnabled.collectAsStateWithLifecycle()
+    return active && !enabled
+}
+
 /** The note under the player's title, or nothing. Reads the queue and the current index itself, so only this line recomposes. */
 @Composable
 fun SetNoteLine(playerViewModel: PlayerViewModel, color: Color, modifier: Modifier = Modifier) {
@@ -152,7 +179,8 @@ fun SetNoteLine(playerViewModel: PlayerViewModel, color: Color, modifier: Modifi
         value = playerViewModel.brainSession.setNoteHistory.heardSongIds(SetNoteLines.window(queue, index))
     }
     val host = rememberHostFacts(playerViewModel, queue, index)
-    val note = remember(queue, index, heard, host) { SetNoteLines.forQueue(queue, index, heard, host).current }
+    val notesOff = rememberHostNotesOff(playerViewModel)
+    val note = remember(queue, index, heard, host, notesOff) { SetNoteLines.forQueue(queue, index, heard, host, notesOff).current }
     val endlessActive = rememberEndlessActive(playerViewModel)
     if (endlessActive) {
         // Endless Listening: the note is a small card with "Ask the host" beside it; with no note the button stands alone.

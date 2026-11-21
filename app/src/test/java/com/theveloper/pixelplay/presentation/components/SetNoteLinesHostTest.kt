@@ -39,7 +39,8 @@ class SetNoteLinesHostTest {
     @Test
     fun `an island name makes a note, and the next one is at least five tracks later`() {
         val islands = eight.associate { it.id to "Soft pop" }
-        val notes = SetNoteLines.forQueue(eight, 0, emptySet(), facts(islands = islands))
+        val heard = eight.map { it.id }.toSet()
+        val notes = SetNoteLines.forQueue(eight, 0, heard, facts(islands = islands))
         assertThat(notes.byIndex.keys).containsExactly(0, 5)
         assertThat(notes.byIndex[0]).isEqualTo("From your Soft pop side.")
         assertThat(notes.current).isEqualTo("From your Soft pop side.")
@@ -73,7 +74,7 @@ class SetNoteLinesHostTest {
             library("1", "A", "pop"), library("2", "B", "pop"), library("3", "C", "pop"),
             outside("4", "D"), library("5", "E"), library("6", "F"), library("7", "G"), library("8", "H"),
         )
-        val heard = setOf("1", "2", "3")
+        val heard = queue.map { it.id }.toSet() - "4"
         val islands = queue.associate { it.id to "Soft pop" }
         val result = SetNoteLines.forQueue(queue, 0, heard, facts(islands = islands))
         // The set note is on the first of its three tracks; the host speaks again only after the five tracks it covers.
@@ -81,5 +82,40 @@ class SetNoteLinesHostTest {
         assertThat(result.byIndex.keys.filter { it in 1..4 }).isEmpty()
         assertThat(result.byIndex.keys).containsExactly(0, 5)
         assertThat(result.byIndex[5]).isEqualTo("From your Soft pop side.")
+    }
+
+    @Test
+    fun `an island note needs a recorded play and a new release must not have been heard`() {
+        val queue = listOf(library("1", "Clairo"), library("2", "Mono"))
+        val islands = mapOf("1" to "Soft pop", "2" to "Soft pop")
+        assertThat(SetNoteLines.forQueue(queue, 0, emptySet(), facts(islands = islands)).byIndex).isEmpty()
+        assertThat(SetNoteLines.forQueue(queue, 0, setOf("1"), facts(islands = islands)).byIndex).containsExactly(0, "From your Soft pop side.")
+        // The stale reason of a song that was already heard must not claim "new".
+        val why = mapOf("1" to "new_release")
+        assertThat(SetNoteLines.forQueue(queue, 0, setOf("1"), facts(why = why)).byIndex).isEmpty()
+    }
+
+    @Test
+    fun `moving on one track at a time keeps one note in five tracks`() {
+        val islands = eight.associate { it.id to "Soft pop" }
+        val heard = eight.map { it.id }.toSet()
+        val f = facts(islands = islands)
+        // Track 0 shows its note; going on to track 1 to 4 shows none (the card used to repeat at every track); track 5 may.
+        val shown = (0..6).filter { SetNoteLines.forQueue(eight, it, heard, f).current != null }
+        assertThat(shown).containsExactly(0, 5).inOrder()
+    }
+
+    @Test
+    fun `a step sideways says only the genre the engine flagged`() {
+        val queue = listOf(library("1", "A", "k-pop"), library("2", "B", "bossa nova"))
+        val why = mapOf("2" to "adjacent_genre")
+        assertThat(SetNoteLines.forQueue(queue, 1, setOf("1"), facts(why = why)).byIndex).containsExactly(1, "A step sideways: bossa nova.")
+    }
+
+    @Test
+    fun `with Endless Listening's host notes off the queue has no note at all`() {
+        val queue = listOf(library("1", "A"), library("2", "B"), library("3", "C"), library("4", "D"))
+        val heard = setOf("1", "2", "3")
+        assertThat(SetNoteLines.forQueue(queue, 0, heard, null, notesOff = true).byIndex).isEmpty()
     }
 }

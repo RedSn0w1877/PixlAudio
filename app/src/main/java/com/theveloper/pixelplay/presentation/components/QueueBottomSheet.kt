@@ -333,7 +333,8 @@ fun QueueBottomSheet(
     }
     val endlessActive = rememberEndlessActive(viewModel)
     val hostFacts = rememberHostFacts(viewModel, queue, currentSongIndex)
-    val setNotes = remember(queue, currentSongIndex, heardSongIds, hostFacts) { SetNoteLines.forQueue(queue, currentSongIndex, heardSongIds, hostFacts).byIndex }
+    val hostNotesOff = rememberHostNotesOff(viewModel)
+    val setNotes = remember(queue, currentSongIndex, heardSongIds, hostFacts, hostNotesOff) { SetNoteLines.forQueue(queue, currentSongIndex, heardSongIds, hostFacts, hostNotesOff).byIndex }
 
     // Offset to convert display indices to queue indices when history is hidden.
     val queueIndexOffset = if (showQueueHistory || currentSongIndex < 0) 0 else currentSongIndex

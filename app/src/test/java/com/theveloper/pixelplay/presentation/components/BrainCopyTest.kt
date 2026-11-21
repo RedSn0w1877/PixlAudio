@@ -162,6 +162,16 @@ class BrainCopyTest {
             assertTrue("learn" !in lower, "$name says \"learn\": $text")
             assertTrue("spotify" !in lower && "dj" !in lower.split(Regex("[^a-z]+")), "$name names another service or its host: $text")
         }
+        // The plural replies of the host's chips are held to the same rule, and say the real count.
+        val endlessPlurals = plurals("strings_endless.xml")
+        assertEquals(setOf("endless_reply_surprise", "endless_reply_upbeat", "endless_reply_slower"), endlessPlurals.keys)
+        for ((name, items) in endlessPlurals) for (text in items) {
+            val lower = text.lowercase()
+            for (word in forbidden) assertTrue(word !in lower, "$name says \"$word\": $text")
+            assertTrue("learn" !in lower, "$name says \"learn\": $text")
+            assertTrue("spotify" !in lower && "dj" !in lower.split(Regex("[^a-z]+")), "$name names another service or its host: $text")
+            assertTrue(!text.contains("Five"), "$name must not name a count it does not know: $text")
+        }
         assertEquals("Music that keeps going.", endless["endless_intro_title_1"])
         assertEquals("Endless Listening starts from what you play and keeps adding more until you stop it.", endless["endless_intro_body_1"])
         assertEquals("A host, if you want one.", endless["endless_intro_title_2"])

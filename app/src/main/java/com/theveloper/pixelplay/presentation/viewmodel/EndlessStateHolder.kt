@@ -1,6 +1,7 @@
 package com.theveloper.pixelplay.presentation.viewmodel
 
 import com.theveloper.pixelplay.data.brain.HostNoteFacts
+import com.theveloper.pixelplay.data.brain.HostNoteMemory
 import com.theveloper.pixelplay.data.brain.StationStore
 import com.theveloper.pixelplay.data.model.Song
 import com.theveloper.pixelplay.presentation.components.SetNoteLines
@@ -30,6 +31,7 @@ class EndlessStateHolder @Inject constructor(
     private val preferences: UserPreferencesRepository,
     private val stations: StationStore,
     private val hostNoteFacts: HostNoteFacts,
+    private val hostNoteMemory: HostNoteMemory,
     /** The spoken host: its switch, its test and its developer log (it watches nothing until it is armed). */
     val voice: HostVoiceStateHolder,
     @AppScope private val scope: CoroutineScope,
@@ -79,6 +81,7 @@ class EndlessStateHolder @Inject constructor(
             islandOf = hostNoteFacts.islandNames(window),
             whyKeyOf = keys,
             genreFact = hostNoteFacts::genreFact,
+            memory = hostNoteMemory,
         )
     }
 
