@@ -4,6 +4,7 @@ import com.theveloper.pixelplay.data.songtap.SongTapSigner
 import com.theveloper.pixelplay.data.songtap.SongTapVerifier
 import com.theveloper.pixelplay.data.songtap.TransportEvent
 import com.theveloper.pixelplay.songtap.Role
+import com.theveloper.pixelplay.songtap.SongTapSensitivity
 import com.theveloper.pixelplay.songtap.SongTapWire
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -20,9 +21,11 @@ class TestClock(var elapsed: Long = 10_000L, var wall: Long = 1_763_600_000_000L
 
 class FakeImpulses : ImpulseSource {
     var running = false
+    var profile = SongTapSensitivity.DEFAULT
     private var callback: ((Long) -> Unit)? = null
     override fun start(onImpulse: (Long) -> Unit) { running = true; callback = onImpulse }
     override fun stop() { running = false; callback = null }
+    override fun setSensitivity(profile: SongTapSensitivity) { this.profile = profile }
     fun jerk(atMs: Long) { callback?.invoke(atMs) }
 }
 
@@ -92,23 +95,27 @@ class BleRig(testScope: TestScope, val diag: SongTapDiagnostics = SongTapDiagnos
     }
 
     /**
-     * A phone sits inside the strict near gate (the gate is -55) without being close enough for the hold path (-52), long enough for
-     * the detector to settle. The first reading is the baseline, so there is no jump.
+     * A phone resting 20 to 30 cm away: inside the tap near gate (-70, on the iPhone scale: the rig's offset is 0 unless a test sets one) and
+     * well below the hold level (-45), long enough for the detector to settle. The first reading is the baseline, so there is no jump.
      */
     fun settle(address: String, role: Role, rssi: Int = NEAR_DBM, samples: Int = 8, name: String? = null) {
         repeat(samples) { see(address, role, rssi, name = name) }
     }
 
-    /** The signal jumps 24 dB and stays: a tap that is held (the hold path fires at the fifth reading, a jerk makes it the fourth). */
+    /** The signal jumps 27 dB and stays: the phones touch (the dwell fires at the third reading, a jerk makes it the second/third). */
     fun touch(address: String, role: Role, rssi: Int = TOUCH_DBM, samples: Int = 8) {
         repeat(samples) { see(address, role, rssi) }
     }
 
     companion object {
-        const val NEAR_DBM = -54
-        const val TOUCH_DBM = -30
-        /** Inside the broad list gate (-78) and outside the strict near gate (-55). */
-        const val LIST_ONLY_DBM = -70
+        /** Resting 20 to 30 cm apart, about -60 on the iPhone scale. */
+        const val NEAR_DBM = -60
+
+        /** Touching, about -33 on the iPhone scale. */
+        const val TOUCH_DBM = -33
+
+        /** Inside the broad list gate (-85) and outside the tap near gate (-70). */
+        const val LIST_ONLY_DBM = -80
     }
 
     inline fun <reified T : TransportEvent> of(): List<T> = events.filterIsInstance<T>()

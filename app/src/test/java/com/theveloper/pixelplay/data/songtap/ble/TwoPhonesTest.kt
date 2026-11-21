@@ -19,6 +19,7 @@ import com.theveloper.pixelplay.songtap.Phase
 import com.theveloper.pixelplay.songtap.Role
 import com.theveloper.pixelplay.songtap.SongTapLink
 import com.theveloper.pixelplay.songtap.SongTapNames
+import com.theveloper.pixelplay.songtap.SongTapSensitivity
 import com.theveloper.pixelplay.songtap.SongTapSession
 import com.theveloper.pixelplay.songtap.SongTapPayloads
 import com.theveloper.pixelplay.songtap.SongTapTimeline
@@ -124,6 +125,11 @@ class TwoPhonesTest {
             coEvery { settings.isAllowed() } returns true
             coEvery { settings.doesFirstBeamAsk() } returns firstBeamAsks
             coEvery { settings.nameNow() } returns ownName
+            // The rig reads like an iPhone (offset 0) and the default profile, unless a test says otherwise.
+            coEvery { settings.rssiOffsetNow() } returns 0
+            coEvery { settings.sensitivityNow() } returns SongTapSensitivity.HIGH
+            every { settings.rssiOffsetDb } returns flowOf(0)
+            every { settings.sensitivity } returns flowOf(SongTapSensitivity.HIGH)
             val playback = mockk<PlaybackStateHolder>()
             every { playback.stablePlayerState } returns MutableStateFlow(StablePlayerState(currentSong = playing))
             holder = SongTapStateHolder(settings, SongTapReceiver(library), SongTapSender(Ids(video)), QrTransport(), transport, SongTapDiagnostics(), playback, scope.backgroundScope)
@@ -143,6 +149,19 @@ class TwoPhonesTest {
             receiver.see("A", Role.SEND, rssi, SongTapNames.advertName(sender.ownName))
             scope.testScheduler.runCurrent()
         }
+        /** Only the sender's radio hears the other phone this time (the other phone's own reading did not move). */
+        fun stepSenderOnly(rssi: Int) {
+            clock.advance(100)
+            sender.see("B", Role.RECEIVE, rssi, SongTapNames.advertName(receiver.ownName))
+            scope.testScheduler.runCurrent()
+        }
+
+        fun stepReceiverOnly(rssi: Int) {
+            clock.advance(100)
+            receiver.see("A", Role.SEND, rssi, SongTapNames.advertName(sender.ownName))
+            scope.testScheduler.runCurrent()
+        }
+
         fun settle(rssi: Int = BleRig.NEAR_DBM, samples: Int = 8) = repeat(samples) { step(rssi) }
         fun touch(rssi: Int = BleRig.TOUCH_DBM, samples: Int = 8) = repeat(samples) { step(rssi) }
 
@@ -487,6 +506,70 @@ class TwoPhonesTest {
         assertThat(p.sender.haptics.count { it == HapticCue.TICK }).isEqualTo(1)
     }
 
+    // ── The one-sided tap (spec 6) ───────────────────────────────────────────────────
+
+    @Test
+    fun `the sender feeling the tap first beams both phones, while the receiver's own signal never moves`() = runTest {
+        val p = pair()
+        p.settle()
+        p.approve()
+        assertThat(p.receiver.holder.ui.value.session.pre).isTrue()
+        repeat(4) { p.stepSenderOnly(BleRig.TOUCH_DBM) }
+        passTime(1_000)
+        assertThat(p.sender.holder.ui.value.beamRole).isEqualTo(Role.SEND)
+        assertThat(p.receiver.holder.ui.value.beamRole).isEqualTo(Role.RECEIVE)
+        assertThat(p.receiver.library.videos).containsExactly("dQw4w9WgXcQ")
+        assertThat(p.receiver.haptics.count { it == HapticCue.TICK }).isEqualTo(1)
+        assertThat(p.sender.haptics.count { it == HapticCue.TICK }).isEqualTo(1)
+        // The receiver's own detector never fired: it took the sender's word.
+        assertThat(p.receiver.holder.ui.value.session.pre).isFalse()
+    }
+
+    @Test
+    fun `the receiver feeling the tap first beams both phones, while the sender's own signal never moves`() = runTest {
+        val p = pair()
+        p.settle()
+        p.approve()
+        repeat(4) { p.stepReceiverOnly(BleRig.TOUCH_DBM) }
+        passTime(1_000)
+        assertThat(p.sender.holder.ui.value.beamRole).isEqualTo(Role.SEND)
+        assertThat(p.receiver.holder.ui.value.beamRole).isEqualTo(Role.RECEIVE)
+        assertThat(p.receiver.library.videos).containsExactly("dQw4w9WgXcQ")
+        assertThat(p.receiver.haptics.count { it == HapticCue.TICK }).isEqualTo(1)
+        assertThat(p.sender.haptics.count { it == HapticCue.TICK }).isEqualTo(1)
+    }
+
+    @Test
+    fun `the sender's tap is not believed by a receiver that is a few metres away, and the sender's beam times out`() = runTest {
+        val p = pair()
+        p.settle()
+        p.approve()
+        // The receiver's own signal for the sender fell to a few metres (it has not noticed the sender is gone yet: its link is still up).
+        repeat(4) { p.stepReceiverOnly(BleRig.LIST_ONLY_DBM) }
+        repeat(4) { p.stepSenderOnly(BleRig.TOUCH_DBM) }
+        passTime(1_000)
+        assertThat(p.receiver.library.videos).isEmpty()
+        assertThat(p.receiver.holder.ui.value.beamRole).isNull()
+        assertThat(p.receiver.haptics).isEmpty()
+        assertThat(p.sender.holder.ui.value.beamRole).isEqualTo(Role.SEND)
+        passTime(SongTapSession.ACK_TIMEOUT_MS + 500)
+        assertThat(p.sender.holder.ui.value.notice).isEqualTo(SongTapNotice.TIMEOUT)
+    }
+
+    @Test
+    fun `a tap with no yes from the sender beams nothing, on either side`() = runTest {
+        val p = pair()
+        p.settle()
+        // No approve: the receiver holds no offer and the sender serves none.
+        repeat(4) { p.stepSenderOnly(BleRig.TOUCH_DBM) }
+        repeat(4) { p.stepReceiverOnly(BleRig.TOUCH_DBM) }
+        passTime(1_000)
+        assertThat(p.receiver.library.videos).isEmpty()
+        assertThat(p.sender.holder.ui.value.beamRole).isNull()
+        assertThat(p.receiver.holder.ui.value.beamRole).isNull()
+    }
+
+
     // ── Song Drop: names, the prompt, the picker, the target ─────────────────────────
 
     @Test
@@ -502,7 +585,7 @@ class TwoPhonesTest {
         assertThat(p.sender.holder.ui.value.session.phase).isAnyOf(Phase.FOUND, Phase.NEAR)
 
         // Walking up, slowly (no jump): inside the strict gate the sender's listener is asked "Song drop to Bea?".
-        for (rssi in listOf(-66, -62, -58, -55, -54, -54, -54, -54, -54, -54)) p.step(rssi)
+        for (rssi in listOf(-78, -76, -74, -72, -70, -68, -66, -64, -62, -60, -60, -60)) p.step(rssi)
         val asked = p.sender.holder.ui.value.prompt!!
         assertThat(asked.name).isEqualTo("Bea")
         assertThat(asked.near).isTrue()

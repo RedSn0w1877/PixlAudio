@@ -10,6 +10,8 @@ import com.theveloper.pixelplay.songtap.SongTapPayloads
 import com.theveloper.pixelplay.songtap.SongTapSigning
 import com.theveloper.pixelplay.songtap.SongTapWire
 import com.theveloper.pixelplay.songtap.SongTapNames
+import com.theveloper.pixelplay.songtap.SongTapPeerTap
+import com.theveloper.pixelplay.songtap.SongTapSensitivity
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runTest
@@ -73,11 +75,11 @@ class BleTransportTest {
     }
 
     @Test
-    fun `a signal that is only just inside the old loose gate cannot connect`() = runTest {
+    fun `a signal that is only inside the list gate cannot connect or tap, however it moves`() = runTest {
         val rig = BleRig(this)
         rig.transport.start(Role.RECEIVE)
-        rig.settle("S", Role.SEND, -62)
-        rig.touch("S", Role.SEND, -58)
+        rig.settle("S", Role.SEND, BleRig.LIST_ONLY_DBM)
+        rig.touch("S", Role.SEND, -73)
         assertThat(rig.radio.count("connect")).isEqualTo(0)
         assertThat(rig.of<TransportEvent.Tap>()).isEmpty()
     }
@@ -100,25 +102,28 @@ class BleTransportTest {
     @Test
     fun `phones brought together gently and held fire without any bump`() = runTest {
         val rig = connectedReceiver()
-        // A slow rise from the near edge to a few centimetres: no 15 dB jump at any moment, no jerk.
-        for (rssi in listOf(-54, -53, -52, -51, -50, -49, -48)) rig.see("S", Role.SEND, rssi)
+        // A slow rise from resting distance to a few centimetres, half a dB a reading: no jump at any moment, no jerk, and still short of -45.
+        for (rssi in (-60..-47).flatMap { listOf(it, it) }) rig.see("S", Role.SEND, rssi)
         assertThat(rig.of<TransportEvent.Tap>()).isEmpty()
-        repeat(6) { rig.see("S", Role.SEND, -48) }
+        repeat(6) { rig.see("S", Role.SEND, -40) }
         assertThat(rig.of<TransportEvent.Tap>()).hasSize(1)
-        rig.settle("S", Role.SEND, -48, samples = 25)
+        rig.settle("S", Role.SEND, -40, samples = 25)
         assertThat(rig.of<TransportEvent.Tap>()).hasSize(1)
     }
 
     @Test
     fun `a jerk makes the same jump count sooner than the dwell does`() = runTest {
+        // High: a jump held 200 ms fires, or 60 ms with a jerk of 900 milli g.
         val dwell = connectedReceiver()
-        dwell.touch("S", Role.SEND, samples = 4)
+        dwell.touch("S", Role.SEND, samples = 2)
         assertThat(dwell.of<TransportEvent.Tap>()).isEmpty()
+        dwell.touch("S", Role.SEND, samples = 1)
+        assertThat(dwell.of<TransportEvent.Tap>()).hasSize(1)
 
         val jerk = connectedReceiver()
         jerk.clock.advance(100)
         jerk.impulses.jerk(jerk.clock.elapsed)
-        jerk.touch("S", Role.SEND, samples = 4)
+        jerk.touch("S", Role.SEND, samples = 2)
         assertThat(jerk.of<TransportEvent.Tap>()).hasSize(1)
     }
 
@@ -418,8 +423,8 @@ class BleTransportTest {
         rig.see("S", Role.SEND, -58)
         assertThat(diag.snapshot.value.rssi).isEqualTo(-58)
         assertThat(diag.snapshot.value.focus).contains("sending")
-        // The gates are on the screen: near stays "strict near" until it falls below the exit level.
-        assertThat(diag.snapshot.value.gate).isEqualTo("strict near")
+        // The gates are on the screen: near stays "tap near" until it falls below the exit level.
+        assertThat(diag.snapshot.value.gate).isEqualTo("tap near")
         assertThat(diag.snapshot.value.mayConnect).isTrue()
         rig.settle("S", Role.SEND, BleRig.LIST_ONLY_DBM, samples = 6)
         assertThat(diag.snapshot.value.gate).isEqualTo("list only")
@@ -560,35 +565,296 @@ class BleTransportTest {
     }
 
     @Test
-    fun `a receiver's tap message counts only from the phone that read the offer, and only when the sender's own signal jumped too`() = runTest {
+    fun `a receiver's tap message is taken at once, without the sender's own detector, from the phone that read the offer`() = runTest {
         val rig = sender()
         val peer = rig.peerOf()
         rig.transport.publishOffer(peer, payloadBytes)
         rig.transport.serverControl("reader", SongTapWire.encodeHello(ByteArray(16) { 1 })!!)
         rig.transport.serverControl("other", SongTapWire.encodeHello(ByteArray(16) { 2 })!!)
-        // The sender's own signal has not jumped: the message is not believed.
-        assertThat(rig.transport.serverOffer("reader")).isNotNull()
+        // Nobody has read the offer yet: the sender has not "said yes" to anybody's reading, so the message is not believed.
         rig.transport.serverControl("reader", SongTapWire.encodeTap(30))
         assertThat(rig.of<TransportEvent.Tap>()).isEmpty()
-        // The jump has started but has not held long enough to fire alone.
-        rig.touch("R", Role.RECEIVE, samples = 3)
+        assertThat(rig.transport.serverOffer("reader")).isNotNull()
+        // A phone that did not read it is not the receiver.
         rig.transport.serverControl("other", SongTapWire.encodeTap(30))
         assertThat(rig.of<TransportEvent.Tap>()).isEmpty()
+        // The reader's message counts although this phone's own signal for it has not moved at all (resting 20 to 30 cm apart).
         rig.transport.serverControl("reader", SongTapWire.encodeTap(30))
         assertThat(rig.of<TransportEvent.Tap>().map { it.peer }).containsExactly(peer)
     }
 
     @Test
-    fun `another phone's jump does not make a receiver's tap message count`() = runTest {
+    fun `a receiver's tap message is ignored when the sender's own signal for it is below the tap near gate, or the phone is not the followed one`() = runTest {
         val rig = sender()
         val peer = rig.peerOf()
         rig.transport.publishOffer(peer, payloadBytes)
         rig.transport.serverControl("c", SongTapWire.encodeHello(ByteArray(16))!!)
         assertThat(rig.transport.serverOffer("c")).isNotNull()
-        rig.settle("Q", Role.RECEIVE, rssi = -90)
-        rig.touch("Q", Role.RECEIVE, rssi = -66, samples = 4) // Q jumps; R, the phone being followed, does not
+        // The followed phone drifts to a few metres (-80 is inside the list gate, outside the near gate): the message is not believed.
+        repeat(6) { rig.see("R", Role.RECEIVE, BleRig.LIST_ONLY_DBM) }
         rig.transport.serverControl("c", SongTapWire.encodeTap(30))
         assertThat(rig.of<TransportEvent.Tap>()).isEmpty()
+        assertThat(rig.diag.events.value.last().text).contains("too_weak")
+        // Another phone coming in strongly does not make a message count either: the sender follows the phone it said yes to.
+        rig.settle("Q", Role.RECEIVE, rssi = -40)
+        rig.transport.serverControl("c", SongTapWire.encodeTap(30))
+        assertThat(rig.of<TransportEvent.Tap>()).isEmpty()
+        // Back close: it counts.
+        rig.settle("R", Role.RECEIVE, BleRig.NEAR_DBM, samples = 6)
+        rig.transport.serverControl("c", SongTapWire.encodeTap(30))
+        assertThat(rig.of<TransportEvent.Tap>().map { it.peer }).containsExactly(peer)
+    }
+
+    @Test
+    fun `the sender accepts one receiver tap per 1200 ms and no echo goes back`() = runTest {
+        val rig = sender()
+        val peer = rig.peerOf()
+        rig.transport.publishOffer(peer, payloadBytes)
+        rig.transport.serverControl("c", SongTapWire.encodeHello(ByteArray(16))!!)
+        assertThat(rig.transport.serverOffer("c")).isNotNull()
+        rig.radio.notifications.clear()
+        rig.transport.serverControl("c", SongTapWire.encodeTap(30))
+        rig.transport.serverControl("c", SongTapWire.encodeTap(30))
+        assertThat(rig.of<TransportEvent.Tap>()).hasSize(1)
+        // This phone's own detector firing a moment later (the touch is real on both) tells nobody again.
+        rig.touch("R", Role.RECEIVE, samples = 4)
+        assertThat(rig.radio.notifications.filter { SongTapWire.isTapEvent(it.second) }).isEmpty()
+        rig.clock.advance(SongTapPeerTap.MIN_GAP_MS + 100)
+        rig.transport.serverControl("c", SongTapWire.encodeTap(30))
+        assertThat(rig.of<TransportEvent.Tap>().size).isAtLeast(2)
+    }
+
+    @Test
+    fun `a sender's own tap is told to the phone that read the offer at once, as the single byte 04`() = runTest {
+        val rig = sender()
+        val peer = rig.peerOf()
+        rig.transport.publishOffer(peer, payloadBytes)
+        rig.transport.serverControl("reader", SongTapWire.encodeHello(ByteArray(16) { 1 })!!)
+        // Nobody has read the offer: nobody is told.
+        rig.touch("R", Role.RECEIVE, samples = 8)
+        assertThat(rig.of<TransportEvent.Tap>()).hasSize(1)
+        assertThat(rig.radio.notifications.filter { SongTapWire.isTapEvent(it.second) }).isEmpty()
+
+        val rig2 = sender()
+        val peer2 = rig2.peerOf()
+        rig2.transport.publishOffer(peer2, payloadBytes)
+        rig2.transport.serverControl("reader", SongTapWire.encodeHello(ByteArray(16) { 1 })!!)
+        assertThat(rig2.transport.serverOffer("reader")).isNotNull()
+        rig2.radio.notifications.clear()
+        rig2.touch("R", Role.RECEIVE, samples = 8)
+        assertThat(rig2.of<TransportEvent.Tap>()).hasSize(1)
+        val told = rig2.radio.notifications.filter { SongTapWire.isTapEvent(it.second) }
+        assertThat(told.map { it.first }).containsExactly("reader")
+        assertThat(told.single().second.toList()).containsExactly(0x04.toByte())
+        // Once only, however long the phones stay together.
+        rig2.settle("R", Role.RECEIVE, BleRig.TOUCH_DBM, samples = 20)
+        assertThat(rig2.radio.notifications.count { SongTapWire.isTapEvent(it.second) }).isEqualTo(1)
+    }
+
+    // ── The one-sided tap, receiver side ─────────────────────────────────────────────
+
+    private fun TestScope.receiverWithOfferInHand(): BleRig {
+        val rig = connectedReceiver()
+        rig.radio.listener.onOfferRead("S", frame(lastHelloBefore(rig), rig.clock.wall))
+        assertThat(rig.of<TransportEvent.OfferPrefetched>()).hasSize(1)
+        return rig
+    }
+
+    @Test
+    fun `the sender's tap event commits the receiver at once, with the phones only resting beside each other`() = runTest {
+        val rig = receiverWithOfferInHand()
+        assertThat(rig.of<TransportEvent.Tap>()).isEmpty()
+        rig.radio.listener.onNotified("S", SongTapWire.encodeTapEvent())
+        assertThat(rig.of<TransportEvent.Tap>()).hasSize(1)
+        // The session holds the offer from here on; nothing is written back (the sender already knows).
+        assertThat(rig.controlWritesDecoded().filterIsInstance<SongTapWire.ControlMessage.Tap>()).isEmpty()
+        // The receiver's own detector firing a moment later does not tell the sender again, and the event is not repeated.
+        rig.touch("S", Role.SEND, samples = 6)
+        assertThat(rig.controlWritesDecoded().filterIsInstance<SongTapWire.ControlMessage.Tap>()).isEmpty()
+        assertThat(rig.of<TransportEvent.Tap>().size).isAtMost(2)
+    }
+
+    @Test
+    fun `the sender's tap event is ignored with no offer in hand, below the near gate, or from a phone that is not followed`() = runTest {
+        // No offer in hand: the sender has not said yes.
+        val noOffer = connectedReceiver()
+        noOffer.radio.listener.onNotified("S", SongTapWire.encodeTapEvent())
+        assertThat(noOffer.of<TransportEvent.Tap>()).isEmpty()
+        assertThat(noOffer.diag.events.value.last().text).contains("no_yes")
+
+        // The sender is a few metres away: this phone's own signal is below the gate.
+        val far = receiverWithOfferInHand()
+        repeat(5) { far.see("S", Role.SEND, BleRig.LIST_ONLY_DBM) }
+        far.radio.listener.onNotified("S", SongTapWire.encodeTapEvent())
+        assertThat(far.of<TransportEvent.Tap>()).isEmpty()
+        assertThat(far.diag.events.value.last().text).contains("too_weak")
+
+        // Not the followed phone: an address this phone never saw changes nothing, and another phone's event is not this one's.
+        val rig = receiverWithOfferInHand()
+        rig.radio.listener.onNotified("stranger", SongTapWire.encodeTapEvent())
+        assertThat(rig.of<TransportEvent.Tap>()).isEmpty()
+
+        // Garbage that merely starts with the byte is not an event.
+        rig.radio.listener.onNotified("S", byteArrayOf(0x04, 0x00))
+        assertThat(rig.of<TransportEvent.Tap>()).isEmpty()
+    }
+
+    @Test
+    fun `a second tap event inside 1200 ms is ignored`() = runTest {
+        val rig = receiverWithOfferInHand()
+        rig.radio.listener.onNotified("S", SongTapWire.encodeTapEvent())
+        rig.radio.listener.onNotified("S", SongTapWire.encodeTapEvent())
+        assertThat(rig.of<TransportEvent.Tap>()).hasSize(1)
+    }
+
+    // ── The signal scale and the sensitivity ─────────────────────────────────────────
+
+    @Test
+    fun `the offset is added to every raw reading before the gates and the detector`() = runTest {
+        // A Pixel resting 20 to 30 cm away reads -44 raw, which is -59 on the iPhone scale: inside the gate, far from the hold level.
+        val pixel = BleRig(this)
+        pixel.transport.setRssiOffset(-15)
+        pixel.transport.start(Role.RECEIVE)
+        pixel.settle("S", Role.SEND, -44, samples = 40)
+        assertThat(pixel.of<TransportEvent.Tap>()).isEmpty()
+        assertThat(pixel.radio.calls).contains("connect:S")
+        pixel.diag.setEnabled(true)
+        pixel.see("S", Role.SEND, -44)
+        assertThat(pixel.diag.snapshot.value.rssi).isEqualTo(-44)
+        assertThat(pixel.diag.snapshot.value.offsetDb).isEqualTo(-15)
+        assertThat(pixel.diag.snapshot.value.normalised).isEqualTo(-59)
+        assertThat(pixel.diag.snapshot.value.smoothed).isEqualTo(-59)
+
+        // The same phone with no offset reads -44 as "a few cm": the hold fires at rest, the old bug.
+        val raw = BleRig(this)
+        raw.transport.start(Role.RECEIVE)
+        raw.settle("S", Role.SEND, -44, samples = 40)
+        assertThat(raw.of<TransportEvent.Tap>()).isNotEmpty()
+    }
+
+    @Test
+    fun `with the offset a phone a few metres away is outside the near gate, without it the same reading is near`() = runTest {
+        // iPhone -76 (the lowest of its log, phones apart) is -61 raw on a Pixel.
+        val with = BleRig(this)
+        with.transport.setRssiOffset(-15)
+        with.transport.start(Role.RECEIVE)
+        with.settle("S", Role.SEND, -61, samples = 10)
+        assertThat(with.of<TransportEvent.PeerNear>()).isEmpty()
+        assertThat(with.radio.count("connect")).isEqualTo(0)
+        val none = BleRig(this)
+        none.transport.start(Role.RECEIVE)
+        none.settle("S", Role.SEND, -61, samples = 10)
+        assertThat(none.of<TransportEvent.PeerNear>()).isNotEmpty()
+        assertThat(none.radio.count("connect")).isEqualTo(1)
+    }
+
+    @Test
+    fun `changing the offset live restarts the detector on the new scale`() = runTest {
+        val rig = BleRig(this)
+        rig.transport.start(Role.RECEIVE)
+        rig.settle("S", Role.SEND, -44, samples = 4)
+        assertThat(rig.transport.rssiOffset()).isEqualTo(0)
+        rig.transport.setRssiOffset(-15)
+        assertThat(rig.transport.rssiOffset()).isEqualTo(-15)
+        rig.transport.setRssiOffset(-99)
+        assertThat(rig.transport.rssiOffset()).isEqualTo(RssiCalibration.MIN_OFFSET_DB)
+        rig.transport.setRssiOffset(7)
+        assertThat(rig.transport.rssiOffset()).isEqualTo(0)
+    }
+
+    @Test
+    fun `the sensitivity is applied live, normal needs a firmer jump than high`() = runTest {
+        // A 13 dB step that holds: a tap for High (9 dB), nothing for Normal (15 dB).
+        fun step(rig: BleRig) {
+            rig.transport.start(Role.RECEIVE)
+            rig.settle("S", Role.SEND, -64)
+            rig.radio.listener.onConnected("S", true)
+            repeat(10) { rig.see("S", Role.SEND, -51) }
+        }
+        val high = BleRig(this)
+        high.transport.setSensitivity(SongTapSensitivity.HIGH)
+        step(high)
+        assertThat(high.of<TransportEvent.Tap>()).hasSize(1)
+
+        val normal = BleRig(this)
+        normal.transport.setSensitivity(SongTapSensitivity.NORMAL)
+        step(normal)
+        assertThat(normal.of<TransportEvent.Tap>()).isEmpty()
+        // Live: switching to High while armed counts the next jump.
+        normal.settle("S", Role.SEND, -64, samples = 10)
+        normal.transport.setSensitivity(SongTapSensitivity.HIGH)
+        assertThat(normal.impulses.profile).isEqualTo(SongTapSensitivity.HIGH)
+        repeat(10) { normal.see("S", Role.SEND, -51) }
+        assertThat(normal.of<TransportEvent.Tap>()).hasSize(1)
+    }
+
+    // ── Calibration ──────────────────────────────────────────────────────────────────
+
+    private fun BleRig.hold(ms: Long, rssi: Int) {
+        var t = 0L
+        while (t < ms) { see("S", Role.SEND, rssi); t += 100L }
+    }
+
+    @Test
+    fun `holding calibrate for two seconds with the phones touching sets the offset from the 90th percentile`() = runTest {
+        val rig = BleRig(this)
+        rig.transport.start(Role.RECEIVE)
+        // A Pixel touching an iPhone reads about -18 raw.
+        rig.settle("S", Role.SEND, -18, samples = 6)
+        rig.transport.startCalibration()
+        assertThat(rig.transport.calibration.value).isInstanceOf(CalibrationState.Running::class.java)
+        rig.hold(RssiCalibration.HOLD_MS + 200L, -18)
+        val done = rig.transport.calibration.value as CalibrationState.Done
+        assertThat(done.p90Raw).isEqualTo(-18)
+        assertThat(done.offsetDb).isEqualTo(-15)
+        assertThat(rig.transport.rssiOffset()).isEqualTo(-15)
+        assertThat(done.samples).isAtLeast(RssiCalibration.MIN_SAMPLES)
+    }
+
+    @Test
+    fun `letting go early, no phone, or too few readings is not a calibration`() = runTest {
+        val rig = BleRig(this)
+        rig.transport.startCalibration()
+        assertThat(rig.transport.calibration.value).isEqualTo(CalibrationState.Failed("no_phone"))
+
+        rig.transport.start(Role.RECEIVE)
+        rig.settle("S", Role.SEND, -18, samples = 6)
+        rig.transport.startCalibration()
+        rig.hold(800, -18)
+        rig.transport.endCalibration()
+        assertThat(rig.transport.calibration.value).isEqualTo(CalibrationState.Failed("released"))
+        assertThat(rig.transport.rssiOffset()).isEqualTo(0)
+
+        // Held two seconds but the radio gave almost nothing.
+        rig.transport.startCalibration()
+        rig.see("S", Role.SEND, -18, stepMs = 100)
+        rig.clock.advance(RssiCalibration.HOLD_MS + 100)
+        advanceTimeBy(BleTuning.TICK_MS + 1)
+        assertThat(rig.transport.calibration.value).isEqualTo(CalibrationState.Failed("too_few"))
+        assertThat(rig.transport.rssiOffset()).isEqualTo(0)
+
+        // A finished calibration is not undone by letting go afterwards.
+        rig.transport.startCalibration()
+        rig.hold(RssiCalibration.HOLD_MS + 200L, -18)
+        rig.transport.endCalibration()
+        assertThat(rig.transport.calibration.value).isInstanceOf(CalibrationState.Done::class.java)
+    }
+
+    @Test
+    fun `the calibration maths`() {
+        assertThat(RssiCalibration.percentile90(emptyList())).isNull()
+        assertThat(RssiCalibration.percentile90(listOf(-20))).isEqualTo(-20)
+        // 10 values: nearest rank 9 of 10.
+        assertThat(RssiCalibration.percentile90(listOf(-40, -39, -38, -37, -36, -35, -34, -33, -32, -10))).isEqualTo(-32)
+        assertThat(RssiCalibration.offsetFor(-18)).isEqualTo(-15)
+        assertThat(RssiCalibration.offsetFor(-33)).isEqualTo(0)
+        assertThat(RssiCalibration.offsetFor(-40)).isEqualTo(0) // a weaker reading than the iPhone's: never boosted
+        assertThat(RssiCalibration.offsetFor(5)).isEqualTo(-35)
+        assertThat(RssiCalibration.offsetFor(0)).isEqualTo(-33)
+        assertThat(RssiCalibration.defaultOffsetFor("Pixel 10 Pro")).isEqualTo(-15)
+        assertThat(RssiCalibration.defaultOffsetFor("Pixel 7a")).isEqualTo(-15)
+        assertThat(RssiCalibration.defaultOffsetFor("SM-S928B")).isEqualTo(-12)
+        assertThat(RssiCalibration.defaultOffsetFor(null)).isEqualTo(-12)
     }
 
     @Test
@@ -597,10 +863,19 @@ class BleTransportTest {
         close.transport.start(Role.RECEIVE)
         close.settle("S", Role.SEND)
         close.radio.listener.onConnected("S", true)
-        close.touch("S", Role.SEND, samples = 2)
+        close.touch("S", Role.SEND, samples = 1)
         close.radio.listener.onInfoRead("S", SongTapWire.encodeInfo(0))
-        close.touch("S", Role.SEND, samples = 2)
-        assertThat(close.of<TransportEvent.Tap>()).hasSize(1) // the fourth reading: the hold path needs a fifth
+        close.touch("S", Role.SEND, samples = 1)
+        assertThat(close.of<TransportEvent.Tap>()).hasSize(1) // the second reading: the dwell needs the third
+
+        // The same word from a phone that is only resting beside this one (-60) is not believed.
+        val resting = BleRig(this)
+        resting.transport.start(Role.RECEIVE)
+        resting.settle("S", Role.SEND)
+        resting.radio.listener.onConnected("S", true)
+        resting.radio.listener.onInfoRead("S", SongTapWire.encodeInfo(0))
+        resting.touch("S", Role.SEND, samples = 2, rssi = -50)
+        assertThat(resting.of<TransportEvent.Tap>()).isEmpty()
     }
 
     @Test
@@ -711,7 +986,7 @@ class BleTransportTest {
         assertThat(rig.transport.serverOffer("c")).isNull()
         assertThat(rig.of<TransportEvent.OfferRead>()).isEmpty()
         // It comes close (no jump: a few readings working up to the near edge).
-        for (rssi in listOf(-66, -62, -58, -55, -54, -54, -54)) rig.see("R", Role.RECEIVE, rssi)
+        for (rssi in listOf(-78, -76, -74, -72, -70, -68, -66, -64, -62, -60)) rig.see("R", Role.RECEIVE, rssi)
         assertThat(rig.transport.serverOffer("c")).isNotNull()
     }
 
@@ -753,7 +1028,7 @@ class BleTransportTest {
         rig.see("R1", Role.RECEIVE, BleRig.LIST_ONLY_DBM, stepMs = 300, name = "Ann")
         val list = rig.transport.nearby.value
         assertThat(list.map { it.name }).containsExactly("Bo", "Ann").inOrder()
-        assertThat(list.map { it.near }).containsExactly(false, false)
+        assertThat(list.map { it.near }).containsExactly(true, false).inOrder() // Bo rests inside the tap near gate, Ann is a few metres away
         // Listing never connects.
         assertThat(rig.radio.count("connect")).isEqualTo(0)
         // A phone that stops advertising drops out of the list.
@@ -773,7 +1048,7 @@ class BleTransportTest {
         rig.transport.start(Role.SEND)
         rig.see("R", Role.RECEIVE, BleRig.LIST_ONLY_DBM, stepMs = 300, name = "Ann")
         assertThat(rig.transport.prompt.value).isNull()
-        for (rssi in listOf(-66, -62, -58, -55, -54, -54, -54, -54)) rig.see("R", Role.RECEIVE, rssi, stepMs = 300, name = "Ann")
+        for (rssi in listOf(-78, -76, -74, -72, -70, -68, -66, -64, -62, -60)) rig.see("R", Role.RECEIVE, rssi, stepMs = 300, name = "Ann")
         val asked = rig.transport.prompt.value!!
         assertThat(asked.name).isEqualTo("Ann")
         assertThat(asked.near).isTrue()
