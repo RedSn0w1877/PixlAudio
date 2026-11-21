@@ -14,6 +14,10 @@ import com.theveloper.pixelplay.data.songtap.ble.BleStatus
 import com.theveloper.pixelplay.data.songtap.ble.BleTransport
 import com.theveloper.pixelplay.data.songtap.ble.CalibrationState
 import com.theveloper.pixelplay.data.songtap.ble.SongTapDiagnostics
+import com.theveloper.pixelplay.data.songtap.ring.RingCodeDiagnostics
+import com.theveloper.pixelplay.data.songtap.ring.RingCodeResolver
+import com.theveloper.pixelplay.data.songtap.ring.RingCodeSlots
+import com.theveloper.pixelplay.data.songtap.ring.RingScanSink
 import com.theveloper.pixelplay.di.AppScope
 import com.theveloper.pixelplay.songtap.FailReason
 import com.theveloper.pixelplay.songtap.HapticCue
@@ -32,6 +36,15 @@ import com.theveloper.pixelplay.songtap.SongTapSession
 import com.theveloper.pixelplay.songtap.SongTapTimeline
 import com.theveloper.pixelplay.songtap.SongTapSigning
 import com.theveloper.pixelplay.songtap.TimeoutTag
+import com.theveloper.pixelplay.songtap.ring.RingCodePayload
+import com.theveloper.pixelplay.songtap.ring.RingCodePayloads
+import com.theveloper.pixelplay.songtap.ring.RingReceiveFlow
+import com.theveloper.pixelplay.songtap.ring.RingScanView
+import com.theveloper.pixelplay.songtap.ring.RingSendRules
+import com.theveloper.pixelplay.songtap.ring.RingStep
+import com.theveloper.pixelplay.songtap.ring.image.RingFrame
+import com.theveloper.pixelplay.songtap.ring.image.RingScanResult
+import com.theveloper.pixelplay.songtap.ring.image.RingScanner
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
@@ -52,10 +65,17 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 /** The song that is playing, as the Send side shows it. */
 @Immutable
 data class SongTapNowPlaying(val title: String, val artist: String, val artUrl: String?, val canSend: Boolean)
+
+/** Which code a sender is showing: the Pixl ring code (the default) or the plain QR (last resort, or for a song with no video yet). */
+enum class SongTapCodeKind { RING, QR }
+
+/** Why a sender shows the QR code without being asked to. */
+enum class SongTapRingNote { NO_VIDEO }
 
 /** Why the last attempt did not go through, as something the screen can word. */
 enum class SongTapNotice { INVALID_CODE, NOTHING_TO_SEND, NOT_FOUND, SAVE_FAILED, TIMEOUT, TOO_SOON, LIMIT, DUPLICATE, MUTED, BOTH_SENDING, PEER_LOST, INVALID_OFFER }
@@ -90,6 +110,12 @@ data class SongTapUiState(
     val offsetDb: Int = 0,
     val sensitivity: SongTapSensitivity = SongTapSensitivity.DEFAULT,
     val calibration: CalibrationState = CalibrationState.Idle,
+    /** Sender: which code is on screen, the ring code's dots (a new one with a fresh tag every minute), and why a QR came up by itself. */
+    val codeKind: SongTapCodeKind? = null,
+    val ring: RingCodeSlots? = null,
+    val ringNote: SongTapRingNote? = null,
+    /** Receiver: what the ring code scan is doing, and whether "Use QR code instead" is on offer. */
+    val ringScan: RingScanView = RingScanView.IDLE,
 ) {
     val phase: Phase get() = session.phase
     val role: Role get() = session.role
@@ -111,6 +137,8 @@ class SongTapStateHolder @Inject constructor(
     private val qr: QrTransport,
     private val ble: BleTransport,
     private val diagnostics: SongTapDiagnostics,
+    private val ringResolver: RingCodeResolver,
+    private val ringDiagnostics: RingCodeDiagnostics,
     private val playback: PlaybackStateHolder,
     @AppScope private val scope: CoroutineScope,
 ) {
@@ -142,6 +170,15 @@ class SongTapStateHolder @Inject constructor(
     private var saveJob: Job? = null
     private var pendingOffer: SongTapPayload? = null
 
+    /** The ring code receiver's rules over time (three reads, the freshness and replay guard, when the QR is offered). Touched under [ringLock]. */
+    private val ringLock = Any()
+    private val ringFlow = RingReceiveFlow()
+    private var ringTick: Job? = null
+
+    /** The sender chose "Use QR code instead": a rebuilt code stays a QR until the listener leaves. */
+    @Volatile private var qrPreferred = false
+    private var ringSerial = 0
+
     /** Receiver (spec 5): the checked offer fetched ahead of the tap, kept until the session commits to it or lets it go. */
     private var prefetched: SongTapPayload? = null
 
@@ -169,7 +206,13 @@ class SongTapStateHolder @Inject constructor(
     private var lastScanText: String? = null
     private var lastScanAtMs = 0L
 
-    private fun now() = System.currentTimeMillis()
+    /** The wall clock, replaceable in tests. */
+    internal var clock: () -> Long = System::currentTimeMillis
+
+    /** A byte of randomness for a new ring code's tag, replaceable in tests. */
+    internal var ringRandom: () -> Int = { ringSecureRandom.nextInt(256) }
+
+    private fun now() = clock()
 
     /**
      * Called by a screen when it opens: starts watching the settings, the playing song and the transports. Two screens
@@ -188,7 +231,7 @@ class SongTapStateHolder @Inject constructor(
                     _ui.update { it.copy(nowPlaying = (dropSong ?: song)?.let(::nowPlayingOf)) }
                     // A code that is up is for the song that plays: when the track changes, the code changes with it.
                     if (session.role == Role.SEND && session.phase == Phase.OFFERED && session.peer == 0 && qr.code.value != null) {
-                        hideCode()
+                        hideCode(keepQrChoice = true)
                         showCode()
                     }
                     // A phone armed to a phone nearby offers the song that plays: when the track changes, the offer changes with it.
@@ -278,8 +321,10 @@ class SongTapStateHolder @Inject constructor(
 
     fun disarm() {
         wanted = false
+        qrPreferred = false
         dispatch(SessionEvent.Disarm)
         cancelJobs()
+        ringScanStop()
         // A Song Drop song is for the screen that was open; leaving it puts the playing song back.
         if (dropSong != null) {
             dropSong = null
@@ -297,21 +342,156 @@ class SongTapStateHolder @Inject constructor(
         dispatch(SessionEvent.SetRole(role))
     }
 
-    /** Sender: put the song that is playing up as a code. */
+    /**
+     * Sender: put the song that is playing up as a code. A song with a video id gets the Pixl ring code, made again with a fresh tag
+     * every minute. A song that was never matched to a video has nothing the ring code could carry, so it goes straight to the QR
+     * code and the screen says why ([SongTapRingNote.NO_VIDEO]).
+     */
     fun showCode() {
         scope.launch {
             val song = offeredSong()
             val payload = song?.let { sender.payloadFor(it, now()) }
             pendingOffer = payload
+            val video = payload?.ytVideoId
+            val ringable = RingSendRules.canRing(video)
+            val ring = payload != null && ringable && !qrPreferred
+            _ui.update {
+                it.copy(
+                    codeKind = if (payload == null) null else if (ring) SongTapCodeKind.RING else SongTapCodeKind.QR,
+                    ringNote = if (payload != null && !ringable) SongTapRingNote.NO_VIDEO else null,
+                    ring = null,
+                )
+            }
+            if (ring) makeRing(video!!)
             dispatch(SessionEvent.QrShown(payload?.songKey ?: ""))
-            if (payload != null) startRefresh()
+            if (payload != null) {
+                if (ring) startRingRefresh() else startRefresh()
+            }
         }
     }
 
-    fun hideCode() {
+    /** The listener is done with the code (or the song changed under it: then the choice of QR is kept). */
+    fun hideCode(keepQrChoice: Boolean = false) {
+        if (!keepQrChoice) qrPreferred = false
         refreshJob?.cancel()
         dispatch(SessionEvent.Cancel)
         dispatch(SessionEvent.Dismiss)
+    }
+
+    /**
+     * "Use QR code instead": the ring code gives way to the plain QR code for the same song. Offered by the screen after the code has been up for
+     * six seconds without being taken; the two are never shown together.
+     */
+    fun showQrInstead() {
+        scope.launch {
+            if (session.role != Role.SEND || session.phase != Phase.OFFERED || session.peer != 0) return@launch
+            val payload = offeredSong()?.let { sender.payloadFor(it, now()) } ?: return@launch
+            qrPreferred = true
+            refreshJob?.cancel()
+            pendingOffer = payload
+            SongTapPayloads.encode(payload)?.let { qr.publishOffer(0, it) }
+            _ui.update { it.copy(codeKind = SongTapCodeKind.QR, ring = null) }
+            startRefresh()
+        }
+    }
+
+    /** A ring code for [videoId] with a fresh tag: this minute's bucket and a random byte. */
+    private fun makeRing(videoId: String) {
+        val bits = RingCodePayloads.encodeSlots(videoId, RingCodePayloads.bucketOf(now()), ringRandom() and 0xFF) ?: return
+        _ui.update { it.copy(ring = RingCodeSlots(bits, ++ringSerial)) }
+    }
+
+    /** While a ring code is up it is made again with a fresh tag every [RingSendRules.CODE_LIFE_MS], for the song that plays at that moment. */
+    private fun startRingRefresh() {
+        refreshJob?.cancel()
+        refreshJob = scope.launch {
+            while (isActive) {
+                delay(RingSendRules.CODE_LIFE_MS)
+                if (session.phase != Phase.OFFERED || session.peer != 0 || _ui.value.codeKind != SongTapCodeKind.RING) return@launch
+                val video = offeredSong()?.let { sender.payloadFor(it, now()) }?.ytVideoId
+                if (!RingSendRules.canRing(video)) return@launch
+                makeRing(video!!)
+            }
+        }
+    }
+
+    // ── The ring code, receiving ──────────────────────────────────────────────────────
+
+    /** Where the camera's analysis thread reports: the diagnostics (when that screen is open) and the scan itself. */
+    val ringSink: RingScanSink = object : RingScanSink {
+        override fun onFrame(nowMs: Long) = ringDiagnostics.onFrame(nowMs)
+
+        override fun onScan(frame: RingFrame, result: RingScanResult, scanner: RingScanner, rotationDegrees: Int, nowMs: Long) {
+            ringDiagnostics.record(frame, result, scanner, rotationDegrees, nowMs)
+            onRingResult(result)
+        }
+
+        override fun onSlow() {
+            ringDiagnostics.onSlow()
+            publishRing(synchronized(ringLock) { ringFlow.scannerTooSlow() })
+        }
+    }
+
+    /** The numbers behind the ring scanner, for Developer mode. */
+    val ringDiag: RingCodeDiagnostics get() = ringDiagnostics
+
+    /** The receiver opened the camera for a ring code. [cameraAvailable] is false on a phone with no camera. */
+    fun ringScanStart(cameraAvailable: Boolean) {
+        publishRing(synchronized(ringLock) { ringFlow.start(now(), cameraAvailable) })
+        ringTick?.cancel()
+        ringTick = scope.launch {
+            while (isActive) {
+                delay(RING_TICK_MS)
+                val view = synchronized(ringLock) { if (ringFlow.tick(now())) ringFlow.view() else null }
+                if (view != null) publishRing(view)
+            }
+        }
+    }
+
+    /** The camera closed (the screen was left, the listener went back, or a code was taken). */
+    fun ringScanStop() {
+        ringTick?.cancel()
+        ringTick = null
+        publishRing(synchronized(ringLock) { ringFlow.stop() })
+    }
+
+    /** The camera would not start. */
+    fun ringCameraFailed() = publishRing(synchronized(ringLock) { ringFlow.cameraFailed() })
+
+    /** One scanner result (analysis thread). Three equal fresh decodes in a row start the lookup of the song. */
+    fun onRingResult(result: RingScanResult) {
+        if (session.role != Role.RECEIVE) return
+        val step: RingStep
+        val view: RingScanView
+        synchronized(ringLock) {
+            step = ringFlow.offer(result, now())
+            view = ringFlow.view()
+        }
+        when (step) {
+            is RingStep.Resolve -> { publishRing(view); resolveRing(step.payload) }
+            is RingStep.Rejected -> publishRing(view)
+            RingStep.None -> Unit
+        }
+    }
+
+    /** The song named by the code's video id is looked up (it needs the internet), then goes through the same consent, save and Undo as every other beam. */
+    private fun resolveRing(code: RingCodePayload) {
+        scope.launch {
+            val song = withTimeoutOrNull(RING_RESOLVE_TIMEOUT_MS) { ringResolver.resolve(code.videoId, now()) }
+            val view = synchronized(ringLock) {
+                if (ringFlow.view().stage != com.theveloper.pixelplay.songtap.ring.RingScanStage.RESOLVING) return@launch
+                ringFlow.resolved(code, song != null, now())
+            }
+            publishRing(view)
+            if (song != null) {
+                synchronized(lock) { candidate = song }
+                dispatch(SessionEvent.OfferReceived(0, song.songKey, 0, now()))
+            }
+        }
+    }
+
+    private fun publishRing(view: RingScanView) {
+        _ui.update { if (it.ringScan == view) it else it.copy(ringScan = view) }
     }
 
     /** The camera read [text]. The same code seen again within a few seconds is the same beam. */
@@ -438,6 +618,10 @@ class SongTapStateHolder @Inject constructor(
         // A code is up, and an offer readable over Bluetooth, only while an offer is on the table. A sender keeps its Bluetooth offer
         // through the beam (the receiver's answer still has to be matched to the phone that read it).
         if (session.phase != Phase.OFFERED) qr.withdrawOffer()
+        // The ring code is on screen only while a code offer is on the table.
+        if ((session.phase != Phase.OFFERED || session.target != 0) && _ui.value.codeKind != null) {
+            _ui.update { it.copy(codeKind = null, ring = null, ringNote = null) }
+        }
         if (session.phase != Phase.OFFERED && !(session.role == Role.SEND && session.phase == Phase.TRANSFERRING)) ble.withdrawOffer()
         // Back to waiting after a result: the phone that is close has to be announced again to be tappable.
         if (before != Phase.ARMED && before != Phase.IDLE && session.phase == Phase.ARMED) ble.resync()
@@ -677,5 +861,10 @@ class SongTapStateHolder @Inject constructor(
         /** A sender armed to a phone makes its offer again this often (the offer carries a time), and a receiver accepts one this old. */
         const val TARGET_REFRESH_MS = 20_000L
         const val PREFETCH_PAYLOAD_WINDOW_MS = 120_000L
+
+        /** How often the receiver checks whether "Use QR code instead" is due, and how long a song may take to be looked up. */
+        const val RING_TICK_MS = 500L
+        const val RING_RESOLVE_TIMEOUT_MS = 10_000L
+        val ringSecureRandom = java.security.SecureRandom()
     }
 }

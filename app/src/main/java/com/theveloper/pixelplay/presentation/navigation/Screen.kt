@@ -82,6 +82,8 @@ sealed class Screen(val route: String) {
     /** Song Tap: send the playing song to a phone nearby, or take one (handoff/2026-11-20-song-tap.md). */
     object SongTap : Screen("song_tap")
     object SongTapDiagnostics : Screen("song_tap_diagnostics")
+    /** Developer mode: the camera, the plate the scanner found and the last results for the Pixl ring code. */
+    object RingCodeDiagnostics : Screen("ring_code_diagnostics")
     object SpotifyDashboard : Screen("spotify_dashboard")
     object SpotifyBrowse : Screen("spotify_browse?q={query}") {
         /**

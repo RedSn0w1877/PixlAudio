@@ -100,6 +100,13 @@ fun SettingsSongTap(
                     trailingIcon = { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, null) },
                     onClick = { navController.navigateSafely(Screen.SongTapDiagnostics.route) },
                 )
+                SettingsItem(
+                    title = stringResource(R.string.ringdiag_title),
+                    subtitle = stringResource(R.string.ringdiag_settings_subtitle),
+                    leadingIcon = { Icon(Icons.Rounded.PhonelinkRing, null, tint = MaterialTheme.colorScheme.secondary) },
+                    trailingIcon = { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, null) },
+                    onClick = { navController.navigateSafely(Screen.RingCodeDiagnostics.route) },
+                )
             }
         }
     }

@@ -10,6 +10,8 @@ import com.theveloper.pixelplay.data.songtap.SongTapSettings
 import com.theveloper.pixelplay.data.songtap.SongTapSigner
 import com.theveloper.pixelplay.data.songtap.SongTapSongIds
 import com.theveloper.pixelplay.data.songtap.SongTapVerifier
+import com.theveloper.pixelplay.data.songtap.ring.FakeRingResolver
+import com.theveloper.pixelplay.data.songtap.ring.RingCodeDiagnostics
 import com.theveloper.pixelplay.presentation.viewmodel.PlaybackStateHolder
 import com.theveloper.pixelplay.presentation.viewmodel.SongTapNotice
 import com.theveloper.pixelplay.presentation.viewmodel.SongTapStateHolder
@@ -132,7 +134,7 @@ class TwoPhonesTest {
             every { settings.sensitivity } returns flowOf(SongTapSensitivity.HIGH)
             val playback = mockk<PlaybackStateHolder>()
             every { playback.stablePlayerState } returns MutableStateFlow(StablePlayerState(currentSong = playing))
-            holder = SongTapStateHolder(settings, SongTapReceiver(library), SongTapSender(Ids(video)), QrTransport(), transport, SongTapDiagnostics(), playback, scope.backgroundScope)
+            holder = SongTapStateHolder(settings, SongTapReceiver(library), SongTapSender(Ids(video)), QrTransport(), transport, SongTapDiagnostics(), FakeRingResolver(), RingCodeDiagnostics(), playback, scope.backgroundScope)
             holder.reducedMotion = { false }
             scope.backgroundScope.launch(UnconfinedTestDispatcher(scope.testScheduler)) { holder.haptics.collect { haptics += it } }
         }

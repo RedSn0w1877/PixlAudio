@@ -56,6 +56,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -84,13 +85,19 @@ import com.theveloper.pixelplay.R
 import com.theveloper.pixelplay.data.songtap.ble.BleStatus
 import com.theveloper.pixelplay.presentation.utils.LocalAppHapticsConfig
 import com.theveloper.pixelplay.presentation.utils.performAppHapticFeedback
+import com.theveloper.pixelplay.presentation.viewmodel.SongTapCodeKind
 import com.theveloper.pixelplay.presentation.viewmodel.SongTapNotice
+import com.theveloper.pixelplay.presentation.viewmodel.SongTapRingNote
 import com.theveloper.pixelplay.presentation.viewmodel.SongTapUiState
 import com.theveloper.pixelplay.presentation.viewmodel.SongTapViewModel
 import com.theveloper.pixelplay.songtap.HapticCue
 import com.theveloper.pixelplay.songtap.NearbyEntry
 import com.theveloper.pixelplay.songtap.Phase
 import com.theveloper.pixelplay.songtap.Role
+import com.theveloper.pixelplay.songtap.ring.RingScanMessage
+import com.theveloper.pixelplay.songtap.ring.RingScanStage
+import com.theveloper.pixelplay.songtap.ring.RingSendRules
+import kotlinx.coroutines.delay
 
 /**
  * Song Tap's full screen. Armed only while it is on screen and in the foreground.
@@ -198,13 +205,15 @@ fun SongTapScreen(
                             useCode = useCode,
                             time = beamTime,
                             rootHeight = rootHeight,
+                            approach = approach,
                             onShowCode = { useCode = true; viewModel.showCode() },
                             onHideCode = { useCode = false; viewModel.hideCode() },
+                            onUseQr = viewModel::showQrInstead,
                             onPick = { picked = it },
                             onCancelDrop = viewModel::cancelDrop,
                         )
                     } else {
-                        ReceiveContent(ui = ui, onScanned = viewModel::onScanned)
+                        ReceiveContent(ui = ui, viewModel = viewModel)
                     }
                 }
                 Spacer(Modifier.height(24.dp))
@@ -344,8 +353,10 @@ private fun SendContent(
     useCode: Boolean,
     time: androidx.compose.runtime.State<Float>,
     rootHeight: androidx.compose.runtime.IntState,
+    approach: State<Int>,
     onShowCode: () -> Unit,
     onHideCode: () -> Unit,
+    onUseQr: () -> Unit,
     onPick: (NearbyEntry) -> Unit,
     onCancelDrop: () -> Unit,
 ) {
@@ -358,14 +369,33 @@ private fun SendContent(
         )
         return
     }
-    BeamArtwork(
-        url = playing.artUrl,
-        role = ui.beamRole,
-        time = time,
-        reduced = ui.beamReduced,
-        rootHeight = rootHeight,
-        modifier = Modifier.padding(top = 8.dp).size(248.dp),
-    )
+    val ring = ui.ring
+    val ringShown = useCode && ui.codeKind == SongTapCodeKind.RING && ring != null
+    if (ringShown && ring != null) {
+        // The Pixl ring code: the playing song's artwork in the middle, the dots in this phone's own colour around it.
+        RingCodeView(
+            slots = ring,
+            palette = rememberRingPalette(),
+            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+            approach = approach,
+            beamStartMs = if (ui.beamRole == Role.SEND) ui.beamStartMs else 0L,
+            rootHeight = rootHeight,
+            pillText = stringResource(R.string.songtap_ring_sent),
+        ) {
+            if (playing.artUrl != null) {
+                AsyncImage(model = playing.artUrl, contentDescription = stringResource(R.string.songtap_ring_description), contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+            }
+        }
+    } else {
+        BeamArtwork(
+            url = playing.artUrl,
+            role = ui.beamRole,
+            time = time,
+            reduced = ui.beamReduced,
+            rootHeight = rootHeight,
+            modifier = Modifier.padding(top = 8.dp).size(248.dp),
+        )
+    }
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text(playing.title, style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
         Text(
@@ -386,7 +416,7 @@ private fun SendContent(
         return
     }
     val armed = ui.session.target != 0 && ui.phase == Phase.OFFERED
-    if (!armed) {
+    if (!armed && !useCode) {
         val status = statusLine(ui)
         Text(
             status ?: stringResource(R.string.songtap_send_hint),
@@ -413,7 +443,30 @@ private fun SendContent(
     if (!useCode && waitingPhase) {
         NearbyList(entries = ui.nearby, onPick = onPick)
     }
-    if (useCode && code != null) {
+    if (ringShown) {
+        Text(
+            stringResource(R.string.songtap_ring_hint),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+        )
+        // The QR is the last resort: it is offered once the code has been up for a few seconds without being taken, never beside the ring code.
+        var qrOffered by remember { mutableStateOf(false) }
+        LaunchedEffect(Unit) {
+            delay(RingSendRules.QR_OFFER_AFTER_MS)
+            qrOffered = true
+        }
+        if (qrOffered) TextButton(onClick = onUseQr) { Text(stringResource(R.string.songtap_use_qr)) }
+        OutlinedButton(onClick = onHideCode, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.songtap_back_to_tap)) }
+    } else if (useCode && code != null) {
+        if (ui.ringNote == SongTapRingNote.NO_VIDEO) {
+            Text(
+                stringResource(R.string.songtap_ring_no_video),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+            )
+        }
         val image = rememberQrImage(code)
         Box(
             modifier = Modifier
@@ -445,11 +498,20 @@ private fun SendContent(
 }
 
 @Composable
-private fun ReceiveContent(ui: SongTapUiState, onScanned: (String) -> Unit) {
+private fun ReceiveContent(ui: SongTapUiState, viewModel: SongTapViewModel) {
     var scanning by rememberSaveable { mutableStateOf(false) }
+    // The plain QR code is the last resort: it only opens when the listener asks for it after the ring scan failed.
+    var qrMode by rememberSaveable { mutableStateOf(false) }
     if (scanning) {
-        Scanner(onScanned = onScanned)
-        OutlinedButton(onClick = { scanning = false }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.songtap_back_to_tap)) }
+        if (qrMode) {
+            Scanner(onScanned = viewModel::onScanned)
+            OutlinedButton(onClick = { qrMode = false }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.songtap_back_to_ring)) }
+        } else {
+            RingScanPane(ui = ui, viewModel = viewModel, onUseQr = { qrMode = true })
+        }
+        OutlinedButton(onClick = { scanning = false; qrMode = false }, modifier = Modifier.fillMaxWidth()) {
+            Text(stringResource(R.string.songtap_back_to_tap))
+        }
         return
     }
     Box(
@@ -471,6 +533,82 @@ private fun ReceiveContent(ui: SongTapUiState, onScanned: (String) -> Unit) {
         modifier = Modifier.animateContentSize(),
     )
     TextButton(onClick = { scanning = true }) { Text(stringResource(R.string.songtap_scan_code)) }
+}
+
+/**
+ * The receiver's camera for the Pixl ring code. It runs only while this screen is resumed and waiting for a song (the session is not
+ * in the middle of a beam), asks for the camera the first time, and shows "Use QR code instead" only when the scan has failed for about
+ * six seconds or the camera cannot run the scanner.
+ */
+@Composable
+private fun RingScanPane(ui: SongTapUiState, viewModel: SongTapViewModel, onUseQr: () -> Unit) {
+    val context = LocalContext.current
+    val cameraExists = remember { hasCamera(context) }
+    var granted by remember {
+        mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED)
+    }
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted = it }
+    val waiting = ui.phase == Phase.ARMED || ui.phase == Phase.FOUND || ui.phase == Phase.NEAR
+    val scan = ui.ringScan
+
+    if (cameraExists && granted) {
+        // One scan session per time on screen while waiting: a result (a beam in progress) closes it, the end of the beam opens it again.
+        LifecycleResumeEffect(waiting) {
+            if (waiting) viewModel.ringScanStart(cameraAvailable = true)
+            onPauseOrDispose { viewModel.ringScanStop() }
+        }
+        val live = waiting && (scan.stage == RingScanStage.SCANNING || scan.stage == RingScanStage.RESOLVING)
+        if (live) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(1f)
+                    .clip(RoundedCornerShape(28.dp))
+                    .background(MaterialTheme.colorScheme.surfaceContainerHighest),
+                contentAlignment = Alignment.Center,
+            ) {
+                RingCodeCamera(sink = viewModel.ringSink, onCameraFailed = viewModel::ringCameraFailed)
+                // A guide for where to hold the code: the camera is not aimed at anything else.
+                val guide = Color.White.copy(alpha = 0.55f)
+                androidx.compose.foundation.Canvas(Modifier.fillMaxSize(0.82f)) {
+                    drawCircle(guide, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx()))
+                }
+            }
+        }
+    } else if (cameraExists) {
+        Text(
+            stringResource(R.string.songtap_camera_needed),
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Button(onClick = { launcher.launch(Manifest.permission.CAMERA) }, modifier = Modifier.fillMaxWidth()) {
+            Text(stringResource(R.string.songtap_allow_camera))
+        }
+    } else {
+        // No camera at all: the scan opens in its "cannot run" state, which offers the QR (whose own camera start will say the same).
+        LaunchedEffect(Unit) { viewModel.ringScanStart(cameraAvailable = false) }
+    }
+
+    val line = when {
+        scan.stage == RingScanStage.RESOLVING -> R.string.songtap_ring_looking_up
+        scan.message == RingScanMessage.EXPIRED -> R.string.songtap_ring_expired
+        scan.message == RingScanMessage.CLOCK -> R.string.songtap_ring_clock
+        scan.message == RingScanMessage.LOOKUP_FAILED -> R.string.songtap_ring_lookup_failed
+        scan.message == RingScanMessage.REPLAY -> R.string.songtap_ring_replay
+        scan.stage == RingScanStage.UNAVAILABLE && !cameraExists -> R.string.songtap_ring_no_camera
+        scan.stage == RingScanStage.UNAVAILABLE -> R.string.songtap_ring_camera_failed
+        cameraExists && granted && waiting -> R.string.songtap_ring_scan_hint
+        else -> null
+    }
+    if (line != null) {
+        Text(
+            stringResource(line),
+            style = MaterialTheme.typography.bodyMedium,
+            color = if (scan.message == RingScanMessage.NONE) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error,
+            textAlign = TextAlign.Center,
+        )
+    }
+    if (scan.qrOffered) TextButton(onClick = onUseQr) { Text(stringResource(R.string.songtap_use_qr)) }
 }
 
 /** The camera, behind its permission: asked for the first time the listener chooses to scan a code, and nowhere else. */

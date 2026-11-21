@@ -10,6 +10,8 @@ import com.theveloper.pixelplay.data.songtap.ble.SystemSongTapClock
 import com.theveloper.pixelplay.data.songtap.SongTapLibrary
 import com.theveloper.pixelplay.data.songtap.SongTapSongIds
 import com.theveloper.pixelplay.data.songtap.SpotifySongTapLibrary
+import com.theveloper.pixelplay.data.songtap.ring.InnerTubeRingCodeResolver
+import com.theveloper.pixelplay.data.songtap.ring.RingCodeResolver
 import dagger.Binds
 import dagger.Module
 import dagger.hilt.InstallIn
@@ -22,6 +24,7 @@ import javax.inject.Singleton
 abstract class SongTapModule {
     @Binds @Singleton abstract fun library(impl: SpotifySongTapLibrary): SongTapLibrary
     @Binds @Singleton abstract fun songIds(impl: LibrarySongTapSongIds): SongTapSongIds
+    @Binds @Singleton abstract fun ringResolver(impl: InnerTubeRingCodeResolver): RingCodeResolver
     @Binds @Singleton abstract fun radio(impl: AndroidBleRadio): BleRadio
     @Binds @Singleton abstract fun impulses(impl: SensorImpulseSource): ImpulseSource
     @Binds @Singleton abstract fun clock(impl: SystemSongTapClock): SongTapClock

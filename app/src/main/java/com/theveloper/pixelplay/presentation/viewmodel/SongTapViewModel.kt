@@ -31,6 +31,16 @@ class SongTapViewModel @Inject constructor(
     fun switchRole(role: Role) = holder.switchRole(role)
     fun showCode() = holder.showCode()
     fun hideCode() = holder.hideCode()
+
+    /** "Use QR code instead" on the sender. */
+    fun showQrInstead() = holder.showQrInstead()
+
+    // The ring code, receiving: the camera's analysis thread reports to [ringSink], the scan screen opens and closes the session.
+    val ringSink get() = holder.ringSink
+    val ringDiag get() = holder.ringDiag
+    fun ringScanStart(cameraAvailable: Boolean) = holder.ringScanStart(cameraAvailable)
+    fun ringScanStop() = holder.ringScanStop()
+    fun ringCameraFailed() = holder.ringCameraFailed()
     fun onScanned(text: String) = holder.onScanned(text)
     fun accept() = holder.accept()
     fun decline() = holder.decline()
