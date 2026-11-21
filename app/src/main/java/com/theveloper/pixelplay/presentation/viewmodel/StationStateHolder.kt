@@ -12,6 +12,7 @@ import com.theveloper.pixelplay.data.brain.LibraryIndex
 import com.theveloper.pixelplay.data.brain.Station
 import com.theveloper.pixelplay.data.brain.StationSeeds
 import com.theveloper.pixelplay.data.brain.StationStore
+import com.theveloper.pixelplay.data.brain.endlessSeeds
 import com.theveloper.pixelplay.data.database.EngagementDao
 import com.theveloper.pixelplay.data.model.Song
 import com.theveloper.pixelplay.data.repository.MusicRepository
@@ -42,6 +43,7 @@ class StationStateHolder @Inject constructor(
     private val brainRepository: com.theveloper.pixelplay.data.brain.BrainRepository,
     private val playableStore: com.theveloper.pixelplay.data.brain.PlayableStore,
     private val genreStations: com.theveloper.pixelplay.data.brain.GenreStations,
+    private val mixes: com.theveloper.pixelplay.data.brain.BrainMixes,
 ) {
     /** What the player does for a station; implemented by the ViewModel that owns the controller. */
     interface Player {
@@ -57,6 +59,9 @@ class StationStateHolder @Inject constructor(
         fun playSeed(song: Song, queueName: String)
 
         fun toast(message: String)
+
+        /** Plays the current queue if it is paused (a station that is already the queue's is picked up, not started again). */
+        fun resume()
     }
 
     /** A station from [song]: it plays (or keeps playing), and music like it follows. */
@@ -146,6 +151,36 @@ class StationStateHolder @Inject constructor(
         }
     }
 
+    /**
+     * Endless Listening: starts the station from the listener's taste islands (up to five seeds, one for each; their top artists with fewer than two
+     * islands), or picks it up when it is already the queue's station. Nothing is read until this is called.
+     */
+    fun startEndless(player: Player) {
+        val live = stations.current.value
+        if (live != null && live.isEndless) {
+            player.resume()
+            return
+        }
+        player.scope.launch {
+            val seeds = try {
+                withContext(Dispatchers.Default) { mixes.endlessSeeds(clock.nowMs()) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Timber.w(e, "station: picking the seeds of Endless Listening failed")
+                emptyList()
+            }
+            withContext(Dispatchers.Main.immediate) {
+                if (seeds.isEmpty()) {
+                    player.toast(context.getString(R.string.endless_nothing_yet))
+                } else {
+                    val station = Station.endless(seeds.map { it.song.id }, context.getString(R.string.endless_title), clock.nowMs())
+                    start(station, seeds[0].song, player)
+                }
+            }
+        }
+    }
+
     private fun startFromSource(source: Int, name: String, songs: List<Song>, maxSeeds: Int, player: Player) {
         if (songs.isEmpty() || name.isBlank()) return
         player.scope.launch {
@@ -186,7 +221,7 @@ class StationStateHolder @Inject constructor(
             player.clearUpcoming()
             return
         }
-        val queueName = context.getString(R.string.brain_station_queue_name, station.title)
+        val queueName = if (station.isEndless) station.title else context.getString(R.string.brain_station_queue_name, station.title)
         playTags.expect(
             queueName = queueName,
             default = BrainItemTag(surface = Surface.nameOf(Surface.STATION), surfaceId = station.id),

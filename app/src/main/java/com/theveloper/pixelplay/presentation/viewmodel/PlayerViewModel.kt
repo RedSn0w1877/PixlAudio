@@ -2236,7 +2236,15 @@ class PlayerViewModel @Inject constructor(
         }
 
         override fun toast(message: String) = sendToast(message)
+
+        override fun resume() {
+            val controller = mediaController ?: return
+            if (!controller.isPlaying) controller.play()
+        }
     }
+
+    /** Endless Listening: the station from the listener's taste islands; picked up when it is already the queue's. */
+    fun startEndlessListening() = brainSession.stations.startEndless(stationPlayer)
 
     /** "Start station" from a song: it plays first (or keeps playing), then music like it. */
     fun startSongStation(song: Song) = brainSession.stations.startSongStation(song, stationPlayer)

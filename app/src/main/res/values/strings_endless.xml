@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Endless Listening: the station, its card on Home, the host, the intro and the settings rows. Plain sentence case. -->
+    <string name="endless_title">Endless Listening</string>
+    <string name="endless_nothing_yet">Play a few songs first. Endless Listening starts from what you play.</string>
+
+    <!-- The card on Home. -->
+    <string name="endless_card_from">Starts from %1$s and keeps going.</string>
+    <string name="endless_card_plain">Starts from what you play and keeps going.</string>
+    <string name="endless_card_tag">Keeps going</string>
+    <string name="endless_card_menu">More about Endless Listening</string>
+    <string name="endless_how_it_works">How it works</string>
+
+    <!-- The queue header while it is the queue's station. -->
+    <string name="endless_station_subtitle">Keeps going from what you play, until you stop it</string>
+
+    <!-- Ask the host. -->
+    <string name="endless_ask_host">Ask the host</string>
+    <string name="endless_host_sheet_title">Ask the host</string>
+    <string name="endless_host_sheet_hint">Say what you want next, or ask about a song.</string>
+    <string name="endless_chip_new">Something new</string>
+    <string name="endless_chip_familiar">Back to familiar</string>
+    <string name="endless_chip_why">Why this song</string>
+    <string name="endless_chip_upbeat">More upbeat</string>
+    <string name="endless_chip_slower">Slower</string>
+    <string name="endless_chip_surprise">Surprise me</string>
+    <string name="endless_reply_new">Okay. The next songs lean towards new music.</string>
+    <string name="endless_reply_familiar">Okay. The next songs lean towards what you know.</string>
+    <string name="endless_reply_surprise">Okay. Five songs that lean new are next.</string>
+    <string name="endless_reply_upbeat">Okay. Five livelier songs are next.</string>
+    <string name="endless_reply_slower">Okay. Five slower songs are next.</string>
+    <string name="endless_reply_why">Here is why it is on.</string>
+    <string name="endless_reply_no_why">You picked this one yourself, so there is no reason to give.</string>
+    <string name="endless_reply_nothing">I could not change the queue just now.</string>
+    <string name="endless_reply_no_song">Nothing is playing yet.</string>
+
+    <!-- The intro: three pages. -->
+    <string name="endless_intro_title_1">Music that keeps going.</string>
+    <string name="endless_intro_body_1">Endless Listening starts from what you play and keeps adding more until you stop it.</string>
+    <string name="endless_intro_title_2">A host, if you want one.</string>
+    <string name="endless_intro_body_2">Short notes between songs say why something is here. Ask for something new, or why a song was picked.</string>
+    <string name="endless_intro_title_3">You decide.</string>
+    <string name="endless_intro_body_3">Choose how much is new, skip anything, and turn the notes off any time.</string>
+    <string name="endless_intro_start">Start listening</string>
+    <string name="endless_intro_not_now">Not now</string>
+    <string name="endless_intro_page_cd">Page %1$d of %2$d</string>
+    <string name="endless_intro_bars_cd">Five bars moving with the music</string>
+    <string name="endless_intro_close_cd">Close</string>
+
+    <!-- Settings. -->
+    <string name="endless_settings_title">Endless Listening</string>
+    <string name="endless_settings_host_notes">Host notes</string>
+    <string name="endless_settings_host_notes_summary">Short notes about the songs coming up in Endless Listening</string>
+    <string name="endless_settings_how">How it works</string>
+    <string name="endless_settings_how_summary">Replay the introduction</string>
+</resources>

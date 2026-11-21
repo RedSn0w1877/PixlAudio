@@ -257,6 +257,9 @@ class UserPreferencesRepository @Inject constructor(
         // The station of the current queue (8.3) and the Familiar / Blend / Discover switch.
         val BRAIN_STATION = stringPreferencesKey("brain_station")
         val BRAIN_NOVELTY = intPreferencesKey("brain_novelty")
+        // Endless Listening: the intro was shown once, and the host's notes between songs (default on).
+        val ENDLESS_INTRO_SEEN = booleanPreferencesKey("endless_intro_seen")
+        val ENDLESS_HOST_NOTES = booleanPreferencesKey("endless_host_notes")
         val BRAIN_PENDING_HISTORY_IMPORT = booleanPreferencesKey("brain_pending_history_import")
         // Which engine ranks Daily Mix and Your Mix: 0 legacy, 1 brain (default). Developer mode flips it.
         val BRAIN_ENGINE = intPreferencesKey("brain_engine")
@@ -627,6 +630,22 @@ class UserPreferencesRepository @Inject constructor(
         dataStore.edit {
             if (encoded == null) it.remove(PreferencesKeys.BRAIN_STATION) else it[PreferencesKeys.BRAIN_STATION] = encoded
         }
+    }
+
+    /** Endless Listening: true once its three-page introduction was shown (on Start listening or Not now). */
+    val endlessIntroSeenFlow: Flow<Boolean> =
+        pref { it[PreferencesKeys.ENDLESS_INTRO_SEEN] ?: false }
+
+    suspend fun setEndlessIntroSeen(seen: Boolean) {
+        dataStore.edit { it[PreferencesKeys.ENDLESS_INTRO_SEEN] = seen }
+    }
+
+    /** Endless Listening: the host's short notes about the songs coming up. On by default. */
+    val endlessHostNotesFlow: Flow<Boolean> =
+        pref { it[PreferencesKeys.ENDLESS_HOST_NOTES] ?: true }
+
+    suspend fun setEndlessHostNotes(enabled: Boolean) {
+        dataStore.edit { it[PreferencesKeys.ENDLESS_HOST_NOTES] = enabled }
     }
 
     /** 0 Familiar, 1 Blend (default), 2 Discover. */

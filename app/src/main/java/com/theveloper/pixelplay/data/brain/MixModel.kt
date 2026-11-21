@@ -105,6 +105,12 @@ object MixKinds {
     /** "Your Friday nights" (stage 3, 6.2): the island that fits this bucket of the week, 25 tracks, 15% new. Planned like a Daily Mix of an island. */
     const val DAYPART = 6
 
+    /**
+     * The Endless Listening card of "Made for you". Not a list: it has no `served_list` row and no [MixSpec]; a tap starts (or picks up) the
+     * station [com.theveloper.pixelplay.data.brain.Station.SOURCE_ENDLESS].
+     */
+    const val ENDLESS = 7
+
     /** Planned by [com.theveloper.pixelplay.brain.StationPlanner]; the others are [com.theveloper.pixelplay.brain.ListMixes]. */
     fun usesPlanner(kind: Int): Boolean = kind == DAILY || kind == YOUR || kind == FIRST_LISTEN || kind == DAYPART
 }

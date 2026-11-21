@@ -675,7 +675,7 @@ class BrainMixes @Inject constructor(
         const val MIN_SAVED_SONGS = 3
         const val TOP_ARTISTS = 20
         /** Folded names that name no artist: such a library credit is not one a station, a radio or a release lookup can use. */
-        private val NO_ARTIST_NAMES = setOf("various artists", "unknown artist", "unknown", "va", "<unknown>")
+        internal val NO_ARTIST_NAMES = setOf("various artists", "unknown artist", "unknown", "va", "<unknown>")
         private const val SIXTY_DAYS_MS = 60L * 24 * 60 * 60 * 1000
         private const val REBUILD_MIN_AGE_MS = 10L * 60 * 1000
 

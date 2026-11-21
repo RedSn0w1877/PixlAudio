@@ -48,8 +48,10 @@ fun AutoplayDivider(
 ) {
     val stationTitle = state.stationTitle
     val isStation = stationTitle != null
+    val isEndless = isStation && state.stationSource == com.theveloper.pixelplay.data.brain.Station.SOURCE_ENDLESS
     val title = if (stationTitle != null) {
-        stringResource(R.string.brain_station_title, stationTitle)
+        // Endless Listening is named for what it is, not "Station · ...".
+        if (isEndless) stationTitle else stringResource(R.string.brain_station_title, stationTitle)
     } else {
         stringResource(R.string.queue_autoplay_title)
     }
@@ -61,6 +63,7 @@ fun AutoplayDivider(
             state.finding -> R.string.queue_autoplay_finding
             state.changedDirection -> R.string.queue_autoplay_changed_direction
             state.fromLibrary -> R.string.queue_autoplay_from_library
+            isEndless -> R.string.endless_station_subtitle
             isStation && state.stationIsArtist -> R.string.brain_station_subtitle_artist
             isStation && state.stationSource == com.theveloper.pixelplay.data.brain.Station.SOURCE_ALBUM -> R.string.brain_station_subtitle_album
             isStation && state.stationSource == com.theveloper.pixelplay.data.brain.Station.SOURCE_PLAYLIST -> R.string.brain_station_subtitle_playlist

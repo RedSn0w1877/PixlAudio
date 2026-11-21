@@ -57,6 +57,8 @@ class BrainSessionStateHolder @Inject constructor(
     val setNoteHistory: com.theveloper.pixelplay.data.brain.SetNoteHistory,
     private val eventExport: com.theveloper.pixelplay.data.brain.BrainEventExport,
     private val stationStore: StationStore,
+    /** Endless Listening: its intro flag and the host's switches. */
+    val endless: EndlessStateHolder,
     /** "Start station": the seed and the hand-over to the player. */
     val stations: StationStateHolder,
     /** Genre and mood stations and the Search tiles that start them (8.3, 8.10). */

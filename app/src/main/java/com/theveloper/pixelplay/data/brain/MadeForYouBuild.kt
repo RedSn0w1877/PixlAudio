@@ -91,16 +91,21 @@ internal suspend fun BrainMixes.edgeByGenre(nowMs: Long): Map<Int, List<LibraryT
 
 /** "Soft pop & R&B · Sabrina Carpenter, Chappell Roan": the island's two highest-lift genres and its two biggest artists, real ones only. */
 internal suspend fun BrainMixes.islandSubtitle(island: Islands.Island, nowMs: Long): String {
+    val genreText = islandGenreName(island)
+    val names = HashMap<Long, String>()
+    for (t in libraryRids.all(nowMs)) if (t.aid != 0L) names.putIfAbsent(t.aid, LibraryIndex.primaryArtistName(t.song))
+    val artists = island.topArtists.take(2).mapNotNull { names[it]?.takeIf { n -> n.isNotBlank() } }
+    return listOf(genreText, artists.joinToString(", ")).filter { it.isNotEmpty() }.joinToString(" · ")
+}
+
+/** "Soft pop & R&B": the island's name by its two highest-lift genres only, "" when the island is not named (too few of its tracks have a genre). */
+internal suspend fun BrainMixes.islandGenreName(island: Islands.Island): String {
     val atlas = atlasProvider.atlas()
     // An island is named only when enough of it has a genre (unknown stays unknown), and only by a genre that is among its biggest shares.
     val named = atlas != null && taggedShare(island) >= NAME_MIN_TAGGED
     val liftTags = if (named) island.liftTags.filter { it in island.topTags }.toIntArray() else IntArray(0)
     val genres = if (atlas == null) emptyList() else IslandNames.pick(atlas, liftTags).toList().mapNotNull { AtlasNames.genreName(atlas, it) }
-    val names = HashMap<Long, String>()
-    for (t in libraryRids.all(nowMs)) if (t.aid != 0L) names.putIfAbsent(t.aid, LibraryIndex.primaryArtistName(t.song))
-    val artists = island.topArtists.take(2).mapNotNull { names[it]?.takeIf { n -> n.isNotBlank() } }
-    val genreText = genres.joinToString(" & ").replaceFirstChar { it.titlecase(Locale.getDefault()) }
-    return listOf(genreText, artists.joinToString(", ")).filter { it.isNotEmpty() }.joinToString(" · ")
+    return genres.joinToString(" & ").replaceFirstChar { it.titlecase(Locale.getDefault()) }
 }
 
 /** The share of the island's tracks that carry a genre at all (0..1): the placed tracks of the island, looked up in the DNA. */

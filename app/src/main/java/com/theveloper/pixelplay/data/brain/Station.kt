@@ -42,6 +42,9 @@ data class Station(
 ) {
     val isArtist: Boolean get() = kind == Session.SEED_STATION_ARTIST
 
+    /** Endless Listening: the station that starts from the listener's taste islands and keeps going ([SOURCE_ENDLESS]). */
+    val isEndless: Boolean get() = source == SOURCE_ENDLESS
+
     fun encode(): String =
         listOf(
             kind.toString(), seedMediaId, clean(title), clean(artistName), startedAtMs.toString(), source.toString(),
@@ -61,6 +64,12 @@ data class Station(
         const val SOURCE_GENRE = 4
         const val SOURCE_MOOD = 5
 
+        /**
+         * Endless Listening: up to five seeds, one for each of the listener's taste islands (their top artists with fewer than two islands).
+         * Planned and played like any station with several seeds; an old build that does not know this source refuses the string, so it ends no queue.
+         */
+        const val SOURCE_ENDLESS = 6
+
         /** A station from an album ([SOURCE_ALBUM]) or a playlist ([SOURCE_PLAYLIST]): [seedMediaIds] are its seeds, best first. */
         fun fromSource(source: Int, seedMediaIds: List<String>, title: String, nowMs: Long): Station {
             val first = seedMediaIds.first()
@@ -69,6 +78,9 @@ data class Station(
                 title = title, artistName = "", startedAtMs = nowMs, source = source, seedMediaIds = seedMediaIds,
             )
         }
+
+        /** Endless Listening: [seedMediaIds] are the island seeds, best first; [title] is the name the queue shows. */
+        fun endless(seedMediaIds: List<String>, title: String, nowMs: Long): Station = fromSource(SOURCE_ENDLESS, seedMediaIds, title, nowMs)
 
         fun song(seedMediaId: String, title: String, primaryArtist: String, nowMs: Long): Station =
             Station(idOf(Session.SEED_STATION_SONG, seedMediaId), Session.SEED_STATION_SONG, seedMediaId, title, primaryArtist, nowMs)
@@ -94,7 +106,7 @@ data class Station(
             val seed = parts[1].takeIf { it.isNotEmpty() } ?: return null
             val startedAt = parts[4].toLongOrNull() ?: return null
             if (parts.size == 5) return Station(idOf(kind, seed), kind, seed, parts[2], parts[3], startedAt)
-            val source = parts[5].toIntOrNull()?.takeIf { it in SOURCE_SONG..SOURCE_MOOD } ?: return null
+            val source = parts[5].toIntOrNull()?.takeIf { it in SOURCE_SONG..SOURCE_ENDLESS } ?: return null
             val ids = parts[6].split(IDS_SEPARATOR).filter { it.isNotEmpty() }.ifEmpty { listOf(seed) }
             return Station(idOf(kind, seed, source), kind, seed, parts[2], parts[3], startedAt, source, ids)
         }

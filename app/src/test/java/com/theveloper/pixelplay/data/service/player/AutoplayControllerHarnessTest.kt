@@ -73,7 +73,7 @@ class AutoplayControllerHarnessTest {
         override fun isRestoringQueue() = false
     }
 
-    private inner class Harness(autoplayOn: Boolean = true, repeatMode: Int = Player.REPEAT_MODE_OFF) {
+    private inner class Harness(autoplayOn: Boolean = true, repeatMode: Int = Player.REPEAT_MODE_OFF, station: Station? = null) {
         var queue: List<MediaItem> = emptyList()
         var index = 0
 
@@ -107,7 +107,7 @@ class AutoplayControllerHarnessTest {
             every { player.playWhenReady } returns true
             every { player.hasNextMediaItem() } answers { index + 1 < queue.size }
 
-            every { stations.current } returns MutableStateFlow<Station?>(null)
+            every { stations.current } returns MutableStateFlow<Station?>(station)
             every { stations.novelty } returns MutableStateFlow(0)
             every { stations.sourceIds } returns emptySet()
             every { brainSwitch.autoplayEnabledFlow } returns flowOf(autoplayOn)
@@ -255,5 +255,21 @@ class AutoplayControllerHarnessTest {
         h.queueAttach.onBegin()
         h.queueAttach.onEnd()
         assertTrue(h.waitFor { h.radioSeeds.isNotEmpty() })
+    }
+
+    @Test
+    fun `an Endless Listening station asks for the radio of every one of its island seeds and stays the queue's station`() {
+        // Three seeds, one for each of three islands; the first is playing. The station started long enough ago to be past its grace.
+        val station = Station.endless(listOf("a", "b", "c"), "Endless Listening", System.currentTimeMillis() - 10 * 60_000L)
+        val h = Harness(station = station)
+        h.queue = h.items(2)
+        h.index = 0
+        h.controller.onTransition()
+        assertTrue(h.waitFor { h.radioSeeds.size >= 3 }, "a radio for each seed, got ${h.radioSeeds.map { it.title }}")
+        assertEquals(setOf("Song A", "Song B", "Song C"), h.radioSeeds.map { it.title }.toSet())
+        // The queue holds the station's first seed, so the station is not ended.
+        io.mockk.verify(exactly = 0) { h.stations.clear() }
+        h.waitFor(1_000L) { thrown.isNotEmpty() }
+        assertTrue(thrown.all { e -> e.stackTrace.any { it.className.contains("MediaItemBuilder") } }, "unexpected: $thrown")
     }
 }
