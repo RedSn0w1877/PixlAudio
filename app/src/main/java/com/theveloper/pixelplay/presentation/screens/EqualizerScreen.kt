@@ -1,28 +1,17 @@
 package com.theveloper.pixelplay.presentation.screens
 
 import com.theveloper.pixelplay.presentation.components.CollapsingHeaderHeight
-import com.theveloper.pixelplay.presentation.components.AdaptivePressSurface
 import com.theveloper.pixelplay.presentation.components.rememberCollapsingHeaderContentPadding
 import com.theveloper.pixelplay.presentation.components.ValueSlider
 import com.theveloper.pixelplay.presentation.components.WithCollapsingHeader
 import com.theveloper.pixelplay.presentation.components.rememberCollapseFraction
 import android.annotation.SuppressLint
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateDp
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.rememberTransition
 import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.core.animateIntAsState // Added
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -31,12 +20,10 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset // Added
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.requiredSize // Added
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -45,33 +32,33 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.PowerSettingsNew
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.progressBarRangeInfo
+import androidx.compose.ui.semantics.setProgress
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.FilledIconButton
-import androidx.compose.material3.FilledIconToggleButton
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton // Added
-import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
-import androidx.compose.material3.TabRow
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRowDefaults
 import androidx.compose.material3.PrimaryScrollableTabRow
-import androidx.compose.material3.TabPosition
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableStateOf // Added
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -79,11 +66,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
-import androidx.compose.ui.draw.scale // Added
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.drawscope.rotate
@@ -91,14 +76,12 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign // Added
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.ui.input.pointer.pointerInput
- // Added
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -107,53 +90,31 @@ import androidx.navigation.NavController
 import com.theveloper.pixelplay.R
 import com.theveloper.pixelplay.data.equalizer.EqualizerPreset
 import com.theveloper.pixelplay.presentation.components.CollapsibleCommonTopBar
-import com.theveloper.pixelplay.presentation.components.ExpressiveTopBarContent
 import com.theveloper.pixelplay.presentation.viewmodel.EqualizerViewModel
 import com.theveloper.pixelplay.presentation.viewmodel.PlayerViewModel
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
-import androidx.compose.material.icons.rounded.VolumeUp
-import androidx.compose.material.icons.rounded.GraphicEq
-import androidx.compose.material.icons.rounded.Speed
-import androidx.compose.material.icons.rounded.SurroundSound
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.material.icons.rounded.Check // Added import for Switch check icon
 import androidx.media3.common.util.UnstableApi
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import com.theveloper.pixelplay.presentation.components.MiniPlayerHeight
-import androidx.compose.material.icons.rounded.BarChart
-import androidx.compose.material.icons.rounded.Block
 import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.ShowChart
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.toArgb
-import com.theveloper.pixelplay.presentation.components.WavyArcSlider
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.TextButton
-import androidx.compose.material.icons.rounded.Edit // Added
-import androidx.compose.material.icons.rounded.ExpandMore // Added
-import androidx.compose.material.icons.rounded.Save // Added
-import androidx.compose.material.icons.filled.Star // Added
-import androidx.compose.material3.Surface
+import androidx.compose.material.icons.rounded.Edit
 import com.theveloper.pixelplay.presentation.components.CustomPresetsSheet
 import com.theveloper.pixelplay.presentation.components.ReorderPresetsSheet
 import com.theveloper.pixelplay.presentation.components.SavePresetDialog
 import com.theveloper.pixelplay.presentation.components.RenamePresetDialog
 import com.theveloper.pixelplay.data.preferences.EqualizerViewMode
-import androidx.compose.material.icons.rounded.ViewQuilt
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.navigationBars
-import androidx.compose.material.icons.automirrored.rounded.ShowChart
-import androidx.compose.material.icons.automirrored.rounded.ViewQuilt
 import androidx.compose.material.icons.automirrored.rounded.VolumeUp
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 
@@ -176,6 +137,7 @@ fun EqualizerScreen(
     // Handlers
     if (showSaveDialog) {
         SavePresetDialog(
+            isNameAvailable = { name -> uiState.isPresetNameAvailable(name) },
             onDismiss = { showSaveDialog = false },
             onSave = { name -> equalizerViewModel.saveCurrentAsCustomPreset(name) }
         )
@@ -184,6 +146,7 @@ fun EqualizerScreen(
     renameTarget?.let { preset ->
         RenamePresetDialog(
             currentName = preset.displayName,
+            isNameAvailable = { name -> uiState.isPresetNameAvailable(name, preset.name) },
             onDismiss = { renameTarget = null },
             onRename = { newName ->
                 equalizerViewModel.renameCustomPreset(preset.name, newName)
@@ -211,22 +174,6 @@ fun EqualizerScreen(
         onReset = { equalizerViewModel.resetPinnedPresetsToDefault() },
         onDismiss = { showReorderSheet = false }
     )
-    
-    // Transition animations
-    val transitionState = remember { MutableTransitionState(false) }
-    LaunchedEffect(true) { transitionState.targetState = true }
-    
-    val transition = rememberTransition(transitionState, label = "EqualizerAppearTransition")
-    
-    val contentAlpha by transition.animateFloat(
-        label = "ContentAlpha",
-        transitionSpec = { tween(durationMillis = 500) }
-    ) { if (it) 1f else 0f }
-    
-    val contentOffset by transition.animateDp(
-        label = "ContentOffset",
-        transitionSpec = { tween(durationMillis = 400, easing = FastOutSlowInEasing) }
-    ) { if (it) 0.dp else 40.dp }
     
     val density = LocalDensity.current
     val coroutineScope = rememberCoroutineScope()
@@ -288,10 +235,6 @@ fun EqualizerScreen(
         modifier = Modifier
             .nestedScroll(nestedScrollConnection)
             .fillMaxSize()
-            .graphicsLayer {
-                alpha = contentAlpha
-                translationY = contentOffset.toPx()
-            }
     ) {
         LazyColumn(
             state = lazyListState,
@@ -301,21 +244,15 @@ fun EqualizerScreen(
                 bottom = MiniPlayerHeight + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 20.dp
             ),
             modifier = Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             // Preset Tabs
             item(key = "preset_tabs") {
-                val visiblePresets = remember(uiState.accessiblePresets) {
-                    val defaultPresets = uiState.accessiblePresets.filter { !it.isCustom }
-                    defaultPresets + EqualizerPreset.custom(List(10) { 0 }) // Always show "Custom" tab at end
-                }
-                
                 PresetTabsRow(
-                    presets = visiblePresets,
+                    presets = uiState.accessiblePresets,
                     selectedPreset = uiState.currentPreset,
-                    onPresetSelected = {
-                        equalizerViewModel.selectPreset(it) 
-                    },
+                    onPresetSelected = equalizerViewModel::selectPreset,
+                    onCustomClick = { equalizerViewModel.selectPreset(EqualizerPreset.custom(uiState.bandLevels)) },
                     onEditClick = { showReorderSheet = true }
                 )
             }
@@ -336,7 +273,8 @@ fun EqualizerScreen(
                         uiState.editingPresetName?.let { equalizerViewModel.updateCustomPresetBands(it) }
                     },
                     onPresetsListClick = { showCustomPresetsSheet = true },
-                    onUnpinClick = { }
+                    onEnabledChange = equalizerViewModel::setEnabled,
+                    onViewModeChange = equalizerViewModel::setViewMode
                 )
             }
             
@@ -396,155 +334,49 @@ fun EqualizerScreen(
                 headerHeight = headerHeight,
                 onBackClick = { navController.popBackStack() },
                 expandedTitleStartPadding = 20.dp,
-                collapsedTitleStartPadding = 72.dp,
-                actions = {
-                    // View Mode Toggle
-                    FilledIconButton(
-                        onClick = { equalizerViewModel.cycleViewMode() },
-                        colors = IconButtonDefaults.filledIconButtonColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-                            contentColor = MaterialTheme.colorScheme.onSurface
-                        )
-                    ) {
-                        Icon(
-                            imageVector = when(uiState.viewMode) {
-                                EqualizerViewMode.SLIDERS -> Icons.Rounded.GraphicEq
-                                EqualizerViewMode.GRAPH -> Icons.AutoMirrored.Rounded.ShowChart
-                                EqualizerViewMode.HYBRID -> Icons.AutoMirrored.Rounded.ViewQuilt
-                            },
-                            contentDescription = stringResource(R.string.equalizer_change_view_mode_cd)
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.width(12.dp))
-
-                    // Power toggle
-                    val isEnabled = uiState.isEnabled
-                    val powerButtonCorner by animateIntAsState(
-                        targetValue = if (isEnabled) 50 else 12,
-                        label = "PowerButtonShape"
-                    )
-
-                    FilledIconToggleButton(
-                        checked = isEnabled,
-                        onCheckedChange = { equalizerViewModel.toggleEqualizer() },
-                        shape = RoundedCornerShape(powerButtonCorner),
-                        colors = IconButtonDefaults.filledIconToggleButtonColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-                            contentColor = MaterialTheme.colorScheme.onSurface,
-                            checkedContainerColor = MaterialTheme.colorScheme.primary,
-                            checkedContentColor = MaterialTheme.colorScheme.onPrimary
-                        )
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.PowerSettingsNew,
-                            contentDescription = if (isEnabled) {
-                                stringResource(R.string.equalizer_disable_cd)
-                            } else {
-                                stringResource(R.string.equalizer_enable_cd)
-                            }
-                        )
-                    }
-                
-                    Spacer(modifier = Modifier.width(12.dp))
-                }
+                collapsedTitleStartPadding = 72.dp
             )
         }
     }
 }
-
-// EqualizerTopBar removed, replaced by CollapsibleCommonTopBar
 
 @Composable
 private fun PresetTabsRow(
     presets: List<EqualizerPreset>,
     selectedPreset: EqualizerPreset,
     onPresetSelected: (EqualizerPreset) -> Unit,
+    onCustomClick: () -> Unit,
     onEditClick: () -> Unit
 ) {
-    val showTabIndicator = false
-    val selectedIndex = remember(presets, selectedPreset) {
-        if (selectedPreset.isCustom || selectedPreset.name == "custom") {
-             presets.indexOfLast { it.name == "Custom" || it.name == "custom" } // Match the placeholder
-        } else {
-             presets.indexOfFirst { it.name == selectedPreset.name }.coerceAtLeast(0)
-        }
-    }.coerceAtLeast(0)
-    val coroutineScope = rememberCoroutineScope()
-    
-    // We don't use a Pager, so we need a manual scroll state if we wanted to auto-scroll.
-    // Standard ScrollableTabRow handles scrolling to selected index automatically.
-    
-    PrimaryScrollableTabRow(
-        selectedTabIndex = selectedIndex,
-        edgePadding = 12.dp,
-        containerColor = Color.Transparent,
-        divider = {},
-        indicator = {
-            if (showTabIndicator) {
-                 TabRowDefaults.PrimaryIndicator(
-                    modifier = Modifier.tabIndicatorOffset(selectedTabIndex = selectedIndex),
-                    height = 3.dp,
-                    width = 20.dp, // Fixed width for expressive dot? Or default width? Library used default.
-                    // Library code: Modifier.tabIndicatorOffset(selectedTabIndex = pagerState.currentPage), height = 3.dp
-                    // Let's stick to default width (match content) but custom height/color.
-                    shape = RoundedCornerShape(3.dp),
-                    color = MaterialTheme.colorScheme.primary
-                 )
-            }
-        },
-        modifier = Modifier.fillMaxWidth().height(56.dp) // Reduced height? Standard is often 48-64. 56 is good.
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        presets.forEachIndexed { index, preset ->
-            val isPinnedCustom = preset.isCustom
-            
-            TabAnimation(
-                index = index,
-                title = preset.name,
-                unselectedColor = MaterialTheme.colorScheme.surfaceContainerLowest,
-                selectedIndex = selectedIndex,
-                onClick = { onPresetSelected(preset) }
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = preset.displayName,
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = if (selectedIndex == index) FontWeight.Bold else FontWeight.Medium
-                    )
-                    if (isPinnedCustom) {
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Icon(
-                            imageVector = Icons.Filled.Star,
-                            contentDescription = stringResource(R.string.equalizer_custom_preset_cd),
-                            modifier = Modifier.size(10.dp), // Slightly smaller
-                            tint = if (selectedIndex == index) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.primary 
-                            // Note: TabAnimation handles content color usually, but Icon tint might need explicit handling or use LocalContentColor.
-                            // TabAnimation uses: selectedContentColor = contentColor.
-                            // So if I don't set tint, it will use LocalContentColor which is animated. 
-                            // So remove manual tint or use LocalContentColor.current.
-                        )
-                    }
-                }
+        LazyRow(
+            modifier = Modifier.weight(1f),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            items(presets, key = { it.name }) { preset ->
+                FilterChip(
+                    selected = selectedPreset.name == preset.name,
+                    onClick = { onPresetSelected(preset) },
+                    label = { Text(preset.displayName) }
+                )
+            }
+            item {
+                FilterChip(
+                    selected = selectedPreset.name == "custom",
+                    onClick = onCustomClick,
+                    label = { Text(stringResource(R.string.equalizer_custom)) }
+                )
             }
         }
-        
-        // Edit Button as a specific Tab (unselectable)
-        TabAnimation(
-            index = -1,
-            title = stringResource(R.string.equalizer_edit_tab_title),
-            unselectedColor = MaterialTheme.colorScheme.surfaceContainerLowest,
-            selectedIndex = selectedIndex,
-            onClick = onEditClick 
-        ) {
-             Icon(
-                Icons.Rounded.Edit,
-                contentDescription = stringResource(R.string.equalizer_edit_presets_cd),
-                modifier = Modifier.size(18.dp)
-            )
+        IconButton(onClick = onEditClick) {
+            Icon(Icons.Rounded.Edit, contentDescription = stringResource(R.string.equalizer_edit_presets_cd))
         }
     }
 }
-
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -557,142 +389,58 @@ private fun BandSlidersSection(
     viewMode: EqualizerViewMode,
     onSaveClick: () -> Unit,
     onUpdateClick: () -> Unit,
-    onUnpinClick: () -> Unit,
-    onPresetsListClick: () -> Unit
+    onPresetsListClick: () -> Unit,
+    onEnabledChange: (Boolean) -> Unit,
+    onViewModeChange: (EqualizerViewMode) -> Unit
 ) {
     val frequencies = EqualizerPreset.BAND_FREQUENCIES
-    
     Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerLow
-        ),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
         shape = RoundedCornerShape(24.dp)
     ) {
         Column(
             modifier = Modifier.padding(vertical = 16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Row(
-                modifier = Modifier
-                    .horizontalScroll(rememberScrollState())
-                    .padding(horizontal = 16.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                 val isCustomOrSaved = editingPresetName != null || currentPreset.name == "custom" || currentPreset.isCustom
-                 val displayLabel = editingPresetName ?: currentPreset.displayName
-                 
-                 AdaptivePressSurface(
-                    color = MaterialTheme.colorScheme.secondaryContainer,
-                    shape = CircleShape,
-                    onClick = onPresetsListClick,
-                    enabled = isCustomOrSaved 
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = displayLabel,
-                            style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.onSecondaryContainer,
-                            fontWeight = FontWeight.Bold
-                        )
-                        
-                        if (isCustomOrSaved) {
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Icon(
-                                imageVector = Icons.Rounded.ExpandMore,
-                                contentDescription = stringResource(R.string.equalizer_presets_cd),
-                                tint = MaterialTheme.colorScheme.onSecondaryContainer
-                            )
-                        }
-                    }
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(stringResource(R.string.equalizer_frequency_response), style = MaterialTheme.typography.titleLarge)
+                    Text(
+                        editingPresetName ?: currentPreset.displayName,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
-                
-                if (currentPreset.name == "custom" && editingPresetName == null) {
-                     AdaptivePressSurface(
-                        color = MaterialTheme.colorScheme.tertiaryContainer,
-                        shape = CircleShape,
-                        onClick = onSaveClick
-                    ) {
-                          Row(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                             Icon(
-                                 imageVector = Icons.Rounded.Save,
-                                 contentDescription = null,
-                                 modifier = Modifier.size(20.dp),
-                                 tint = MaterialTheme.colorScheme.onTertiaryContainer
-                             )
-                             Spacer(modifier = Modifier.width(6.dp))
-                             Text(
-                                 text = stringResource(R.string.common_save),
-                                 color = MaterialTheme.colorScheme.onTertiaryContainer,
-                                 fontWeight = FontWeight.Bold
-                             )
-                          }
-                     }
-                }
-                
-                if (editingPresetName != null) {
-                    // Update Option
-                    AdaptivePressSurface(
-                        color = MaterialTheme.colorScheme.primaryContainer,
-                        shape = CircleShape,
-                        onClick = onUpdateClick
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.Save,
-                                contentDescription = null,
-                                modifier = Modifier.size(20.dp),
-                                tint = MaterialTheme.colorScheme.onPrimaryContainer
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = stringResource(R.string.equalizer_action_update),
-                                color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
+                val powerLabel = stringResource(R.string.settings_category_equalizer_title)
+                Switch(
+                    checked = isEnabled,
+                    onCheckedChange = onEnabledChange,
+                    modifier = Modifier.semantics { contentDescription = powerLabel }
+                )
+            }
 
-                    // Save New Option
-                    AdaptivePressSurface(
-                        color = MaterialTheme.colorScheme.tertiaryContainer,
-                        shape = CircleShape,
-                        onClick = onSaveClick
+            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+                EqualizerViewMode.entries.forEachIndexed { index, mode ->
+                    SegmentedButton(
+                        selected = viewMode == mode,
+                        onClick = { onViewModeChange(mode) },
+                        shape = SegmentedButtonDefaults.itemShape(index, EqualizerViewMode.entries.size),
+                        icon = {}
                     ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.Save,
-                                contentDescription = null,
-                                modifier = Modifier.size(20.dp),
-                                tint = MaterialTheme.colorScheme.onTertiaryContainer
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = stringResource(R.string.equalizer_action_save_new),
-                                color = MaterialTheme.colorScheme.onTertiaryContainer,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
+                        Text(stringResource(when (mode) {
+                            EqualizerViewMode.SLIDERS -> R.string.equalizer_mode_sliders
+                            EqualizerViewMode.GRAPH -> R.string.equalizer_mode_graph
+                            EqualizerViewMode.HYBRID -> R.string.equalizer_mode_hybrid
+                        }))
                     }
                 }
             }
-            
-            Spacer(modifier = Modifier.height(10.dp))
 
             when (viewMode) {
                 EqualizerViewMode.GRAPH -> {
@@ -761,6 +509,22 @@ private fun BandSlidersSection(
                     }
                 }
             }
+            Row(
+                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                TextButton(onClick = onPresetsListClick) {
+                    Text(stringResource(R.string.equalizer_presets_saved_title))
+                }
+                if (editingPresetName != null) {
+                    TextButton(onClick = onUpdateClick) { Text(stringResource(R.string.equalizer_action_update)) }
+                }
+                if (currentPreset.name == "custom") {
+                    TextButton(onClick = onSaveClick) {
+                        Text(stringResource(if (editingPresetName == null) R.string.common_save else R.string.equalizer_action_save_new))
+                    }
+                }
+            }
         }
     }
 }
@@ -777,8 +541,6 @@ private fun GraphBandSliders(
             .fillMaxWidth()
             .height(290.dp) // Slightly taller for graph headroom
     ) {
-        val density = LocalDensity.current
-        
         Row(
             modifier = Modifier
                 .fillMaxSize()
@@ -807,7 +569,7 @@ private fun GraphBandSliders(
                         value = level.toFloat(),
                         onValueChange = { onBandLevelChanged(index, it.roundToInt()) },
                         valueRange = -15f..15f,
-                        enabled = isEnabled,
+                        frequency = frequencies[index],
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxWidth(),
@@ -823,7 +585,7 @@ private fun GraphBandSliders(
 
                     // Frequency
                     Text(
-                        text = frequencies.getOrElse(index) { "" }.replace("Hz", "").replace("k", "k"),
+                        text = frequencies.getOrElse(index) { "" }.removeSuffix("Hz"),
                         style = MaterialTheme.typography.labelSmall,
                         fontSize = 10.sp,
                         maxLines = 1,
@@ -833,74 +595,72 @@ private fun GraphBandSliders(
             }
         }
         
-        // Graph Canvas Overlay
-        if (isEnabled) {
-            val primaryColor = MaterialTheme.colorScheme.primary
+        // Keep the configured curve visible while the filter is bypassed.
+        val primaryColor = if (isEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+
+        androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp)) {
+            val widthPerBand = size.width / bandLevels.size
+            val path = Path()
             
-            androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp)) {
-                val widthPerBand = size.width / bandLevels.size
-                val path = Path()
-                
-                // Constants from CustomVerticalSlider
-                val sliderTopPadding = 20.dp.toPx()
-                val sliderBottomPadding = 24.dp.toPx()
-                val thumbSize = 16.dp.toPx() // Updated to 16dp
-                val verticalPadding = 4.dp.toPx()
-                val availableHeight = size.height - sliderTopPadding - sliderBottomPadding
-                val trackHeight = availableHeight - thumbSize - (verticalPadding * 2)
-                val topOffset = sliderTopPadding + verticalPadding + (thumbSize / 2)
-                
-                val points = bandLevels.mapIndexed { index, level ->
-                    val x = (widthPerBand * index) + (widthPerBand / 2)
-                    val normalized = ((level - (-15f)) / (15f - -15f)).coerceIn(0f, 1f)
-                    val yNormalized = 1f - normalized
-                    val y = topOffset + (yNormalized * trackHeight)
-                    Offset(x, y)
+            // Constants from CustomVerticalSlider
+            val sliderTopPadding = 20.dp.toPx()
+            val sliderBottomPadding = 24.dp.toPx()
+            val thumbSize = 16.dp.toPx() // Updated to 16dp
+            val verticalPadding = 4.dp.toPx()
+            val availableHeight = size.height - sliderTopPadding - sliderBottomPadding
+            val trackHeight = availableHeight - thumbSize - (verticalPadding * 2)
+            val topOffset = sliderTopPadding + verticalPadding + (thumbSize / 2)
+
+            val points = bandLevels.mapIndexed { index, level ->
+                val x = (widthPerBand * index) + (widthPerBand / 2)
+                val normalized = ((level - (-15f)) / (15f - -15f)).coerceIn(0f, 1f)
+                val yNormalized = 1f - normalized
+                val y = topOffset + (yNormalized * trackHeight)
+                Offset(x, y)
+            }
+
+            if (points.isNotEmpty()) {
+                path.moveTo(points[0].x, points[0].y)
+
+                for (i in 0 until points.size - 1) {
+                    val p0 = points[maxOf(0, i - 1)]
+                    val p1 = points[i]
+                    val p2 = points[i + 1]
+                    val p3 = points[minOf(points.size - 1, i + 2)]
+
+                    val cp1X = p1.x + (p2.x - p0.x) * 0.2f
+                    val cp1Y = p1.y + (p2.y - p0.y) * 0.2f
+                    val cp2X = p2.x - (p3.x - p1.x) * 0.2f
+                    val cp2Y = p2.y - (p3.y - p1.y) * 0.2f
+
+                    path.cubicTo(cp1X, cp1Y, cp2X, cp2Y, p2.x, p2.y)
                 }
-                
-                if (points.isNotEmpty()) {
-                    path.moveTo(points[0].x, points[0].y)
-                    
-                    for (i in 0 until points.size - 1) {
-                        val p0 = points[maxOf(0, i - 1)]
-                        val p1 = points[i]
-                        val p2 = points[i + 1]
-                        val p3 = points[minOf(points.size - 1, i + 2)]
-                        
-                        val cp1X = p1.x + (p2.x - p0.x) * 0.2f
-                        val cp1Y = p1.y + (p2.y - p0.y) * 0.2f
-                        val cp2X = p2.x - (p3.x - p1.x) * 0.2f
-                        val cp2Y = p2.y - (p3.y - p1.y) * 0.2f
-                        
-                        path.cubicTo(cp1X, cp1Y, cp2X, cp2Y, p2.x, p2.y)
-                    }
-                    
-                    // Draw Line
-                    drawPath(
-                        path = path,
-                        color = primaryColor,
-                        style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round)
+
+                // Draw Line
+                drawPath(
+                    path = path,
+                    color = primaryColor,
+                    style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round)
+                )
+
+                // Draw Fill
+                val fillPath = Path()
+                fillPath.addPath(path)
+                fillPath.lineTo(points.last().x, size.height - sliderBottomPadding)
+                fillPath.lineTo(points.first().x, size.height - sliderBottomPadding)
+                fillPath.close()
+
+                drawPath(
+                    path = fillPath,
+                    brush = Brush.verticalGradient(
+                        colors = listOf(
+                            primaryColor.copy(alpha = 0.3f),
+                            Color.Transparent
+                        ),
+                        startY = 0f,
+                        endY = size.height
                     )
-                    
-                    // Draw Fill
-                    val fillPath = Path()
-                    fillPath.addPath(path)
-                    fillPath.lineTo(points.last().x, size.height - sliderBottomPadding)
-                    fillPath.lineTo(points.first().x, size.height - sliderBottomPadding)
-                    fillPath.close()
-                    
-                    drawPath(
-                        path = fillPath,
-                        brush = Brush.verticalGradient(
-                            colors = listOf(
-                                primaryColor.copy(alpha = 0.3f),
-                                Color.Transparent
-                            ),
-                            startY = 0f,
-                            endY = size.height
-                        )
-                    )
-                }
+                )
             }
         }
     }
@@ -948,7 +708,7 @@ private fun VerticalBandSlider(
             value = level.toFloat(),
             onValueChange = { onLevelChanged(it.roundToInt()) },
             valueRange = -15f..15f,
-            enabled = isEnabled,
+            frequency = frequency,
             modifier = Modifier
                 .weight(1f)
                 .width(40.dp),
@@ -973,16 +733,13 @@ private fun VerticalBandSlider(
 
 
 
-// ... imports ...
-
-
 @SuppressLint("UnusedBoxWithConstraintsScope")
 @Composable
 private fun CustomVerticalSlider(
     value: Float,
     onValueChange: (Float) -> Unit,
     valueRange: ClosedFloatingPointRange<Float>,
-    enabled: Boolean,
+    frequency: String,
     modifier: Modifier = Modifier,
     activeTrackColor: Color,
     inactiveTrackColor: Color,
@@ -1032,11 +789,6 @@ private fun CustomVerticalSlider(
         }
     }
 
-    // Colors for "inside" look
-    val actualActiveTrackColor = if (enabled) activeTrackColor else activeTrackColor.copy(alpha = 0.3f)
-    val actualInactiveTrackColor = inactiveTrackColor
-    val actualThumbColor = if (enabled) thumbColor else MaterialTheme.colorScheme.onSurfaceVariant
-
     androidx.compose.foundation.layout.BoxWithConstraints(
         modifier = modifier,
         contentAlignment = Alignment.Center
@@ -1051,8 +803,15 @@ private fun CustomVerticalSlider(
             modifier = Modifier
                 .fillMaxSize()
                 .clip(RoundedCornerShape(50))
-                .pointerInput(enabled, valueRange.start, valueRange.endInclusive, safeTrackHeight, heightPx) {
-                    if (!enabled) return@pointerInput
+                .semantics {
+                    contentDescription = frequency
+                    progressBarRangeInfo = ProgressBarRangeInfo(value, valueRange, steps = 29)
+                    setProgress { requested ->
+                        onValueChange(requested.roundToInt().toFloat().coerceIn(valueRange))
+                        true
+                    }
+                }
+                .pointerInput(valueRange.start, valueRange.endInclusive, safeTrackHeight, heightPx) {
                     fun dispatchValue(touchY: Float, forceHaptic: Boolean = false) {
                         val trackTopY = verticalPaddingPx + thumbRadiusPx
                         val relativeY = (touchY - trackTopY).coerceIn(0f, safeTrackHeight)
@@ -1120,7 +879,7 @@ private fun CustomVerticalSlider(
             
             // 1. Draw Inactive Track
             drawRoundRect(
-                color = actualInactiveTrackColor,
+                color = inactiveTrackColor,
                 topLeft = androidx.compose.ui.geometry.Offset(trackLeft, 0f), 
                 size = androidx.compose.ui.geometry.Size(trackWidth, size.height), // Use height not size.width
                 cornerRadius = androidx.compose.ui.geometry.CornerRadius(trackWidth / 2)
@@ -1129,7 +888,7 @@ private fun CustomVerticalSlider(
             // 2. Draw Active Track
             // Cap at thumb center
             drawCircle(
-                color = actualActiveTrackColor,
+                color = activeTrackColor,
                 radius = trackWidth / 2, // Use trackWidth
                 center = androidx.compose.ui.geometry.Offset(centerX, thumbCenterY)
             )
@@ -1154,7 +913,7 @@ private fun CustomVerticalSlider(
                 }
                 drawPath(
                     path = activeTrackPath,
-                    color = actualActiveTrackColor
+                    color = activeTrackColor
                 )
             }
 
@@ -1170,7 +929,7 @@ private fun CustomVerticalSlider(
                 ) {
                     drawPath(
                         path = thumbPath,
-                        color = actualThumbColor
+                        color = thumbColor
                     )
                 }
             }
@@ -1202,310 +961,74 @@ private fun EffectControlsSection(
     onDismissVirtualizer: () -> Unit,
     onDismissLoudness: () -> Unit
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState())
-            .height(androidx.compose.foundation.layout.IntrinsicSize.Max) // Ensure equal heights
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        // Bass Boost
-        if (isBassBoostSupported) {
-            EffectCard(
-                title = stringResource(R.string.equalizer_bass_boost),
-                value = bassBoostStrength, // Already Float
-                valueRange = 0f..1000f, // Keeping range as is, assuming VM handles 0-100 normalization? 
-                // Wait, if VM stores 0-100 Float, but repo uses 0-1000 Int.
-                // If I incorrectly changed VM to store 0-100 Float, I must match UI ranges.
-                // Originally ranges were 0..1000. 
-                // Let's assume VM exposes raw 0..1000 as Float to match slider requirements.
-                isEnabled = bassBoostEnabled,
-                onValueChange = { onBassBoostStrengthChange(it) }, // Pass Float directly
-                onEnabledChange = onBassBoostEnabledChange
-            )
-        } else if (!isBassBoostDismissed) {
-             UnsupportedEffectCard(
-                title = stringResource(R.string.equalizer_bass_boost),
-                onDismiss = onDismissBassBoost
-            )
-        }
-        
-        // Virtualizer
-        if (isVirtualizerSupported) {
-            EffectCard(
-                title = stringResource(R.string.equalizer_virtualizer),
-                value = virtualizerStrength,
-                valueRange = 0f..1000f,
-                isEnabled = virtualizerEnabled,
-                onValueChange = { onVirtualizerStrengthChange(it) },
-                onEnabledChange = onVirtualizerEnabledChange
-            )
-        } else if (!isVirtualizerDismissed) {
-             UnsupportedEffectCard(
-                title = stringResource(R.string.equalizer_virtualizer),
-                onDismiss = onDismissVirtualizer
-            )
-        }
+    if ((!isBassBoostSupported && isBassBoostDismissed) &&
+        (!isVirtualizerSupported && isVirtualizerDismissed) &&
+        (!isLoudnessEnhancerSupported && isLoudnessDismissed)
+    ) return
 
-        // Loudness Enhancer
-        if (isLoudnessEnhancerSupported) {
-            EffectCard(
-                title = stringResource(R.string.equalizer_loudness),
-                value = loudnessStrength,
-                valueRange = 0f..1000f,
-                isEnabled = loudnessEnabled,
-                onValueChange = { onLoudnessStrengthChange(it) },
-                onEnabledChange = onLoudnessEnabledChange
-            )
-        } else if (!isLoudnessDismissed) {
-             UnsupportedEffectCard(
-                title = stringResource(R.string.equalizer_loudness),
-                onDismiss = onDismissLoudness
-            )
-        }
-    }
-}
-
-@Composable
-private fun EffectCard(
-    title: String,
-    value: Float,
-    valueRange: ClosedFloatingPointRange<Float>,
-    isEnabled: Boolean,
-    onValueChange: (Float) -> Unit,
-    onEnabledChange: (Boolean) -> Unit
-) {
     Card(
-        modifier = Modifier.width(150.dp).fillMaxHeight(), // Match parent intrinsic height
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerLow
-        ),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
         shape = RoundedCornerShape(24.dp)
     ) {
-        Column(
-            modifier = Modifier.padding(12.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(4.dp) // Reduced spacing
-        ) {
-
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier
-                    .width(150.dp)
-                    .height(110.dp) 
-            ) {
-                Box(
-                    modifier = Modifier
-                        .requiredSize(150.dp) // Force render size
-                        .offset(y = (5).dp), // Shift UP slightly to center clearer
-                    contentAlignment = Alignment.Center
-                ) {
-                    WavyArcSlider(
-                        value = value,
-                        onValueChange = onValueChange,
-                        modifier = Modifier.fillMaxSize(),
-                        enabled = isEnabled,
-                        valueRange = valueRange,
-                        activeTrackColor = if (isEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
-                        thumbColor = if (isEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                        waveAmplitude = 3.dp
-                    )
-                    
-                    // Percentage Text
-                    val percentage = ((value - valueRange.start) / (valueRange.endInclusive - valueRange.start) * 100).toInt()
-                    Text(
-                        text = stringResource(R.string.common_percentage_text, percentage),
-                        style = MaterialTheme.typography.titleMedium,
-                        color = if (isEnabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
+        Column(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(stringResource(R.string.equalizer_audio_effects), style = MaterialTheme.typography.titleLarge)
+            if (isBassBoostSupported || !isBassBoostDismissed) {
+                EffectRow(stringResource(R.string.equalizer_bass_boost), bassBoostEnabled, bassBoostStrength,
+                    isBassBoostSupported, onBassBoostEnabledChange, onBassBoostStrengthChange, onDismissBassBoost)
             }
-            
-            Switch(
-                checked = isEnabled,
-                onCheckedChange = onEnabledChange,
-                modifier = Modifier.scale(0.8f) 
-            )
-            
-            Text(
-                text = title,
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1
-            )
-        }
-    }
-}
-
-@Composable
-private fun UnsupportedEffectCard(
-    title: String,
-    onDismiss: () -> Unit
-) {
-     Card(
-        modifier = Modifier.width(150.dp).fillMaxHeight(), // Match parent intrinsic height
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f)
-        ),
-        shape = RoundedCornerShape(24.dp)
-    ) {
-        Box(modifier = Modifier.fillMaxSize()) {
-            IconButton(
-                onClick = onDismiss,
-                modifier = Modifier.align(Alignment.TopEnd)
-            ) {
-                Icon(
-                    imageVector = Icons.Rounded.Close,
-                    contentDescription = stringResource(R.string.common_dismiss),
-                    tint = MaterialTheme.colorScheme.error
-                )
+            if (isVirtualizerSupported || !isVirtualizerDismissed) {
+                EffectRow(stringResource(R.string.equalizer_virtualizer), virtualizerEnabled, virtualizerStrength,
+                    isVirtualizerSupported, onVirtualizerEnabledChange, onVirtualizerStrengthChange, onDismissVirtualizer)
             }
-            
-            Column(
-                modifier = Modifier
-                    .padding(16.dp)
-                    .align(Alignment.Center),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Rounded.Block,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.size(32.dp)
-                )
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onErrorContainer
-                )
-                Text(
-                    text = stringResource(R.string.equalizer_effect_not_supported),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.8f),
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                )
+            if (isLoudnessEnhancerSupported || !isLoudnessDismissed) {
+                EffectRow(stringResource(R.string.equalizer_loudness), loudnessEnabled, loudnessStrength,
+                    isLoudnessEnhancerSupported, onLoudnessEnabledChange, onLoudnessStrengthChange, onDismissLoudness)
             }
         }
     }
 }
 
 @Composable
-private fun UnsupportedEffectRow(
+private fun EffectRow(
     title: String,
-    message: String = "",
-    onDismiss: () -> Unit
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f) // Subtle warning
-        ),
-        shape = RoundedCornerShape(12.dp)
-    ) {
-        val resolvedMessage = if (message.isNotEmpty()) {
-            message
-        } else {
-            stringResource(R.string.equalizer_effect_not_supported_device)
-        }
-        Row(
-            modifier = Modifier
-                .padding(12.dp)
-                .fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                imageVector = Icons.Rounded.Block,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.error,
-                modifier = Modifier.size(24.dp)
-            )
-            Spacer(modifier = Modifier.width(12.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.onErrorContainer
-                )
-                Text(
-                    text = resolvedMessage,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.8f)
-                )
-            }
-            IconButton(onClick = onDismiss) {
-                Icon(
-                    imageVector = Icons.Rounded.Close,
-                    contentDescription = stringResource(R.string.common_dismiss),
-                    tint = MaterialTheme.colorScheme.onErrorContainer
-                )
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun IndividualEffectRow(
-    title: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    isEnabled: Boolean,
-    strength: Int,
+    enabled: Boolean,
+    strength: Float,
+    supported: Boolean,
     onEnabledChange: (Boolean) -> Unit,
-    onStrengthChange: (Int) -> Unit,
-    maxStrength: Int = 1000
+    onStrengthChange: (Float) -> Unit,
+    onDismiss: () -> Unit
 ) {
     Column {
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = null,
-                    tint = if (isEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(24.dp)
-                )
-                Spacer(modifier = Modifier.width(12.dp))
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.titleMedium)
+                if (!supported) {
+                    Text(stringResource(R.string.equalizer_effect_not_supported_device),
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
-            Switch(
-                checked = isEnabled,
-                onCheckedChange = onEnabledChange,
-                thumbContent = if (isEnabled) {
-                    {
-                        Icon(
-                            imageVector = androidx.compose.material.icons.Icons.Rounded.Check,
-                            contentDescription = null,
-                            modifier = Modifier.size(SwitchDefaults.IconSize),
-                        )
-                    }
-                } else null
-            )
+            if (supported) {
+                if (enabled) {
+                    Text(stringResource(R.string.common_percentage_text, (strength / 10f).roundToInt()),
+                        style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Switch(checked = enabled, onCheckedChange = onEnabledChange,
+                    modifier = Modifier.semantics { contentDescription = title })
+            } else {
+                IconButton(onClick = onDismiss) {
+                    Icon(Icons.Rounded.Close, contentDescription = stringResource(R.string.common_dismiss))
+                }
+            }
         }
-        
-        Spacer(modifier = Modifier.height(8.dp))
-        
-        ValueSlider(
-            value = strength.toFloat(),
-            onValueChange = { onStrengthChange(it.roundToInt()) },
-            valueRange = 0f..maxStrength.toFloat(),
-            enabled = isEnabled,
-            modifier = Modifier.fillMaxWidth(),
-            track = { sliderState ->
-                SliderDefaults.Track(
-                    sliderState = sliderState,
-                    modifier = Modifier.height(36.dp)
-                )
-            }
-        )
+        if (supported && enabled) {
+            ValueSlider(value = strength, onValueChange = onStrengthChange, valueRange = 0f..1000f,
+                modifier = Modifier.fillMaxWidth().semantics { contentDescription = title })
+        }
     }
 }
 
@@ -1611,24 +1134,10 @@ private fun HybridBandSliders(
     val bandBassLow = stringResource(R.string.equalizer_band_bass_low)
     val bandMidHigh = stringResource(R.string.equalizer_band_mid_high)
     Column(modifier = Modifier.fillMaxWidth()) {
-        // 1. Static Compact Graph
         Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(220.dp) // Enlarged from 140.dp
-                .padding(horizontal = 4.dp) // Reduced outer padding
-                .clip(RoundedCornerShape(24.dp))
-                .background(MaterialTheme.colorScheme.surfaceContainerLow)
-                .padding(16.dp)
+            modifier = Modifier.fillMaxWidth().height(150.dp).padding(horizontal = 16.dp)
         ) {
-             Text(
-                text = stringResource(R.string.equalizer_frequency_response),
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.align(Alignment.TopStart).padding(bottom = 8.dp)
-             )
-             
-             Box(modifier = Modifier.fillMaxSize().padding(top = 24.dp)) {
+             Box(modifier = Modifier.fillMaxSize()) {
                  HybridFrequencyResponseGraph(bandLevels, isEnabled)
                  
                  // Draw simplistic X axis labels
@@ -1642,7 +1151,7 @@ private fun HybridBandSliders(
                          listOf("60", "230", "910", "4k", "14k")
                     }
                     labels.forEach { 
-                        Text(it, style = MaterialTheme.typography.labelSmall, fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha=0.5f))
+                        Text(it, style = MaterialTheme.typography.labelSmall, fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha=0.8f))
                     }
                 }
              }
@@ -1737,7 +1246,6 @@ private fun HybridBandSliders(
                             HybridHorizontalSlider(
                                 frequency = frequencies.getOrElse(index) { "" },
                                 level = bandLevels[index],
-                                isEnabled = isEnabled,
                                 onLevelChanged = { onBandLevelChanged(index, it) }
                             )
                          }
@@ -1753,7 +1261,6 @@ private fun HybridBandSliders(
 private fun HybridHorizontalSlider(
     frequency: String,
     level: Int,
-    isEnabled: Boolean,
     onLevelChanged: (Int) -> Unit
 ) {
     val hapticFeedback = LocalHapticFeedback.current
@@ -1766,7 +1273,7 @@ private fun HybridHorizontalSlider(
     ) {
         // Frequency Label
         Column(modifier = Modifier.width(36.dp)) {
-            val freqVal = frequency.replace("Hz", "").replace("k", "k")
+            val freqVal = frequency.removeSuffix("Hz")
             Text(
                 text = freqVal,
                 style = MaterialTheme.typography.titleSmall,
@@ -1793,8 +1300,7 @@ private fun HybridHorizontalSlider(
                 },
                 valueRange = -15f..15f,
                 steps = 0,
-                enabled = isEnabled,
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().semantics { contentDescription = frequency },
                 track = { sliderState ->
                      SliderDefaults.Track(
                         sliderState = sliderState,
@@ -1819,8 +1325,7 @@ private fun HybridHorizontalSlider(
 @Composable
 private fun HybridFrequencyResponseGraph(
     bandLevels: List<Int>,
-    isEnabled: Boolean,
-    frequencies: List<String>? = null
+    isEnabled: Boolean
 ) {
      val primaryColor = MaterialTheme.colorScheme.primary
      val gridColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f)
@@ -1879,7 +1384,7 @@ private fun HybridFrequencyResponseGraph(
             // Draw Line
             drawPath(
                 path = path,
-                color = if (isEnabled) primaryColor else primaryColor.copy(alpha=0.5f),
+                color = if (isEnabled) primaryColor else primaryColor.copy(alpha=0.8f),
                 style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round)
             )
             

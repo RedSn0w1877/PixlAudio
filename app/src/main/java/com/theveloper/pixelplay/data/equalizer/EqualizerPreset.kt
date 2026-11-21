@@ -91,6 +91,15 @@ data class EqualizerPreset(
             FLAT, ROCK, POP, HIP_HOP, JAZZ, CLASSICAL, ELECTRONIC, BASS_BOOST, TREBLE_BOOST, VOCAL
         )
         
+        /** Resolve the stored selection for both the audio engine and the editor. */
+        fun resolve(name: String, customBands: List<Int>, saved: List<EqualizerPreset>): EqualizerPreset {
+            val preset = if (name == "custom") custom(customBands)
+                else saved.firstOrNull { it.name == name } ?: fromName(name)
+            return preset.copy(bandLevels = List(BAND_FREQUENCIES.size) { index ->
+                preset.bandLevels.getOrElse(index) { 0 }.coerceIn(-15, 15)
+            })
+        }
+
         fun fromName(name: String): EqualizerPreset {
             return ALL_PRESETS.find { it.name == name } ?: FLAT
         }
