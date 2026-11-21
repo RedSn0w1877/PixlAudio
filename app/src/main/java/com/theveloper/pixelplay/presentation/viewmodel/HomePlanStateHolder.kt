@@ -486,9 +486,13 @@ class HomePlanStateHolder @Inject constructor(
             MixKinds.FIRST_LISTEN -> context.getString(R.string.brain_mix_first_listen)
             MixKinds.JUST_DROPPED -> context.getString(R.string.brain_mix_just_dropped)
             MixKinds.ON_REPEAT -> context.getString(R.string.brain_mix_on_repeat)
+            MixKinds.ENDLESS -> context.getString(R.string.endless_title)
             else -> context.getString(R.string.brain_mix_rediscover)
         }
         val subtitle = when {
+            // Endless Listening: it says it keeps going; the island names are real ones or nothing.
+            m.kind == MixKinds.ENDLESS ->
+                if (m.subtitle.isBlank()) context.getString(R.string.endless_card_plain) else context.getString(R.string.endless_card_from, m.subtitle)
             m.kind == MixKinds.FIRST_LISTEN -> context.getString(R.string.brain_mix_first_listen_week, weekOf(m.builtAtMs))
             m.subtitle.isNotBlank() -> m.subtitle
             m.kind == MixKinds.YOUR -> context.getString(R.string.brain_mix_your_subtitle)

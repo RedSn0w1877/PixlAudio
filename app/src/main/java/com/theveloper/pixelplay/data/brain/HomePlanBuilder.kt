@@ -113,8 +113,10 @@ class HomePlanBuilder @Inject constructor(
         }
 
         // Made for you: the lists as cards.
-        if (cards.isNotEmpty()) {
-            addShelf(PlanShelf(HomePlanner.MADE_FOR_YOU, "made_for_you", "made_for_you", mixes = cards))
+        // Endless Listening leads the shelf: a station, not a list (it is in no served_list row and in no other mix of the day), so it is on the shelf only.
+        val endless = endlessCard(now)
+        if (cards.isNotEmpty() || endless != null) {
+            addShelf(PlanShelf(HomePlanner.MADE_FOR_YOU, "made_for_you", "made_for_you", mixes = listOfNotNull(endless) + cards))
         }
         // Because you listened to X (at most two, the newest anchors by different artists): their saved rows.
         for (row in homeRows.cached().take(2)) {
@@ -200,6 +202,25 @@ class HomePlanBuilder @Inject constructor(
             daypart = HomePlanner.daypart(now, tz), weekday = HomePlanner.weekday(now, tz),
             hero = planHero, mixes = cards, shelves = out,
         )
+    }
+
+    /**
+     * The Endless Listening card: present when there are at least two seeds to start from (one for each island, or the top artists), so the
+     * station is more than one song's radio. [PlanMix.subtitle] holds the names of the islands the seeds stand for (real names only, "" for none).
+     * Nothing is fetched; a failure leaves the card out and the rest of the plan alone.
+     */
+    private suspend fun endlessCard(now: Long): PlanMix? = try {
+        val seeds = mixes.endlessSeeds(now)
+        if (seeds.size < 2) null else PlanMix(
+            mixId = ENDLESS_ID, kind = MixKinds.ENDLESS, number = 0,
+            subtitle = mixes.endlessIslandNames(seeds).take(3).joinToString(", "),
+            count = seeds.size, covers = seeds.mapNotNull { art(it.song) }.distinct().take(3), builtAtMs = now,
+        )
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        Timber.w(e, "brain: the Endless Listening card could not be planned")
+        null
     }
 
     /**
@@ -333,8 +354,10 @@ class HomePlanBuilder @Inject constructor(
         return null
     }
 
-    private companion object {
-        const val ALBUM_WINDOW_MS = 14L * 24 * 60 * 60 * 1000
-        const val SIXTY_DAYS_MS = 60L * 24 * 60 * 60 * 1000
+    companion object {
+        /** The `mixId` of the Endless Listening card. */
+        const val ENDLESS_ID = "endless"
+        private const val ALBUM_WINDOW_MS = 14L * 24 * 60 * 60 * 1000
+        private const val SIXTY_DAYS_MS = 60L * 24 * 60 * 60 * 1000
     }
 }

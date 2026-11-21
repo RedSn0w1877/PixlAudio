@@ -3,6 +3,7 @@ package com.theveloper.pixelplay.presentation.model
 import androidx.annotation.StringRes
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.DeveloperBoard
+import androidx.compose.material.icons.rounded.AllInclusive
 import androidx.compose.material.icons.rounded.DeveloperMode
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.Info
@@ -60,6 +61,12 @@ enum class SettingsCategory(
         titleRes = R.string.settings_category_sing_title,
         subtitleRes = R.string.settings_category_sing_subtitle,
         icon = Icons.Rounded.Mic
+    ),
+    ENDLESS(
+        id = "endless",
+        titleRes = R.string.endless_settings_title,
+        subtitleRes = R.string.endless_settings_subtitle,
+        icon = Icons.Rounded.AllInclusive
     ),
     BEHAVIOR(
         id = "behavior",

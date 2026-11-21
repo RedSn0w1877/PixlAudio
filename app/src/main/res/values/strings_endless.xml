@@ -49,6 +49,7 @@
 
     <!-- Settings. -->
     <string name="endless_settings_title">Endless Listening</string>
+    <string name="endless_settings_subtitle">Host notes and how it works</string>
     <string name="endless_settings_host_notes">Host notes</string>
     <string name="endless_settings_host_notes_summary">Short notes about the songs coming up in Endless Listening</string>
     <string name="endless_settings_how">How it works</string>

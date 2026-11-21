@@ -519,8 +519,17 @@ fun HomeScreen(
                         currentSongId = currentSong?.id,
                         onOpenMix = { card ->
                             discoveryViewModel.onShelfActivated("made_for_you")
-                            openMix(navController, card)
+                            if (card.kind == com.theveloper.pixelplay.data.brain.MixKinds.ENDLESS) {
+                                // Endless Listening is a station: its first open shows the introduction, every other starts or picks it up.
+                                scope.launch {
+                                    if (playerViewModel.brainSession.endless.isIntroSeen()) playerViewModel.startEndlessListening()
+                                    else navController.navigateSafely(Screen.EndlessIntro.route)
+                                }
+                            } else {
+                                openMix(navController, card)
+                            }
                         },
+                        onEndlessHowItWorks = { navController.navigateSafely(Screen.EndlessIntro.route) },
                         onStartStation = { card ->
                             discoveryViewModel.onShelfActivated("stations")
                             playerViewModel.startGenreStation(card.kind, card.atlasId, card.name)
@@ -994,6 +1003,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.homePlanItems(
     chip: HomeChip,
     currentSongId: String?,
     onOpenMix: (com.theveloper.pixelplay.presentation.viewmodel.MixCardUi) -> Unit,
+    onEndlessHowItWorks: () -> Unit,
     onStartStation: (com.theveloper.pixelplay.presentation.viewmodel.StationCardUi) -> Unit,
     onPlayShelf: (com.theveloper.pixelplay.data.recommendation.HomeMusicSection, Song) -> Unit,
     onHero: (com.theveloper.pixelplay.presentation.viewmodel.HeroUi) -> Unit,
@@ -1015,7 +1025,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.homePlanItems(
                 when (shelf) {
                     is com.theveloper.pixelplay.presentation.viewmodel.HomeShelfUi.Tracks ->
                         HomeDiscoveryShelf(section = shelf.section, currentSongId = currentSongId, preparingSection = null, onPlay = onPlayShelf)
-                    is com.theveloper.pixelplay.presentation.viewmodel.HomeShelfUi.Mixes -> HomeMixShelf(shelf, onOpenMix)
+                    is com.theveloper.pixelplay.presentation.viewmodel.HomeShelfUi.Mixes -> HomeMixShelf(shelf, onOpenMix, onEndlessHowItWorks = onEndlessHowItWorks)
                     is com.theveloper.pixelplay.presentation.viewmodel.HomeShelfUi.Stations -> HomeStationShelf(shelf, onStartStation)
                 }
             }

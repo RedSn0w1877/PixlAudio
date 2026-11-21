@@ -15,14 +15,23 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material3.Card
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -32,6 +41,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.theveloper.pixelplay.R
+import com.theveloper.pixelplay.data.brain.MixKinds
 import com.theveloper.pixelplay.presentation.viewmodel.HeroUi
 import com.theveloper.pixelplay.presentation.viewmodel.HomeShelfUi
 import com.theveloper.pixelplay.presentation.viewmodel.MixCardUi
@@ -145,18 +155,25 @@ fun HomeJumpBackIn(tiles: ImmutableList<TileUi>, onTile: (TileUi) -> Unit, modif
 
 /** "Made for you": the lists as cards (8.2). */
 @Composable
-fun HomeMixShelf(shelf: HomeShelfUi.Mixes, onOpen: (MixCardUi) -> Unit, modifier: Modifier = Modifier) {
+fun HomeMixShelf(
+    shelf: HomeShelfUi.Mixes,
+    onOpen: (MixCardUi) -> Unit,
+    modifier: Modifier = Modifier,
+    /** "How it works" of the Endless Listening card's menu; null leaves the menu out. */
+    onEndlessHowItWorks: (() -> Unit)? = null,
+) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         ShelfHeader(shelf.title, shelf.subtitle)
         LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            items(shelf.cards, key = { it.mixId }, contentType = { "mix_card" }) { card -> MixCard(card, onOpen) }
+            items(shelf.cards, key = { it.mixId }, contentType = { "mix_card" }) { card -> MixCard(card, onOpen, onEndlessHowItWorks = onEndlessHowItWorks) }
         }
     }
 }
 
 @Composable
-fun MixCard(card: MixCardUi, onOpen: (MixCardUi) -> Unit, modifier: Modifier = Modifier) {
+fun MixCard(card: MixCardUi, onOpen: (MixCardUi) -> Unit, modifier: Modifier = Modifier, onEndlessHowItWorks: (() -> Unit)? = null) {
     val colors = MaterialTheme.colorScheme
+    val endless = card.kind == MixKinds.ENDLESS
     val tone = card.kind % 3
     val container = when (tone) { 0 -> colors.primaryContainer; 1 -> colors.secondaryContainer; else -> colors.tertiaryContainer }
     val content = when (tone) { 0 -> colors.onPrimaryContainer; 1 -> colors.onSecondaryContainer; else -> colors.onTertiaryContainer }
@@ -172,7 +189,35 @@ fun MixCard(card: MixCardUi, onOpen: (MixCardUi) -> Unit, modifier: Modifier = M
             }
             Text(card.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(card.subtitle, style = MaterialTheme.typography.bodyMedium, minLines = 2, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Text(stringResource(R.string.home_songs_count, card.count), style = MaterialTheme.typography.labelLarge)
+            if (endless) {
+                // A station has no song count: it says what it does, and its menu replays the introduction.
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text(stringResource(R.string.endless_card_tag), style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f))
+                    if (onEndlessHowItWorks != null) EndlessCardMenu(onEndlessHowItWorks)
+                }
+            } else {
+                Text(stringResource(R.string.home_songs_count, card.count), style = MaterialTheme.typography.labelLarge)
+            }
+        }
+    }
+}
+
+/** The small menu of the Endless Listening card: "How it works" replays the introduction. Drawn only for that card. */
+@Composable
+private fun EndlessCardMenu(onHowItWorks: () -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        IconButton(onClick = { open = true }, modifier = Modifier.size(36.dp)) {
+            Icon(Icons.Rounded.MoreVert, contentDescription = stringResource(R.string.endless_card_menu), modifier = Modifier.size(20.dp))
+        }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.endless_how_it_works)) },
+                onClick = {
+                    open = false
+                    onHowItWorks()
+                },
+            )
         }
     }
 }

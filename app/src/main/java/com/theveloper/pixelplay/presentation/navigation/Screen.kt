@@ -56,6 +56,7 @@ sealed class Screen(val route: String) {
     object BlockedArtists : Screen("blocked_artists")
     /** Your sound (stage 3, docs/brain-spec.md 8.6). */
     object YourSound : Screen("your_sound")
+    object EndlessIntro : Screen("endless_intro")
 
     /** A genre page built from the atlas alone (stage 3, 8.7). */
     object GenrePage : Screen("genre_page/{atlasId}") {
