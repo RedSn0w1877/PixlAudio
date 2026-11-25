@@ -115,6 +115,11 @@
     <string name="songtap_diag_calibrate_no_phone">No phone to calibrate with yet. Open Song Tap on the other phone first.</string>
     <string name="songtap_diag_calibrate_too_few">Too few readings. Keep the phones touching and hold for the full 2 seconds.</string>
     <string name="songtap_diag_calibrate_released">Let go too early. Hold for the full 2 seconds.</string>
+    <string name="songtap_diag_yes_title">Say yes first</string>
+    <string name="songtap_diag_say_yes">Taps only send to a phone you said yes to. Pick one below, or answer when Song drop pops up.</string>
+    <string name="songtap_diag_say_yes_now">Your phone felt a tap, but nobody got a yes yet, so nothing was sent. Say yes to a phone below first.</string>
+    <string name="songtap_diag_nothing_to_send">Play a song that can be shared first, then the phones nearby show up here.</string>
+    <string name="songtap_diag_open_song_tap">Open Song Tap</string>
     <string name="songtap_diag_offset_reset">Use the default offset</string>
 
     <!-- Sensitivity (Settings > Song Tap, and the diagnostics screen) -->

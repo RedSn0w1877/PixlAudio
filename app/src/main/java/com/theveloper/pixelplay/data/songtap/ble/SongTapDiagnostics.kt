@@ -52,6 +52,12 @@ data class DiagSnapshot(
     val offerInHand: Boolean = false,
     /** The short name it advertised and the full name from its Name characteristic. */
     val names: String = "",
+    /** Sender: the last tap that was felt but ignored ("tap ignored: no yes yet ..."), empty when none. */
+    val tapNote: String = "",
+    /** Sender: a tap was felt lately and nobody was said yes to, so the screens show "say yes first". */
+    val needsYes: Boolean = false,
+    /** How often the radio (advertising and scanning) was started since Song Tap was armed; more than one per screen visit means a restart. */
+    val radioStarts: Int = 0,
 )
 
 /**
@@ -146,6 +152,7 @@ class SongTapDiagnostics @Inject constructor() {
         val s = _snapshot.value
         sb.append("gate: ").append(s.gate).append(", may connect ").append(s.mayConnect).append(", listed ").append(s.listed)
             .append(", offer in hand ").append(s.offerInHand).append(", names ").append(s.names).append(NL)
+        sb.append("radio starts ").append(s.radioStarts).append(", tap note: ").append(s.tapNote.ifEmpty { "-" }).append(NL)
         sb.append("status ").append(s.status).append(", role ").append(s.role).append(", peers ").append(s.peersSeen).append('\n')
         val p = SongTapSensitivity.fromCode(s.profile)
         sb.append("signal: offset ").append(s.offsetDb).append(" dB (raw + offset = normalised, the iPhone scale every gate uses), now raw ")

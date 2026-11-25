@@ -130,6 +130,7 @@ class AndroidBleRadio @Inject constructor(
     private fun stopLocked(keepListener: Boolean = false) {
         running = false
         try { scanner?.stopScan(scanCallback) } catch (_: Exception) { }
+        if (advertiser != null) Timber.i("song tap: advertising stop requested (%s)", role.code)
         try { advertiser?.stopAdvertising(advertiseCallback) } catch (_: Exception) { }
         for (c in clients.values) c.close()
         clients.clear()
@@ -192,6 +193,10 @@ class AndroidBleRadio @Inject constructor(
     // ── Advertising and scanning ──────────────────────────────────────────────────────
 
     private val advertiseCallback = object : AdvertiseCallback() {
+        override fun onStartSuccess(settingsInEffect: AdvertiseSettings?) {
+            Timber.i("song tap: advertising started (%s)", role.code)
+        }
+
         override fun onStartFailure(errorCode: Int) {
             Timber.w("song tap: advertising failed (%d)", errorCode)
             if (errorCode != ADVERTISE_FAILED_ALREADY_STARTED) listener?.onStatus(BleStatus.UNSUPPORTED)
@@ -219,6 +224,7 @@ class AndroidBleRadio @Inject constructor(
             .setIncludeTxPowerLevel(false)
             .addManufacturerData(SongTapWire.ADVERT_COMPANY_ID, SongTapWire.encodeAdvertName(advertisedName))
             .build()
+        Timber.i("song tap: advertising start requested (%s)", role.code)
         advertiser?.startAdvertising(settings, data, scanResponse, advertiseCallback)
     }
 

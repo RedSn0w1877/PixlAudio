@@ -98,6 +98,18 @@ object BleTuning {
      * means calibrating that gate again. Used by `AndroidBleRadio`.
      */
     const val ADVERT_TX_POWER = 1
+
+    /** A connection attempt that has not finished after this long is given up (same as the iPhone), so a stalled one cannot hold the queue. */
+    const val CONNECT_TIMEOUT_MS = 3_000L
+
+    /** A tap that is ignored (no yes yet, or not the phone said yes to) is written to the log at most this often. */
+    const val TAP_IGNORED_LOG_MS = 2_000L
+
+    /** The "Song drop to X?" prompt stays up this long while the same named phone shows up under a new address. */
+    const val PROMPT_GRACE_MS = 3_000L
+
+    /** A recent ignored tap with no yes is shown as a hint on the screens for this long. */
+    const val NEEDS_YES_HINT_MS = 15_000L
 }
 
 /**
@@ -158,7 +170,7 @@ class BleTransport internal constructor(
     private enum class Conn { NONE, CONNECTING, READY }
     private enum class Write { HELLO, TAP, ACK, DECLINE }
 
-    private class Peer(val id: Int, val address: String) {
+    private class Peer(var id: Int, val address: String) {
         var role = Role.SEND
         var lastSeenMs = 0L
         var lastNearMs = 0L
@@ -171,6 +183,9 @@ class BleTransport internal constructor(
         var peerImpulseLocalMs = -1L
         var infoAskedAtMs = 0L
         var conn = Conn.NONE
+        var connectStartMs = 0L
+        /** A connection attempt was given up on; a late answer from it must not be taken for the next one. */
+        var staleConnect = false
         var nextConnectAtMs = 0L
         var challenge: ByteArray? = null
         val writes = ArrayDeque<Write>()
@@ -229,6 +244,23 @@ class BleTransport internal constructor(
 
     /** Sender: the phone the listener said yes to (the transport's number), 0 when none. */
     private var pinnedId = 0
+
+    /** How often the radio was started since [start], and the name and role it runs with (a second start with the same ones changes nothing). */
+    private var radioStarts = 0
+    private var startedName = ""
+
+    /** Sender: the last tap that was ignored because there was no yes (or it was not the phone said yes to), for the log and the diagnostics hint. */
+    private var ignoredTaps = 0
+    private var ignoredTapMs = -1L
+    private var ignoredTapNoYes = true
+    private var lastIgnoredLogMs = -1_000_000L
+
+    /** Names that were told no, and until when: a phone that comes back under a new address with the same name stays silenced. */
+    private val ignoredNames = HashMap<String, Long>()
+
+    /** The prompt last shown, so the same named phone changing its address does not make it vanish and come back. */
+    private var lastPrompt: NearbyEntry? = null
+    private var lastPromptMs = -1L
 
     private val book = NearbyBook()
     private var lastNearbyMs = -1_000_000L
@@ -365,8 +397,16 @@ class BleTransport internal constructor(
     /** "No" on the prompt: that phone is not asked about for a minute. */
     fun ignorePrompt(peer: Int) {
         synchronized(lock) {
-            book.ignore(peer, clock.elapsedMs())
-            publishNearbyLocked(clock.elapsedMs(), force = true)
+            val t = clock.elapsedMs()
+            book.ignore(peer, t)
+            // A phone that changes its address is still the same phone: every number it had, and any it takes later, stays silenced.
+            val name = byId[peer]?.name
+            if (name != null) {
+                ignoredNames[name] = t + NearbyBook.IGNORE_MS
+                for (q in peers.values) if (q.role == Role.RECEIVE && q.name == name) book.ignore(q.id, t)
+            }
+            lastPrompt = null
+            publishNearbyLocked(t, force = true)
         }
     }
 
@@ -412,11 +452,22 @@ class BleTransport internal constructor(
         }
     }
 
+    private fun roleWord(r: Role) = if (r == Role.SEND) "send" else "receive"
+
     private fun startLocked(newRole: Role) {
+        // Already running as this role, with this name: starting again would only stop and start the advertising for nothing
+        // (and a phone that restarts its advertising shows up under a new address every time).
+        if (started && role == newRole && startedName == ownName && _status.value == BleStatus.ACTIVE) {
+            diag.log(clock.elapsedMs(), "radio already running (${roleWord(newRole)}), not restarted")
+            return
+        }
         if (started) stopLocked()
         role = newRole
         started = true
+        startedName = ownName
         signer = if (newRole == Role.SEND) newSigner() else null
+        radioStarts++
+        diag.log(clock.elapsedMs(), "advertising start (${roleWord(newRole)}), start number $radioStarts")
         val result = radio.start(newRole, this, ownName)
         setStatus(result)
         if (result != BleStatus.ACTIVE) {
@@ -441,6 +492,7 @@ class BleTransport internal constructor(
     }
 
     private fun stopLocked() {
+        if (started) diag.log(clock.elapsedMs(), "advertising stop (${roleWord(role)})")
         started = false
         ticker?.cancel()
         ticker = null
@@ -457,6 +509,9 @@ class BleTransport internal constructor(
         ackClient = null
         pinnedId = 0
         book.clear()
+        ignoredNames.clear()
+        lastPrompt = null
+        clearIgnoredTapLocked()
         _nearby.value = emptyList()
         _prompt.value = null
         calibStartMs = -1L
@@ -481,6 +536,7 @@ class BleTransport internal constructor(
             tapClient = null
             val first = pinnedId != peer
             pinnedId = peer
+            if (peer != 0) clearIgnoredTapLocked()
             val target = byId[peer]
             if (first && target != null) setFocus(target, clock.elapsedMs())
             diag.log(clock.elapsedMs(), if (offer == null) "offer does not fit one frame" else "offer ready for #$peer (${payload.size} bytes)")
@@ -559,8 +615,11 @@ class BleTransport internal constructor(
     /** True when a phone other than [target] that advertises as a receiver is inside the tap near gate right now. */
     private fun anotherReceiverNear(target: Peer): Boolean {
         val t = clock.elapsedMs()
+        val targetName = target.name
         for (q in peers.values) {
             if (q === target || q.role != Role.RECEIVE) continue
+            // The same name is the same phone under another address (it changes every few seconds): never a second reader.
+            if (targetName != null && q.name == targetName) continue
             if (t - q.lastSeenMs <= BleTuning.PEER_TIMEOUT_MS && q.detector.near) return true
         }
         return false
@@ -717,6 +776,8 @@ class BleTransport internal constructor(
 
     private fun connect(p: Peer, t: Long) {
         p.conn = Conn.CONNECTING
+        p.connectStartMs = t
+        p.staleConnect = false
         radio.connect(p.address)
         diag.log(t, "connecting to #${p.id}")
     }
@@ -732,6 +793,12 @@ class BleTransport internal constructor(
             val t = clock.elapsedMs()
             val p = peers[address]
             if (p == null || !started) { radio.disconnect(address); return }
+            // An answer to an attempt that was already given up on (timeout): close it, it is not the connection being waited for.
+            if (p.staleConnect && p.conn != Conn.CONNECTING) {
+                p.staleConnect = false
+                if (ok) radio.disconnect(address)
+                return
+            }
             if (!ok) {
                 p.conn = Conn.NONE
                 p.nextConnectAtMs = t + BleTuning.RECONNECT_MS
@@ -963,6 +1030,15 @@ class BleTransport internal constructor(
                 p.name = name
                 if (p.fullName == null) emit(TransportEvent.PeerName(p.id, name))
             }
+            if (this.role == Role.SEND && role == Role.RECEIVE) {
+                // A name that was told no stays told no under a new address (the silence lasts as long as it was given for).
+                val n = p.name
+                val until = if (n == null) null else ignoredNames[n]
+                if (until != null) {
+                    if (until > t) { if (!book.isIgnored(p.id, t)) book.ignore(p.id, until - NearbyBook.IGNORE_MS) } else ignoredNames.remove(n)
+                }
+                if (pinnedId != 0 && p.id != pinnedId) followSamePhoneLocked(p, t)
+            }
 
             val impulse = impulseFor(p, ownImpulseMs)
             val wasHeld = p.detector.heldSinceMs >= 0L
@@ -1054,15 +1130,21 @@ class BleTransport internal constructor(
 
     private fun onFire(p: Peer, reason: FireReason, t: Long) {
         // A sender armed to a phone has no business with a stranger's tap: it does not even follow it.
-        if (pinnedId != 0 && p.id != pinnedId) return
+        if (pinnedId != 0 && p.id != pinnedId) {
+            if (role == Role.SEND && p.role == Role.RECEIVE) noteIgnoredTapLocked(t, noYes = false)
+            return
+        }
         if (p !== focus) setFocus(p, t)
         p.lastFire = reason
         p.lastFireMs = t
         diag.log(t, "tap detected (${reason.code}) with #${p.id}${if (p.prefetched != null) ", offer already in hand" else ""}")
         emit(TransportEvent.PeerRole(p.id, p.role))
         if (role == Role.RECEIVE && p.role == Role.RECEIVE) return
-        // The phone that is not the one the listener said yes to cannot start a beam (the session ignores it too).
-        if (role == Role.SEND && p.id != pinnedId) return
+        // The phone that is not the one the listener said yes to cannot start a beam (the session ignores it too): say so, never silently.
+        if (role == Role.SEND && p.id != pinnedId) {
+            if (p.role == Role.RECEIVE) noteIgnoredTapLocked(t, noYes = true)
+            return
+        }
         // This phone already committed on the other phone's tap a moment ago: the session ignores a second tap, and nothing is sent back.
         val echo = lastPeerTapMs >= 0L && t - lastPeerTapMs < SongTapPeerTap.MIN_GAP_MS
         lastTapMs = t
@@ -1083,8 +1165,66 @@ class BleTransport internal constructor(
         }
     }
 
+    /** A tap this phone felt but may not act on (the listener has not said yes): logged (at most every 2 s) and shown on the diagnostics screen. */
+    private fun noteIgnoredTapLocked(t: Long, noYes: Boolean) {
+        ignoredTaps++
+        ignoredTapMs = t
+        ignoredTapNoYes = noYes
+        if (t - lastIgnoredLogMs < BleTuning.TAP_IGNORED_LOG_MS) return
+        lastIgnoredLogMs = t
+        diag.log(t, if (noYes) "tap ignored: no yes yet" else "tap ignored: not the phone you said yes to")
+    }
+
+    private fun clearIgnoredTapLocked() {
+        ignoredTaps = 0
+        ignoredTapMs = -1L
+        ignoredTapNoYes = true
+        lastIgnoredLogMs = -1_000_000L
+    }
+
+    /**
+     * Sender: the phone the listener said yes to has been silent for a moment and a phone with the same short name is being heard under
+     * another address. It is the same phone (the address changes every few seconds), so it takes over the old one's number: the session,
+     * the pin, the focus and the prompt carry on as if nothing happened, and the phones that are connected are told again there is an
+     * offer. Two different names never merge.
+     */
+    private fun followSamePhoneLocked(p: Peer, t: Long) {
+        val old = byId[pinnedId] ?: return
+        if (old === p || old.role != Role.RECEIVE || p.role != Role.RECEIVE) return
+        val name = p.name ?: return
+        if (old.name != name) return
+        if (t - old.lastSeenMs <= NearbyBook.SAME_PHONE_GAP_MS) return
+        val temporary = p.id
+        peers.remove(old.address)
+        byId.remove(old.id)
+        byId.remove(temporary)
+        book.remove(old.id)
+        book.remove(temporary)
+        if (old.conn != Conn.NONE) radio.disconnect(old.address)
+        p.id = old.id
+        byId[p.id] = p
+        p.detector = p.detector.copy(lastFireMs = maxOf(p.detector.lastFireMs, old.detector.lastFireMs))
+        p.lastNearMs = maxOf(p.lastNearMs, old.lastNearMs)
+        if (focus === old) {
+            focus = p
+            p.nearReported = old.nearReported
+        }
+        diag.log(t, "#${p.id} changed its address (same name, $name), following the new one")
+        if (offer != null) for (client in challenges.keys.toList()) radio.notify(client, SongTapWire.encodeOfferReady())
+    }
+
     private fun maybeConnect(p: Peer, t: Long) {
         if (role != Role.RECEIVE || p.role != Role.SEND || p !== focus) return
+        // A connection that stalls must not hold the queue until Android's own (much longer) timeout.
+        if (p.conn == Conn.CONNECTING && t - p.connectStartMs >= BleTuning.CONNECT_TIMEOUT_MS) {
+            radio.disconnect(p.address)
+            p.conn = Conn.NONE
+            p.staleConnect = true
+            p.writes.clear()
+            p.nextConnectAtMs = t + BleTuning.RECONNECT_MS
+            diag.log(t, "connecting to #${p.id} took too long, giving up for now")
+            if (p.inTransfer) failTransfer(p)
+        }
         if (p.conn != Conn.NONE || !p.detector.near || t < p.nextConnectAtMs) return
         connect(p, t)
     }
@@ -1156,7 +1296,28 @@ class BleTransport internal constructor(
             return
         }
         _nearby.value = book.visible(Role.RECEIVE, t)
-        _prompt.value = if (pinnedId != 0) null else book.promptFor(Role.RECEIVE, t)
+        _prompt.value = stickyPromptLocked(if (pinnedId != 0) null else book.promptFor(Role.RECEIVE, t), t)
+    }
+
+    /**
+     * The prompt, kept up for a moment while the phone it is about changes its address: the old row goes stale and the new one is not
+     * inside the gate yet, but the question is still about the same named phone, so it neither vanishes nor comes back.
+     */
+    private fun stickyPromptLocked(next: NearbyEntry?, t: Long): NearbyEntry? {
+        if (next != null) {
+            lastPrompt = next
+            lastPromptMs = t
+            return next
+        }
+        val last = lastPrompt ?: return null
+        if (pinnedId != 0 || t - lastPromptMs > BleTuning.PROMPT_GRACE_MS) {
+            lastPrompt = null
+            return null
+        }
+        for (e in book.visible(Role.RECEIVE, t)) {
+            if (e.name == last.name && !book.isIgnored(e.id, t)) return e
+        }
+        return null
     }
 
     private fun onImpulse(tMs: Long) {
@@ -1206,6 +1367,10 @@ class BleTransport internal constructor(
             listed = f != null && book.get(f.id)?.listed == true,
             offerInHand = f?.prefetched != null,
             names = if (f == null) "" else "${f.name ?: "-"} / ${f.fullName ?: "-"}",
+            tapNote = if (ignoredTaps == 0) "" else
+                "${if (ignoredTapNoYes) "tap ignored: no yes yet" else "tap ignored: not the phone you said yes to"} (${ignoredTaps}x, last ${t - ignoredTapMs} ms ago)",
+            needsYes = role == Role.SEND && pinnedId == 0 && ignoredTaps > 0 && ignoredTapNoYes && t - ignoredTapMs < BleTuning.NEEDS_YES_HINT_MS,
+            radioStarts = radioStarts,
         )
     }
 

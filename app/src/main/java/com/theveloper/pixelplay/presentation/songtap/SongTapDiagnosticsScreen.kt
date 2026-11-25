@@ -60,7 +60,12 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
 import com.theveloper.pixelplay.R
 import com.theveloper.pixelplay.data.songtap.ble.DiagSnapshot
+import com.theveloper.pixelplay.presentation.navigation.Screen
+import com.theveloper.pixelplay.presentation.navigation.navigateSafely
+import com.theveloper.pixelplay.presentation.viewmodel.SongTapUiState
 import com.theveloper.pixelplay.presentation.viewmodel.SongTapViewModel
+import com.theveloper.pixelplay.songtap.NearbyEntry
+import com.theveloper.pixelplay.songtap.Phase
 import com.theveloper.pixelplay.data.songtap.ble.CalibrationState
 import com.theveloper.pixelplay.data.songtap.ble.RssiCalibration
 import com.theveloper.pixelplay.songtap.Role
@@ -86,6 +91,8 @@ fun SongTapDiagnosticsScreen(
     val profile = SongTapSensitivity.fromCode(snap.profile)
     var mode by rememberSaveable { mutableStateOf(Role.SEND) }
     var copied by remember { mutableStateOf(false) }
+    // A phone picked from the nearby list, waiting for its "Song drop to X?" answer (the same question the Song Tap screen asks).
+    var picked by remember { mutableStateOf<NearbyEntry?>(null) }
     val context = LocalContext.current
 
     LaunchedEffect(viewModel) { viewModel.attach() }
@@ -142,6 +149,16 @@ fun SongTapDiagnosticsScreen(
                 ) { Text(stringResource(R.string.songtap_mode_receive)) }
             }
 
+            if (mode == Role.SEND) {
+                SongDropBlock(
+                    ui = ui,
+                    needsYes = snap.needsYes,
+                    onPick = { picked = it },
+                    onCancel = viewModel::cancelDrop,
+                    onOpenSongTap = { navController.navigateSafely(Screen.SongTap.route) },
+                )
+            }
+
             Block(stringResource(R.string.songtap_sensitivity_title)) {
                 SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
                     SongTapSensitivity.entries.forEachIndexed { index, option ->
@@ -190,6 +207,8 @@ fun SongTapDiagnosticsScreen(
                 Line("shown in the picker", if (snap.listed) "yes" else "no")
                 Line("connection", snap.connection)
                 Line("offer in hand", if (snap.offerInHand) "yes" else "no")
+                Line("radio starts", snap.radioStarts.toString())
+                if (snap.tapNote.isNotEmpty()) Line("last ignored tap", snap.tapNote)
                 Line("name (advert / full)", snap.names.ifEmpty { "-" })
                 Line("readings", snap.samples.toString())
             }
@@ -253,6 +272,44 @@ fun SongTapDiagnosticsScreen(
             }
             Spacer(Modifier.height(24.dp))
         }
+    }
+
+    SongDropAsk(
+        ui = ui,
+        enabled = ui.allowed && mode == Role.SEND,
+        picked = picked,
+        viewModel = viewModel,
+        onAnswered = { picked = null },
+    )
+}
+
+/**
+ * Where taps get their yes. A sender only beams to a phone it said yes to, and a tap with no yes is ignored, so the list of phones nearby and the
+ * "Song drop to X?" question are here too, not only on the Song Tap screen (the question itself is the shared [SongDropAsk]).
+ */
+@Composable
+private fun SongDropBlock(ui: SongTapUiState, needsYes: Boolean, onPick: (NearbyEntry) -> Unit, onCancel: () -> Unit, onOpenSongTap: () -> Unit) {
+    val armed = ui.session.target != 0 && ui.phase == Phase.OFFERED
+    if (armed) {
+        ArmedCard(name = ui.peerName, onCancel = onCancel)
+        return
+    }
+    Block(stringResource(R.string.songtap_diag_yes_title)) {
+        Text(
+            stringResource(if (needsYes) R.string.songtap_diag_say_yes_now else R.string.songtap_diag_say_yes),
+            style = MaterialTheme.typography.bodyMedium,
+            color = if (needsYes) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        if (ui.nowPlaying?.canSend != true) {
+            Text(
+                stringResource(R.string.songtap_diag_nothing_to_send),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        } else {
+            NearbyList(entries = ui.nearby, onPick = onPick)
+        }
+        OutlinedButton(onClick = onOpenSongTap) { Text(stringResource(R.string.songtap_diag_open_song_tap)) }
     }
 }
 

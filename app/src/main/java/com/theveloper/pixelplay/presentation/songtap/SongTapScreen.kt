@@ -223,18 +223,13 @@ fun SongTapScreen(
         SongTapGlow(approach = approach, time = beamTime, role = ui.beamRole, reduced = ui.beamReduced, pulse = pulse.asState())
 
         // "Song drop to X?": for a phone the listener picked from the list, or for one that came inside the strict near gate.
-        val waiting = ui.phase == Phase.ARMED || ui.phase == Phase.FOUND || ui.phase == Phase.NEAR
-        val canSend = ui.nowPlaying?.canSend == true
-        val asking = picked ?: ui.prompt.takeIf { ui.allowed && mode == Role.SEND && !useCode && waiting && canSend }
-        val song = ui.nowPlaying
-        if (asking != null && waiting && canSend && song != null) {
-            SongDropDialog(
-                name = asking.name,
-                songTitle = song.title,
-                onYes = { viewModel.approve(asking.id, asking.name); picked = null },
-                onNo = { viewModel.decideNo(asking.id); picked = null },
-            )
-        }
+        SongDropAsk(
+            ui = ui,
+            enabled = ui.allowed && mode == Role.SEND && !useCode,
+            picked = picked,
+            viewModel = viewModel,
+            onAnswered = { picked = null },
+        )
 
         val card = ui.card
         AnimatedVisibility(
@@ -756,7 +751,7 @@ private fun noticeText(ui: SongTapUiState): String {
 
 /** The phones that advertise as receivers inside the list gate, strongest first. A row is "Close" inside the strict near gate, "Nearby" otherwise. */
 @Composable
-private fun NearbyList(entries: List<NearbyEntry>, onPick: (NearbyEntry) -> Unit) {
+internal fun NearbyList(entries: List<NearbyEntry>, onPick: (NearbyEntry) -> Unit) {
     Column(Modifier.fillMaxWidth().animateContentSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(stringResource(R.string.songdrop_nearby_title), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
         if (entries.isEmpty()) {
@@ -791,7 +786,7 @@ private fun NearbyList(entries: List<NearbyEntry>, onPick: (NearbyEntry) -> Unit
 
 /** After a yes: the sender waits for the touch, armed to that one phone. */
 @Composable
-private fun ArmedCard(name: String?, onCancel: () -> Unit) {
+internal fun ArmedCard(name: String?, onCancel: () -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(28.dp),
@@ -813,6 +808,26 @@ private fun ArmedCard(name: String?, onCancel: () -> Unit) {
             )
             TextButton(onClick = onCancel) { Text(stringResource(R.string.songdrop_armed_cancel)) }
         }
+    }
+}
+
+/**
+ * The "Song drop to X?" question, shared by the Song Tap screen and its diagnostics screen: for the phone picked from the list ([picked]) or the
+ * one the transport asks about (`ui.prompt`), while a sender is waiting and the song can be sent. Yes arms the beam to that phone, No silences it.
+ */
+@Composable
+internal fun SongDropAsk(ui: SongTapUiState, enabled: Boolean, picked: NearbyEntry?, viewModel: SongTapViewModel, onAnswered: () -> Unit) {
+    val waiting = ui.phase == Phase.ARMED || ui.phase == Phase.FOUND || ui.phase == Phase.NEAR
+    val canSend = ui.nowPlaying?.canSend == true
+    val asking = picked ?: ui.prompt.takeIf { enabled && waiting && canSend }
+    val song = ui.nowPlaying
+    if (asking != null && waiting && canSend && song != null) {
+        SongDropDialog(
+            name = asking.name,
+            songTitle = song.title,
+            onYes = { viewModel.approve(asking.id, asking.name); onAnswered() },
+            onNo = { viewModel.decideNo(asking.id); onAnswered() },
+        )
     }
 }
 

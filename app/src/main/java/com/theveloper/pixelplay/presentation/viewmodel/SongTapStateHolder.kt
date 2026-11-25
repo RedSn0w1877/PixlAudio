@@ -286,6 +286,9 @@ class SongTapStateHolder @Inject constructor(
 
     fun arm(role: Role) {
         wanted = true
+        // Already armed as this role (a resume that follows no pause, a second screen): nothing to start, and the radio must not restart.
+        val current = session
+        if (current.role == role && current.phase in ARMED_PHASES) return
         scope.launch {
             if (!settings.isAllowed()) return@launch
             val askFirst = settings.doesFirstBeamAsk()
@@ -861,6 +864,9 @@ class SongTapStateHolder @Inject constructor(
         /** A sender armed to a phone makes its offer again this often (the offer carries a time), and a receiver accepts one this old. */
         const val TARGET_REFRESH_MS = 20_000L
         const val PREFETCH_PAYLOAD_WINDOW_MS = 120_000L
+
+        /** Phases in which Song Tap is already armed (arming again changes nothing). */
+        val ARMED_PHASES = setOf(Phase.ARMED, Phase.FOUND, Phase.NEAR, Phase.OFFERED, Phase.TRANSFERRING)
 
         /** How often the receiver checks whether "Use QR code instead" is due, and how long a song may take to be looked up. */
         const val RING_TICK_MS = 500L
