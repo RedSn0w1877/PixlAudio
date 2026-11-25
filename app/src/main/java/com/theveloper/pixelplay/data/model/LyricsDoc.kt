@@ -95,3 +95,14 @@ object LyricsDocCodec {
         return depth == 0 && !quoted
     }
 }
+
+/**
+ * Well-known [Voice] ids beyond the plain `lead` / `duet` / `background` ones. In duet songs the
+ * TTML parser files each background vocal (role `background`) under the voice of the line it was
+ * nested in, so the karaoke view keeps it on that singer's side. Any other background id means
+ * "owner unknown".
+ */
+object LyricsVoiceIds {
+    const val LEAD_BACKGROUND = "lead-background"
+    const val DUET_BACKGROUND = "duet-background"
+}

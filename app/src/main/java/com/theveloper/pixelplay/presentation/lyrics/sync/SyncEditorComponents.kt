@@ -1,5 +1,6 @@
 package com.theveloper.pixelplay.presentation.lyrics.sync
 
+import com.theveloper.pixelplay.presentation.lyrics.LyricsFontCoverage
 import androidx.compose.foundation.Indication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -398,9 +399,5 @@ internal fun SyncNoticePill(
 
 private const val NOTICE_MS = 4_000L
 
-/** True when every character renders in the app's bundled lyrics font (ASCII plus a few marks). */
-internal fun isCoveredByAppFont(text: CharSequence): Boolean = text.all { char ->
-    char.code in 0x20..0x7E || char == '\n' || char in APP_FONT_EXTRA
-}
-
-private const val APP_FONT_EXTRA = "‘’“”–—…  ·≈"
+/** True when every character renders in the bundled lyrics font (see [LyricsFontCoverage]). */
+internal fun isCoveredByAppFont(text: CharSequence): Boolean = LyricsFontCoverage.isCovered(text)

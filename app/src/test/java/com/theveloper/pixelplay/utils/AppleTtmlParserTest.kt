@@ -53,11 +53,12 @@ class AppleTtmlParserTest {
     @Test
     fun backgroundVocals_becomeTheirOwnTimedBackgroundLine() {
         val doc = AppleTtmlParser.parse(wordTimed)!!.document!!
-        val bg = doc.lines.single { it.voiceId == "background" }
+        // A duet song files each background vocal under the voice whose line it was nested in.
+        val bg = doc.lines.single { it.voiceId == "lead-background" }
         assertThat(bg.text).isEqualTo("(drift away)")
         assertThat(bg.startMs).isEqualTo(2500L)
         assertThat(bg.endMs).isEqualTo(3400L)
-        assertThat(doc.voices.single { it.id == "background" }.role).isEqualTo("background")
+        assertThat(doc.voices.single { it.id == "lead-background" }.role).isEqualTo("background")
         // The lead line keeps only its own words.
         assertThat(doc.lines.first().text).doesNotContain("away")
         val synced = doc.toLyrics().synced!!
@@ -69,7 +70,7 @@ class AppleTtmlParserTest {
         val doc = AppleTtmlParser.parse(wordTimed)!!.document!!
         assertThat(doc.lines.single { it.text == "Second voice" }.voiceId).isEqualTo("duet")
         assertThat(doc.lines.single { it.text == "Together" }.voiceId).isEqualTo("lead")
-        assertThat(doc.voices.map { it.id }).containsExactly("lead", "duet", "background").inOrder()
+        assertThat(doc.voices.map { it.id }).containsExactly("lead", "duet", "lead-background").inOrder()
     }
 
     @Test
@@ -97,7 +98,7 @@ class AppleTtmlParserTest {
         val answer = doc.lines[1]
         assertThat(answer.voiceId).isEqualTo("duet")
         assertThat(answer.endMs).isEqualTo(16_250L) // runs to the next sung line
-        assertThat(doc.lines[2].voiceId).isEqualTo("background")
+        assertThat(doc.lines[2].voiceId).isEqualTo("duet-background")
         assertThat(doc.lines[2].startMs).isEqualTo(13_000L)
         assertThat(result.toLyrics().synced!!.first().words).isNull()
     }

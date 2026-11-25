@@ -156,6 +156,7 @@ import com.theveloper.pixelplay.utils.MultiLangRomanizer
 import com.theveloper.pixelplay.presentation.lyrics.KaraokeAlignment
 import com.theveloper.pixelplay.presentation.lyrics.KaraokeLyricsAppearance
 import com.theveloper.pixelplay.presentation.lyrics.KaraokeLyricsView
+import com.theveloper.pixelplay.presentation.lyrics.LyricsFontCoverage
 import com.theveloper.pixelplay.presentation.lyrics.lyricsEdgeFade
 import com.theveloper.pixelplay.presentation.lyrics.LongSource
 import com.theveloper.pixelplay.presentation.lyrics.LyricsClock
@@ -447,18 +448,15 @@ fun LyricsSheet(
         }
     }
 
-    // El estilo llega con `fontFamily = null` a propósito (ver FullPlayerContent): la Google Sans
-    // Rounded empaquetada no trae glifos fuera del latín básico, y en coreano, japonés o islandés
-    // (æ ð þ) las letras salían como cuadraditos. El efecto secundario era que TODAS las letras
-    // usaban una tipografía distinta a la del resto de la app.
-    //
-    // Se recupera la fuente de la app solo cuando esta canción entera está cubierta por ella; en
-    // cuanto aparece un carácter que no lo está, esa canción se queda con la fuente del sistema,
-    // que sí sabe dibujarlo. Se decide una vez por canción y no por línea, para que una misma
-    // letra no mezcle dos tipografías.
+    // El estilo llega con `fontFamily = null` a propósito (ver FullPlayerContent). Se usa la
+    // fuente de las letras solo cuando esta canción entera está cubierta por ella (su mapa de
+    // caracteres real: latín, acentos, vietnamita, comillas; ver LyricsFontCoverage); en cuanto
+    // aparece un carácter que no lo está (hangul, kana, cirílico...), esa canción se queda con la
+    // fuente del sistema. Se decide una vez por canción y no por línea, para que una misma letra
+    // no mezcle dos tipografías.
     val lyricsFontFamily = remember(lyrics) {
         val loaded = lyrics // `lyrics` es una propiedad delegada: no admite smart cast.
-        if (loaded != null && isCoveredByAppFont(loaded)) LyricsDisplayFamily else null
+        if (loaded != null && LyricsFontCoverage.isCovered(loaded)) LyricsDisplayFamily else null
     }
 
     // ─── Karaoke lyrics: model, clock, engine, look ─────────────────────────
@@ -1644,40 +1642,6 @@ fun PlainLyricsLine(
             }
         }
     }
-}
-
-/**
- * ¿Puede la fuente de la app dibujar esta letra entera?
- *
- * La Google Sans Rounded empaquetada solo cubre con seguridad ASCII imprimible más un puñado de
- * signos tipográficos corrientes (comillas curvas, guiones largos, puntos suspensivos), que
- * aparecen constantemente en letras en inglés. Cualquier otra cosa —acentos, hangul, kana, han,
- * cirílico, æ/ð/þ— se da por no cubierta: es preferible una canción con la fuente del sistema
- * que una canción llena de cuadraditos.
- */
-private val APP_FONT_EXTRA_CHARS = setOf(
-    '‘', '’', // ‘ ’
-    '“', '”', // “ ”
-    '–', '—', // – —
-    '…',           // …
-    ' '            // espacio duro
-)
-
-private fun isCoveredByAppFont(lyrics: Lyrics): Boolean {
-    fun covered(text: String): Boolean = text.all { char ->
-        char == '\n' || char == '\t' ||
-            char.code in 0x20..0x7E ||
-            char in APP_FONT_EXTRA_CHARS
-    }
-
-    val plainCovered = lyrics.plain?.all(::covered) ?: true
-    val syncedCovered = lyrics.synced?.all { line ->
-        covered(line.line) &&
-            (line.translation?.let(::covered) ?: true) &&
-            (line.romanization?.let(::covered) ?: true) &&
-            (line.words?.all { covered(it.word) } ?: true)
-    } ?: true
-    return plainCovered && syncedCovered
 }
 
 /** Height of the track-info pill that overlays the top of the lyrics (4 dp margin + 66 dp art). */

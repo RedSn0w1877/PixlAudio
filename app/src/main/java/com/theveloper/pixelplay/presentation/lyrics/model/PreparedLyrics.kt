@@ -75,6 +75,9 @@ enum class VoiceRole {
  *   at its lead line; every other line (and a background vocal with no lead to attach to)
  *   points at itself.
  * @param bgAbove for a grouped background vocal, whether it is drawn above its lead line.
+ * @param duetEnd duet songs only: the line sits on the end (right) side. True for a duet-voice
+ *   line and for a background vocal grouped under one, so a background vocal always follows the
+ *   side of the line it belongs to. Always false when the song has no duet voice.
  * @param syllables word timing, or `null` for a line-synced-only line. Character ranges index
  *   into [text] exactly. Characters not covered by any syllable (spaces, untimed trailing text)
  *   are drawn with the line's unsung colour.
@@ -92,6 +95,7 @@ data class PreparedLine(
     val syllables: PersistentList<PreparedSyllable>?,
     val translation: String?,
     val romanization: String?,
+    val duetEnd: Boolean = false,
 ) {
     /** True for the line that owns its group: every lead and duet line, and orphan background vocals. */
     val isGroupLead: Boolean get() = groupLeadIndex == index

@@ -91,49 +91,25 @@ internal class LyricsRenderStyle(
     /** Snapshot read: call in draw only. */
     val inactiveAlpha: Float get() = inactiveAlphaState.floatValue
 
-    /** §1.1: in duet songs lead lines keep 15% free on the end side, duet lines on the start side. */
-    fun startPadding(role: VoiceRole, widthPx: Int): Float = when {
-        hasDuet && role == VoiceRole.DUET -> max(padStartPx, widthPx * DUET_INSET_FRACTION)
-        hasDuet -> padStartPx
-        alignment == KaraokeAlignment.CENTER -> (padStartPx + padEndPx) / 2f
-        alignment == KaraokeAlignment.END -> padEndPx
-        else -> padStartPx
-    }
+    /** Left margin of [line] (see [LyricLineAlignment]). */
+    fun startPadding(line: PreparedLine, widthPx: Int): Float =
+        LyricLineAlignment.startPadding(hasDuet, alignment, line.duetEnd, widthPx, padStartPx, padEndPx)
 
-    fun endPadding(role: VoiceRole, widthPx: Int): Float = when {
-        hasDuet && role == VoiceRole.DUET -> padStartPx
-        hasDuet -> max(padEndPx, widthPx * DUET_INSET_FRACTION)
-        alignment == KaraokeAlignment.CENTER -> (padStartPx + padEndPx) / 2f
-        alignment == KaraokeAlignment.END -> padStartPx
-        else -> padEndPx
-    }
+    /** Right margin of [line] (see [LyricLineAlignment]). */
+    fun endPadding(line: PreparedLine, widthPx: Int): Float =
+        LyricLineAlignment.endPadding(hasDuet, alignment, line.duetEnd, widthPx, padStartPx, padEndPx)
 
-    fun textAlign(role: VoiceRole): TextAlign = when {
-        hasDuet -> if (role == VoiceRole.DUET) TextAlign.End else TextAlign.Start
-        alignment == KaraokeAlignment.CENTER -> TextAlign.Center
-        alignment == KaraokeAlignment.END -> TextAlign.End
-        else -> TextAlign.Start
-    }
+    fun textAlign(line: PreparedLine): TextAlign = LyricLineAlignment.textAlign(hasDuet, alignment, line.duetEnd)
 
-    /** Scale pivot X (0 = start edge, 1 = end edge) for a line: duet, RTL and end-aligned lines pivot on the right. */
-    fun pivotX(line: PreparedLine): Float {
-        val rtl = isRtlText(line.text)
-        return when {
-            hasDuet && line.role == VoiceRole.DUET -> 1f
-            hasDuet -> if (rtl) 1f else 0f
-            alignment == KaraokeAlignment.CENTER -> 0.5f
-            alignment == KaraokeAlignment.END -> 1f
-            rtl -> 1f
-            else -> 0f
-        }
-    }
+    /** Scale pivot X (0 = left edge, 1 = right edge): the edge the line is aligned to. */
+    fun pivotX(line: PreparedLine): Float =
+        LyricLineAlignment.pivotX(hasDuet, alignment, line.duetEnd, isRtlText(line.text))
 
     companion object {
         const val BACKGROUND_EM = 0.65f
         const val TRANSLATION_EM = 0.54f
         const val ROMANIZATION_EM = 0.64f
         const val LINE_HEIGHT_EM = 1.2059f
-        const val DUET_INSET_FRACTION = 0.15f
         const val PRESS_RADIUS_EM = 0.25f
         const val PRESS_INSET_H_EM = 0.3f
         const val PRESS_INSET_V_EM = 0.15f
@@ -252,7 +228,7 @@ internal class LyricLineNode(
         // Only what [measureText] reads. A timing-only change (the sync editor's Earlier/Later
         // nudge rebuilds every line with shifted times) keeps the text layouts and just rebuilds
         // the word pieces, which carry the times.
-        val remeasure = style !== this.style || line.text != old.text || line.role != old.role ||
+        val remeasure = style !== this.style || line.text != old.text || line.role != old.role || line.duetEnd != old.duetEnd ||
             line.romanization != old.romanization || line.translation != old.translation
         val retimed = !remeasure && line != old
         val redraw = remeasure || retimed || motion !== this.motion || clock !== this.clock || pressed !== this.pressed
@@ -299,11 +275,14 @@ internal class LyricLineNode(
     private fun measureText(width: Int) {
         val s = style
         val isBg = line.role == VoiceRole.BACKGROUND
-        val align = s.textAlign(line.role)
-        val padStart = s.startPadding(line.role, width)
-        val padEnd = s.endPadding(line.role, width)
+        val align = s.textAlign(line)
+        val padStart = s.startPadding(line, width)
+        val padEnd = s.endPadding(line, width)
         val contentWidth = (width - padStart - padEnd).roundToInt().coerceAtLeast(1)
-        val textConstraints = Constraints(maxWidth = contentWidth)
+        // Exactly the content width: TextMeasurer shrinks a paragraph to its own width when the
+        // minimum width is looser, which would leave every short right- or centre-aligned line
+        // (a duet singer's, a background vocal under one) sitting at the left of the content box.
+        val textConstraints = Constraints.fixedWidth(contentWidth)
         val base = if (isBg) s.background else s.main
         val mainStyle = base.copy(textAlign = align)
         pieceStyle = base.copy(textAlign = TextAlign.Start)

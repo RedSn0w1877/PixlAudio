@@ -4,6 +4,7 @@ import com.theveloper.pixelplay.data.model.Lyrics
 import com.theveloper.pixelplay.data.model.LyricsDoc
 import com.theveloper.pixelplay.data.model.LyricsDocCodec
 import com.theveloper.pixelplay.data.model.LyricsMetadata
+import com.theveloper.pixelplay.data.model.LyricsVoiceIds
 import com.theveloper.pixelplay.data.model.TimedLine
 import com.theveloper.pixelplay.data.model.TimedSyllable
 import com.theveloper.pixelplay.data.model.Voice
@@ -39,6 +40,9 @@ internal object AppleTtmlParser {
     private const val LEAD = "lead"
     private const val DUET = "duet"
     private const val BACKGROUND = "background"
+    /** Duet songs only: a background vocal nested in a lead / duet line (role `background`). */
+    private const val LEAD_BACKGROUND = LyricsVoiceIds.LEAD_BACKGROUND
+    private const val DUET_BACKGROUND = LyricsVoiceIds.DUET_BACKGROUND
 
     data class Result(
         /** Timed lyrics; `null` when the file carries no usable timing (then see [plain]). */
@@ -67,14 +71,14 @@ internal object AppleTtmlParser {
         val root = document.documentElement ?: return null
         if (localName(root) != "tt") return null
 
-        val voiceOfAgent = agentVoices(root)
+        val body = descendants(root, "body").firstOrNull() ?: return null
+        val paragraphs = descendants(body, "p")
+        if (paragraphs.isEmpty() || paragraphs.size > MAX_PARAGRAPHS) return null
+        val voiceOfAgent = agentVoices(root, paragraphs)
         val songwriters = descendants(root, "songwriter")
             .mapNotNull { it.textContent?.trim()?.takeIf(String::isNotEmpty) }
             .distinct()
             .take(50)
-        val body = descendants(root, "body").firstOrNull() ?: return null
-        val paragraphs = descendants(body, "p")
-        if (paragraphs.isEmpty() || paragraphs.size > MAX_PARAGRAPHS) return null
 
         val drafts = ArrayList<DraftLine>(paragraphs.size * 2)
         val plain = ArrayList<String>(paragraphs.size)
@@ -92,25 +96,35 @@ internal object AppleTtmlParser {
             main.toDraft(voice, pBegin, pEnd)?.let(drafts::add)
             backgrounds.forEach { bg ->
                 // Timed background words carry their own span; an untimed one rides its line.
-                bg.toDraft(BACKGROUND, bg.begin, bg.end, fallbackBegin = pBegin, fallbackEnd = pEnd)
-                    ?.let(drafts::add)
+                bg.toDraft(BACKGROUND, bg.begin, bg.end, fallbackBegin = pBegin, fallbackEnd = pEnd,
+                    owner = voice)?.let(drafts::add)
             }
         }
         if (plain.isEmpty()) return null
 
-        val timed = drafts.sortedBy { it.startMs } // stable: document order on equal starts
+        // In a duet the karaoke view needs to know whose line a background vocal was nested in,
+        // so it stays on that singer's side even when the other singer's line overlaps it.
+        val duetSong = drafts.any { it.voice == DUET }
+        val timed = drafts
+            .map { d ->
+                if (!duetSong || d.voice != BACKGROUND) d
+                else d.withVoice(if (d.owner == DUET) DUET_BACKGROUND else LEAD_BACKGROUND)
+            }
+            .sortedBy { it.startMs } // stable: document order on equal starts
         if (timed.isEmpty()) return Result(null, plain, songwriters, wordTimed = false)
         val lines = timed.mapIndexed { i, d ->
             val end = d.endMs ?: run {
                 // Line-timed paragraphs may omit `end`: run to the next lead/duet line.
                 val next = timed.subList(i + 1, timed.size)
-                    .firstOrNull { it.voice != BACKGROUND && it.startMs > d.startMs }?.startMs
+                    .firstOrNull { !it.isBackground && it.startMs > d.startMs }?.startMs
                 next ?: (d.startMs + FALLBACK_LINE_MS)
             }
             TimedLine(d.startMs, end.coerceIn(d.startMs + 1, MAX_TIME_MS), d.text, d.voice, d.syllables)
         }
         val used = lines.map { it.voiceId }.toSet()
-        val voices = listOf(LEAD, DUET, BACKGROUND).filter { it in used }.map { Voice(id = it, role = it) }
+        val voices = listOf(LEAD, DUET, BACKGROUND, LEAD_BACKGROUND, DUET_BACKGROUND)
+            .filter { it in used }
+            .map { Voice(id = it, role = if (it == LEAD || it == DUET) it else BACKGROUND) }
         val doc = LyricsDoc(metadata = metadata.copy(durationMs = null), voices = voices, lines = lines)
         if (!LyricsDocCodec.isValid(doc)) return null
         return Result(doc, plain, songwriters, wordTimed = lines.any { it.syllables.isNotEmpty() })
@@ -118,17 +132,37 @@ internal object AppleTtmlParser {
 
     // ── Agents ───────────────────────────────────────────────────────────────────────────────
 
-    private fun agentVoices(root: Element): (String?) -> String {
+    /**
+     * Declared agents decide the voices. A `ttm:agent` a paragraph uses without declaring it
+     * (some files skip the `<ttm:agent>` list) still counts: the first such singer is the lead
+     * unless a declared person already is, Apple's group ids (`v1000` and up) are the lead
+     * side, and every other undeclared singer is a duet voice.
+     */
+    private fun agentVoices(root: Element, paragraphs: List<Element>): (String?) -> String {
         val agents = descendants(root, "agent").mapNotNull { agent ->
             val id = attr(agent, "id") ?: return@mapNotNull null
             id to (attr(agent, "type")?.lowercase() ?: "person")
         }
         val firstPerson = agents.firstOrNull { it.second == "person" }?.first
-        val roles = agents.associate { (id, type) ->
-            id to if (type == "person" && id != firstPerson) DUET else LEAD
+        val roles = HashMap<String, String>()
+        agents.forEach { (id, type) ->
+            roles.putIfAbsent(id, if (type == "person" && id != firstPerson) DUET else LEAD)
+        }
+        var leadTaken = firstPerson != null
+        for (p in paragraphs) {
+            val id = inheritedAttr(p, "agent") ?: continue
+            if (id in roles) continue
+            val groupId = GROUP_AGENT_ID.matchEntire(id)?.groupValues?.get(1)?.toIntOrNull()?.let { it >= 1000 } == true
+            roles[id] = when {
+                groupId -> LEAD
+                !leadTaken -> { leadTaken = true; LEAD }
+                else -> DUET
+            }
         }
         return { id -> id?.let { roles[it] } ?: LEAD }
     }
+
+    private val GROUP_AGENT_ID = Regex("^v([0-9]+)$", RegexOption.IGNORE_CASE)
 
     // ── Paragraph walking ───────────────────────────────────────────────────────────────────
 
@@ -155,6 +189,7 @@ internal object AppleTtmlParser {
             lineEnd: Long?,
             fallbackBegin: Long? = null,
             fallbackEnd: Long? = null,
+            owner: String? = null,
         ): DraftLine? {
             val text = plainText()
             if (text.isEmpty()) return null
@@ -162,13 +197,13 @@ internal object AppleTtmlParser {
             if (syllables.isEmpty()) {
                 val start = lineBegin ?: fallbackBegin ?: return null
                 val end = (lineEnd ?: fallbackEnd)?.takeIf { it > start }
-                return DraftLine(start, end, text, voice, emptyList())
+                return DraftLine(start, end, text, voice, emptyList(), owner)
             }
             val first = syllables.first().startMs
             val lastEnd = syllables.maxOf { it.startMs + it.durationMs }
             val start = minOf(lineBegin ?: first, first)
             val end = maxOf(lineEnd ?: lastEnd, lastEnd)
-            return DraftLine(start, end, syllables.joinToString("") { it.text }, voice, syllables)
+            return DraftLine(start, end, syllables.joinToString("") { it.text }, voice, syllables, owner)
         }
 
         /**
@@ -230,7 +265,13 @@ internal object AppleTtmlParser {
         val text: String,
         val voice: String,
         val syllables: List<TimedSyllable>,
-    )
+        /** Background vocals: the voice of the paragraph they were nested in. */
+        val owner: String? = null,
+    ) {
+        val isBackground: Boolean get() = voice == BACKGROUND || voice == LEAD_BACKGROUND || voice == DUET_BACKGROUND
+
+        fun withVoice(id: String) = DraftLine(startMs, endMs, text, id, syllables, owner)
+    }
 
     private fun collect(node: Node, target: Collector, backgrounds: MutableList<Collector>) {
         var child = node.firstChild
