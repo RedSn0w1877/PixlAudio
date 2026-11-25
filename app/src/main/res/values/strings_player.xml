@@ -97,6 +97,15 @@
         <item quantity="other">%d tracks lined up.</item>
     </plurals>
     <string name="queue_source_fallback_label">Queue</string>
+    <string name="queue_title">Queue</string>
+    <string name="queue_hint_reorder">Drag to reorder, swipe to remove</string>
+    <string name="queue_up_next_from">Up next from %1$s</string>
+    <string name="queue_up_next">Up next</string>
+    <string name="queue_now_playing">Now playing</string>
+    <plurals name="queue_song_count">
+        <item quantity="one">1 song</item>
+        <item quantity="other">%d songs</item>
+    </plurals>
     <string name="queue_empty_label">Queue is empty.</string>
     <!-- Autoplay line in the queue (music brain, stage 1). Sentence case, plain words. -->
     <string name="queue_autoplay_title">Autoplay</string>

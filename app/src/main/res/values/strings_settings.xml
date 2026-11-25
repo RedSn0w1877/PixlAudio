@@ -32,6 +32,8 @@
 
     <!-- Developer mode: the last group of the main list, and the "Advanced" subsection every category ends with -->
     <string name="settings_developer_mode_title">Developer mode</string>
+    <string name="settings_group_listening">Listening</string>
+    <string name="settings_group_app">App</string>
     <string name="settings_developer_mode_subtitle">Show advanced settings and testing tools</string>
     <string name="settings_section_advanced">Advanced</string>
 

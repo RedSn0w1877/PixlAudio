@@ -303,6 +303,7 @@
         <item quantity="other">%1$d songs</item>
     </plurals>
     <string name="brain_taizo_mix_play">Play</string>
+    <string name="brain_taizo_mix_new_label">New playlist</string>
     <string name="brain_taizo_mix_save">Save</string>
     <string name="brain_taizo_mix_saved">Saved</string>
     <string name="brain_taizo_mix_updating">Updating</string>

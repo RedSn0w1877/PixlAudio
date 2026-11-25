@@ -57,6 +57,8 @@ import com.theveloper.pixelplay.presentation.components.subcomps.SelectionAction
 import com.theveloper.pixelplay.presentation.components.subcomps.SelectionCountPill
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.material3.toShape
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -123,6 +125,11 @@ import com.theveloper.pixelplay.data.model.Genre
 import com.theveloper.pixelplay.data.model.Artist
 import com.theveloper.pixelplay.data.model.Playlist
 import com.theveloper.pixelplay.data.model.SearchFilterType
+import com.theveloper.pixelplay.presentation.components.redesign.GroupPosition
+import com.theveloper.pixelplay.presentation.components.redesign.RedesignGroupButton
+import com.theveloper.pixelplay.presentation.components.redesign.RedesignType
+import com.theveloper.pixelplay.presentation.components.redesign.RedesignHeaderButton
+import com.theveloper.pixelplay.presentation.components.redesign.RedesignScreenTitle
 import com.theveloper.pixelplay.data.model.SearchHistoryItem
 import com.theveloper.pixelplay.data.model.SearchResultItem
 import com.theveloper.pixelplay.data.model.Song
@@ -499,43 +506,31 @@ fun SearchScreen(
         Column(
             modifier = Modifier.fillMaxSize()
         ) {
+            // Redesign 2: "Search" 36/44 sp bold on the Browse page (AndroidSearch mockup), 28/36 sp
+            // once results show (AndroidSearchResults); Settings as a 48 dp neutral square button.
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(start = 24.dp, top = statusBarTopInset + 12.dp, end = 24.dp),
+                    .padding(start = 16.dp, top = statusBarTopInset + 12.dp, end = 16.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // The search field moved into the nav bar's big pill; the top of the screen is
-                // now just its title, in the hero cut of Google Sans Flex.
-                val titleBase = MaterialTheme.typography.displaySmall
-                val titleStyle = flexStyle(
-                    remember(titleBase) { titleBase.copy(fontSize = 36.sp, lineHeight = 44.sp) },
-                    FlexPresets.HeroDisplay
-                )
-                Text(
+                RedesignScreenTitle(
                     text = stringResource(R.string.nav_bar_search),
-                    style = titleStyle,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    modifier = Modifier
-                        .weight(1f)
-                        .semantics { heading() }
+                    style = if (pane == SearchPane.Results) {
+                        RedesignType.CompactTitle.copy(lineHeight = 36.sp)
+                    } else {
+                        RedesignType.ScreenTitle
+                    },
+                    modifier = Modifier.weight(1f)
                 )
-
-                FilledIconButton(
-                    modifier = Modifier.padding(bottom = 2.dp),
-                    colors = IconButtonDefaults.filledIconButtonColors(
-                        containerColor = MaterialTheme.colorScheme.primaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                    ),
-                    onClick = { navController.navigateSafely(Screen.Settings.route) }
-                ) {
-                    Icon(
-                        painter = painterResource(R.drawable.rounded_settings_24),
-                        contentDescription = stringResource(R.string.library_cd_open_settings)
-                    )
-                }
+                RedesignHeaderButton(
+                    icon = painterResource(R.drawable.rounded_settings_24),
+                    contentDescription = stringResource(R.string.library_cd_open_settings),
+                    onClick = { navController.navigateSafely(Screen.Settings.route) },
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    contentColor = MaterialTheme.colorScheme.onSurface
+                )
             }
 
             AnimatedContent(
@@ -583,7 +578,7 @@ fun SearchScreen(
                                 items = recentStripItems,
                                 onOpen = openHistoryItem,
                                 onRemove = removeHistoryItem,
-                                modifier = Modifier.padding(top = 8.dp)
+                                modifier = Modifier.padding(top = 20.dp)
                             )
                         }
                         if (isGenreSelectionMode) {
@@ -623,7 +618,7 @@ fun SearchScreen(
                                 },
                                 categories = tileCategories,
                                 playerViewModel = playerViewModel,
-                                modifier = Modifier.padding(top = 12.dp),
+                                modifier = Modifier.padding(top = 20.dp),
                                 isSelectionMode = isGenreSelectionMode,
                                 selectedGenreIds = selectedGenreIds,
                                 onGenreLongPress = { genre ->
@@ -715,19 +710,16 @@ fun SearchScreen(
                                     .padding(vertical = 8.dp, horizontal = 8.dp)
                             )
                         } else {
-                            FlowRow(
+// Redesign 2: one connected button group (AndroidSearchResults mockup): 44 dp, 2 dp
+                            // gaps, each segment as wide as its share, outer corners 22, inner 8; the selected
+                            // one goes primary and fully round.
+                            SearchFilterGroup(
+                                current = currentFilter,
+                                onSelect = { playerViewModel.updateSearchFilter(it) },
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(vertical = 8.dp, horizontal = 8.dp),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                verticalArrangement = Arrangement.spacedBy(0.dp)
-                            ) {
-                                SearchFilterChip(SearchFilterType.ALL, currentFilter, playerViewModel)
-                                SearchFilterChip(SearchFilterType.SONGS, currentFilter, playerViewModel)
-                                SearchFilterChip(SearchFilterType.ALBUMS, currentFilter, playerViewModel)
-                                SearchFilterChip(SearchFilterType.ARTISTS, currentFilter, playerViewModel)
-                                SearchFilterChip(SearchFilterType.PLAYLISTS, currentFilter, playerViewModel)
-                            }
+                                    .padding(top = 14.dp, bottom = 14.dp)
+                            )
                         }
                         if (!anySelectionMode) {
                             SearchHistorySuggestions(
@@ -795,6 +787,7 @@ fun SearchScreen(
                                                 selectedAlbums = selectedAlbums + album
                                             }
                                         },
+                                        showTopResult = currentFilter == SearchFilterType.ALL && !anySelectionMode,
                                         getAlbumSelectionIndex = { albumId ->
                                             val idx = selectedAlbums.indexOfFirst { it.id == albumId }
                                             if (idx >= 0) idx + 1 else null
@@ -1273,12 +1266,15 @@ private fun SearchResultYouTubeMusicItem(
 
 @Composable
 fun SearchResultSectionHeader(title: String) {
+    // Redesign 2: 18/22 sp bold section titles ("Songs", "Artists", ...).
     Text(
         text = title,
-        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+        style = RedesignType.SectionTitle,
+        color = MaterialTheme.colorScheme.onSurface,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 8.dp, horizontal = 4.dp)
+            .padding(top = 8.dp, bottom = 8.dp)
+            .semantics { heading() }
     )
 }
 
@@ -1357,7 +1353,9 @@ fun SearchResultsList(
     getAlbumSelectionIndex: (Long) -> Int? = { null },
     onPlaylistLongPress: (Playlist) -> Unit = {},
     onPlaylistSelectionToggle: (Playlist) -> Unit = {},
-    getPlaylistSelectionIndex: (String) -> Int? = { null }
+    getPlaylistSelectionIndex: (String) -> Int? = { null },
+    /** The first song as the big "Top result" card (the All filter, not while selecting). */
+    showTopResult: Boolean = false
 ) {
     val localDensity = LocalDensity.current
 
@@ -1443,6 +1441,18 @@ fun SearchResultsList(
             bottom = if (imePadding <= 8.dp) (MiniPlayerHeight + systemBarPaddingBottom) else imePadding
         )
     ) {
+        val topSong = if (showTopResult) {
+            (groupedResults[SearchFilterType.SONGS]?.firstOrNull() as? SearchResultItem.SongItem)?.song
+        } else null
+        if (topSong != null) {
+            item(key = "top_result", contentType = "search_top_result") {
+                SearchTopResultCard(
+                    song = topSong,
+                    onClick = { onSongResultClick(topSong) },
+                    modifier = Modifier.padding(bottom = 14.dp)
+                )
+            }
+        }
         SEARCH_SECTION_ORDER.forEach { filterType ->
             val itemsForSection = groupedResults[filterType] ?: emptyList()
 
@@ -2057,3 +2067,131 @@ fun SearchFilterChip(
     )
 }
 
+/** The results filter as one connected group (redesign 2): All, Songs, Artists, Albums, Playlists. */
+@Composable
+private fun SearchFilterGroup(
+    current: SearchFilterType,
+    onSelect: (SearchFilterType) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val filters = SearchFilterGroupOrder
+    Row(modifier = modifier, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+        filters.forEachIndexed { index, type ->
+            val labelRes = when (type) {
+                SearchFilterType.ALL -> R.string.common_all
+                SearchFilterType.SONGS -> R.string.library_tab_songs
+                SearchFilterType.ALBUMS -> R.string.library_tab_albums
+                SearchFilterType.ARTISTS -> R.string.library_tab_artists
+                else -> R.string.library_tab_playlists
+            }
+            RedesignGroupButton(
+                position = when (index) {
+                    0 -> GroupPosition.First
+                    filters.lastIndex -> GroupPosition.Last
+                    else -> GroupPosition.Middle
+                },
+                selected = type == current,
+                onClick = { onSelect(type) },
+                height = 44.dp,
+                inner = 8.dp,
+                contentPadding = PaddingValues(horizontal = 6.dp),
+                contentColor = MaterialTheme.colorScheme.onSurface,
+                role = androidx.compose.ui.semantics.Role.Tab,
+                modifier = Modifier.weight(1f)
+            ) { tint ->
+                Text(
+                    text = stringResource(labelRes),
+                    style = RedesignType.Label,
+                    color = tint,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+    }
+}
+
+private val SearchFilterGroupOrder = listOf(
+    SearchFilterType.ALL,
+    SearchFilterType.SONGS,
+    SearchFilterType.ARTISTS,
+    SearchFilterType.ALBUMS,
+    SearchFilterType.PLAYLISTS,
+)
+
+/**
+ * "Top result" (redesign 2, AndroidSearchResults mockup): tertiaryContainer card, 28 dp corners,
+ * 14 dp padding, 88 dp art with 20 dp corners, 14 dp gap, "Top result" 12/16 sp medium, the title
+ * 26/32 sp bold, artist 14/20, "Song" 13/18; a 64 dp cookie play button on the right. The whole
+ * card plays the song (same handler as its row).
+ */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun SearchTopResultCard(
+    song: Song,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val scheme = MaterialTheme.colorScheme
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(28.dp))
+            .background(scheme.tertiaryContainer)
+            .clickable(onClick = onClick)
+            .padding(14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        SmartImage(
+            model = song.albumArtUriString,
+            contentDescription = null,
+            shape = RoundedCornerShape(20.dp),
+            targetSize = TopResultArtSize,
+            modifier = Modifier.size(88.dp)
+        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = stringResource(R.string.search_top_result),
+                style = RedesignType.Label.copy(fontSize = 12.sp, lineHeight = 16.sp, letterSpacing = 0.4.sp),
+                color = scheme.onTertiaryContainer
+            )
+            Text(
+                text = song.title,
+                style = RedesignType.ScreenTitle.copy(fontSize = 26.sp, lineHeight = 32.sp, letterSpacing = (-0.3).sp),
+                color = scheme.onTertiaryContainer,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = song.displayArtist,
+                style = RedesignType.Label.copy(fontWeight = FontWeight.Normal),
+                color = scheme.onTertiaryContainer,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = stringResource(R.string.search_history_kind_song),
+                style = RedesignType.RowSubtitle,
+                color = scheme.onTertiaryContainer,
+                modifier = Modifier.padding(top = 6.dp)
+            )
+        }
+        Box(
+            modifier = Modifier
+                .size(64.dp)
+                .clip(androidx.compose.material3.MaterialShapes.Cookie9Sided.toShape())
+                .background(scheme.onTertiaryContainer),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.PlayArrow,
+                contentDescription = stringResource(R.string.common_play),
+                tint = scheme.tertiaryContainer,
+                modifier = Modifier.size(30.dp)
+            )
+        }
+    }
+}
+
+private val TopResultArtSize = coil.size.Size(264, 264)

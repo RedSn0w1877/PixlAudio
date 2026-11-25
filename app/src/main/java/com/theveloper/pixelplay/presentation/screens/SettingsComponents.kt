@@ -133,7 +133,7 @@ fun SettingsItem(
             color = MaterialTheme.colorScheme.surfaceContainer,
             modifier =
                     Modifier.fillMaxWidth()
-                            .clip(RoundedCornerShape(10.dp))
+                            .clip(RoundedCornerShape(4.dp))
                             .clickable(onClick = onClick)
     ) {
         Row(
@@ -183,7 +183,7 @@ fun SwitchSettingItem(
 
     Surface(
             color = MaterialTheme.colorScheme.surfaceContainer,
-            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(4.dp))
     ) {
         Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -253,7 +253,7 @@ fun ThemeSelectorItem(
     Surface(
             color = MaterialTheme.colorScheme.surfaceContainer,
             modifier =
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(4.dp))
                         .then(
                             if (lockedNote == null) Modifier.clickable { showSheet = true }
                             else Modifier.alpha(0.55f)
@@ -385,7 +385,7 @@ fun ExpressiveSettingsGroup(
 ) {
     Column(
         modifier = modifier
-            .clip(RoundedCornerShape(24.dp))
+            .clip(RoundedCornerShape(20.dp))
             .background(Color.Transparent),
     ) {
         content()
@@ -410,7 +410,7 @@ fun SearchableModelSelector(
         color = MaterialTheme.colorScheme.surfaceContainer,
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp))
+            .clip(RoundedCornerShape(4.dp))
             .clickable { showSheet = true }
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
@@ -580,7 +580,7 @@ fun SliderSettingsItem(
 ) {
     Surface(
             color = MaterialTheme.colorScheme.surfaceContainer,
-            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(4.dp))
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(
@@ -624,7 +624,7 @@ fun RefreshLibraryItem(
 ) {
     Surface(
             color = MaterialTheme.colorScheme.surfaceContainer,
-            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(4.dp))
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(
@@ -789,7 +789,7 @@ fun ActionSettingsItem(
 ) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainer,
-        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(4.dp))
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(
@@ -868,7 +868,7 @@ fun AiApiKeyItem(
 
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainer,
-        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(4.dp))
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(
@@ -955,7 +955,7 @@ fun AiSystemPromptItem(
 
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainer,
-        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(4.dp))
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(
@@ -1036,11 +1036,17 @@ fun AiSystemPromptItem(
 
 @Composable
 internal fun SettingsSubsectionHeader(title: String) {
+    // Redesign 2: the Settings mockup's group label, 14/20 sp medium in primary, 16 dp in, 6 dp under.
     Text(
         text = title,
-        style = MaterialTheme.typography.labelMedium,
+        style = MaterialTheme.typography.labelLarge.copy(
+            fontWeight = FontWeight.Medium,
+            fontSize = 14.sp,
+            lineHeight = 20.sp,
+            letterSpacing = 0.1.sp
+        ),
         color = MaterialTheme.colorScheme.primary,
-        modifier = Modifier.padding(start = 12.dp, top = 8.dp, bottom = 4.dp)
+        modifier = Modifier.padding(start = 16.dp, top = 8.dp, bottom = 6.dp)
     )
 }
 
@@ -1052,10 +1058,11 @@ internal fun SettingsSubsection(
     content: @Composable () -> Unit
 ) {
     SettingsSubsectionHeader(title)
+    // Rows are 4 dp-cornered tiles 2 dp apart; the group's 20 dp outer corners round the ends.
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(24.dp))
+            .clip(RoundedCornerShape(20.dp))
             .background(Color.Transparent),
         verticalArrangement = Arrangement.spacedBy(2.dp)
     ) {
@@ -1173,7 +1180,7 @@ internal fun LyricBlurSettingItems(
                 color = MaterialTheme.colorScheme.surfaceContainer,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(10.dp))
+                    .clip(RoundedCornerShape(4.dp))
             ) {
                 Column(
                     modifier = Modifier

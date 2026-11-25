@@ -142,10 +142,10 @@ internal fun BoxScope.UnifiedPlayerMiniAndFullLayers(
             }
             val isPlaying = fieldStates.isPlaying.value
             val connectDeviceName by playerViewModel.spotifyConnect.playingOnName.collectAsStateWithLifecycle()
-            // The wavy ring's progress: sampled a few times a second while the mini player is on
+            // The progress line's value: sampled a few times a second while the mini player is on
             // screen and playing, once a second while paused (an outside seek still shows), and
             // not at all while the app is in the background (the loop follows the lifecycle: a
-            // LaunchedEffect alone keeps delaying after onStop). Written to one float the ring
+            // LaunchedEffect alone keeps delaying after onStop). Written to one float the line
             // reads while drawing; an unchanged value does not redraw. No frame loop; the wave's
             // own motion only runs while playing.
             val miniProgress = remember { mutableFloatStateOf(0f) }
@@ -175,7 +175,6 @@ internal fun BoxScope.UnifiedPlayerMiniAndFullLayers(
                     canScroll = isMiniPlayerVisible && isPlaying,
                     remoteDeviceName = connectDeviceName,
                     progressProvider = { miniProgress.floatValue },
-                    animateProgress = isMiniPlayerVisible && isPlaying,
                     modifier = Modifier.fillMaxSize()
                 )
         }

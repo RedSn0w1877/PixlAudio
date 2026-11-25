@@ -2,6 +2,18 @@ package com.theveloper.pixelplay.presentation.components.taizo
 
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.offset
+import androidx.compose.material.icons.rounded.MusicNote
+import androidx.compose.ui.graphics.vector.rememberVectorPainter
+import androidx.compose.ui.unit.sp
+import com.theveloper.pixelplay.presentation.components.redesign.BadgeShape
+import com.theveloper.pixelplay.presentation.components.redesign.RedesignType
+import com.theveloper.pixelplay.presentation.components.redesign.ShapeBadge
+import com.theveloper.pixelplay.presentation.components.redesign.badgeTones
+import com.theveloper.pixelplay.presentation.components.redesign.toComposeShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -53,68 +65,132 @@ internal fun MixCardBubble(
     onChip: (MixCardChip) -> Unit,
 ) {
     val card = item.card
+    val scheme = MaterialTheme.colorScheme
+    // Redesign 2 (AndroidAskTaizo "Playlist from Taizo"): surfaceContainer card, 28 dp corners,
+    // 16 dp padding, 16 dp between blocks. Head: 80 dp tertiaryContainer tile with two expressive
+    // shapes, 14 dp, "NEW PLAYLIST" 12/16 sp medium primary (0.5 sp), title 20/26 bold, count 14/20.
+    // Preview rows: 40 dp shape art, 12 dp, title 14/20 medium over artist 13/18, 8 dp apart.
+    // Actions: a connected pair 48 dp tall, 2 dp apart: Play (weight 1.3, primary, 24/8 corners)
+    // and Save (weight 1, secondaryContainer, 8/24). The chips are the outlined 44 dp refine chips.
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = 36.dp)
-            .clip(RoundedCornerShape(24.dp))
-            .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+            .clip(RoundedCornerShape(28.dp))
+            .background(scheme.surfaceContainer)
             .padding(16.dp)
             .animateContentSize(),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        Text(
-            text = card.title,
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-        Text(
-            text = pluralStringResource(R.plurals.brain_taizo_mix_songs, card.total, card.total),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        if (card.preview.isNotEmpty()) {
-            Spacer(Modifier.height(8.dp))
-            card.preview.forEach { track ->
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            Box(
+                modifier = Modifier
+                    .size(80.dp)
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(scheme.tertiaryContainer)
+            ) {
+                Box(
+                    Modifier
+                        .align(Alignment.TopEnd)
+                        .offset(x = 30.dp, y = (-26).dp)
+                        .size(96.dp)
+                        .clip(BadgeShape.Flower.toComposeShape())
+                        .background(scheme.tertiary.copy(alpha = 0.55f))
+                )
+                Box(
+                    Modifier
+                        .align(Alignment.BottomStart)
+                        .offset(x = 8.dp, y = (-6).dp)
+                        .size(44.dp)
+                        .clip(BadgeShape.Cookie9.toComposeShape())
+                        .background(scheme.onTertiaryContainer)
+                )
+            }
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(
-                    text = track.title + " · " + track.artist,
-                    style = MaterialTheme.typography.bodyMedium,
+                    text = stringResource(R.string.brain_taizo_mix_new_label).uppercase(),
+                    style = RedesignType.Label.copy(fontSize = 12.sp, lineHeight = 16.sp, letterSpacing = 0.5.sp),
+                    color = scheme.primary,
+                )
+                Text(
+                    text = card.title,
+                    style = RedesignType.SectionTitle.copy(fontSize = 20.sp, lineHeight = 26.sp),
+                    color = scheme.onSurface,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-            }
-        }
-        Spacer(Modifier.height(12.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            FilledTonalButton(onClick = onPlay, enabled = !item.busy, shape = RoundedCornerShape(20.dp)) {
-                Icon(Icons.Rounded.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(4.dp))
-                Text(stringResource(R.string.brain_taizo_mix_play))
-            }
-            OutlinedButton(onClick = onSave, enabled = !item.busy && !item.saved, shape = RoundedCornerShape(20.dp)) {
-                Icon(if (item.saved) Icons.Rounded.Check else Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(4.dp))
-                Text(stringResource(if (item.saved) R.string.brain_taizo_mix_saved else R.string.brain_taizo_mix_save))
-            }
-            if (item.busy) {
                 Text(
-                    text = stringResource(R.string.brain_taizo_mix_updating),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    text = pluralStringResource(R.plurals.brain_taizo_mix_songs, card.total, card.total),
+                    style = RedesignType.Label.copy(fontWeight = FontWeight.Normal),
+                    color = scheme.onSurfaceVariant,
                 )
             }
         }
+        if (card.preview.isNotEmpty()) {
+            val tones = badgeTones()
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                card.preview.forEachIndexed { i, track ->
+                    val tone = tones[i % tones.size]
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        ShapeBadge(
+                            icon = rememberVectorPainter(Icons.Rounded.MusicNote),
+                            shape = PreviewShapes[i % PreviewShapes.size],
+                            containerColor = tone.container,
+                            iconTint = tone.content,
+                            size = 40.dp,
+                            iconSize = 18.dp,
+                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(track.title, style = RedesignType.Label, color = scheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(track.artist, style = RedesignType.RowSubtitle, color = scheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
+                }
+            }
+        }
+        Row(modifier = Modifier.fillMaxWidth().height(48.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+            Row(
+                modifier = Modifier
+                    .weight(1.3f)
+                    .fillMaxHeight()
+                    .clip(RoundedCornerShape(topStart = 24.dp, bottomStart = 24.dp, topEnd = 8.dp, bottomEnd = 8.dp))
+                    .background(if (item.busy) scheme.primary.copy(alpha = 0.38f) else scheme.primary)
+                    .clickable(enabled = !item.busy, onClick = onPlay),
+                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(Icons.Rounded.PlayArrow, contentDescription = null, tint = scheme.onPrimary, modifier = Modifier.size(20.dp))
+                Text(stringResource(R.string.brain_taizo_mix_play), style = RedesignType.Label.copy(fontSize = 15.sp), color = scheme.onPrimary)
+            }
+            val canSave = !item.busy && !item.saved
+            Row(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .clip(RoundedCornerShape(topStart = 8.dp, bottomStart = 8.dp, topEnd = 24.dp, bottomEnd = 24.dp))
+                    .background(scheme.secondaryContainer)
+                    .clickable(enabled = canSave, onClick = onSave),
+                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(if (item.saved) Icons.Rounded.Check else Icons.Rounded.Add, contentDescription = null, tint = scheme.onSecondaryContainer, modifier = Modifier.size(20.dp))
+                Text(
+                    stringResource(if (item.saved) R.string.brain_taizo_mix_saved else R.string.brain_taizo_mix_save),
+                    style = RedesignType.Label.copy(fontSize = 15.sp),
+                    color = scheme.onSecondaryContainer,
+                )
+            }
+        }
+        if (item.busy) {
+            Text(
+                text = stringResource(R.string.brain_taizo_mix_updating),
+                style = MaterialTheme.typography.labelMedium,
+                color = scheme.onSurfaceVariant,
+            )
+        }
         if (card.chips.isNotEmpty()) {
-            Spacer(Modifier.height(8.dp))
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 card.chips.forEach { chip ->
-                    AssistChip(
-                        onClick = { onChip(chip) },
-                        enabled = !item.busy,
-                        label = { Text(chip.label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                        colors = AssistChipDefaults.assistChipColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-                    )
+                    TaizoOutlinedChip(text = chip.label, onClick = { onChip(chip) }, enabled = !item.busy)
                 }
             }
         }
@@ -182,3 +258,5 @@ internal fun LessChipRow(item: TaizoChatItem.Less, onTap: () -> Unit, onUndo: ()
         }
     }
 }
+
+private val PreviewShapes = listOf(BadgeShape.Clover4, BadgeShape.SoftBurst, BadgeShape.Cookie9)

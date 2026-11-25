@@ -132,6 +132,7 @@ fun DailyMixScreen(
     val lazyListState = rememberAppListState()
 
     var showSongInfoSheet by remember { mutableStateOf(false) }
+    var showSaveMixSheet by remember { mutableStateOf(false) }
     var showDailyMixMenu by remember { mutableStateOf(false) }
 
     if (showDailyMixMenu) {
@@ -256,7 +257,7 @@ fun DailyMixScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(backgroundBrush)
+            .background(MaterialTheme.colorScheme.surface)
     ) {
         if (dailyMixSongs.isEmpty()) {
             Box(
@@ -272,97 +273,28 @@ fun DailyMixScreen(
                 contentPadding = PaddingValues(bottom = MiniPlayerHeight + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                item(key = "daily_mix_header") {
-                    ExpressiveDailyMixHeader(
-                        songs = dailyMixSongs,
-                        scrollState = lazyListState,
-                        onShowMenu = {
-                            // On-device AI is the default; when it can't run (no Gemini Nano on
-                            // this phone, cloud key missing) say why instead of opening a sheet
-                            // that can only fail.
-                            if (isAiUsable) {
-                                playerViewModel.showAiPlaylistSheet()
-                            } else {
-                                playerViewModel.sendToast(playerViewModel.aiUnavailableMessage())
+                item(key = "daily_mix_header", contentType = "mix_hero") {
+                    MixPageHero(
+                        tone = MixPageTone.Tertiary,
+                        tag = stringResource(R.string.mix_tag_daily),
+                        title = dailyMixTitle,
+                        meta = mixMetaLine(dailyMixSongs),
+                        why = mixWhyLine(null, dailyMixSongs.size, dailyMixSongs.count { it.id in mixNovelSongIds }),
+                        onRemix = { playerViewModel.forceUpdateDailyMix() },
+                        onShuffle = {
+                            if (dailyMixSongs.isNotEmpty()) {
+                                playerViewModel.expectMixPlay(dailyMixTitle, isYourMix = false)
+                                playerViewModel.playSongsShuffled(songsToPlay = dailyMixSongs, queueName = dailyMixTitle, startAtZero = true)
                             }
-                        }
+                        },
+                        onPlay = {
+                            if (dailyMixSongs.isNotEmpty()) {
+                                playerViewModel.expectMixPlay(dailyMixTitle, isYourMix = false)
+                                playerViewModel.playSongs(dailyMixSongs, dailyMixSongs.first(), dailyMixTitle)
+                                if (isShuffleEnabled) playerViewModel.toggleShuffle()
+                            }
+                        },
                     )
-                }
-
-                item(key = "play_shuffle_buttons") {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(76.dp)
-                            .padding(horizontal = 20.dp, vertical = 8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Button(
-                            onClick = {
-                                if (dailyMixSongs.isNotEmpty()) {
-                                    playerViewModel.expectMixPlay(dailyMixTitle, isYourMix = false)
-                                    playerViewModel.playSongs(dailyMixSongs, dailyMixSongs.first(), dailyMixTitle)
-                                    if (isShuffleEnabled) playerViewModel.toggleShuffle() // Desactivar shuffle si estaba activo
-                                }
-                            },
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(76.dp),
-                            enabled = dailyMixSongs.isNotEmpty(),
-                            shape = RoundedCornerShape(
-                                topStart = 60.dp,
-                                topEnd = 14.dp,
-                                bottomStart = 60.dp,
-                                bottomEnd = 14.dp
-                            ),
-                            contentPadding = PaddingValues(horizontal = 10.dp),
-                        ) {
-                            Icon(Icons.Rounded.PlayArrow, contentDescription = stringResource(R.string.common_play), modifier = Modifier.size(
-                                ButtonDefaults.IconSize))
-                            Spacer(Modifier.size(ButtonDefaults.IconSpacing))
-                            TightWrapText(
-                                text = playItLabel,
-                                modifier = Modifier.padding(end = 4.dp),
-                                overflow = TextOverflow.Ellipsis,
-                                maxLines = 2,
-                                lineHeight = 20.sp
-                            )
-                        }
-                        FilledTonalButton(
-                            onClick = {
-                                if (dailyMixSongs.isNotEmpty()) {
-                                    playerViewModel.expectMixPlay(dailyMixTitle, isYourMix = false)
-                                    playerViewModel.playSongsShuffled(
-                                        songsToPlay = dailyMixSongs,
-                                        queueName = dailyMixTitle,
-                                        startAtZero = true,
-                                    )
-                                }
-                            },
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(76.dp),
-                            enabled = dailyMixSongs.isNotEmpty(),
-                            shape = RoundedCornerShape(
-                                topStart = 14.dp,
-                                topEnd = 60.dp,
-                                bottomStart = 14.dp,
-                                bottomEnd = 60.dp
-                            ),
-                            contentPadding = PaddingValues(horizontal = 10.dp),
-                        ) {
-                            Icon(Icons.Rounded.Shuffle, contentDescription = shuffleLabel, modifier = Modifier.size(
-                                ButtonDefaults.IconSize))
-                            Spacer(Modifier.size(ButtonDefaults.IconSpacing))
-                            TightWrapText(
-                                text = shuffleLabel,
-                                modifier = Modifier.padding(end = 4.dp),
-                                overflow = TextOverflow.Ellipsis,
-                                maxLines = 2,
-                                lineHeight = 20.sp
-                            )
-                        }
-                    }
                 }
 
                 items(dailyMixSongs, key = { it.id }) { song ->
@@ -386,59 +318,24 @@ fun DailyMixScreen(
             }
         }
 
-        FilledIconButton(
-            onClick = { navController.popBackStack() },
-            colors = IconButtonDefaults.filledIconButtonColors(
-                containerColor = MaterialTheme.colorScheme.surface,
-                contentColor = MaterialTheme.colorScheme.onSurface
-            ),
-            modifier = Modifier
-                .statusBarsPadding()
-                .padding(start = 10.dp, top = 8.dp)
-                .clip(CircleShape)
-        ) {
-            Icon(
-                imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
-                contentDescription = stringResource(R.string.common_back)
-            )
-        }
-
-        // Bottom Gradient
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .align(Alignment.BottomCenter)
-                .height(80.dp)
-                .background(
-                    brush = Brush.verticalGradient(
-                        colors = listOf(
-                            Color.Transparent,
-                            MaterialTheme.colorScheme.surfaceContainerLowest.copy(0.5f),
-                            MaterialTheme.colorScheme.surfaceContainerLowest
-                        )
-                    )
-                )
-        ) {
-
-        }
-
-        //Top Gradient
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .align(Alignment.TopCenter)
-                .height(50.dp)
-                .background(
-                    brush = Brush.verticalGradient(
-                        colors = listOf(
-                            MaterialTheme.colorScheme.surfaceContainerLowest.copy(0.5f),
-                            Color.Transparent,
-                        )
-                    )
-                )
-        ) {
-
-        }
+        MixPageTopButtons(
+            onBack = { navController.popBackStack() },
+            onSave = { if (dailyMixSongs.isNotEmpty()) showSaveMixSheet = true },
+            onMore = {
+                // The old header menu: a prompt for on-device AI, or why it cannot run here.
+                if (isAiUsable) playerViewModel.showAiPlaylistSheet() else playerViewModel.sendToast(playerViewModel.aiUnavailableMessage())
+            },
+        )
+    }
+    if (showSaveMixSheet) {
+        val playlistUiState by playlistViewModel.uiState.collectAsStateWithLifecycle()
+        PlaylistBottomSheet(
+            playlistUiState = playlistUiState,
+            songs = dailyMixSongs,
+            onDismiss = { showSaveMixSheet = false },
+            bottomBarHeight = bottomBarHeightDp,
+            playerViewModel = playerViewModel,
+        )
     }
     Trace.endSection()
 }
@@ -622,7 +519,7 @@ private fun rememberDailyMixTitleStyle(): TextStyle {
                         FontVariation.weight(436),
                         FontVariation.width(102f),
                         //FontVariation.grade(40),
-                        FontVariation.Setting("ROND", 100f),
+                        FontVariation.Setting("ROND", com.theveloper.pixelplay.ui.theme.FlexAxis.ROND_HOUSE),
                         FontVariation.Setting("XTRA", 520f),
                         FontVariation.Setting("YOPQ", 90f),
                         FontVariation.Setting("YTLC", 505f)

@@ -74,6 +74,7 @@
     <string name="nav_search_placeholder">Canciones, artistas, álbumes</string>
     <string name="nav_search_cd_voice">Buscar por voz</string>
     <string name="search_recent_searches">Búsquedas recientes</string>
+    <string name="search_history_kind_query">Buscado</string>
     <string name="search_action_clear_all">Borrar todo</string>
     <string name="search_cd_search_history_icon">Historial</string>
     <string name="search_cd_delete_search_history_item">Eliminar elemento del historial de búsqueda</string>

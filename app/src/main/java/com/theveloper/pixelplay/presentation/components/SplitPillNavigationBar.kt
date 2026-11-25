@@ -672,7 +672,7 @@ private fun PillIconButton(
 }
 
 /** Speech recognizer presence, resolved once per process off the main thread. */
-private object VoiceSearchAvailability {
+internal object VoiceSearchAvailability {
     @Volatile
     var cached: Boolean? = null
 

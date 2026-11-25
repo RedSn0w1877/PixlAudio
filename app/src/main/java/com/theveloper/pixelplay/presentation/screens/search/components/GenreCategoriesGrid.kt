@@ -95,7 +95,7 @@ fun GenreCategoriesGrid(
         columns = if (isGridView) GridCells.Fixed(2) else GridCells.Fixed(1),
         modifier = modifier
             .fillMaxSize()
-            .padding(horizontal = 18.dp)
+            .padding(horizontal = 16.dp)
             .clip(AbsoluteSmoothCornerShape(
                 cornerRadiusTR = 24.dp,
                 smoothnessAsPercentTR = 70,
@@ -110,8 +110,8 @@ fun GenreCategoriesGrid(
             top = 8.dp,
             bottom = 28.dp + resolveNavBarOccupiedHeight(systemNavBarHeight, navBarCompactMode) + MiniPlayerHeight
         ),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         // Categorías del catálogo primero: son las que siempre tienen algo detrás. Las de
         // la biblioteca van debajo, y sólo si de verdad hay etiquetas de género que mostrar.
@@ -119,7 +119,7 @@ fun GenreCategoriesGrid(
             item(span = { GridItemSpan(maxLineSpan) }, key = "categories_header") {
                 SearchSectionHeader(
                     title = stringResource(R.string.search_browse_categories),
-                    modifier = Modifier.padding(start = 6.dp, top = 6.dp, bottom = 10.dp)
+                    modifier = Modifier.padding(top = 4.dp, bottom = 2.dp)
                 )
             }
             items(

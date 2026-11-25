@@ -64,8 +64,9 @@ val ExpTitleTypography = Typography(
     )
 )
 
-// Google Sans Flex variable font with rounded axis for Google Sans Rounded-like appearance.
-private const val GoogleSansFlexRond = 100f
+// Google Sans Flex at the house roundness (FlexAxis.ROND_HOUSE = 0: flat terminals, SF Pro-like).
+// The name is historical; every screen uses this family, so the one constant flips the whole app.
+private const val GoogleSansFlexRond = FlexAxis.ROND_HOUSE
 
 @OptIn(ExperimentalTextApi::class)
 val GoogleSansRounded = FontFamily(

@@ -217,7 +217,7 @@ fun LibraryAlbumsTab(
             } else {
                 LazyVerticalGrid(
                     modifier = Modifier
-                        .padding(start = 14.dp, end = 14.dp, bottom = 6.dp)
+                        .padding(start = 16.dp, end = 16.dp, bottom = 6.dp)
                         .clip(
                             RoundedCornerShape(
                                 topStart = 16.dp,
@@ -229,8 +229,8 @@ fun LibraryAlbumsTab(
                         .fillMaxSize(),
                     columns = GridCells.Fixed(2),
                     contentPadding = PaddingValues(bottom = bottomBarHeight + MiniPlayerHeight + ListExtraBottomGap + 4.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp),
-                    horizontalArrangement = Arrangement.spacedBy(14.dp)
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     items(8, key = { "skeleton_album_grid_$it" }) {
                         AlbumGridItemRedesigned(
@@ -346,7 +346,7 @@ fun LibraryAlbumsTab(
                             val activeGridState = if (albums.itemCount > 0) gridState else dummyGridState
                             LazyVerticalGrid(
                                 modifier = Modifier
-                                    .padding(start = 14.dp, end = if (LocalShowScrollbar.current && (activeGridState.canScrollForward || activeGridState.canScrollBackward)) 24.dp else 14.dp, bottom = 6.dp)
+                                    .padding(start = 16.dp, end = if (LocalShowScrollbar.current && (activeGridState.canScrollForward || activeGridState.canScrollBackward)) 24.dp else 16.dp, bottom = 6.dp)
                                     .clip(
                                         RoundedCornerShape(
                                             topStart = 16.dp,
@@ -358,8 +358,8 @@ fun LibraryAlbumsTab(
                                 state = activeGridState,
                                 columns = GridCells.Fixed(2),
                                 contentPadding = PaddingValues(bottom = bottomBarHeight + MiniPlayerHeight + ListExtraBottomGap + 4.dp),
-                                verticalArrangement = Arrangement.spacedBy(8.dp),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                verticalArrangement = Arrangement.spacedBy(16.dp),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
                                 items(
                                     count = albums.itemCount,

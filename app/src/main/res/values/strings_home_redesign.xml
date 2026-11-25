@@ -1,0 +1,211 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+        Redesign batch 3: Home wordplay, the mix pages, Endless Listening (intro, station, ask the host).
+        Greeting arrays come in pairs (_a = the wide first line, _b = the narrow second line) and must keep the same length.
+        HomeWordplay picks the index; nothing here may claim a number that is not the listener's own.
+    -->
+
+    <!-- Greeting: morning -->
+    <string-array name="home_wp_morning_a">
+        <item>Rise and grind…</item>
+        <item>Good mornin\',</item>
+        <item>Wake up,</item>
+    </string-array>
+    <string-array name="home_wp_morning_b">
+        <item>the bass.</item>
+        <item>sunshine on repeat.</item>
+        <item>turn it up.</item>
+    </string-array>
+    <!-- Greeting: afternoon -->
+    <string-array name="home_wp_afternoon_a">
+        <item>Lunch break?</item>
+        <item>Midday,</item>
+        <item>Afternoon</item>
+    </string-array>
+    <string-array name="home_wp_afternoon_b">
+        <item>Beat break.</item>
+        <item>mid-tempo.</item>
+        <item>delight.</item>
+    </string-array>
+    <!-- Greeting: evening -->
+    <string-array name="home_wp_evening_a">
+        <item>Golden hour,</item>
+        <item>Dinner\'s on.</item>
+        <item>Evening,</item>
+    </string-array>
+    <string-array name="home_wp_evening_b">
+        <item>golden oldies?</item>
+        <item>So\'s the music.</item>
+        <item>even better.</item>
+    </string-array>
+    <!-- Greeting: late night -->
+    <string-array name="home_wp_late_a">
+        <item>Owl be</item>
+        <item>Up late?</item>
+        <item>Midnight</item>
+    </string-array>
+    <string-array name="home_wp_late_b">
+        <item>listening.</item>
+        <item>Same.</item>
+        <item>snacks: songs.</item>
+    </string-array>
+    <!-- Greeting: one song on repeat this week (the chip names it) -->
+    <string-array name="home_wp_streak_a">
+        <item>Make it</item>
+        <item>Once more,</item>
+        <item>Hit repeat.</item>
+    </string-array>
+    <string-array name="home_wp_streak_b">
+        <item>a double.</item>
+        <item>with feeling.</item>
+        <item>Then again.</item>
+    </string-array>
+
+    <!-- The chip above the greeting: the time, and the song on repeat when there is one. -->
+    <string name="home_wp_chip_repeat">%1$s · %2$s on repeat</string>
+    <!-- Under the greeting: this week's real play count. -->
+    <plurals name="home_wp_plays_0">
+        <item quantity="one">%d play this week. Just warming up.</item>
+        <item quantity="other">%d plays this week. No judgement. Mostly.</item>
+    </plurals>
+    <plurals name="home_wp_plays_1">
+        <item quantity="one">%d play this week. Every legend starts somewhere.</item>
+        <item quantity="other">%d plays this week. Who\'s counting? Us.</item>
+    </plurals>
+    <plurals name="home_wp_plays_2">
+        <item quantity="one">%d play this week. Off to a start.</item>
+        <item quantity="other">%d plays this week and counting.</item>
+    </plurals>
+
+    <!-- Section titles: wide part + narrow accent part (the accent keeps its leading space). -->
+    <string-array name="home_wp_mixes_a">
+        <item>Mix</item>
+        <item>Mixed</item>
+        <item>Remix,</item>
+    </string-array>
+    <string-array name="home_wp_mixes_b">
+        <item>" &amp; match"</item>
+        <item>" feelings"</item>
+        <item>" repeat"</item>
+    </string-array>
+    <string-array name="home_wp_recent_a">
+        <item>Rewind,</item>
+        <item>Run it</item>
+        <item>Back</item>
+    </string-array>
+    <string-array name="home_wp_recent_b">
+        <item>" replay"</item>
+        <item>" back"</item>
+        <item>" for more"</item>
+    </string-array>
+    <string-array name="home_wp_fresh_a">
+        <item>Fresh</item>
+        <item>New</item>
+        <item>Fresh</item>
+    </string-array>
+    <string-array name="home_wp_fresh_b">
+        <item>" finds"</item>
+        <item>" to you"</item>
+        <item>" off the press"</item>
+    </string-array>
+    <string name="home_fresh_subtitle">New to you, not to the world.</string>
+
+    <string name="home_see_all">See all</string>
+    <string name="home_show_less">Show less</string>
+    <string name="home_your_mix_tag">FRESH-PRESSED DAILY</string>
+    <string name="home_your_mix_name">Your mix</string>
+    <string name="home_your_mix_line">Mixed to taste. Shaken, not skipped.</string>
+    <string name="home_your_mix_play_cd">Play your mix</string>
+    <string name="home_endless_line">The never-ending story. Tap in, never tap out.</string>
+    <string name="home_endless_how_cd">Long press for how it works</string>
+    <string name="home_taizo_card_title">Can\'t find the vibe? Ask Taizo</string>
+    <string name="home_taizo_card_example">“Something like %1$s, but slower”</string>
+    <string name="home_taizo_card_example_plain">“Something for a late drive”</string>
+    <string name="home_whats_new">What\'s new</string>
+    <string name="home_beta_info">About the beta</string>
+    <string name="home_spatial_entry">Spatial</string>
+    <string name="home_shuffle_all_link">Shuffle all</string>
+    <string name="home_stats_link">Your stats</string>
+
+    <!-- Mix page -->
+    <string name="mix_tag_daily">DAILY MIX</string>
+    <string name="mix_tag_your">YOUR MIX</string>
+    <string name="mix_tag_made_for_you">MADE FOR YOU</string>
+    <string name="mix_made_for_you">Made for you</string>
+    <plurals name="mix_song_count">
+        <item quantity="one">%d song</item>
+        <item quantity="other">%d songs</item>
+    </plurals>
+    <string name="mix_duration_hours">%1$d h %2$d min</string>
+    <string name="mix_duration_minutes">%1$d min</string>
+    <string name="mix_why_these">Why these?</string>
+    <plurals name="mix_why_new">
+        <item quantity="one">Picked from what you play, plus %d song you haven\'t heard yet.</item>
+        <item quantity="other">Picked from what you play, plus %d songs you haven\'t heard yet.</item>
+    </plurals>
+    <string name="mix_why_familiar">Picked from what you play, all songs you know.</string>
+    <string name="mix_remix">Remix this mix</string>
+    <string name="mix_save_cd">Save mix to a playlist</string>
+    <string name="mix_more_cd">More options</string>
+    <string name="mix_play_cd">Play %1$s</string>
+
+    <!-- Endless Listening intro (three pages) -->
+    <string name="endless_eyebrow">ENDLESS LISTENING</string>
+    <string name="endless_intro_skip">Skip</string>
+    <string name="endless_intro_next">Next</string>
+    <string name="endless_intro2_title_1a">Press play.</string>
+    <string name="endless_intro2_title_1b">Done. Forever.</string>
+    <string name="endless_intro2_body_1">A station that keeps going, picked one song at a time from what you actually like. No queue to babysit.</string>
+    <string name="endless_intro2_title_2a">Meet your</string>
+    <string name="endless_intro2_title_2b">hype host.</string>
+    <string name="endless_intro2_body_2">Between songs your host drops a quick note: why this one, what\'s coming, a bit of backstory. Swipe it away, or turn notes off.</string>
+    <string name="endless_intro2_title_3a">Steer it</string>
+    <string name="endless_intro2_title_3b">out loud.</string>
+    <string name="endless_intro2_body_3">Ask the host for “more upbeat” or “something new” and the station bends to fit. Every like and skip counts too.</string>
+    <!-- Intro illustration words (examples, not data) -->
+    <string name="endless_art_up_next">UP NEXT</string>
+    <string name="endless_art_note_1">Easing off the gas. You skipped two bangers in a row.</string>
+    <string name="endless_art_note_2">Same bass energy as the last one, just after midnight.</string>
+    <string name="endless_art_ask">more upbeat, no sad songs pls</string>
+    <string name="endless_art_reply">Say less. Turning it up.</string>
+    <string name="endless_art_chip_1">Energy up</string>
+    <string name="endless_art_chip_2">Sad songs out</string>
+    <string name="endless_art_chip_3">Same vibe</string>
+
+    <!-- Endless Listening station -->
+    <string name="endless_station_minimise">Minimise</string>
+    <string name="endless_station_options">Station options</string>
+    <string name="endless_on_air">ON AIR</string>
+    <string name="endless_track_of">Track %1$d of ∞</string>
+    <string name="endless_like_cd">Like %1$s</string>
+    <string name="endless_unlike_cd">Unlike %1$s</string>
+    <string name="endless_less_like_this">Less like this</string>
+    <string name="endless_previous">Previous</string>
+    <string name="endless_next">Next</string>
+    <string name="endless_play">Play</string>
+    <string name="endless_pause">Pause</string>
+    <string name="endless_up_next">Up next</string>
+    <string name="endless_host_notes_a">Host</string>
+    <string name="endless_host_notes_b">" notes"</string>
+    <string name="endless_note_eyebrow">FROM YOUR HOST</string>
+    <string name="endless_note_dismiss_cd">Swipe to dismiss the note</string>
+    <string name="endless_no_note">No note for this one. Ask the host anything.</string>
+    <string name="endless_open_player">Open the player</string>
+    <string name="endless_notes_on">Turn host notes off</string>
+    <string name="endless_notes_off">Turn host notes on</string>
+    <string name="endless_up_next_empty">Picking the next songs…</string>
+    <plurals name="endless_notes_count">
+        <item quantity="one">%d note</item>
+        <item quantity="other">%d notes</item>
+    </plurals>
+    <string name="endless_seek_cd">%1$s of %2$s</string>
+
+    <!-- Ask the host (Ask Taizo in host mode) -->
+    <string name="host_title_a">Your</string>
+    <string name="host_title_b">" host"</string>
+    <string name="host_subtitle">Endless Listening · %1$s</string>
+    <string name="host_name">Host</string>
+    <string name="host_input_hint">Ask the host anything</string>
+    <string name="host_back_to_station">Back to station</string>
+</resources>

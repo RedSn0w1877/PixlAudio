@@ -155,7 +155,7 @@ fun AccentColorSettingItem(
             color = MaterialTheme.colorScheme.surfaceContainer,
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(10.dp))
+                .clip(RoundedCornerShape(4.dp))
         ) {
             Row(modifier = Modifier.padding(16.dp)) {
                 Box(

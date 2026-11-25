@@ -146,7 +146,7 @@ import kotlin.math.roundToInt
 private val SectionTitleSpec = FlexSpec(weight = 680f, width = 106f)
 
 /** Rank numerals in Most played: wide, heavy and fully round, like a chart position. */
-private val RankNumeralSpec = FlexSpec(weight = 760f, width = 125f, roundness = 100f)
+private val RankNumeralSpec = FlexSpec(weight = 760f, width = 125f)
 
 /** Album card shapes, cycled across the row (the mockup's expressive mix), built once. */
 private val AlbumCardShapes: List<Shape> = listOf(

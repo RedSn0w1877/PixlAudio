@@ -165,8 +165,8 @@ class FlexTypeMathTest {
     @Test
     fun `multi-line candidates run widest first and end on the minimum`() {
         assertThat(FlexFitPolicy().multiLineCandidates().toList())
-            .containsExactly(100f, 95f, 90f, 85f, 80f, 75f).inOrder()
-        assertThat(FlexFitPolicy(step = 4f).multiLineCandidates().toList())
+            .containsExactly(100f, 95f, 90f, 85f, 80f, 75f, 70f, 65f, 60f, 55f, 50f, 45f, 40f, 35f, 30f, 25f).inOrder()
+        assertThat(FlexFitPolicy(minWidth = 75f, maxWidth = 125f, step = 4f).multiLineCandidates().toList())
             .containsExactly(100f, 96f, 92f, 88f, 84f, 80f, 76f, 75f).inOrder()
     }
 
@@ -175,9 +175,10 @@ class FlexTypeMathTest {
         val policy = FlexFitPolicy()
         assertThat(policy.snapDown(118.9f)).isEqualTo(115f)
         assertThat(policy.snapDown(80f)).isEqualTo(80f)
-        assertThat(policy.snapDown(70f)).isEqualTo(75f)
-        assertThat(policy.snapDown(130f)).isEqualTo(125f)
-        for (raw in 75..125) {
+        assertThat(policy.snapDown(20f)).isEqualTo(25f)
+        assertThat(policy.snapDown(150.5f)).isEqualTo(150f)
+        assertThat(policy.snapDown(160f)).isEqualTo(151f)
+        for (raw in 25..151) {
             val snapped = policy.snapDown(raw.toFloat())
             assertThat(snapped).isAtMost(raw.toFloat())
             assertThat(policy.widthGrid().toList()).contains(snapped)
@@ -187,8 +188,12 @@ class FlexTypeMathTest {
     @Test
     fun `width grid holds every width a fit can use`() {
         val policy = FlexFitPolicy()
-        assertThat(policy.widthGrid().toList())
-            .containsExactly(75f, 80f, 85f, 90f, 95f, 100f, 105f, 110f, 115f, 120f, 125f)
+        val grid = policy.widthGrid().toList()
+        // The font's whole wdth range (25..151) in steps of 5, plus 151 itself: 27 instances.
+        assertThat(grid.first()).isEqualTo(FlexAxis.WDTH_MIN)
+        assertThat(grid).contains(FlexAxis.WDTH_MAX)
+        assertThat(grid).hasSize(27)
+        assertThat(grid.max()).isEqualTo(FlexAxis.WDTH_MAX)
         assertThat(policy.widthGrid().toList()).containsAtLeastElementsIn(policy.multiLineCandidates().toList())
     }
 
@@ -198,9 +203,18 @@ class FlexTypeMathTest {
         var probes = 0
         val found = FlexMath.firstFitting(candidates) { probes++; it <= 87f }
         assertThat(candidates[found]).isEqualTo(85f)
-        assertThat(probes).isAtMost(3)
+        assertThat(probes).isAtMost(5)
         assertThat(FlexMath.firstFitting(candidates) { false }).isEqualTo(-1)
         assertThat(FlexMath.firstFitting(candidates) { true }).isEqualTo(0)
+    }
+
+    @Test
+    fun `house style is flat and the fit uses the font's whole width range`() {
+        assertThat(FlexAxis.ROND_HOUSE).isEqualTo(0f)
+        assertThat(FlexSpec().roundness).isEqualTo(0f)
+        assertThat(FlexPresets.Chip.roundness).isEqualTo(0f)
+        assertThat(FlexFitPolicy().minWidth).isEqualTo(25f)
+        assertThat(FlexFitPolicy().maxWidth).isEqualTo(151f)
     }
 
     @Test(expected = IllegalArgumentException::class)

@@ -43,7 +43,7 @@ import kotlin.math.roundToInt
 
 private const val DefaultTopBarTitleWidthAxis = 100f
 private const val DefaultTopBarTitleCompressedWidthAxis = 78f
-private const val TopBarTitleRoundedAxis = 100f
+private const val TopBarTitleRoundedAxis = com.theveloper.pixelplay.ui.theme.FlexAxis.ROND_HOUSE
 private const val TopBarTitleXtraAxis = 520f
 private const val TopBarTitleYopqAxis = 90f
 private const val TopBarTitleYtlcAxis = 505f

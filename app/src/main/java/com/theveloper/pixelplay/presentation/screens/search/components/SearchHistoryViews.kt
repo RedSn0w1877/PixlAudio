@@ -2,6 +2,11 @@ package com.theveloper.pixelplay.presentation.screens.search.components
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import com.theveloper.pixelplay.presentation.components.redesign.toComposeShape
+import com.theveloper.pixelplay.presentation.components.redesign.RedesignType
+import com.theveloper.pixelplay.presentation.components.redesign.BadgeShape
+import androidx.compose.runtime.key
+import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -67,8 +72,6 @@ import com.theveloper.pixelplay.presentation.components.SmartImageListTargetSize
  * All three are dumb: the screen decides which shows, from the query, the field's focus and the private session.
  */
 
-private val ContainerShape = RoundedCornerShape(28.dp)
-private val ThumbShape = RoundedCornerShape(14.dp)
 
 @Composable
 private fun kindLabel(kind: SearchHistoryKind?): String? = when (kind) {
@@ -95,11 +98,12 @@ fun SearchHistoryPrivateHint(modifier: Modifier = Modifier) {
 // --- The "Recent" strip -------------------------------------------------------------------------------------------
 
 /**
- * One horizontal row of up to 10 recent items above the genre grid: an artist is a circle, an album or playlist a
- * square, a song or a plain query a chip. A tap opens it; a long press (or the "Remove from recent" accessibility
- * action) removes it.
+ * "Recent" above Browse (redesign 2, AndroidSearch mockup): a 14/20 sp medium label in
+ * onSurfaceVariant, then up to [RecentRowsShown] rows of 56 dp: 48 dp art (a song is a cookie, an
+ * artist a circle, an album or playlist a 16 dp square, a plain query a 16 dp tile with the
+ * history icon), 14 dp gap, title 16/22, kind 13/18, and a 44 dp X. A tap opens the item; the X,
+ * a long press or the accessibility action removes it (the screen offers Undo).
  */
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun SearchRecentStrip(
     items: List<SearchHistoryItem>,
@@ -108,117 +112,118 @@ fun SearchRecentStrip(
     modifier: Modifier = Modifier,
 ) {
     if (items.isEmpty()) return
-    Column(modifier = modifier.fillMaxWidth()) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
         Text(
             text = stringResource(R.string.search_recent_strip_title),
-            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+            style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Medium),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier
-                .padding(start = 24.dp, end = 24.dp, bottom = 8.dp)
+                .padding(bottom = 6.dp)
                 .semantics { heading() }
         )
-        LazyRow(
-            contentPadding = PaddingValues(horizontal = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalAlignment = Alignment.Top,
-        ) {
-            items(items, key = { "recent_${it.key}" }, contentType = { it.openKind ?: SearchHistoryKind.QUERY }) { item ->
-                RecentTile(item = item, onOpen = onOpen, onRemove = onRemove)
+        items.take(RecentRowsShown).forEach { item ->
+            key(item.key) {
+                RecentRow(item = item, onOpen = onOpen, onRemove = onRemove, onFill = null)
             }
         }
     }
 }
 
+/** Rows the Browse page shows under "Recent"; the full list is the focused field's panel. */
+const val RecentRowsShown = 3
+
+private val RecentArtSquare = RoundedCornerShape(16.dp)
+private val ContainerShape = RoundedCornerShape(28.dp)
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun RecentTile(
+private fun RecentRow(
     item: SearchHistoryItem,
     onOpen: (SearchHistoryItem) -> Unit,
     onRemove: (SearchHistoryItem) -> Unit,
+    onFill: ((SearchHistoryItem) -> Unit)?,
 ) {
     val haptic = LocalHapticFeedback.current
     val removeLabel = stringResource(R.string.search_history_remove_action)
+    val removeCd = stringResource(R.string.search_history_remove_item_cd, item.title)
     val kind = item.openKind
-    // Says what the tile is ("Adele, Artist"), so an artist and an album with one name do not sound alike.
-    val spokenKind = kindLabel(kind)
-    val spoken = if (spokenKind != null) "${item.title}, $spokenKind" else item.title
-    val tileModifier = Modifier
-        .combinedClickable(
-            onClick = { onOpen(item) },
-            onLongClick = {
-                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                onRemove(item)
+    val kindText = kindLabel(kind) ?: stringResource(R.string.search_history_kind_query)
+    val scheme = MaterialTheme.colorScheme
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 56.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .combinedClickable(
+                onClick = { onOpen(item) },
+                onLongClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onRemove(item)
+                },
+            )
+            .semantics {
+                customActions = listOf(CustomAccessibilityAction(removeLabel) { onRemove(item); true })
             },
-        )
-        .semantics(mergeDescendants = true) {
-            contentDescription = spoken
-            customActions = listOf(CustomAccessibilityAction(removeLabel) { onRemove(item); true })
-        }
-
-    when (kind) {
-        SearchHistoryKind.ARTIST, SearchHistoryKind.ALBUM, SearchHistoryKind.PLAYLIST -> {
-            val shape: Shape = if (kind == SearchHistoryKind.ARTIST) CircleShape else ThumbShape
-            Column(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        when (kind) {
+            null -> Box(
                 modifier = Modifier
-                    .width(84.dp)
-                    .clip(RoundedCornerShape(16.dp))
-                    .then(tileModifier)
-                    .padding(4.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
+                    .size(48.dp)
+                    .clip(RecentArtSquare)
+                    .background(scheme.surfaceContainerHigh),
+                contentAlignment = Alignment.Center,
             ) {
+                Icon(Icons.Rounded.History, contentDescription = null, tint = scheme.onSurfaceVariant, modifier = Modifier.size(22.dp))
+            }
+            else -> {
+                val shape: Shape = when (kind) {
+                    SearchHistoryKind.ARTIST -> CircleShape
+                    SearchHistoryKind.SONG -> BadgeShape.Cookie9.toComposeShape()
+                    else -> RecentArtSquare
+                }
                 SmartImage(
                     model = item.imageUrl,
                     contentDescription = null,
                     targetSize = SmartImageListTargetSize,
                     shape = shape,
-                    modifier = Modifier.size(72.dp),
-                )
-                Text(
-                    text = item.title,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 6.dp),
+                    modifier = Modifier.size(48.dp),
                 )
             }
         }
-
-        else -> {
-            // A song or a query: a chip, centred against the image tiles' picture.
-            Box(modifier = Modifier.heightIn(min = 72.dp), contentAlignment = Alignment.Center) {
-                Surface(
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.secondaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                    modifier = Modifier
-                        .clip(CircleShape)
-                        .then(tileModifier),
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .heightIn(min = 40.dp)
-                            .padding(start = 14.dp, end = 16.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        Icon(
-                            imageVector = if (kind == SearchHistoryKind.SONG) Icons.Rounded.MusicNote else Icons.Rounded.History,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp),
-                        )
-                        Text(
-                            text = item.title,
-                            style = MaterialTheme.typography.labelLarge,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.widthIn(max = 160.dp),
-                        )
-                    }
-                }
-            }
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = if (kind == null) "\u201C${item.title}\u201D" else item.title,
+                style = RedesignType.RowTitle.copy(fontWeight = FontWeight.Normal),
+                color = scheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = kindText,
+                style = RedesignType.RowSubtitle,
+                color = scheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        if (onFill != null && kind == null) {
+            FillArrowButton(item = item, onFill = onFill)
+        }
+        Box(
+            modifier = Modifier
+                .size(44.dp)
+                .clip(CircleShape)
+                .clickable(onClick = { onRemove(item) }),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(Icons.Rounded.Close, contentDescription = removeCd, tint = scheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
         }
     }
 }
@@ -244,83 +249,30 @@ fun SearchHistoryPanel(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = 24.dp, end = 16.dp),
+                .padding(start = 16.dp, end = 8.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
                 text = stringResource(R.string.search_recent_searches),
-                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Medium),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.semantics { heading() },
             )
             TextButton(onClick = onClearAll) {
                 Text(stringResource(R.string.search_action_clear_all), maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
-        Surface(
-            shape = ContainerShape,
-            color = MaterialTheme.colorScheme.surfaceContainerLow,
-            modifier = Modifier
-                .padding(horizontal = 16.dp)
-                .padding(bottom = bottomPadding)
-                .fillMaxWidth(),
+        LazyColumn(
+            modifier = Modifier.fillMaxWidth(),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = bottomPadding),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            LazyColumn(
-                contentPadding = PaddingValues(vertical = 8.dp),
-            ) {
-                items(items, key = { "history_${it.key}" }, contentType = { if (it.openKind != null) "target" else "query" }) { item ->
-                    HistoryRow(item = item, onOpen = onOpen, onFill = onFill, onRemove = onRemove)
-                }
+            items(items, key = { "history_${it.key}" }, contentType = { if (it.openKind != null) "target" else "query" }) { item ->
+                RecentRow(item = item, onOpen = onOpen, onRemove = onRemove, onFill = onFill)
             }
         }
     }
-}
-
-@Composable
-private fun HistoryRow(
-    item: SearchHistoryItem,
-    onOpen: (SearchHistoryItem) -> Unit,
-    onFill: (SearchHistoryItem) -> Unit,
-    onRemove: (SearchHistoryItem) -> Unit,
-) {
-    val kind = item.openKind
-    val removeLabel = stringResource(R.string.search_history_remove_item_cd, item.title)
-    ListItem(
-        headlineContent = {
-            Text(text = item.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        },
-        supportingContent = kindLabel(kind)?.let { label ->
-            { Text(text = label, maxLines = 1, overflow = TextOverflow.Ellipsis) }
-        },
-        leadingContent = {
-            if (kind == null) {
-                Icon(
-                    imageVector = Icons.Rounded.History,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(24.dp),
-                )
-            } else {
-                SmartImage(
-                    model = item.imageUrl,
-                    contentDescription = null,
-                    targetSize = SmartImageListTargetSize,
-                    shape = if (kind == SearchHistoryKind.ARTIST) CircleShape else ThumbShape,
-                    modifier = Modifier.size(48.dp),
-                )
-            }
-        },
-        trailingContent = {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                if (kind == null) {
-                    FillArrowButton(item = item, onFill = onFill)
-                }
-                RemoveButton(label = removeLabel, onClick = { onRemove(item) })
-            }
-        },
-        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-        modifier = Modifier.clickable { onOpen(item) },
-    )
 }
 
 @Composable
