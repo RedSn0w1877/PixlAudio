@@ -424,7 +424,7 @@ private fun rememberDailyMixTitleStyle(): TextStyle {
                         FontVariation.weight(630),
                         FontVariation.width(136f),
                         FontVariation.grade(40),
-                        FontVariation.Setting("ROND", 100f),
+                        FontVariation.Setting("ROND", com.theveloper.pixelplay.ui.theme.FlexAxis.ROND_HOUSE),
                         FontVariation.Setting("XTRA", 520f),
                         FontVariation.Setting("YOPQ", 90f),
                         FontVariation.Setting("YTLC", 505f)

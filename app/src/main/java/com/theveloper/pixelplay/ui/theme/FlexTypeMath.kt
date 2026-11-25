@@ -36,6 +36,12 @@ object FlexAxis {
     const val ROND_MIN = 0f
     const val ROND_MAX = 100f
 
+    /**
+     * The house roundness: 0, flat terminals (an SF Pro-like voice) everywhere in the app, player
+     * included. Every ROND setting in the app reads this one constant; flip it to go round again.
+     */
+    const val ROND_HOUSE = 0f
+
     /** `slnt` — slant in degrees. -10 (oblique) .. 0 (upright). */
     const val SLNT_MIN = -10f
     const val SLNT_MAX = 0f
@@ -55,7 +61,7 @@ object FlexAxis {
  * One point in Google Sans Flex's design space. Immutable and cheap; the Typeface it maps to is
  * built once per process by `FlexFonts` and keyed by [cacheKey].
  *
- * Defaults are the app's house style: ROND 100 like [GoogleSansRounded], everything else at the
+ * Defaults are the app's house style: ROND [FlexAxis.ROND_HOUSE] (flat), everything else at the
  * font's own default.
  */
 @Immutable
@@ -64,7 +70,7 @@ data class FlexSpec(
     val width: Float = FlexAxis.WDTH_DEFAULT,
     val opticalSize: Float = FlexAxis.OPSZ_DEFAULT,
     val grade: Float = 0f,
-    val roundness: Float = FlexAxis.ROND_MAX,
+    val roundness: Float = FlexAxis.ROND_HOUSE,
     val slant: Float = 0f,
 ) {
     /** This spec clamped to the font's ranges and snapped to the [FlexAxis] grid. */
@@ -118,9 +124,10 @@ data class FlexSpec(
  * How [FlexMath.fitWidthAxis] trades width for line count on hero titles (artist name, playlist
  * title, the player's song title). The font size never changes; only `wdth` does.
  *
- * @property minWidth narrowest cut allowed (75 still reads as the same face, below that it turns
- *   into a different, poster-like voice).
- * @property maxWidth widest cut for short titles (125: presence without looking stretched).
+ * @property minWidth narrowest cut allowed: the font's own minimum (25), so very long titles
+ *   condense all the way before they wrap.
+ * @property maxWidth widest cut for short titles: the font's own maximum (151), so short titles
+ *   fill the line.
  * @property multiLineMaxWidth widest cut once the title has to wrap; wide letters over two lines
  *   make a heavy block, so wrapped titles cap at the regular width.
  * @property maxLines lines the title may use before it is ellipsised.
@@ -128,8 +135,8 @@ data class FlexSpec(
  */
 @Immutable
 data class FlexFitPolicy(
-    val minWidth: Float = 75f,
-    val maxWidth: Float = 125f,
+    val minWidth: Float = FlexAxis.WDTH_MIN,
+    val maxWidth: Float = FlexAxis.WDTH_MAX,
     val multiLineMaxWidth: Float = 100f,
     val maxLines: Int = 2,
     val step: Float = 5f,
@@ -288,9 +295,12 @@ object FlexPresets {
     /** Hero display (artist / playlist / song title at full size): heavy, tight display cut. */
     val HeroDisplay = FlexSpec(weight = 760f, width = 100f)
 
-    /** Hero collapsed into a top bar: lighter and condensed so long names still fit. */
-    val HeroCollapsed = FlexSpec(weight = 620f, width = 84f)
+    /**
+     * Hero collapsed into a top bar: lighter and condensed so long names still fit. 70 (was 84):
+     * with the fit now opening up to wdth 151, the scroll squish travels the wider range too.
+     */
+    val HeroCollapsed = FlexSpec(weight = 620f, width = 70f)
 
-    /** Playful chips and small labels (quality tier, filters): fully round, a touch wide. */
-    val Chip = FlexSpec(weight = 620f, width = 108f, roundness = 100f)
+    /** Chips and small labels (quality tier, filters): a touch wide, house (flat) roundness. */
+    val Chip = FlexSpec(weight = 620f, width = 108f)
 }

@@ -358,7 +358,7 @@ object GenreTypography {
                         FontVariation.width(width),
                         FontVariation.slant(slant),
                         FontVariation.grade(grade),
-                        FontVariation.Setting("ROND", rond),
+                        FontVariation.Setting("ROND", com.theveloper.pixelplay.ui.theme.FlexAxis.ROND_HOUSE),
                         FontVariation.Setting("XTRA", xtra),
                         FontVariation.Setting("YOPQ", yopq),
                         FontVariation.Setting("YTLC", ytlc)
