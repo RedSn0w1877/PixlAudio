@@ -315,7 +315,11 @@ class BrainMixes @Inject constructor(
             excludedRids = taken + ignored,
             servedTimes = times,
             edges = edges,
-        ).also { if (daypartMix) it.nuOverride = DAYPART_NU }
+        ).also {
+            if (daypartMix) it.nuOverride = DAYPART_NU
+            // Stage 5: smooth tempo, loudness and energy steps, and the energy arc of a Daily Mix (6.5).
+            it.flowFacts = known.flowFacts
+        }
         var choice = RankingChoice(null, false, 0)
         val plan = brain.withState { st ->
             // Stage 3: the learned weights rank the list while the gate has them on (one posterior sample per list and day, 5.10).
@@ -345,7 +349,7 @@ class BrainMixes @Inject constructor(
                     kind = kind, candidates = flagged, seeds = request.seeds, nowMs = now, tzOffsetMin = tz, nuMultiplier = request.nuMultiplier,
                     salt = salt, regenerate = regenerate, excludedRids = request.excludedRids, servedTimes = times, edges = edges,
                     islands = request.islands, embeddings = known.embeddings, tagsByRid = known.tags,
-                ).also { it.ranking = ranking; it.armPicker = picker },
+                ).also { it.ranking = ranking; it.armPicker = picker; it.flowFacts = known.flowFacts },
                 st.affinity,
             )
         }

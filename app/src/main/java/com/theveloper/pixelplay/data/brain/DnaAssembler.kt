@@ -1,5 +1,6 @@
 package com.theveloper.pixelplay.data.brain
 
+import com.theveloper.pixelplay.brain.AudioFeatures
 import com.theveloper.pixelplay.brain.BrainHash
 import com.theveloper.pixelplay.brain.BrainText
 import com.theveloper.pixelplay.brain.GenreAtlas
@@ -231,6 +232,8 @@ object DnaAssembler {
         atlasVersion: Int,
         nowMs: Long,
         maxYear: Int,
+        /** Stage 5: what the phone measured from the audio (`audio_measure`); null when nothing was. */
+        measured: AudioFeatures.Result? = null,
     ): Result {
         val tried = evidence.tried or DnaSource.SPOTIFY_GENRES.takeIf { target.spotifyGenres.isNotEmpty() }.orZero() or
             DnaSource.YOUTUBE_CHIPS.takeIf { target.chipGenres.isNotEmpty() }.orZero()
@@ -275,13 +278,18 @@ object DnaAssembler {
         val popClaims = listOfNotNull(dz.takeIf { it >= 0 }?.let { "d:$it" }, yt.takeIf { it >= 0 }?.let { "y:$it" }, lb.takeIf { it >= 0 }?.let { "l:$it" }).joinToString(",")
         val popRefreshed = evidence.deezerTrack != null || evidence.lbPopularity != null || target.ytPlays > 0
 
-        // Tempo and loudness: Deezer, when it has them.
+        // Tempo and loudness (3.3, stage 5): a trusted on-device measurement, then Deezer, then a weak measurement; Deezer's gain,
+        // then the measured loudness. A tempo another source left in the row (AcousticBrainz) stays while nothing better is known.
         val bpm = evidence.deezerTrack?.bpm?.takeIf { it > 0.0 }?.let { (it * 10.0 + 0.5).toInt() }
-        val tempo = bpm ?: prior?.tempoBpmX10 ?: 0
-        val tempoSource = if (bpm != null) 1 else prior?.tempoSource ?: 0
-        val gain = evidence.deezerTrack?.gain?.let { Math.floor(it * 10.0 + 0.5).toInt() } ?: prior?.gainDbX10 ?: TrackDna.GAIN_UNKNOWN
+        val deezerBpm = bpm ?: prior?.takeIf { it.tempoSource == TrackDna.TEMPO_DEEZER }?.tempoBpmX10 ?: 0
+        val chosen = AudioFeatures.chooseTempo(deezerBpm, measured)
+        val keptOther = prior?.takeIf { it.tempoSource == TrackDna.TEMPO_ACOUSTICBRAINZ && it.tempoBpmX10 > 0 }
+        val tempo = if (chosen[1] != TrackDna.TEMPO_UNKNOWN) chosen[0] else keptOther?.tempoBpmX10 ?: 0
+        val tempoSource = if (chosen[1] != TrackDna.TEMPO_UNKNOWN) chosen[1] else keptOther?.tempoSource ?: TrackDna.TEMPO_UNKNOWN
+        val deezerGain = evidence.deezerTrack?.gain?.let { Math.floor(it * 10.0 + 0.5).toInt() } ?: prior?.gainDbX10 ?: TrackDna.GAIN_UNKNOWN
+        val gain = AudioFeatures.chooseGain(deezerGain, measured)[0]
 
-        val feel = TrackDna.feel(atlas, tags, gain)
+        val feel = TrackDna.feel(atlas, tags, gain, tempo)
         val moods = TrackDna.moods(atlas, tags)
         val flags = BrainText.cleanTitle(target.title).versionFlags
 

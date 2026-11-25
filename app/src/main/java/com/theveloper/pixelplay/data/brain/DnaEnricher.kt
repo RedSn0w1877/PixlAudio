@@ -63,6 +63,8 @@ class DnaEnricher @Inject constructor(
     private val atlasProvider: AtlasProvider,
     private val clock: BrainClock,
     private val artistKeys: ArtistKeySink,
+    // Stage 5: tempo and loudness measured on the phone (`audio_measure`).
+    private val measures: com.theveloper.pixelplay.data.brain.store.AudioMeasureLookup = com.theveloper.pixelplay.data.brain.store.AudioMeasureLookup.NONE,
 ) {
     class Report(val tracks: Int, val stopped: Boolean, val noAtlas: Boolean = false)
 
@@ -267,7 +269,7 @@ class DnaEnricher @Inject constructor(
         if (st.tried == 0 && !ownFacts && st.prior == null) return false
         return try {
             val now = clock.nowMs()
-            val r = DnaAssembler.assemble(st.target, st.evidence(), st.prior, st.priorArtist, atlas, version, now, currentYear(now) + 1)
+            val r = DnaAssembler.assemble(st.target, st.evidence(), st.prior, st.priorArtist, atlas, version, now, currentYear(now) + 1, measures.measured(st.target.rid))
             tracks.upsert(r.track)
             r.artist?.let { a ->
                 artists.upsert(a)

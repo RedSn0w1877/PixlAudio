@@ -66,8 +66,12 @@ class BrainSessionStateHolder @Inject constructor(
     /** "Not for me", its bar, and the two sheets that explain picks. */
     val actions: BrainActionsStateHolder,
     castStateHolder: CastStateHolder,
+    audioMeasurer: com.theveloper.pixelplay.data.brain.AudioMeasurer,
     @AppScope private val appScope: CoroutineScope,
 ) {
+    /** Developer mode: what stage 5 measured from the song that is playing (tempo, loudness, or why not yet). */
+    val audioMeasure: kotlinx.coroutines.flow.StateFlow<com.theveloper.pixelplay.data.brain.AudioMeasurer.Status?> = audioMeasurer.status
+
     /**
      * The Autoplay line of the queue. The switch comes from the setting, so it is right before the
      * service runs. While a Cast session is up the line says picks are off there (14.6).

@@ -79,6 +79,23 @@ object MusicBrainMigrations {
         "ALTER TABLE `play_event` ADD COLUMN `servedX` BLOB",
     )
 
+
+    /**
+     * Version 7 to 8 (stage 5): `audio_measure`, tempo and loudness measured on the phone from decoded audio. A new cache table; nothing
+     * existing is touched. The statement is what Room itself writes for `AudioMeasureEntity` (BrainEntitiesV8.kt).
+     */
+    val V7_TO_V8: List<String> = listOf(
+        "CREATE TABLE IF NOT EXISTS `audio_measure` (`rid` INTEGER NOT NULL, `version` INTEGER NOT NULL, `bpmX10` INTEGER NOT NULL, " +
+            "`tempoConf` INTEGER NOT NULL, `lufsX10` INTEGER NOT NULL, `onsetX1000` INTEGER NOT NULL, `analysedMs` INTEGER NOT NULL, " +
+            "`windowStartMs` INTEGER NOT NULL, `durationMs` INTEGER NOT NULL, `measuredAtMs` INTEGER NOT NULL, `failures` INTEGER NOT NULL, " +
+            "PRIMARY KEY(`rid`))",
+    )
+
+    val MIGRATION_7_8: Migration = object : Migration(7, 8) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            for (statement in V7_TO_V8) db.execSQL(statement)
+        }
+    }
     val MIGRATION_6_7: Migration = object : Migration(6, 7) {
         override fun migrate(db: SupportSQLiteDatabase) {
             for (statement in V6_TO_V7) db.execSQL(statement)
@@ -116,5 +133,5 @@ object MusicBrainMigrations {
     }
 
     /** Every migration, in order. A new version adds its step here and its schema file next to the others. */
-    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
+    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
 }

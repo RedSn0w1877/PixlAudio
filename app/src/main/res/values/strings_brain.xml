@@ -320,4 +320,23 @@
     <string name="brain_assist_body">Taizo can name your taste islands, suggest artists you may not know once a week, and add genres to songs that no source knows, a batch at a time. It sends genre names, artist names and song titles to the cloud assistant, never play counts or dates, and it counts against your monthly allowance. Off unless you turn it on.</string>
     <string name="brain_taizo_station_started">Started a station from %1$s.</string>
     <string name="brain_taizo_station_not_found">I could not find %1$s in your library, your genres or your playlists, so I did not start a station.</string>
+
+    <!-- Developer mode > Maintenance (stage 5): what the phone measured from the song that is playing. Developer-facing; plain words. -->
+    <string name="brain_measure_title">Tempo and loudness</string>
+    <string name="brain_measure_none">Play a song to see what the phone measures from it</string>
+    <string name="brain_measure_waiting">Waiting a few seconds into the song</string>
+    <string name="brain_measure_measuring">Listening to 40 seconds of it now</string>
+    <string name="brain_measure_measuring_file">Listening to 40 seconds of the downloaded file now</string>
+    <string name="brain_measure_wifi">Waits for Wi-Fi (only downloaded songs are measured on mobile data)</string>
+    <string name="brain_measure_off">Off while the new picks engine is off</string>
+    <string name="brain_measure_unknown">This song could not be matched to a recording</string>
+    <string name="brain_measure_failed">Could not decode this song; tries again tomorrow</string>
+    <string name="brain_measure_gave_up">Gave up on this song after three tries</string>
+    <string name="brain_measure_tempo">%1$s bpm, %2$d%% sure</string>
+    <string name="brain_measure_tempo_none">No steady beat</string>
+    <string name="brain_measure_loudness">%1$s LUFS</string>
+    <string name="brain_measure_loudness_none">loudness unknown</string>
+    <string name="brain_measure_used">used for flow</string>
+    <string name="brain_measure_not_used">kept only when no other tempo is known</string>
+    <string name="brain_measure_took">%1$s s</string>
 </resources>

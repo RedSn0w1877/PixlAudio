@@ -156,6 +156,8 @@ class AutoplayController @Inject constructor(
     private val queueAttach: QueueAttachSignal,
     private val songCacheDao: SongCacheDao,
     private val streamProxy: dagger.Lazy<SpotifyStreamProxy>,
+    // Stage 5: tempo, loudness and energy for the flow cost of 6.5.
+    private val flowSource: com.theveloper.pixelplay.data.brain.FlowFactsSource = com.theveloper.pixelplay.data.brain.FlowFactsSource.NONE,
 ) {
     /** What the service tells the controller about itself. */
     interface Host {
@@ -226,6 +228,8 @@ class AutoplayController @Inject constructor(
         val replaceAll: Boolean = false,
         /** An album or playlist station, or one that was re-seeded: a track must be near the closest of its seeds. */
         val closestOfSeeds: Boolean = false,
+        /** Stage 5: what plays just before the planned slots (the first slot's flow step), 0 when unknown. */
+        val leadRid: Long = 0L,
     ) {
         /** How the list planned from these inputs was ranked (set by [planOnBrain], read when its picks become queue items): 5.12 point 8. */
         @Volatile
@@ -1164,12 +1168,31 @@ class AutoplayController @Inject constructor(
             firstStationBatch = station != null && stationBatches == 0,
             replaceAll = refreshing,
             closestOfSeeds = station?.let { it.seedMediaIds.size > 1 || stationReseeds.isNotEmpty() } == true,
+            leadRid = leadRidOf(queue, tailStart),
         )
+    }
+
+    /** Stage 5: the recording the list follows (the queue item just before the planned slots), for the first slot's flow cost; 0 when unknown. */
+    private fun leadRidOf(queue: List<MediaItem>, tailStart: Int): Long {
+        val item = queue.getOrNull(tailStart - 1) ?: return 0L
+        served[item.mediaId]?.brain?.let { return it.rid }
+        for (entry in pool) if (entry.candidate.mediaId == item.mediaId) return entry.brain?.rid ?: 0L
+        return 0L
     }
 
     /** Runs the pure planner on the brain's state. [tail] non-null asks for a patch of that tail. */
     private suspend fun planOnBrain(inputs: PlanInputs, count: Int, bridge: Boolean, tail: LongArray?): StationPlanner.Plan? =
         withContext(Dispatchers.Default) {
+            // Stage 5: tempo, loudness and energy of the pool and of what plays before it, for smooth steps (6.5). Read before the
+            // state lock; an empty answer plans exactly as before.
+            val flowRids = ArrayList<Long>(inputs.candidates.size + inputs.prior.size + 1)
+            for (c in inputs.candidates) flowRids.add(c.rid)
+            for (p in inputs.prior) flowRids.add(p.rid)
+            if (inputs.leadRid != 0L) flowRids.add(inputs.leadRid)
+            val flowFacts = flowSource.flowFacts(flowRids)
+            val flow = if (flowFacts.isEmpty()) null else com.theveloper.pixelplay.brain.Flow.Context(
+                flowFacts, lead = flowFacts[inputs.leadRid] ?: com.theveloper.pixelplay.brain.Flow.Facts.UNKNOWN,
+            )
             brain.withState { state ->
                 // What the session's skip rules need to know about a station: its seed artist is thinned
                 // out after skips, never blocked (5.5).
@@ -1212,6 +1235,7 @@ class AutoplayController @Inject constructor(
                         state.session.sessionId, ArmBandit.STATION,
                         BrainHash.splitmix64(state.session.sessionId xor (inputs.batch.toLong() shl 8) xor ARM_SEED_TAG),
                     ),
+                    flow = flow,
                 )
                 val plan = if (tail == null) {
                     StationPlanner.plan(request, state.affinity, state.session, graph)

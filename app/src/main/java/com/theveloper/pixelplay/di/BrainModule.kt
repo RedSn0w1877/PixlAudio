@@ -53,6 +53,7 @@ object BrainModule {
 
     @Provides fun providePlayableDao(db: MusicBrainDatabase): PlayableDao = db.playableDao()
     @Provides fun provideImpressionDao(db: MusicBrainDatabase): ImpressionDao = db.impressionDao()
+    @Provides fun provideAudioMeasureDao(db: MusicBrainDatabase): com.theveloper.pixelplay.data.brain.store.AudioMeasureDao = db.audioMeasureDao()
     @Provides fun provideAliasDao(db: MusicBrainDatabase): AliasDao = db.aliasDao()
     @Provides fun provideRadioListDao(db: MusicBrainDatabase): RadioListDao = db.radioListDao()
     @Provides fun providePlayEventDao(db: MusicBrainDatabase): PlayEventDao = db.playEventDao()
@@ -78,6 +79,16 @@ object BrainModule {
     @Provides
     @Singleton
     fun provideEphemeralTrackLookup(store: PlayableStore): EphemeralTrackLookup = store
+
+    /** Stage 5: the DNA assembly reads what the phone measured. */
+    @Provides
+    @Singleton
+    fun provideAudioMeasureLookup(store: com.theveloper.pixelplay.data.brain.AudioMeasureStore): com.theveloper.pixelplay.data.brain.store.AudioMeasureLookup = store
+
+    /** Stage 5: the planners read tempo, loudness and energy for the flow cost of 6.5. */
+    @Provides
+    @Singleton
+    fun provideFlowFactsSource(store: com.theveloper.pixelplay.data.brain.AudioMeasureStore): com.theveloper.pixelplay.data.brain.FlowFactsSource = store
 
     @Provides
     @Singleton

@@ -403,8 +403,15 @@ class CandidateDna @Inject constructor(
     private val store: IslandStore,
     private val dnaDao: TrackDnaDao,
     private val artistDnaDao: ArtistDnaDao,
+    // Stage 5: tempo, loudness and energy for the flow cost (6.5).
+    private val flowSource: FlowFactsSource = FlowFactsSource.NONE,
 ) {
-    class Known(val tags: Map<Long, Tags.Vector>, val embeddings: Embeddings?)
+    class Known(
+        val tags: Map<Long, Tags.Vector>,
+        val embeddings: Embeddings?,
+        /** Stage 5: what the flow ordering reads (6.5); empty for none, and the lists are then what they were before. */
+        val flowFacts: Map<Long, com.theveloper.pixelplay.brain.Flow.Facts> = emptyMap(),
+    )
 
     /** [candidates] with an embedding, tags and popularity where they are known. Unknown stays unknown: nothing is guessed. */
     suspend fun enrich(candidates: List<Candidate>): Pair<List<Candidate>, Known> = withContext(Dispatchers.IO) {
@@ -439,6 +446,6 @@ class CandidateDna @Inject constructor(
             val v = emb?.vector(c.rid)
             c.withDna(v, tags[c.rid], pop[c.rid] ?: -1)
         }
-        out to Known(tags, emb)
+        out to Known(tags, emb, flowSource.flowFacts(rids))
     }
 }

@@ -213,6 +213,8 @@ class AssistantMixer @Inject constructor(
             model = choice.modelVersion
             request.ranking = choice.source
             request.nuOverride = AssistantRules.noveltyShare(query, MixPlanner.NU0 * Novelty.factor(level))
+            // Stage 5: the mix steps smoothly in tempo, loudness and energy (6.5).
+            request.flowFacts = known.flowFacts
             MixPlanner.plan(request, st.affinity)
         }
         val out = ArrayList<AssistantPickData>(plan.picks.size)

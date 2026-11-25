@@ -244,6 +244,18 @@ class MusicService : MediaLibraryService() {
     @Inject
     lateinit var autoplayController: com.theveloper.pixelplay.data.service.player.AutoplayController
 
+    // Music brain stage 5: tempo and loudness measured from a window of the decoded audio (docs/brain-spec.md, 3.3).
+    @Inject
+    lateinit var audioMeasurer: com.theveloper.pixelplay.data.brain.AudioMeasurer
+
+    /** The track that plays and the next one, from the FULL queue (the active player may hold a window of it). */
+    private fun audioMeasureTargets(): List<MediaItem> {
+        val queue = engine.getFullQueue()
+        val index = engine.getCurrentAbsoluteIndex()
+        if (index < 0 || index >= queue.size) return emptyList()
+        return queue.subList(index, minOf(queue.size, index + com.theveloper.pixelplay.data.brain.AudioMeasurer.MAX_TARGETS)).toList()
+    }
+
     private val autoplayHost by lazy {
         object : com.theveloper.pixelplay.data.service.player.AutoplayController.Host {
             override val scope: CoroutineScope get() = serviceScope
@@ -1977,6 +1989,8 @@ class MusicService : MediaLibraryService() {
 
         override fun onPlaybackStateChanged(playbackState: Int) {
             updateNextStreamPrefetch()
+            // Stage 5: the audio measurement never competes with a stall of the listener's playback.
+            audioMeasurer.onStall(playbackState == Player.STATE_BUFFERING && (mediaSession?.player ?: engine.masterPlayer).playWhenReady)
             Timber.tag(TAG).d("Playback state changed: $playbackState")
             if (playbackState == Player.STATE_ENDED) {
                 listeningStatsTracker.finalizeCurrentSession(
@@ -2072,6 +2086,7 @@ class MusicService : MediaLibraryService() {
             }
             enforceBlockedArtists(reason)
             autoplayController.onTransition()
+            audioMeasurer.onTrackChanged(audioMeasureTargets())
             if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_SEEK) reviveIdlePlayerAfterNavigation()
             automaticStudioManager.onSongChanged(mediaItem?.mediaId)
             updateNextStreamPrefetch()

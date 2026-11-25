@@ -1797,6 +1797,8 @@ fun SettingsCategoryScreen(
                                     trailingIcon = { Icon(Icons.Rounded.ChevronRight, stringResource(R.string.settings_cd_open), tint = MaterialTheme.colorScheme.onSurfaceVariant) },
                                     onClick = { navController.navigateSafely(Screen.BrainData.route) }
                                 )
+                                // Stage 5: what the phone measured from the song that is playing.
+                                BrainMeasureRow(brainSession = playerViewModel.brainSession)
                                 val brainSpotifyShapes by settingsViewModel.brainSpotifyShapesPicks.collectAsStateWithLifecycle()
                                 SwitchSettingItem(
                                     title = stringResource(R.string.brain_spotify_shapes_title),
