@@ -1408,7 +1408,7 @@ fun SettingsCategoryScreen(
                             Surface(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clip(RoundedCornerShape(10.dp))
+                                    .clip(RoundedCornerShape(4.dp))
                                     .clickable { showAdvancedAiSettings = !showAdvancedAiSettings },
                                 color = MaterialTheme.colorScheme.surfaceContainer
                             ) {

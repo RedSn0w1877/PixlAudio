@@ -16,6 +16,17 @@ import androidx.compose.animation.core.rememberTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.ui.graphics.vector.rememberVectorPainter
+import androidx.compose.ui.unit.sp
+import com.theveloper.pixelplay.presentation.components.redesign.BadgeShape
+import com.theveloper.pixelplay.presentation.components.redesign.RedesignGroupedRow
+import com.theveloper.pixelplay.presentation.components.redesign.RedesignScreenTitle
+import com.theveloper.pixelplay.presentation.components.redesign.RedesignSectionLabel
+import com.theveloper.pixelplay.presentation.components.redesign.RedesignType
+import com.theveloper.pixelplay.presentation.components.redesign.ShapeBadge
+import com.theveloper.pixelplay.presentation.components.redesign.groupedRowShape
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -133,196 +144,235 @@ fun SettingsScreen(
                     transitionSpec = { tween(durationMillis = 400, easing = FastOutSlowInEasing) }
             ) { if (it) 0.dp else 40.dp }
 
-    val density = LocalDensity.current
-    val coroutineScope = rememberCoroutineScope()
     val lazyListState = rememberLazyListState()
-
-    val statusBarHeight = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
-    val minTopBarHeight = 64.dp + statusBarHeight
-    val maxTopBarHeight = 180.dp 
-
-    val minTopBarHeightPx = with(density) { minTopBarHeight.toPx() }
-    val maxTopBarHeightPx = with(density) { maxTopBarHeight.toPx() }
-
     val uiState by settingsViewModel.uiState.collectAsStateWithLifecycle()
-    val launchTab = uiState.launchTab
-    val useSmoothCorners by settingsViewModel.useSmoothCorners.collectAsStateWithLifecycle()
     val developerMode by settingsViewModel.developerMode.collectAsStateWithLifecycle()
 
-    var showCornerRadiusOverlay by remember { mutableStateOf(false) }
-
-    val topBarHeight = remember { CollapsingHeaderHeight(maxTopBarHeightPx) }
-    // Derived, and read only by the top bar below: the per-frame header height never recomposes
-    // this screen body.
-    val collapseFraction by rememberCollapseFraction(topBarHeight, minTopBarHeightPx, maxTopBarHeightPx)
-
-    val nestedScrollConnection = remember {
-        object : NestedScrollConnection {
-            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                val delta = available.y
-                val isScrollingDown = delta < 0
-
-                if (!isScrollingDown &&
-                                (lazyListState.firstVisibleItemIndex > 0 ||
-                                        lazyListState.firstVisibleItemScrollOffset > 0)
-                ) {
-                    return Offset.Zero
-                }
-
-                val previousHeight = topBarHeight.value
-                val newHeight =
-                        (previousHeight + delta).coerceIn(minTopBarHeightPx, maxTopBarHeightPx)
-                val consumed = newHeight - previousHeight
-
-                if (consumed.roundToInt() != 0) {
-                    topBarHeight.snapTo(newHeight)
-                }
-
-                val canConsumeScroll = !(isScrollingDown && newHeight == minTopBarHeightPx)
-                return if (canConsumeScroll) Offset(0f, consumed) else Offset.Zero
-            }
-        }
+    // Redesign 2 (project/AndroidSettings.dc.html): the header scrolls with the list. 20 dp under
+    // the status bar, a 48 dp row (Back as a 48 dp surfaceContainerHigh circle, 12 dp, "Settings"
+    // 36/44 sp bold), then 14 dp between blocks: the Accounts card (72 dp, primaryContainer, 28 dp
+    // corners, a 52 dp cookie badge, title 18/24 medium, line 13/18), "Listening" and "App" groups
+    // (label 14/20 medium primary, 16 dp in, 6 dp under; rows 52 dp min, surfaceContainer, 20/4 dp
+    // corners, 2 dp apart, 40 dp shape badges with 20 dp icons, 14 dp gap, title 16/22 medium).
+    // Developer mode closes the App group with a switch; Developer and Device capabilities follow
+    // it while it is on.
+    val statusBarHeight = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
+    val listening = remember { SettingsListeningCategories.filter { it in SettingsCategory.entries } }
+    val app = remember {
+        SettingsCategory.entries.filter {
+            it !in SettingsListeningCategories &&
+                it != SettingsCategory.ABOUT &&
+                it != SettingsCategory.DEVELOPER &&
+                it != SettingsCategory.DEVICE_CAPABILITIES
+        } + SettingsCategory.ABOUT
     }
-
-    LaunchedEffect(lazyListState.isScrollInProgress) {
-        if (!lazyListState.isScrollInProgress) {
-            val shouldExpand = topBarHeight.value > (minTopBarHeightPx + maxTopBarHeightPx) / 2
-            val canExpand =
-                    lazyListState.firstVisibleItemIndex == 0 &&
-                            lazyListState.firstVisibleItemScrollOffset == 0
-
-            val targetValue =
-                    if (shouldExpand && canExpand) maxTopBarHeightPx else minTopBarHeightPx
-
-            if (topBarHeight.value != targetValue) {
-                coroutineScope.launch {
-                    topBarHeight.animateTo(targetValue, spring(stiffness = Spring.StiffnessMedium))
-                }
-            }
-        }
-    }
+    val advanced = remember { listOf(SettingsCategory.DEVELOPER, SettingsCategory.DEVICE_CAPABILITIES) }
 
     Box(
             modifier =
-                    Modifier.nestedScroll(nestedScrollConnection).fillMaxSize().graphicsLayer {
+                    Modifier.fillMaxSize()
+                        .background(MaterialTheme.colorScheme.surface)
+                        .graphicsLayer {
                         alpha = contentAlpha
                         translationY = contentOffset.toPx()
                     }
     ) {
-        // Top padding follows the header height, read by the list's measure pass (layout only).
-        val listContentPadding = rememberCollapsingHeaderContentPadding(
-            height = topBarHeight,
-            extraTop = 8.dp,
-            start = 16.dp,
-            end = 16.dp,
-            bottom = MiniPlayerHeight + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 8.dp
-        )
         LazyColumn(
                 state = lazyListState,
-                contentPadding = listContentPadding,
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                contentPadding = PaddingValues(
+                    top = statusBarHeight + 20.dp,
+                    start = 16.dp,
+                    end = 16.dp,
+                    bottom = MiniPlayerHeight + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 40.dp
+                ),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
                 modifier = Modifier.fillMaxSize()
         ) {
+            item(key = "header") {
+                Row(
+                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(48.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                            .clickable(onClick = onNavigationIconClick),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
+                            contentDescription = stringResource(R.string.common_back),
+                            tint = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                    RedesignScreenTitle(text = stringResource(R.string.common_settings), modifier = Modifier.weight(1f))
+                }
+            }
+            item(key = "accounts") {
+                SettingsAccountsCard(onClick = { navController.navigateSafely(Screen.Accounts.route) })
+            }
             // Plus only shows once checkout is wired into the build (or in Developer mode); otherwise every
             // button on it ends in a 'checkout is not connected' dialog.
             if (BuildConfig.PLUS_CHECKOUT_URL.isNotBlank() || developerMode) {
-                item {
+                item(key = "plus") {
                     PlusSettingsItem(onClick = { navController.navigateSafely(Screen.Plus.route) })
                 }
             }
-            item {
-                val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
-                ExpressiveSettingsGroup {
-                    // Everyday settings, top to bottom: Accounts first (the app is Spotify-only,
-                    // so signing in is the first thing to do), then SettingsCategory's
-                    // declaration order, About last. Developer mode and the two debug
-                    // categories it unlocks sit in their own group below.
-                    val mainCategories = SettingsCategory.entries.filter {
-                        it != SettingsCategory.ABOUT &&
-                        it != SettingsCategory.DEVICE_CAPABILITIES &&
-                        it != SettingsCategory.DEVELOPER
-                    }
-
-                    val totalItems = mainCategories.size + 2 // Accounts + About
-                    var itemIndex = 0
-
-                    ExpressiveNavigationItem(
-                        title = stringResource(R.string.settings_category_accounts_title),
-                        subtitle = stringResource(R.string.settings_category_accounts_subtitle),
-                        icon = Icons.Rounded.AccountCircle,
-                        colors = getAccountsColors(isDark),
-                        onClick = { navController.navigateSafely(Screen.Accounts.route) },
-                        shape = settingsGroupShape(itemIndex, totalItems)
-                    )
-                    Spacer(modifier = Modifier.height(2.dp))
-                    itemIndex++
-
-                    mainCategories.forEach { category ->
-                        ExpressiveCategoryItem(
-                            category = category,
-                            customColors = getCategoryColors(category, isDark),
-                            onClick = { openSettingsCategory(navController, category) },
-                            shape = settingsGroupShape(itemIndex, totalItems),
-                        )
-                        Spacer(modifier = Modifier.height(2.dp))
-                        itemIndex++
-                    }
-
-                    ExpressiveCategoryItem(
-                        category = SettingsCategory.ABOUT,
-                        customColors = getCategoryColors(SettingsCategory.ABOUT, isDark),
-                        onClick = { openSettingsCategory(navController, SettingsCategory.ABOUT) },
-                        shape = settingsGroupShape(itemIndex, totalItems)
-                    )
-                }
-            }
-            item {
-                val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
-                ExpressiveSettingsGroup {
-                    // The switch is always there; Developer and Device capabilities appear right
-                    // under it while it's on. Turning it off hides them (and every "Advanced"
-                    // subsection) without touching any stored value.
-                    val advancedCategories = listOf(
-                        SettingsCategory.DEVELOPER,
-                        SettingsCategory.DEVICE_CAPABILITIES
-                    )
-                    val totalItems = if (developerMode) 1 + advancedCategories.size else 1
-
-                    ExpressiveSwitchItem(
-                        title = stringResource(R.string.settings_developer_mode_title),
-                        subtitle = stringResource(R.string.settings_developer_mode_subtitle),
-                        icon = Icons.Rounded.Code,
-                        colors = getCategoryColors(SettingsCategory.DEVELOPER, isDark),
-                        checked = developerMode,
-                        onCheckedChange = settingsViewModel::setDeveloperMode,
-                        shape = settingsGroupShape(0, totalItems)
-                    )
-                    if (developerMode) {
-                        advancedCategories.forEachIndexed { index, category ->
-                            Spacer(modifier = Modifier.height(2.dp))
-                            ExpressiveCategoryItem(
+            item(key = "listening") {
+                Column {
+                    RedesignSectionLabel(text = stringResource(R.string.settings_group_listening))
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        listening.forEachIndexed { index, category ->
+                            SettingsCategoryRow(
                                 category = category,
-                                customColors = getCategoryColors(category, isDark),
-                                onClick = { openSettingsCategory(navController, category) },
-                                shape = settingsGroupShape(index + 1, totalItems)
+                                colors = getCategoryColors(category, isDark),
+                                badge = SettingsBadgeShapes[index % SettingsBadgeShapes.size],
+                                shape = groupedRowShape(index, listening.size),
+                                onClick = { openSettingsCategory(navController, category) }
                             )
                         }
                     }
                 }
-
-                // for player active:
-                Spacer(modifier = Modifier.height(32.dp))
+            }
+            item(key = "app") {
+                Column {
+                    RedesignSectionLabel(text = stringResource(R.string.settings_group_app))
+                    val total = app.size + 1 + if (developerMode) advanced.size else 0
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        app.forEachIndexed { index, category ->
+                            SettingsCategoryRow(
+                                category = category,
+                                colors = getCategoryColors(category, isDark),
+                                badge = SettingsBadgeShapes[(index + 4) % SettingsBadgeShapes.size],
+                                shape = groupedRowShape(index, total),
+                                onClick = { openSettingsCategory(navController, category) }
+                            )
+                        }
+                        // The switch is always there; Developer and Device capabilities appear right
+                        // under it while it's on. Turning it off hides them (and every "Advanced"
+                        // subsection) without touching any stored value.
+                        val view = LocalView.current
+                        val appHapticsConfig = LocalAppHapticsConfig.current
+                        val toggleDeveloperMode = { on: Boolean ->
+                            performAppCompatHapticFeedback(view, appHapticsConfig, HapticFeedbackConstantsCompat.GESTURE_START)
+                            settingsViewModel.setDeveloperMode(on)
+                        }
+                        val devColors = getCategoryColors(SettingsCategory.DEVELOPER, isDark)
+                        RedesignGroupedRow(
+                            title = stringResource(R.string.settings_developer_mode_title),
+                            shape = groupedRowShape(app.size, total),
+                            onClick = { toggleDeveloperMode(!developerMode) },
+                            leading = {
+                                ShapeBadge(
+                                    icon = rememberVectorPainter(Icons.Rounded.Code),
+                                    shape = BadgeShape.Clover4,
+                                    containerColor = devColors.first,
+                                    iconTint = devColors.second
+                                )
+                            },
+                            trailing = { Switch(checked = developerMode, onCheckedChange = toggleDeveloperMode) }
+                        )
+                        if (developerMode) {
+                            advanced.forEachIndexed { i, category ->
+                                SettingsCategoryRow(
+                                    category = category,
+                                    colors = getCategoryColors(category, isDark),
+                                    badge = SettingsBadgeShapes[(i + 2) % SettingsBadgeShapes.size],
+                                    shape = groupedRowShape(app.size + 1 + i, total),
+                                    onClick = { openSettingsCategory(navController, category) }
+                                )
+                            }
+                        }
+                    }
+                }
             }
         }
-        ScreenChrome {
-            CollapsibleCommonTopBar(
-                    title = stringResource(R.string.common_settings),
-                    collapseFraction = collapseFraction,
-                    headerHeight = with(density) { topBarHeight.value.toDp() },
-                    onBackClick = onNavigationIconClick
+    }
+}
+
+/** Listening group of the main list, in this order; every other category goes under App. */
+private val SettingsListeningCategories = listOf(
+    SettingsCategory.PLAYBACK,
+    SettingsCategory.EQUALIZER,
+    SettingsCategory.LYRICS,
+    SettingsCategory.SING,
+    SettingsCategory.ENDLESS,
+    SettingsCategory.SONG_TAP,
+)
+
+/** The badge shapes cycle in the mockup's order: cookie, sunny, flower, clover, soft burst. */
+private val SettingsBadgeShapes = listOf(
+    BadgeShape.Cookie9, BadgeShape.Sunny, BadgeShape.Flower, BadgeShape.Clover4, BadgeShape.SoftBurst, BadgeShape.Cookie6
+)
+
+/** One category row of the main list (see the header comment of [SettingsScreen] for sizes). */
+@Composable
+private fun SettingsCategoryRow(
+    category: SettingsCategory,
+    colors: Pair<Color, Color>,
+    badge: BadgeShape,
+    shape: androidx.compose.ui.graphics.Shape,
+    onClick: () -> Unit,
+) {
+    val painter = when {
+        category.icon != null -> rememberVectorPainter(category.icon)
+        category.iconRes != null -> painterResource(category.iconRes)
+        else -> rememberVectorPainter(Icons.Rounded.ChevronRight)
+    }
+    RedesignGroupedRow(
+        title = stringResource(category.titleRes),
+        shape = shape,
+        onClick = onClick,
+        leading = {
+            ShapeBadge(icon = painter, shape = badge, containerColor = colors.first, iconTint = colors.second)
+        },
+    )
+}
+
+/** The Accounts card at the top (the mockup's "Spotify connected" card). */
+@Composable
+private fun SettingsAccountsCard(onClick: () -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(72.dp)
+            .clip(RoundedCornerShape(28.dp))
+            .background(scheme.primaryContainer)
+            .clickable(onClick = onClick)
+            .padding(start = 10.dp, end = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        ShapeBadge(
+            icon = rememberVectorPainter(Icons.Rounded.AccountCircle),
+            shape = BadgeShape.Cookie9,
+            containerColor = scheme.onPrimaryContainer,
+            iconTint = scheme.primaryContainer,
+            size = 52.dp,
+            iconSize = 26.dp
+        )
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                text = stringResource(R.string.settings_category_accounts_title),
+                style = RedesignType.RowTitle.copy(fontSize = 18.sp, lineHeight = 24.sp),
+                color = scheme.onPrimaryContainer,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = stringResource(R.string.settings_category_accounts_subtitle),
+                style = RedesignType.RowSubtitle,
+                color = scheme.onPrimaryContainer,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         }
-
+        Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = scheme.onPrimaryContainer)
     }
 }
 

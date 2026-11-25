@@ -234,7 +234,7 @@ private fun AutoPrepareSliderItem(
 ) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainer,
-        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(4.dp))
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(
@@ -283,7 +283,7 @@ private fun AutoPrepareWhyItem(viewModel: CloudStudioViewModel) {
     val lines by viewModel.autoPrepareWhy.collectAsStateWithLifecycle()
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainer,
-        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(4.dp))
     ) {
         Column(
             verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -319,7 +319,7 @@ private fun AutoPrepareStatusItem(status: String) {
     if (status.isBlank()) return
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainer,
-        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(4.dp))
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
