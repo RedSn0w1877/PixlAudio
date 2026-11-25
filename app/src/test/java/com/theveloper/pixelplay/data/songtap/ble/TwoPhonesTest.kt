@@ -416,6 +416,25 @@ class TwoPhonesTest {
     }
 
     @Test
+    fun `arming again as the same role, or a pause and resume, never restarts the radio more than needed`() = runTest {
+        val clock = TestClock()
+        val a = Phone(this, "A", clock, song("1"))
+        a.holder.attach()
+        a.holder.arm(Role.RECEIVE)
+        testScheduler.runCurrent()
+        a.holder.arm(Role.RECEIVE) // a resume that followed no pause, or a second screen
+        testScheduler.runCurrent()
+        assertThat(a.radio.calls.count { it == "start" }).isEqualTo(1)
+        assertThat(a.radio.calls).doesNotContain("stop")
+        // A real pause and resume stops and starts once each.
+        a.holder.disarm()
+        a.holder.arm(Role.RECEIVE)
+        testScheduler.runCurrent()
+        assertThat(a.radio.calls.count { it == "start" }).isEqualTo(2)
+        assertThat(a.phase).isEqualTo(Phase.ARMED)
+    }
+
+    @Test
     fun `cancelling on the sender after the beam started closes it and the receiver gives up`() = runTest {
         val p = pair(firstBeamAsks = true)
         p.settle()

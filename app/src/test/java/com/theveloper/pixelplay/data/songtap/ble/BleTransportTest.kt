@@ -1122,4 +1122,193 @@ class BleTransportTest {
         assertThat(rig.radio.calls.filter { it.startsWith("start") }).containsExactly("start:send", "start:receive").inOrder()
         assertThat(rig.radio.calls).contains("stop")
     }
+    // ── Follow-up 2: the phone, not the address ──────────────────────────────────────
+
+    private fun BleRig.logged(text: String) = diag.events.value.count { it.text.contains(text) }
+
+    @Test
+    fun `a phone that changes its address while armed keeps its number, still gets the offer and its tap is accepted`() = runTest {
+        val rig = BleRig(this)
+        rig.transport.start(Role.SEND)
+        rig.settle("R1", Role.RECEIVE, name = "Ann")
+        val peer = rig.peerOf()
+        rig.transport.serverControl("c", SongTapWire.encodeHello(ByteArray(16) { 1 })!!)
+        rig.transport.publishOffer(peer, payloadBytes)
+        assertThat(rig.radio.notifications).hasSize(1)
+
+        // The old address goes quiet and the same name shows up under a new one.
+        rig.clock.advance(2_000)
+        rig.settle("R2", Role.RECEIVE, name = "Ann")
+
+        assertThat(rig.of<TransportEvent.PeerFound>().map { it.peer }).containsExactly(peer)
+        assertThat(rig.of<TransportEvent.PeerLost>()).isEmpty()
+        assertThat(rig.logged("changed its address")).isEqualTo(1)
+        assertThat(rig.transport.nearby.value.map { it.id }).containsExactly(peer)
+        // The phones that are connected are told again there is an offer.
+        assertThat(rig.radio.notifications).hasSize(2)
+        assertThat(SongTapWire.isOfferReady(rig.radio.notifications.last().second)).isTrue()
+        // It is served, and its tap message is believed.
+        assertThat(rig.transport.serverOffer("c")).isNotNull()
+        rig.transport.serverControl("c", SongTapWire.encodeTap(30))
+        assertThat(rig.of<TransportEvent.Tap>().map { it.peer }).containsExactly(peer)
+    }
+
+    @Test
+    fun `the new address's own tap counts for the pinned phone`() = runTest {
+        val rig = BleRig(this)
+        rig.transport.start(Role.SEND)
+        rig.settle("R1", Role.RECEIVE, name = "Ann")
+        val peer = rig.peerOf()
+        rig.transport.publishOffer(peer, payloadBytes)
+        rig.clock.advance(2_000)
+        rig.settle("R2", Role.RECEIVE, name = "Ann")
+        rig.touch("R2", Role.RECEIVE)
+        assertThat(rig.of<TransportEvent.Tap>().map { it.peer }).containsExactly(peer)
+    }
+
+    @Test
+    fun `the old address is not given up for a phone that is still being heard`() = runTest {
+        val rig = BleRig(this)
+        rig.transport.start(Role.SEND)
+        rig.settle("R1", Role.RECEIVE, name = "Ann")
+        val peer = rig.peerOf()
+        rig.transport.publishOffer(peer, payloadBytes)
+        // The twin shows up at once, while the pinned address is still talking: nothing is re-pinned.
+        rig.settle("R2", Role.RECEIVE, name = "Ann")
+        assertThat(rig.logged("changed its address")).isEqualTo(0)
+    }
+
+    @Test
+    fun `a stale twin of the same phone does not stop the offer being served`() = runTest {
+        val rig = BleRig(this)
+        rig.transport.start(Role.SEND)
+        rig.settle("R1", Role.RECEIVE, name = "Ann")
+        val chosen = rig.peerOf()
+        rig.settle("R2", Role.RECEIVE, name = "Ann")
+        rig.transport.publishOffer(chosen, payloadBytes)
+        rig.transport.serverControl("c", SongTapWire.encodeHello(ByteArray(16) { 5 })!!)
+        assertThat(rig.transport.serverOffer("c")).isNotNull()
+    }
+
+    @Test
+    fun `two different names near still serve nobody`() = runTest {
+        val rig = BleRig(this)
+        rig.transport.start(Role.SEND)
+        rig.settle("R1", Role.RECEIVE, name = "Ann")
+        val chosen = rig.peerOf()
+        rig.settle("R2", Role.RECEIVE, name = "Bo")
+        rig.transport.publishOffer(chosen, payloadBytes)
+        rig.transport.serverControl("c", SongTapWire.encodeHello(ByteArray(16) { 5 })!!)
+        assertThat(rig.transport.serverOffer("c")).isNull()
+        // Even when one of them changes address and the other stays: a different name is a different phone.
+        rig.clock.advance(2_000)
+        rig.settle("R3", Role.RECEIVE, name = "Bo")
+        assertThat(rig.logged("changed its address")).isEqualTo(0)
+        assertThat(rig.transport.serverOffer("c")).isNull()
+    }
+
+    @Test
+    fun `the prompt stays up while the same named phone changes address, and no silences every address it has`() = runTest {
+        val rig = BleRig(this)
+        rig.transport.start(Role.SEND)
+        rig.settle("R1", Role.RECEIVE, name = "Ann")
+        val first = rig.transport.prompt.value!!
+        assertThat(first.name).isEqualTo("Ann")
+        rig.clock.advance(2_000)
+        val seen = ArrayList<String?>()
+        repeat(6) {
+            rig.see("R2", Role.RECEIVE, BleRig.NEAR_DBM, name = "Ann")
+            seen += rig.transport.prompt.value?.name
+        }
+        assertThat(seen).containsNoneIn(listOf<String?>(null))
+
+        rig.transport.ignorePrompt(rig.transport.prompt.value!!.id)
+        assertThat(rig.transport.prompt.value).isNull()
+        // A third address of the same phone is not asked about either.
+        rig.clock.advance(2_000)
+        repeat(6) { rig.see("R3", Role.RECEIVE, BleRig.NEAR_DBM, name = "Ann") }
+        assertThat(rig.transport.prompt.value).isNull()
+    }
+
+    // ── Follow-up 2: taps with no yes are never silent ───────────────────────────────
+
+    @Test
+    fun `a sender that felt a tap with no yes says so in the log and the diagnostics, at most every two seconds, and a yes clears it`() = runTest {
+        val diag = SongTapDiagnostics()
+        val rig = BleRig(this, diag)
+        diag.setEnabled(true)
+        rig.transport.start(Role.SEND)
+        rig.settle("R", Role.RECEIVE, name = "Ann")
+        rig.touch("R", Role.RECEIVE)
+        assertThat(rig.of<TransportEvent.Tap>()).isEmpty()
+        assertThat(rig.logged("tap ignored: no yes yet")).isEqualTo(1)
+        rig.see("R", Role.RECEIVE, BleRig.TOUCH_DBM)
+        assertThat(diag.snapshot.value.needsYes).isTrue()
+        assertThat(diag.snapshot.value.tapNote).contains("tap ignored: no yes yet")
+
+        // Pull apart and touch again inside two seconds: counted, not logged again.
+        rig.settle("R", Role.RECEIVE, samples = 8)
+        rig.touch("R", Role.RECEIVE, samples = 4)
+        assertThat(rig.logged("tap ignored: no yes yet")).isEqualTo(1)
+
+        // Saying yes clears the hint.
+        rig.transport.publishOffer(rig.peerOf(), payloadBytes)
+        rig.see("R", Role.RECEIVE, BleRig.TOUCH_DBM, stepMs = 200)
+        assertThat(diag.snapshot.value.needsYes).isFalse()
+        assertThat(diag.snapshot.value.tapNote).isEmpty()
+    }
+
+    // ── Follow-up 2: the radio is not restarted, and a stalled connection gives up ───
+
+    @Test
+    fun `starting again with the same role and name does not restart the radio`() = runTest {
+        val rig = BleRig(this)
+        rig.transport.start(Role.RECEIVE)
+        rig.transport.start(Role.RECEIVE)
+        rig.transport.start(Role.RECEIVE)
+        assertThat(rig.radio.count("start")).isEqualTo(1)
+        assertThat(rig.radio.count("stop")).isEqualTo(0)
+        assertThat(rig.logged("advertising start (receive)")).isEqualTo(1)
+        assertThat(rig.logged("not restarted")).isEqualTo(2)
+
+        // A different role or name is a real change.
+        rig.transport.start(Role.SEND)
+        assertThat(rig.radio.count("start")).isEqualTo(2)
+        assertThat(rig.logged("advertising stop (receive)")).isEqualTo(1)
+        assertThat(rig.logged("advertising start (send)")).isEqualTo(1)
+        rig.transport.setOwnName("Zed")
+        rig.transport.start(Role.SEND)
+        assertThat(rig.radio.count("start")).isEqualTo(3)
+        assertThat(rig.radio.advertisedName).isEqualTo("Zed")
+        // Bluetooth that never came up is tried again.
+        val off = BleRig(this)
+        off.radio.startStatus = BleStatus.BLUETOOTH_OFF
+        off.transport.start(Role.RECEIVE)
+        off.radio.startStatus = BleStatus.ACTIVE
+        off.transport.start(Role.RECEIVE)
+        assertThat(off.radio.count("start")).isEqualTo(2)
+    }
+
+    @Test
+    fun `a connection that stalls is given up after three seconds, the queue is free, and a late answer is closed`() = runTest {
+        val rig = BleRig(this)
+        rig.transport.start(Role.RECEIVE)
+        rig.settle("S", Role.SEND)
+        assertThat(rig.radio.count("connect")).isEqualTo(1)
+        // Nothing answers. Before the timeout it is still waited for.
+        rig.see("S", Role.SEND, BleRig.NEAR_DBM, stepMs = 1_000)
+        rig.see("S", Role.SEND, BleRig.NEAR_DBM, stepMs = 1_000)
+        assertThat(rig.radio.count("disconnect")).isEqualTo(0)
+        rig.see("S", Role.SEND, BleRig.NEAR_DBM, stepMs = 1_000)
+        assertThat(rig.radio.count("disconnect")).isEqualTo(1)
+        assertThat(rig.logged("took too long")).isEqualTo(1)
+        assertThat(rig.radio.count("connect")).isEqualTo(1)
+        // The stalled attempt answers after all: closed, not mistaken for a connection.
+        rig.radio.listener.onConnected("S", true)
+        assertThat(rig.radio.count("readName")).isEqualTo(0)
+        assertThat(rig.radio.count("disconnect")).isEqualTo(2)
+        // A new attempt follows after the usual pause.
+        rig.see("S", Role.SEND, BleRig.NEAR_DBM, stepMs = BleTuning.RECONNECT_MS + 100)
+        assertThat(rig.radio.count("connect")).isEqualTo(2)
+    }
 }
