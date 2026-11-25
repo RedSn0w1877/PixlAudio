@@ -1016,6 +1016,7 @@ private fun HostHeader(onClose: () -> Unit) {
     }
 }
 
+@OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun HostNowPlaying(playerViewModel: PlayerViewModel) {
     val scheme = MaterialTheme.colorScheme
