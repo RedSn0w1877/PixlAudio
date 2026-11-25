@@ -20,6 +20,13 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.AllInclusive
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.material3.toShape
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import androidx.compose.ui.unit.sp
 import com.theveloper.pixelplay.presentation.components.VoiceSearchAvailability
 import com.theveloper.pixelplay.presentation.components.redesign.BadgeShape
@@ -149,6 +156,11 @@ fun AskTaizoSheet(
         viewModel.setDjMode(hostMode)
         onDispose { viewModel.setDjMode(false) }
     }
+    // Opened from the station screen's quick asks or its mic (redesign batch 3): the chip is sent, or speech starts, once.
+    val endless = playerViewModel.brainSession.endless
+    val pendingChip = remember(hostMode) { if (hostMode) endless.takePendingChip() else null }
+    val startVoice = remember(hostMode) { hostMode && endless.takePendingVoice() }
+    LaunchedEffect(pendingChip) { pendingChip?.let(viewModel::hostChip) }
     val player = remember(playerViewModel) { PlayerViewModelTaizoPlayer(playerViewModel) }
     DisposableEffect(player) {
         viewModel.attachPlayer(player)
@@ -187,17 +199,27 @@ fun AskTaizoSheet(
                 .navigationBarsPadding()
                 .imePadding()
         ) {
-            TaizoHeader(
-                mode = uiState.mode,
-                ownCloudName = uiState.ownCloudName,
-                sparkleBrush = sparkleBrush,
-                recentChats = uiState.recentChats.map { it.id to it.title },
-                onOpenChat = viewModel::openChat,
-                onNewChat = viewModel::newChat,
-            )
-            Spacer(Modifier.height(12.dp))
+          CompositionLocalProvider(LocalTaizoHost provides hostMode) {
+            if (hostMode) {
+                HostHeader(onClose = onDismissRequest)
+                Spacer(Modifier.height(16.dp))
+                HostNowPlaying(playerViewModel)
+                Spacer(Modifier.height(16.dp))
+            } else {
+                TaizoHeader(
+                    mode = uiState.mode,
+                    ownCloudName = uiState.ownCloudName,
+                    sparkleBrush = sparkleBrush,
+                    recentChats = uiState.recentChats.map { it.id to it.title },
+                    onOpenChat = viewModel::openChat,
+                    onNewChat = viewModel::newChat,
+                )
+                Spacer(Modifier.height(12.dp))
+            }
 
-            if (uiState.items.isEmpty()) {
+            if (uiState.items.isEmpty() && hostMode) {
+                HostEmptyState(Modifier.weight(1f))
+            } else if (uiState.items.isEmpty()) {
                 TaizoEmptyState(
                     sparkleBrush = sparkleBrush,
                     modifier = Modifier.weight(1f),
@@ -260,8 +282,11 @@ fun AskTaizoSheet(
                 onSendText = { viewModel.send(it) },
                 onStop = viewModel::stop,
                 onClose = onDismissRequest,
+                hostMode = hostMode,
+                startVoice = startVoice,
             )
             Spacer(Modifier.height(12.dp))
+          }
         }
     }
 }
@@ -349,6 +374,10 @@ private fun TaizoHeader(
 /** Taizo's mark: the sparkle on an expressive Sunny shape (52 dp in the header, 28 dp by answers). */
 @Composable
 internal fun TaizoShapeAvatar(size: Int) {
+    if (LocalTaizoHost.current) {
+        com.theveloper.pixelplay.presentation.screens.HostBadge(size.dp)
+        return
+    }
     ShapeBadge(
         icon = rememberVectorPainter(Icons.Rounded.AutoAwesome),
         shape = BadgeShape.Sunny,
@@ -369,8 +398,13 @@ private fun TaizoInputPills(
     onSendText: (String) -> Unit,
     onStop: () -> Unit,
     onClose: () -> Unit,
+    hostMode: Boolean = false,
+    startVoice: Boolean = false,
 ) {
     val scheme = MaterialTheme.colorScheme
+    // Host mode wears the station's colours (tertiary) and its left pill goes back to the station.
+    val pill = if (hostMode) scheme.tertiaryContainer else scheme.primaryContainer
+    val onPill = if (hostMode) scheme.onTertiaryContainer else scheme.onPrimaryContainer
     val context = LocalContext.current
     val voiceAvailable by produceState(initialValue = VoiceSearchAvailability.cached ?: false, context) {
         value = VoiceSearchAvailability.resolve(context.applicationContext)
@@ -380,11 +414,14 @@ private fun TaizoInputPills(
         val spoken = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()?.trim()
         if (!spoken.isNullOrEmpty()) latestSendText(spoken)
     }
-    val hint = stringResource(R.string.taizo_input_hint)
-    val textStyle = remember(scheme.onPrimaryContainer) {
-        TextStyle(fontFamily = GoogleSansRounded, fontSize = 15.sp, lineHeight = 20.sp, color = scheme.onPrimaryContainer)
+    val hint = stringResource(if (hostMode) R.string.host_input_hint else R.string.taizo_input_hint)
+    val textStyle = remember(onPill) {
+        TextStyle(fontFamily = GoogleSansRounded, fontSize = 15.sp, lineHeight = 20.sp, color = onPill)
     }
-    val cursor = remember(scheme.onPrimaryContainer) { SolidColor(scheme.onPrimaryContainer) }
+    val cursor = remember(onPill) { SolidColor(onPill) }
+    LaunchedEffect(startVoice, voiceAvailable) {
+        if (startVoice && voiceAvailable) runCatching { voiceLauncher.launch(VoiceSearchAvailability.intent(hint)) }
+    }
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -400,19 +437,23 @@ private fun TaizoInputPills(
                 .clickable(onClick = onClose),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(Icons.Rounded.Close, contentDescription = stringResource(R.string.common_close), tint = scheme.onSurface, modifier = Modifier.size(26.dp))
+            if (hostMode) {
+                Icon(Icons.Rounded.AllInclusive, contentDescription = stringResource(R.string.host_back_to_station), tint = scheme.onSurface, modifier = Modifier.size(28.dp))
+            } else {
+                Icon(Icons.Rounded.Close, contentDescription = stringResource(R.string.common_close), tint = scheme.onSurface, modifier = Modifier.size(26.dp))
+            }
         }
         Row(
             modifier = Modifier
                 .weight(1f)
                 .heightIn(min = 68.dp)
                 .clip(RoundedCornerShape(34.dp))
-                .background(scheme.primaryContainer)
+                .background(pill)
                 .padding(start = 16.dp, end = 11.dp, top = 11.dp, bottom = 11.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Icon(Icons.Rounded.AutoAwesome, contentDescription = null, tint = scheme.onPrimaryContainer, modifier = Modifier.size(22.dp))
+            Icon(Icons.Rounded.AutoAwesome, contentDescription = null, tint = onPill, modifier = Modifier.size(22.dp))
             BasicTextField(
                 value = input,
                 onValueChange = onInputChange,
@@ -427,7 +468,7 @@ private fun TaizoInputPills(
                 decorationBox = { inner ->
                     Box(contentAlignment = Alignment.CenterStart) {
                         if (input.isEmpty()) {
-                            Text(hint, style = textStyle, color = scheme.onPrimaryContainer.copy(alpha = 0.72f), maxLines = 1)
+                            Text(hint, style = textStyle, color = onPill.copy(alpha = 0.72f), maxLines = 1)
                         }
                         inner()
                     }
@@ -447,29 +488,37 @@ private fun TaizoInputPills(
                 modifier = Modifier
                     .size(46.dp)
                     .clip(CircleShape)
-                    .background(if (enabled) scheme.onPrimaryContainer else scheme.onPrimaryContainer.copy(alpha = 0.38f))
+                    .background(if (enabled) onPill else onPill.copy(alpha = 0.38f))
                     .clickable(enabled = enabled, onClick = action),
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(icon, contentDescription = cd, tint = scheme.primaryContainer, modifier = Modifier.size(22.dp))
+                Icon(icon, contentDescription = cd, tint = pill, modifier = Modifier.size(22.dp))
             }
         }
     }
 }
 
-/** The host's chips: one row that scrolls sideways. Each is answered on the phone, with no model call. */
+/** The host's chips: one row that scrolls sideways, outlined 40 dp chips (12 dp corners) as in AndroidAskHost. Answered on the phone. */
 @Composable
 private fun HostChips(enabled: Boolean, onChip: (HostChip) -> Unit, modifier: Modifier = Modifier) {
+    val scheme = MaterialTheme.colorScheme
+    val shape = RoundedCornerShape(12.dp)
     androidx.compose.foundation.lazy.LazyRow(
         modifier = modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         items(HOST_CHIPS, key = { it.first.name }, contentType = { "host_chip" }) { (chip, label) ->
-            SuggestionChip(
-                onClick = { onChip(chip) },
-                enabled = enabled,
-                label = { Text(stringResource(label)) },
-                colors = SuggestionChipDefaults.suggestionChipColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
+            Text(
+                text = stringResource(label),
+                style = RedesignType.Label,
+                color = if (enabled) scheme.onSurface else scheme.onSurface.copy(alpha = 0.38f),
+                maxLines = 1,
+                modifier = Modifier
+                    .height(40.dp)
+                    .clip(shape)
+                    .border(1.dp, scheme.outline, shape)
+                    .clickable(enabled = enabled) { onChip(chip) }
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
             )
         }
     }
@@ -579,7 +628,7 @@ private fun AssistantBubble(
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             TaizoShapeAvatar(size = 28)
             Text(
-                text = stringResource(R.string.taizo_name),
+                text = stringResource(if (LocalTaizoHost.current) R.string.host_name else R.string.taizo_name),
                 style = RedesignType.Label,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -925,6 +974,115 @@ internal fun TaizoOutlinedChip(text: String, onClick: () -> Unit, enabled: Boole
             color = if (enabled) scheme.onSurface else scheme.onSurface.copy(alpha = 0.38f),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+/** True inside the sheet while it is the host of Endless Listening: avatars and names become the host's. */
+internal val LocalTaizoHost = androidx.compose.runtime.staticCompositionLocalOf { false }
+
+/*
+ * Ask the host, redesign batch 3 (project/AndroidAskHost.dc.html):
+ *   header   52 dp host badge (Flower, tertiary, mic), 12 dp, "Your host" 28/34 sp w800 (wdth 125 + 75 in tertiary) over
+ *            "Endless Listening" 14/20 onSurfaceVariant; Back to station as a 48 dp / 16 dp-corner surfaceContainerHigh button.
+ *   playing  60 dp strip, 20 dp corners, surfaceContainer, 10/12 dp padding: 40 dp art on a Sunny, 12 dp, title 14/20 medium over
+ *            artist 13/18, "ON AIR" 12/16 w700 in tertiary with an 8 dp error dot, a 3 dp progress line 16 dp in, 4 dp up.
+ *   chips    outlined 40 dp, 12 dp corners. Input pills in tertiaryContainer, the left pill (infinity) goes back to the station.
+ */
+@Composable
+private fun HostHeader(onClose: () -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        com.theveloper.pixelplay.presentation.screens.HostBadge(52.dp)
+        Column(Modifier.weight(1f)) {
+            com.theveloper.pixelplay.presentation.components.redesign.TwoToneTitle(
+                wide = stringResource(R.string.host_title_a),
+                accent = stringResource(R.string.host_title_b),
+                fontSize = 28f,
+                lineHeight = 34f,
+                letterSpacing = -0.3f,
+                accentColor = scheme.tertiary,
+                maxLines = 1,
+            )
+            Text(stringResource(R.string.endless_title), style = RedesignType.Label.copy(fontWeight = FontWeight.Normal), color = scheme.onSurfaceVariant)
+        }
+        RedesignHeaderButton(
+            icon = rememberVectorPainter(Icons.Rounded.KeyboardArrowDown),
+            contentDescription = stringResource(R.string.host_back_to_station),
+            onClick = onClose,
+            containerColor = scheme.surfaceContainerHigh,
+            contentColor = scheme.onSurface,
+        )
+    }
+}
+
+@Composable
+private fun HostNowPlaying(playerViewModel: PlayerViewModel) {
+    val scheme = MaterialTheme.colorScheme
+    val song by remember(playerViewModel) {
+        playerViewModel.stablePlayerState.map { it.currentSong }.distinctUntilChanged()
+    }.collectAsStateWithLifecycle(initialValue = playerViewModel.stablePlayerState.value.currentSong)
+    val duration by remember(playerViewModel) {
+        playerViewModel.stablePlayerState.map { it.totalDuration }.distinctUntilChanged()
+    }.collectAsStateWithLifecycle(initialValue = 0L)
+    val position = playerViewModel.currentPlaybackPosition.collectAsStateWithLifecycle()
+    val current = song ?: return
+    val track = scheme.surfaceContainerHighest
+    val fill = scheme.primary
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(60.dp)
+            .clip(RoundedCornerShape(20.dp))
+            .background(scheme.surfaceContainer)
+            .drawBehind {
+                val inset = 16.dp.toPx()
+                val h = 3.dp.toPx()
+                val y = size.height - 4.dp.toPx() - h
+                val w = size.width - inset * 2
+                val f = if (duration > 0L) (position.value.toFloat() / duration).coerceIn(0f, 1f) else 0f
+                val r = androidx.compose.ui.geometry.CornerRadius(h / 2f, h / 2f)
+                drawRoundRect(track, androidx.compose.ui.geometry.Offset(inset, y), androidx.compose.ui.geometry.Size(w, h), r)
+                drawRoundRect(fill, androidx.compose.ui.geometry.Offset(inset, y), androidx.compose.ui.geometry.Size(w * f, h), r)
+            }
+            .padding(start = 10.dp, end = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        com.theveloper.pixelplay.presentation.components.SmartImage(
+            current.albumArtUriString, null, Modifier.size(40.dp),
+            shape = androidx.compose.material3.MaterialShapes.Sunny.toShape(),
+        )
+        Column(Modifier.weight(1f)) {
+            Text(current.title, style = RedesignType.Label, color = scheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(current.displayArtist, style = RedesignType.RowSubtitle, color = scheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Box(Modifier.size(8.dp).clip(CircleShape).background(scheme.error))
+            Text(
+                stringResource(R.string.endless_on_air),
+                style = RedesignType.Label.copy(fontSize = 12.sp, lineHeight = 16.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.4.sp),
+                color = scheme.tertiary,
+            )
+        }
+    }
+}
+
+@Composable
+private fun HostEmptyState(modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        com.theveloper.pixelplay.presentation.screens.HostBadge(72.dp)
+        Spacer(Modifier.height(16.dp))
+        Text(
+            text = stringResource(R.string.endless_host_sheet_hint),
+            style = RedesignType.RowTitle.copy(fontWeight = FontWeight.Normal),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            modifier = Modifier.padding(horizontal = 24.dp),
         )
     }
 }

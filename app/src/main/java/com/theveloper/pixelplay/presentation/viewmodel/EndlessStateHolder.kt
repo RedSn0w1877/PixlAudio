@@ -64,8 +64,34 @@ class EndlessStateHolder @Inject constructor(
         _hostSheetOpen.value = true
     }
 
+    /**
+     * Opens the host sheet from the station screen (redesign batch 3): [chip] is sent as soon as the sheet is up (the "quick asks"), and
+     * [voice] starts the phone's speech input right away (the mic of the "Ask the host" pill). Both are read once by the sheet.
+     */
+    fun openHostSheet(chip: HostChip?, voice: Boolean = false) {
+        pendingChip = chip
+        pendingVoice = voice
+        _hostSheetOpen.value = true
+    }
+
+    @Volatile private var pendingChip: HostChip? = null
+    @Volatile private var pendingVoice: Boolean = false
+
+    /** The chip the sheet was opened with, once. */
+    fun takePendingChip(): HostChip? = pendingChip.also { pendingChip = null }
+
+    /** True once when the sheet was opened from the mic. */
+    fun takePendingVoice(): Boolean = pendingVoice.also { pendingVoice = false }
+
+    /** The Endless station's own title while it is the queue's station (the station screen's header); null otherwise. */
+    val stationTitle: StateFlow<String?> = stations.current
+        .map { it?.takeIf { s -> s.isEndless }?.title }
+        .stateIn(scope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), null)
+
     fun closeHostSheet() {
         _hostSheetOpen.value = false
+        pendingChip = null
+        pendingVoice = false
     }
 
     /**

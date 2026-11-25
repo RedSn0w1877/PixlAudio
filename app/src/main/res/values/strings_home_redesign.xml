@@ -125,6 +125,8 @@
     <string name="home_whats_new">What\'s new</string>
     <string name="home_beta_info">About the beta</string>
     <string name="home_spatial_entry">Spatial</string>
+    <string name="home_shuffle_all_link">Shuffle all</string>
+    <string name="home_stats_link">Your stats</string>
 
     <!-- Mix page -->
     <string name="mix_tag_daily">DAILY MIX</string>
@@ -193,6 +195,10 @@
     <string name="endless_notes_on">Turn host notes off</string>
     <string name="endless_notes_off">Turn host notes on</string>
     <string name="endless_up_next_empty">Picking the next songs…</string>
+    <plurals name="endless_notes_count">
+        <item quantity="one">%d note</item>
+        <item quantity="other">%d notes</item>
+    </plurals>
     <string name="endless_seek_cd">%1$s of %2$s</string>
 
     <!-- Ask the host (Ask Taizo in host mode) -->

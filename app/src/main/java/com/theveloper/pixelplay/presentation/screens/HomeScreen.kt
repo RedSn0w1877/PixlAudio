@@ -91,8 +91,6 @@ import com.theveloper.pixelplay.presentation.components.HomeGreetingCard
 import com.theveloper.pixelplay.presentation.components.HomeDiscoveryMixes
 import com.theveloper.pixelplay.presentation.components.HomeDiscoveryShelf
 import com.theveloper.pixelplay.presentation.components.HomeAllMixes
-import com.theveloper.pixelplay.presentation.components.HomeChip
-import com.theveloper.pixelplay.presentation.components.HomeChipsRow
 import com.theveloper.pixelplay.presentation.components.HomeDateLine
 import com.theveloper.pixelplay.presentation.components.HomeHeroCard
 import com.theveloper.pixelplay.presentation.components.HomeJumpBackIn
@@ -160,17 +158,9 @@ fun HomeScreen(
     val discovery by discoveryViewModel.state.collectAsStateWithLifecycle()
     // The brain's Home plan (docs/brain-spec.md, 8.1, stage 2): read from its file before anything else; `owned` false is the legacy page.
     val planUi by discoveryViewModel.planState.collectAsStateWithLifecycle()
-    var homeChip by rememberSaveable { mutableStateOf(HomeChip.FOR_YOU) }
-    // A chip with nothing behind it is not offered, and one that was remembered (rotation, a new process) falls back to "For you".
-    val homeChips = remember(planUi.allMixes, planUi.newShelves) {
-        buildList {
-            add(HomeChip.FOR_YOU)
-            if (planUi.allMixes.isNotEmpty()) add(HomeChip.MIXES)
-            add(HomeChip.SPATIAL)
-            if (planUi.newShelves.isNotEmpty()) add(HomeChip.NEW)
-        }
-    }
-    val shownChip = if (homeChip in homeChips) homeChip else HomeChip.FOR_YOU
+    // "See all" of Mix & match (the old "Mixes" chip) and of Fresh finds (the old "New" chip).
+    var showAllMixes by rememberSaveable { mutableStateOf(false) }
+    var showNewShelves by rememberSaveable { mutableStateOf(false) }
     // Until the saved plan has been looked for, Home does not know which page it is: it draws nothing, then fades in once.
     val homeContentAlpha by androidx.compose.animation.core.animateFloatAsState(
         targetValue = if (planUi.resolved) 1f else 0f,
@@ -311,39 +301,7 @@ fun HomeScreen(
     var showChangelogBottomSheet by remember { mutableStateOf(false) }
     var showJobsBottomSheet by remember { mutableStateOf(false) }
     val activeJobs by playerViewModel.activeJobs.collectAsStateWithLifecycle()
-    val homeGreeting by playerViewModel.homeGreeting.collectAsStateWithLifecycle()
-    val homeGreetingExpandedInsight by playerViewModel.homeGreetingExpandedInsight.collectAsStateWithLifecycle()
-    val isLoadingHomeGreetingInsight by playerViewModel.isLoadingHomeGreetingInsight.collectAsStateWithLifecycle()
-    val navBarCornerRadius by playerViewModel.navBarCornerRadius.collectAsStateWithLifecycle()
-    val navBarStyle by playerViewModel.navBarStyle.collectAsStateWithLifecycle()
-    val greetingHorizontalPadding = navBarEdgeInset(navBarStyle)
-
     var showAskTaizo by remember { mutableStateOf(false) }
-    val askTaizoLabel = stringResource(R.string.home_ask_taizo)
-    val homeQuickActions = remember(navController, playerViewModel, askTaizoLabel) {
-        persistentListOf(
-            HomeQuickAction(
-                label = askTaizoLabel,
-                iconRes = R.drawable.rounded_auto_awesome_24,
-                onClick = { showAskTaizo = true }
-            ),
-            HomeQuickAction(
-                label = "Shuffle All",
-                iconRes = R.drawable.rounded_shuffle_24,
-                onClick = { playerViewModel.shuffleAllSongs(queueName = "Shuffle All") }
-            ),
-            HomeQuickAction(
-                label = "Recently Played",
-                iconRes = R.drawable.rounded_schedule_24,
-                onClick = { navController.navigateSafely(Screen.RecentlyPlayed.route) }
-            ),
-            HomeQuickAction(
-                label = "Stats",
-                iconRes = R.drawable.rounded_monitoring_24,
-                onClick = { navController.navigateSafely(Screen.Stats.route) }
-            )
-        )
-    }
     var showBetaInfoBottomSheet by remember { mutableStateOf(false) }
     val sheetState = rememberModalBottomSheetState()
     val betaSheetState = rememberModalBottomSheetState()
@@ -355,10 +313,6 @@ fun HomeScreen(
 
     val listState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
     val density = LocalDensity.current
-    val scrollThresholdPx = remember(density) { with(density) { 180.dp.toPx() } }
-    val isScrolledPastThreshold = remember {
-        derivedStateOf { listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > scrollThresholdPx }
-    }
 
     // Persist the scroll position across navigation away/back. The Stats card and other
     // conditional sections can shift indices while data re-emits when returning, which
@@ -394,10 +348,133 @@ fun HomeScreen(
         needsScrollRestore = false
     }
 
-    val homeAmbientMotionEnabled = rememberNotCoveredByPlayer(playerViewModel)
+    // ---- Redesign batch 3 (Main.dc.html / AndroidHomeScrolled.dc.html): see components/redesign/HomeRedesign.kt for the numbers. ----
+    val weekOverview = homeStatsOverview?.takeIf { it.range == com.theveloper.pixelplay.data.stats.StatsTimeRange.WEEK }
+    val topSong = weekOverview?.topSongs?.firstOrNull()
+    val greetingWords = com.theveloper.pixelplay.presentation.components.redesign.rememberHomeGreeting(
+        weekPlays = weekOverview?.totalPlayCount,
+        topSong = topSong?.title,
+        topSongPlays = topSong?.playCount ?: 0,
+    )
+    val sectionTitles = com.theveloper.pixelplay.presentation.components.redesign.rememberHomeSectionTitles()
+    val showCollapsedHeader by remember { derivedStateOf { listState.firstVisibleItemIndex > 0 } }
+    val collapsedAlpha by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (showCollapsedHeader) 1f else 0f,
+        animationSpec = androidx.compose.animation.core.spring(stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow),
+        label = "homeCollapsedHeader",
+    )
+    val dailyMixTitle = stringResource(R.string.daily_mix_title)
+    val yourMixQueueName = stringResource(R.string.home_your_mix_queue_name)
 
-    // Drawer state for sidebar
-    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+    // Every made-for-you card except Your Mix (the hero) and Endless Listening (its own pill), in the plan's order.
+    val planMixCards = remember(planUi.shelves, planUi.allMixes) {
+        val seen = HashSet<String>()
+        val out = ArrayList<com.theveloper.pixelplay.presentation.viewmodel.MixCardUi>()
+        planUi.shelves.forEach { shelf ->
+            if (shelf is com.theveloper.pixelplay.presentation.viewmodel.HomeShelfUi.Mixes) shelf.cards.forEach { if (seen.add(it.mixId)) out.add(it) }
+        }
+        planUi.allMixes.forEach { if (seen.add(it.mixId)) out.add(it) }
+        out.filter { it.mixId != "your" && it.kind != com.theveloper.pixelplay.data.brain.MixKinds.ENDLESS }
+    }
+    val hasPlanYourMix = remember(planUi.shelves, planUi.allMixes) {
+        planUi.allMixes.any { it.mixId == "your" } || planUi.shelves.any { shelf ->
+            shelf is com.theveloper.pixelplay.presentation.viewmodel.HomeShelfUi.Mixes && shelf.cards.any { it.mixId == "your" }
+        }
+    }
+    val legacyDailyArtists = remember(dailyMixSongs) {
+        dailyMixSongs.asSequence().map { it.displayArtist }.filter { it.isNotBlank() }.distinct().take(3).joinToString(", ")
+    }
+    val mixTiles = remember(planMixCards, planUi.owned, dailyMixSongs.isEmpty(), legacyDailyArtists, dailyMixTitle) {
+        if (planUi.owned || planMixCards.isNotEmpty()) {
+            planMixCards.map { com.theveloper.pixelplay.presentation.components.redesign.HomeMixTile(it.mixId, it.title, it.subtitle) }
+        } else if (dailyMixSongs.isNotEmpty()) {
+            listOf(com.theveloper.pixelplay.presentation.components.redesign.HomeMixTile("daily", dailyMixTitle, legacyDailyArtists))
+        } else {
+            emptyList()
+        }
+    }
+    val openMixTile: (com.theveloper.pixelplay.presentation.components.redesign.HomeMixTile) -> Unit = { tile ->
+        val card = planMixCards.firstOrNull { it.mixId == tile.key }
+        if (card != null) {
+            discoveryViewModel.onShelfActivated("made_for_you")
+            openMix(navController, card)
+        } else {
+            openMixById(navController, tile.key)
+        }
+    }
+
+    // "Rewind, replay": the places played from (the plan's tiles), or the last songs when there are none.
+    val rewindTiles = remember(planUi.tiles, recentlyPlayedSongs) {
+        if (planUi.tiles.isNotEmpty()) {
+            planUi.tiles.map { com.theveloper.pixelplay.presentation.components.redesign.HomeRewindTile(it.key, it.title, it.art) }
+        } else {
+            recentlyPlayedSongs.take(6).map {
+                com.theveloper.pixelplay.presentation.components.redesign.HomeRewindTile("song:" + it.song.id, it.song.title, it.song.albumArtUriString)
+            }
+        }
+    }
+    val onRewindTile: (com.theveloper.pixelplay.presentation.components.redesign.HomeRewindTile) -> Unit = { tile ->
+        val planTile = planUi.tiles.firstOrNull { it.key == tile.key }
+        if (planTile != null) {
+            if (planTile.mixId.isNotEmpty()) openMixById(navController, planTile.mixId)
+            else discoveryViewModel.playTile(planTile) { songs, start -> playerViewModel.showAndPlaySong(start, songs, planTile.title) }
+        } else {
+            val song = recentlyPlayedQueue.firstOrNull { "song:" + it.id == tile.key }
+            if (song != null) playerViewModel.playSongs(songsToPlay = recentlyPlayedQueue, startSong = song, queueName = "Recently Played")
+        }
+    }
+
+    // "Fresh finds" is the first track shelf; the others follow it in the same style.
+    val trackShelves = remember(planUi.owned, planUi.shelves, discovery.shelves) {
+        if (planUi.owned) {
+            planUi.shelves.filterIsInstance<com.theveloper.pixelplay.presentation.viewmodel.HomeShelfUi.Tracks>().map { it.section }
+        } else {
+            discovery.shelves
+        }
+    }
+    val stationShelves = remember(planUi.owned, planUi.shelves) {
+        if (planUi.owned) planUi.shelves.filterIsInstance<com.theveloper.pixelplay.presentation.viewmodel.HomeShelfUi.Stations>() else emptyList()
+    }
+    val playTrackShelf: (com.theveloper.pixelplay.data.recommendation.HomeMusicSection, Song) -> Unit = { section, song ->
+        if (planUi.owned) {
+            discoveryViewModel.playPlanShelf(section, song) { songs, start -> playerViewModel.showAndPlaySong(start, songs, section.title) }
+        } else {
+            discoveryViewModel.play(section, song) { songs, start -> playerViewModel.showAndPlaySong(start, songs, section.title) }
+        }
+    }
+    val openEndless: () -> Unit = {
+        discoveryViewModel.onShelfActivated("made_for_you")
+        scope.launch {
+            // First open shows the introduction; every other starts (or picks up) the station and opens it.
+            if (playerViewModel.brainSession.endless.isIntroSeen()) {
+                if (!playerViewModel.brainSession.endless.active.value) playerViewModel.startEndlessListening()
+                navController.navigateSafely(Screen.EndlessStation.route)
+            } else {
+                navController.navigateSafely(Screen.EndlessIntro.route)
+            }
+        }
+    }
+    val playYourMix: (() -> Unit)? = if (yourMixSongs.isEmpty()) null else {
+        {
+            playerViewModel.expectMixPlay(yourMixQueueName, isYourMix = true)
+            if (usesFallbackHomeMix) playerViewModel.shuffleAllSongs(queueName = yourMixQueueName)
+            else playerViewModel.showAndPlaySong(yourMixSongs.first(), yourMixSongs, yourMixQueueName)
+        }
+    }
+    val footerLinks = listOf(
+        com.theveloper.pixelplay.presentation.components.redesign.HomeFooterLink(stringResource(R.string.home_spatial_entry)) {
+            navController.navigateSafely(Screen.CloudProcessing.route)
+        },
+        com.theveloper.pixelplay.presentation.components.redesign.HomeFooterLink(stringResource(R.string.home_shuffle_all_link)) {
+            playerViewModel.shuffleAllSongs(queueName = "Shuffle All")
+        },
+        com.theveloper.pixelplay.presentation.components.redesign.HomeFooterLink(stringResource(R.string.home_stats_link)) {
+            navController.navigateSafely(Screen.Stats.route)
+        },
+        com.theveloper.pixelplay.presentation.components.redesign.HomeFooterLink(stringResource(R.string.home_whats_new)) { showChangelogBottomSheet = true },
+        com.theveloper.pixelplay.presentation.components.redesign.HomeFooterLink(stringResource(R.string.home_beta_info)) { showBetaInfoBottomSheet = true },
+    )
+    val openSettings: () -> Unit = { navController.navigateSafely(Screen.Settings.route) }
 
     Box(
         modifier = Modifier.fillMaxSize()
@@ -405,90 +482,38 @@ fun HomeScreen(
         Scaffold(
             snackbarHost = { SnackbarHost(discoverySnackbar) },
             modifier = Modifier.fillMaxSize(),
-            topBar = {
-                HomeGradientTopBar(
-                    onNavigationIconClick = {
-                        navController.navigateSafely(Screen.Settings.route)
-                    },
-                    onMoreOptionsClick = {
-                        showChangelogBottomSheet = true
-                    },
-                    onBetaClick = {
-                        showBetaInfoBottomSheet = true
-                    },
-                    onMenuClick = {
-                        // onOpenSidebar() // Disabled
-                    },
-                    isScrolled = isScrolledPastThreshold.value,
-                    activeJobCount = activeJobs.size,
-                    onJobsClick = { showJobsBottomSheet = true }
-                )
-            }
-        ) { innerPadding ->
+            contentWindowInsets = androidx.compose.foundation.layout.WindowInsets(0, 0, 0, 0),
+        ) { _ ->
             LazyColumn(
                 state = listState,
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.background)
+                    .background(MaterialTheme.colorScheme.surface)
                     .graphicsLayer { alpha = homeContentAlpha },
                 contentPadding = PaddingValues(
-                    top = innerPadding.calculateTopPadding(),
-                    bottom = paddingValuesParent.calculateBottomPadding()
-                            + 38.dp + bottomPadding
+                    bottom = paddingValuesParent.calculateBottomPadding() + 38.dp + bottomPadding
                 ),
-                verticalArrangement = Arrangement.spacedBy(24.dp)
+                verticalArrangement = Arrangement.spacedBy(20.dp)
             ) {
-                if (planUi.owned && planUi.dateLine.isNotBlank()) {
-                    item(key = "home_date_line", contentType = "home_date_line") { HomeDateLine(planUi.dateLine) }
-                }
-                item(
-                    key = "home_greeting",
-                    contentType = "home_greeting"
-                ) {
-                    HomeGreetingCard(
-                        greeting = homeGreeting,
-                        ambientMotionEnabled = homeAmbientMotionEnabled,
-                        cornerRadius = navBarCornerRadius.dp,
-                        expandedInsight = homeGreetingExpandedInsight,
-                        isLoadingInsight = isLoadingHomeGreetingInsight,
-                        onToggleExpanded = {
-                            if (homeGreetingExpandedInsight != null || isLoadingHomeGreetingInsight) {
-                                playerViewModel.collapseHomeGreetingInsight()
-                            } else {
-                                playerViewModel.expandHomeGreetingInsight()
-                            }
-                        },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = greetingHorizontalPadding)
-                    )
-                }
-
-                item(
-                    key = "home_quick_actions",
-                    contentType = "home_quick_actions"
-                ) {
-                    HomeQuickActionsRow(
-                        actions = homeQuickActions,
-                        modifier = Modifier.fillMaxWidth()
+                item(key = "home_header", contentType = "home_header") {
+                    com.theveloper.pixelplay.presentation.components.redesign.HomeRedesignHeader(
+                        words = greetingWords,
+                        onAskTaizo = { showAskTaizo = true },
+                        onSettings = openSettings,
+                        jobCount = activeJobs.size,
+                        onJobs = { showJobsBottomSheet = true },
                     )
                 }
 
                 if (showListeningHistoryCard) {
-                    item(
-                        key = "home_listening_history_card",
-                        contentType = "home_listening_history_card"
-                    ) {
+                    item(key = "home_listening_history_card", contentType = "home_listening_history_card") {
                         HomeListeningHistoryCard(
                             onImport = { navController.navigateSafely(Screen.ListeningHistory.route) },
                             onDismiss = listeningHistoryViewModel::dismissHomeCard,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = greetingHorizontalPadding)
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
                         )
                     }
                 }
-
                 // 8.10: while the first radios are fetched, Home says so; it never shows a spinner or an empty state for it.
                 if (planUi.knowingTotal > 0) {
                     item(key = "home_knowing", contentType = "home_knowing") { HomeKnowingStrip(planUi.knowingDone, planUi.knowingTotal) }
@@ -497,58 +522,145 @@ fun HomeScreen(
                     item(key = "home_artist_picker", contentType = "home_artist_picker") {
                         HomeArtistPickerCard(
                             onPick = { navController.navigateSafely(Screen.ArtistPicker.route) },
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = greetingHorizontalPadding),
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                         )
                     }
                 }
-                if (planUi.owned) {
-                    item(key = "home_chips", contentType = "home_chips") {
-                        HomeChipsRow(
-                            chips = homeChips,
-                            selected = shownChip,
-                            onSelect = { chip ->
-                                if (chip == HomeChip.SPATIAL) navController.navigateSafely(Screen.CloudProcessing.route) else homeChip = chip
-                            },
+
+                // Your mix: the day's hero card. Without one (and no plan) the old loading / empty states keep their place.
+                if (yourMixSongs.isNotEmpty() || hasPlanYourMix) {
+                    item(key = "home_your_mix_hero", contentType = "home_your_mix_hero") {
+                        com.theveloper.pixelplay.presentation.components.redesign.HomeYourMixHero(
+                            onOpen = { navController.navigateSafely(Screen.YourMixScreen.route) },
+                            onPlay = playYourMix,
                         )
                     }
-                }
-                if (planUi.owned || planUi.tiles.isNotEmpty()) {
-                    homePlanItems(
-                        planUi = planUi,
-                        chip = shownChip,
-                        currentSongId = currentSong?.id,
-                        onOpenMix = { card ->
-                            discoveryViewModel.onShelfActivated("made_for_you")
-                            if (card.kind == com.theveloper.pixelplay.data.brain.MixKinds.ENDLESS) {
-                                // Endless Listening is a station: its first open shows the introduction, every other starts or picks it up.
-                                scope.launch {
-                                    if (playerViewModel.brainSession.endless.isIntroSeen()) playerViewModel.startEndlessListening()
-                                    else navController.navigateSafely(Screen.EndlessIntro.route)
+                } else if (!planUi.owned) {
+                    item(key = "your_mix_placeholder", contentType = "your_mix_placeholder") {
+                        if (shouldShowYourMixLoadingPlaceholder) {
+                            YourMixLoadingPlaceholder()
+                        } else {
+                            YourMixEmptyPlaceholder(
+                                onRefresh = {
+                                    homePlaceholderRefreshGeneration++
+                                    discoveryViewModel.refreshLibrary()
+                                    playerViewModel.forceUpdateDailyMix()
                                 }
+                            )
+                        }
+                    }
+                }
+
+                item(key = "home_endless_entry", contentType = "home_endless_entry") {
+                    com.theveloper.pixelplay.presentation.components.redesign.HomeEndlessEntry(
+                        onClick = openEndless,
+                        onLongClick = { navController.navigateSafely(Screen.EndlessIntro.route) },
+                    )
+                }
+
+                if (mixTiles.isNotEmpty()) {
+                    item(key = "home_mixes", contentType = "home_mixes") {
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            com.theveloper.pixelplay.presentation.components.redesign.HomeSectionHeader(
+                                wide = sectionTitles.mixesA,
+                                accent = sectionTitles.mixesB,
+                                actionLabel = if (mixTiles.size > 2) stringResource(if (showAllMixes) R.string.home_show_less else R.string.home_see_all) else null,
+                                onAction = { showAllMixes = !showAllMixes },
+                            )
+                            if (showAllMixes) {
+                                com.theveloper.pixelplay.presentation.components.redesign.HomeMixGrid(mixTiles, openMixTile)
                             } else {
-                                openMix(navController, card)
+                                com.theveloper.pixelplay.presentation.components.redesign.HomeMixShelfRow(mixTiles, openMixTile)
                             }
-                        },
-                        onEndlessHowItWorks = { navController.navigateSafely(Screen.EndlessIntro.route) },
-                        onStartStation = { card ->
-                            discoveryViewModel.onShelfActivated("stations")
-                            playerViewModel.startGenreStation(card.kind, card.atlasId, card.name)
-                        },
-                        onShelfSeen = { id -> discoveryViewModel.onShelfSeen(id) },
-                        onPlayShelf = { section, song ->
-                            discoveryViewModel.playPlanShelf(section, song) { songs, start -> playerViewModel.showAndPlaySong(start, songs, section.title) }
-                        },
-                        onHero = { hero ->
+                        }
+                    }
+                }
+
+                planUi.hero?.let { hero ->
+                    item(key = "home_hero", contentType = "home_hero") {
+                        HomeHeroCard(hero, onClick = {
                             val song = hero.song
                             if (song != null) discoveryViewModel.playHeroRelease(song) { songs, start -> playerViewModel.showAndPlaySong(start, songs, hero.title) }
                             else openMixById(navController, hero.mixId)
-                        },
-                        onTile = { tile ->
-                            if (tile.mixId.isNotEmpty()) openMixById(navController, tile.mixId)
-                            else discoveryViewModel.playTile(tile) { songs, start -> playerViewModel.showAndPlaySong(start, songs, tile.title) }
-                        },
-                    )
+                        })
+                    }
                 }
+
+                if (rewindTiles.isNotEmpty()) {
+                    item(key = "home_rewind", contentType = "home_rewind") {
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            com.theveloper.pixelplay.presentation.components.redesign.HomeSectionHeader(
+                                wide = sectionTitles.recentA,
+                                accent = sectionTitles.recentB,
+                                actionLabel = if (recentlyPlayedSongs.isNotEmpty()) stringResource(R.string.home_see_all) else null,
+                                onAction = { navController.navigateSafely(Screen.RecentlyPlayed.route) },
+                            )
+                            com.theveloper.pixelplay.presentation.components.redesign.HomeRewindGrid(rewindTiles, onRewindTile)
+                        }
+                    }
+                }
+
+                trackShelves.forEachIndexed { index, section ->
+                    item(key = "home_tracks_${section.id}", contentType = "home_tracks") {
+                        // On screen for a second counts as seen (the shelf bandit, 5.10); the effect leaves with the item.
+                        if (planUi.owned) {
+                            LaunchedEffect(section.id) {
+                                delay(1_000L)
+                                discoveryViewModel.onShelfSeen(section.id)
+                            }
+                        }
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            if (index == 0) {
+                                com.theveloper.pixelplay.presentation.components.redesign.HomeSectionHeader(
+                                    wide = sectionTitles.freshA,
+                                    accent = sectionTitles.freshB,
+                                    subtitle = stringResource(R.string.home_fresh_subtitle),
+                                    actionLabel = if (planUi.newShelves.isNotEmpty()) stringResource(if (showNewShelves) R.string.home_show_less else R.string.home_see_all) else null,
+                                    onAction = { showNewShelves = !showNewShelves },
+                                )
+                            } else {
+                                com.theveloper.pixelplay.presentation.components.redesign.HomeSectionHeader(
+                                    wide = section.title,
+                                    accent = "",
+                                    subtitle = section.subtitle,
+                                )
+                            }
+                            com.theveloper.pixelplay.presentation.components.redesign.HomeFreshRow(section.songs, onPlay = { song -> playTrackShelf(section, song) })
+                        }
+                    }
+                    if (index == 0 && showNewShelves) {
+                        planUi.newShelves.forEach { shelf ->
+                            item(key = "home_new_${shelf.id}", contentType = "home_new_shelf") {
+                                when (shelf) {
+                                    is com.theveloper.pixelplay.presentation.viewmodel.HomeShelfUi.Tracks ->
+                                        HomeDiscoveryShelf(section = shelf.section, currentSongId = currentSong?.id, preparingSection = null, onPlay = playTrackShelf)
+                                    is com.theveloper.pixelplay.presentation.viewmodel.HomeShelfUi.Mixes -> HomeMixShelf(shelf, { card ->
+                                        discoveryViewModel.onShelfActivated("made_for_you")
+                                        openMix(navController, card)
+                                    })
+                                    is com.theveloper.pixelplay.presentation.viewmodel.HomeShelfUi.Stations -> HomeStationShelf(shelf, { card ->
+                                        discoveryViewModel.onShelfActivated("stations")
+                                        playerViewModel.startGenreStation(card.kind, card.atlasId, card.name)
+                                    })
+                                }
+                            }
+                        }
+                    }
+                }
+
+                stationShelves.forEach { shelf ->
+                    item(key = "home_plan_${shelf.id}", contentType = "home_plan_stations") {
+                        LaunchedEffect(shelf.id) {
+                            delay(1_000L)
+                            discoveryViewModel.onShelfSeen(shelf.id)
+                        }
+                        HomeStationShelf(shelf, { card ->
+                            discoveryViewModel.onShelfActivated("stations")
+                            playerViewModel.startGenreStation(card.kind, card.atlasId, card.name)
+                        })
+                    }
+                }
+
                 if (!planUi.owned && discovery.mixes.isNotEmpty()) {
                     item(key = "home_adaptive_mixes", contentType = "home_adaptive_mixes") {
                         HomeDiscoveryMixes(
@@ -565,94 +677,8 @@ fun HomeScreen(
                     }
                 }
 
-                if (planUi.owned) {
-                    // The plan's "Made for you" shelf holds Your Mix: the legacy block, its placeholders included, is not drawn.
-                } else if (yourMixSongs.isEmpty()) {
-                    item(
-                        key = "your_mix_placeholder",
-                        contentType = "your_mix_placeholder"
-                    ) {
-                        if (shouldShowYourMixLoadingPlaceholder) {
-                            YourMixLoadingPlaceholder()
-                        } else {
-                            YourMixEmptyPlaceholder(
-                                onRefresh = {
-                                    homePlaceholderRefreshGeneration++
-                                    discoveryViewModel.refreshLibrary()
-                                    playerViewModel.forceUpdateDailyMix()
-                                }
-                            )
-                        }
-                    }
-                } else {
-                    item(
-                        key = "your_mix_shelf",
-                        contentType = "your_mix_shelf"
-                    ) {
-                        YourMixShelfSection(
-                            songs = yourMixSongs,
-                            playerViewModel = playerViewModel,
-                            isShuffleEnabled = isShuffleEnabled,
-                            onPlayShuffled = {
-                                if (usesFallbackHomeMix) {
-                                    playerViewModel.shuffleAllSongs(queueName = "Your Mix")
-                                } else {
-                                    playerViewModel.playSongsShuffled(
-                                        songsToPlay = yourMixSongs,
-                                        queueName = "Your Mix",
-                                        startAtZero = true,
-                                    )
-                                }
-                            },
-                            onSongClick = { song ->
-                                if (usesFallbackHomeMix) {
-                                    playerViewModel.showAndPlaySongFromLibrary(song, queueName = "Your Mix")
-                                } else {
-                                    playerViewModel.showAndPlaySong(song, yourMixSongs, "Your Mix")
-                                }
-                            },
-                            onCheckOutMix = { navController.navigateSafely(Screen.YourMixScreen.route) },
-                            onNavigateToAlbum = { song ->
-                                navController.navigateSafelyReplacing(
-                                    route = Screen.AlbumDetail.createRoute(song.albumId),
-                                    patternToPop = Screen.AlbumDetail.route
-                                )
-                            },
-                            onNavigateToArtist = { song ->
-                                navController.navigateSafelyReplacing(
-                                    route = Screen.ArtistDetail.createRoute(song.artistId),
-                                    patternToPop = Screen.ArtistDetail.route
-                                )
-                            },
-                            onNavigateToGenre = { song ->
-                                song.genre?.let {
-                                    navController.navigateSafely(Screen.GenreDetail.createRoute(java.net.URLEncoder.encode(it, "UTF-8")))
-                                }
-                            }
-                        )
-                    }
-                }
-
-                (if (planUi.owned) emptyList() else discovery.shelves).forEach { section ->
-                    item(key = "home_discovery_${section.id}", contentType = "home_discovery_shelf") {
-                        HomeDiscoveryShelf(
-                            section = section,
-                            currentSongId = currentSong?.id,
-                            preparingSection = discovery.preparingSection,
-                            onPlay = { selectedSection, song ->
-                                discoveryViewModel.play(selectedSection, song) { songs, start ->
-                                    playerViewModel.showAndPlaySong(start, songs, selectedSection.title)
-                                }
-                            }
-                        )
-                    }
-                }
-
                 if (homeMixPreviewSongs.isNotEmpty()) {
-                    item(
-                        key = "recently_added_section",
-                        contentType = "recently_added_section"
-                    ) {
+                    item(key = "recently_added_section", contentType = "recently_added_section") {
                         RecentlyAddedSection(
                             songs = homeMixPreviewSongs,
                             onSongClick = { song ->
@@ -662,44 +688,37 @@ fun HomeScreen(
                     }
                 }
 
-                if (recentlyPlayedSongs.size >= RecentlyPlayedSectionMinSongsToShow) {
-                    item(
-                        key = "recently_played_section",
-                        contentType = "recently_played_section"
-                    ) {
-                        RecentlyPlayedSection(
-                            songs = recentlyPlayedSongs,
-                            onSongClick = { song ->
-                                if (recentlyPlayedQueue.isNotEmpty()) {
-                                    playerViewModel.playSongs(
-                                        songsToPlay = recentlyPlayedQueue,
-                                        startSong = song,
-                                        queueName = "Recently Played"
-                                    )
-                                }
-                            },
-                            onOpenAllClick = {
-                                navController.navigateSafely(Screen.RecentlyPlayed.route)
-                            },
-                            themeStateHolder = playerViewModel.themeStateHolder,
-                            currentSongId = currentSong?.id,
-                            contentPadding = PaddingValues(start = 8.dp, end = 24.dp)
-                        )
-                    }
+                item(key = "home_ask_taizo_card", contentType = "home_ask_taizo_card") {
+                    com.theveloper.pixelplay.presentation.components.redesign.HomeAskTaizoCard(
+                        exampleSong = topSong?.title ?: currentSong?.title,
+                        onClick = { showAskTaizo = true },
+                    )
                 }
 
                 if (homeStatsOverview != null) {
-                    item(
-                        key = "listening_stats_preview",
-                        contentType = "listening_stats_preview"
-                    ) {
+                    item(key = "listening_stats_preview", contentType = "listening_stats_preview") {
                         StatsOverviewCard(
                             summary = homeStatsOverview,
                             onClick = { navController.navigateSafely(Screen.Stats.route) }
                         )
                     }
                 }
+
+                item(key = "home_footer_links", contentType = "home_footer_links") {
+                    com.theveloper.pixelplay.presentation.components.redesign.HomeFooterLinks(footerLinks)
+                }
             }
+        }
+        if (collapsedAlpha > 0.01f) {
+            com.theveloper.pixelplay.presentation.components.redesign.HomeCollapsedHeader(
+                words = greetingWords,
+                alpha = { collapsedAlpha },
+                onAskTaizo = { showAskTaizo = true },
+                onSettings = openSettings,
+                jobCount = activeJobs.size,
+                onJobs = { showJobsBottomSheet = true },
+                modifier = Modifier.align(Alignment.TopCenter),
+            )
         }
         Box(
             modifier = Modifier
@@ -716,9 +735,7 @@ fun HomeScreen(
                         )
                     )
                 )
-        ) {
-
-        }
+        )
     }
     if (showChangelogBottomSheet) {
         AdaptiveModalBottomSheet(
@@ -991,62 +1008,6 @@ private fun openMixById(navController: NavController, mixId: String) {
         mixId == "your" -> navController.navigateSafely(Screen.YourMixScreen.route)
         mixId == "daily" -> navController.navigateSafely(Screen.DailyMixScreen.route)
         else -> navController.navigateSafely(Screen.MixDetail.createRoute(mixId))
-    }
-}
-
-/**
- * The new Home's rows (8.1): the hero, Jump back in, then the shelves of the plan in the plan's order; the chips pick what shows. Every
- * item is keyed. Without a plan only Jump back in is drawn, and the library rows below it carry the page.
- */
-private fun androidx.compose.foundation.lazy.LazyListScope.homePlanItems(
-    planUi: com.theveloper.pixelplay.presentation.viewmodel.HomePlanUi,
-    chip: HomeChip,
-    currentSongId: String?,
-    onOpenMix: (com.theveloper.pixelplay.presentation.viewmodel.MixCardUi) -> Unit,
-    onEndlessHowItWorks: () -> Unit,
-    onStartStation: (com.theveloper.pixelplay.presentation.viewmodel.StationCardUi) -> Unit,
-    onPlayShelf: (com.theveloper.pixelplay.data.recommendation.HomeMusicSection, Song) -> Unit,
-    onHero: (com.theveloper.pixelplay.presentation.viewmodel.HeroUi) -> Unit,
-    onTile: (com.theveloper.pixelplay.presentation.viewmodel.TileUi) -> Unit,
-    onShelfSeen: (String) -> Unit = {},
-) {
-    fun shelves(list: List<com.theveloper.pixelplay.presentation.viewmodel.HomeShelfUi>) {
-        for (shelf in list) {
-            item(key = "home_plan_${shelf.id}", contentType = when (shelf) {
-                is com.theveloper.pixelplay.presentation.viewmodel.HomeShelfUi.Tracks -> "home_discovery_shelf"
-                is com.theveloper.pixelplay.presentation.viewmodel.HomeShelfUi.Mixes -> "home_plan_mixes"
-                is com.theveloper.pixelplay.presentation.viewmodel.HomeShelfUi.Stations -> "home_plan_stations"
-            }) {
-                // On screen for a second counts as seen (the shelf bandit, 5.10); the effect leaves with the item, so a shelf scrolled past does not.
-                androidx.compose.runtime.LaunchedEffect(shelf.id) {
-                    kotlinx.coroutines.delay(1_000L)
-                    onShelfSeen(shelf.id)
-                }
-                when (shelf) {
-                    is com.theveloper.pixelplay.presentation.viewmodel.HomeShelfUi.Tracks ->
-                        HomeDiscoveryShelf(section = shelf.section, currentSongId = currentSongId, preparingSection = null, onPlay = onPlayShelf)
-                    is com.theveloper.pixelplay.presentation.viewmodel.HomeShelfUi.Mixes -> HomeMixShelf(shelf, onOpenMix, onEndlessHowItWorks = onEndlessHowItWorks)
-                    is com.theveloper.pixelplay.presentation.viewmodel.HomeShelfUi.Stations -> HomeStationShelf(shelf, onStartStation)
-                }
-            }
-        }
-    }
-    if (!planUi.owned) {
-        item(key = "home_jump_back_in", contentType = "home_jump_back_in") { HomeJumpBackIn(planUi.tiles, onTile) }
-        return
-    }
-    when (chip) {
-        HomeChip.MIXES -> {
-            item(key = "home_all_mixes", contentType = "home_all_mixes") { HomeAllMixes(planUi.allMixes, onOpenMix) }
-        }
-        HomeChip.NEW -> shelves(planUi.newShelves)
-        else -> {
-            planUi.hero?.let { hero ->
-                item(key = "home_hero", contentType = "home_hero") { HomeHeroCard(hero, onClick = { onHero(hero) }) }
-            }
-            item(key = "home_jump_back_in", contentType = "home_jump_back_in") { HomeJumpBackIn(planUi.tiles, onTile) }
-            shelves(planUi.shelves)
-        }
     }
 }
 

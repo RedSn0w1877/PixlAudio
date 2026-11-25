@@ -57,6 +57,8 @@ sealed class Screen(val route: String) {
     /** Your sound (stage 3, docs/brain-spec.md 8.6). */
     object YourSound : Screen("your_sound")
     object EndlessIntro : Screen("endless_intro")
+    /** The Endless Listening station screen (redesign batch 3): now playing, host notes, ask the host. */
+    object EndlessStation : Screen("endless_station")
 
     /** A genre page built from the atlas alone (stage 3, 8.7). */
     object GenrePage : Screen("genre_page/{atlasId}") {

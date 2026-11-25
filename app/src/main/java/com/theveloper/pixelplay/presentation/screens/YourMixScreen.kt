@@ -137,6 +137,7 @@ fun YourMixScreen(
     val lazyListState = rememberAppListState()
 
     var showSongInfoSheet by remember { mutableStateOf(false) }
+    var showSaveMixSheet by remember { mutableStateOf(false) }
 
     val surfaceContainer = MaterialTheme.colorScheme.surface
     val headerColor = MaterialTheme.colorScheme.primary
@@ -225,7 +226,7 @@ fun YourMixScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(backgroundBrush)
+            .background(MaterialTheme.colorScheme.surface)
     ) {
         if (yourMixSongs.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -238,77 +239,32 @@ fun YourMixScreen(
                 contentPadding = PaddingValues(bottom = MiniPlayerHeight + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                item(key = "your_mix_header") {
-                    ExpressiveYourMixHeader(songs = yourMixSongs, scrollState = lazyListState)
-                }
-
-                item(key = "play_shuffle_buttons") {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(76.dp)
-                            .padding(horizontal = 20.dp, vertical = 8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Button(
-                            onClick = {
-                                if (yourMixSongs.isNotEmpty()) {
-                                    playSong(yourMixSongs.first())
-                                    if (isShuffleEnabled) playerViewModel.toggleShuffle()
+                item(key = "your_mix_header", contentType = "mix_hero") {
+                    MixPageHero(
+                        tone = MixPageTone.Primary,
+                        tag = stringResource(R.string.mix_tag_your),
+                        title = stringResource(R.string.home_your_mix_name),
+                        meta = mixMetaLine(yourMixSongs),
+                        why = mixWhyLine(null, yourMixSongs.size, yourMixSongs.count { it.id in mixNovelSongIds }),
+                        onRemix = { if (!isRegeneratingYourMix) playerViewModel.regenerateYourMix() },
+                        remixBusy = isRegeneratingYourMix,
+                        onShuffle = {
+                            if (yourMixSongs.isNotEmpty()) {
+                                if (usesFallbackHomeMix) {
+                                    playerViewModel.shuffleAllSongs(queueName = yourMixTitle)
+                                } else {
+                                    playerViewModel.expectMixPlay(yourMixTitle, isYourMix = true)
+                                    playerViewModel.playSongsShuffled(songsToPlay = yourMixSongs, queueName = yourMixTitle, startAtZero = true)
                                 }
-                            },
-                            modifier = Modifier.weight(1f).height(76.dp),
-                            enabled = yourMixSongs.isNotEmpty(),
-                            shape = RoundedCornerShape(
-                                topStart = 60.dp, topEnd = 14.dp,
-                                bottomStart = 60.dp, bottomEnd = 14.dp
-                            ),
-                            contentPadding = PaddingValues(horizontal = 10.dp),
-                        ) {
-                            Icon(Icons.Rounded.PlayArrow, contentDescription = stringResource(R.string.common_play), modifier = Modifier.size(ButtonDefaults.IconSize))
-                            Spacer(Modifier.size(ButtonDefaults.IconSpacing))
-                            TightWrapText(
-                                text = playItLabel,
-                                modifier = Modifier.padding(end = 4.dp),
-                                overflow = TextOverflow.Ellipsis,
-                                maxLines = 2,
-                                lineHeight = 20.sp
-                            )
-                        }
-                        FilledTonalButton(
-                            onClick = {
-                                if (yourMixSongs.isNotEmpty()) {
-                                    if (usesFallbackHomeMix) {
-                                        playerViewModel.shuffleAllSongs(queueName = yourMixTitle)
-                                    } else {
-                                        playerViewModel.expectMixPlay(yourMixTitle, isYourMix = true)
-                                        playerViewModel.playSongsShuffled(
-                                            songsToPlay = yourMixSongs,
-                                            queueName = yourMixTitle,
-                                            startAtZero = true,
-                                        )
-                                    }
-                                }
-                            },
-                            modifier = Modifier.weight(1f).height(76.dp),
-                            enabled = yourMixSongs.isNotEmpty(),
-                            shape = RoundedCornerShape(
-                                topStart = 14.dp, topEnd = 60.dp,
-                                bottomStart = 14.dp, bottomEnd = 60.dp
-                            ),
-                            contentPadding = PaddingValues(horizontal = 10.dp),
-                        ) {
-                            Icon(Icons.Rounded.Shuffle, contentDescription = shuffleLabel, modifier = Modifier.size(ButtonDefaults.IconSize))
-                            Spacer(Modifier.size(ButtonDefaults.IconSpacing))
-                            TightWrapText(
-                                text = shuffleLabel,
-                                modifier = Modifier.padding(end = 4.dp),
-                                overflow = TextOverflow.Ellipsis,
-                                maxLines = 2,
-                                lineHeight = 20.sp
-                            )
-                        }
-                    }
+                            }
+                        },
+                        onPlay = {
+                            if (yourMixSongs.isNotEmpty()) {
+                                playSong(yourMixSongs.first())
+                                if (isShuffleEnabled) playerViewModel.toggleShuffle()
+                            }
+                        },
+                    )
                 }
 
                 items(yourMixSongs, key = { it.id }) { song ->
@@ -329,74 +285,19 @@ fun YourMixScreen(
             }
         }
 
-        FilledIconButton(
-            onClick = { navController.popBackStack() },
-            colors = IconButtonDefaults.filledIconButtonColors(
-                containerColor = MaterialTheme.colorScheme.surface,
-                contentColor = MaterialTheme.colorScheme.onSurface
-            ),
-            modifier = Modifier
-                .statusBarsPadding()
-                .padding(start = 10.dp, top = 8.dp)
-                .clip(CircleShape)
-        ) {
-            Icon(
-                imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
-                contentDescription = stringResource(R.string.common_back)
-            )
-        }
-
-        FilledIconButton(
-            onClick = { if (!isRegeneratingYourMix) playerViewModel.regenerateYourMix() },
-            colors = IconButtonDefaults.filledIconButtonColors(
-                containerColor = MaterialTheme.colorScheme.surface,
-                contentColor = MaterialTheme.colorScheme.onSurface
-            ),
-            modifier = Modifier
-                .statusBarsPadding()
-                .padding(end = 10.dp, top = 8.dp)
-                .align(Alignment.TopEnd)
-                .clip(CircleShape)
-        ) {
-            if (isRegeneratingYourMix) {
-                ContainedLoadingIndicator(modifier = Modifier.size(ButtonDefaults.IconSize))
-            } else {
-                Icon(
-                    imageVector = Icons.Rounded.Refresh,
-                    contentDescription = stringResource(R.string.home_your_mix_action_regenerate)
-                )
-            }
-        }
-
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .align(Alignment.BottomCenter)
-                .height(80.dp)
-                .background(
-                    brush = Brush.verticalGradient(
-                        colors = listOf(
-                            Color.Transparent,
-                            MaterialTheme.colorScheme.surfaceContainerLowest.copy(0.5f),
-                            MaterialTheme.colorScheme.surfaceContainerLowest
-                        )
-                    )
-                )
+        MixPageTopButtons(
+            onBack = { navController.popBackStack() },
+            onSave = { if (yourMixSongs.isNotEmpty()) showSaveMixSheet = true },
         )
-
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .align(Alignment.TopCenter)
-                .height(50.dp)
-                .background(
-                    brush = Brush.verticalGradient(
-                        colors = listOf(
-                            MaterialTheme.colorScheme.surfaceContainerLowest.copy(0.5f),
-                            Color.Transparent,
-                        )
-                    )
-                )
+    }
+    if (showSaveMixSheet) {
+        val playlistUiState by playlistViewModel.uiState.collectAsStateWithLifecycle()
+        PlaylistBottomSheet(
+            playlistUiState = playlistUiState,
+            songs = yourMixSongs,
+            onDismiss = { showSaveMixSheet = false },
+            bottomBarHeight = bottomBarHeightDp,
+            playerViewModel = playerViewModel,
         )
     }
 }

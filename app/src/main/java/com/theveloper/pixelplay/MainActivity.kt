@@ -753,8 +753,10 @@ class MainActivity : ComponentActivity() {
                 Screen.Plus.route,
                 Screen.Accounts.route,
                 // PlaylistDetail and ArtistDetail keep the split-pill nav (parent tab selected)
-                // with the mini player above it, as in the new UI's mockups.
-                Screen.DailyMixScreen.route,
+                // with the mini player above it, as in the new UI's mockups. So do the mix pages (batch 3).
+                // Endless Listening's intro and station are full screens of their own (no nav, no mini player).
+                Screen.EndlessIntro.route,
+                Screen.EndlessStation.route,
                 Screen.RecentlyPlayed.route,
                 Screen.GenreDetail.route,
                 Screen.AlbumDetail.route,
@@ -1018,7 +1020,7 @@ class MainActivity : ComponentActivity() {
                                 .map { it.currentSong?.id != null }
                                 .distinctUntilChanged()
                         }.collectAsStateWithLifecycle(initialValue = false)
-                        val routesWithHiddenMiniPlayer = remember { setOf(Screen.NavBarCrRad.route) }
+                        val routesWithHiddenMiniPlayer = remember { setOf(Screen.NavBarCrRad.route, Screen.EndlessIntro.route, Screen.EndlessStation.route) }
                         val shouldHideMiniPlayer by remember(currentRouteProvider) {
                             derivedStateOf { currentRouteProvider() in routesWithHiddenMiniPlayer }
                         }

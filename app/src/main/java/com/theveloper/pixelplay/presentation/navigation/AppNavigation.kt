@@ -592,6 +592,13 @@ fun AppNavigation(
                 }
             }
             composable(
+                Screen.EndlessStation.route,
+            ) {
+                ScreenWrapper(navController = navController, playerViewModel = playerViewModel, animatedVisibilityScope = this) {
+                    com.theveloper.pixelplay.presentation.screens.EndlessStationScreen(navController = navController, playerViewModel = playerViewModel)
+                }
+            }
+            composable(
                 Screen.GenrePage.route,
                 arguments = listOf(androidx.navigation.navArgument("atlasId") { type = androidx.navigation.NavType.StringType }),
             ) {
