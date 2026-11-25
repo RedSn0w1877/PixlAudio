@@ -1159,7 +1159,7 @@ val isFolderBrowser = currentTabId == LibraryTabId.FOLDERS &&
                                     showLocate = showLocateButton,
                                     onLocate = { locateAction?.invoke() },
                                     showInstrumentalFilter = currentTabId == LibraryTabId.SONGS,
-                                    instrumentalOnly = instrumentalOnly,
+                                    instrumentalOnly = instrumentalizedOnly,
                                     onInstrumentalFilter = { playerViewModel.toggleInstrumentalizedOnly() },
                                     isListView = if (currentTabId == LibraryTabId.ALBUMS) playerUiState.isAlbumsListView else null,
                                     onListView = { playerViewModel.setAlbumsListView(it) },

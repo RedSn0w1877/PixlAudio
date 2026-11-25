@@ -138,6 +138,7 @@ fun SearchRecentStrip(
 const val RecentRowsShown = 3
 
 private val RecentArtSquare = RoundedCornerShape(16.dp)
+private val ContainerShape = RoundedCornerShape(28.dp)
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
