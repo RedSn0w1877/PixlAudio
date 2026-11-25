@@ -6,7 +6,7 @@ package com.theveloper.pixelplay.brain
  * no hard rule takes it.
  *
  * Stage 1 has the hard constraints of 6.4, the slot plan and `lambda`; stage 2a adds the served-log
- * penalty ([Scored.servedPen]); no calibration or flow cost yet. Ordering is by a quantised key with a total tie-break, so sort stability and
+ * penalty ([Scored.servedPen]); stage 2b the calibration; stage 5 the flow cost ([Flow]). Ordering is by a quantised key with a total tie-break, so sort stability and
  * floating-point noise below 2^-20 cannot change a list.
  */
 object ListBuilder {
@@ -94,6 +94,11 @@ object ListBuilder {
          * the pick is flagged [Pick.explore]. Null keeps stage 2's choice (the best-valued novel candidate), exactly.
          */
         val armPicker: ArmPicker? = null,
+        /**
+         * Stage 5: tempo, loudness and energy of the candidates, for the flow cost of 6.5 ([Flow]). Null keeps stage 4's value, exactly
+         * (every earlier golden list is unchanged).
+         */
+        val flow: Flow.Context? = null,
     )
 
     class Pick(
@@ -173,7 +178,7 @@ object ListBuilder {
                 if (request.likedAid != 0L) {
                     for (s in scored) {
                         if (s.c.aid != request.likedAid || s.c.rid in used || !okSlot(s.c)) continue
-                        val key = BrainMath.orderKey(value(s, list, graph, request))
+                        val key = BrainMath.orderKey(value(s, list, graph, request, i))
                         if (best == null || better(key, s.c.rid, bestKey, best.c.rid, request.tieSeed)) {
                             best = s
                             bestKey = key
@@ -256,7 +261,7 @@ object ListBuilder {
                             if (s.novel != wantNovel || s.c.rid in used || !okSlot(s.c)) continue
                             if (restrict && !s.c.artistNew) continue
                             if (drawnArm >= 0 && s.arm != drawnArm) continue
-                            val key = BrainMath.orderKey(value(s, list, graph, request))
+                            val key = BrainMath.orderKey(value(s, list, graph, request, i))
                             if (chosen == null || better(key, s.c.rid, chosenKey, chosen.c.rid, request.tieSeed)) {
                                 chosen = s
                                 chosenKey = key
@@ -282,8 +287,18 @@ object ListBuilder {
         return picks
     }
 
-    /** `lambda * z - (1 - lambda) * max over the last slots j of sim(i, j)`. */
-    private fun value(s: Scored, list: List<Prior>, graph: Graph, request: Request): Double {
+    /**
+     * `lambda * z - (1 - lambda) * max over the last slots j of sim(i, j) + kappa * calibGain - servedPen + noise`, and from stage 5
+     * `- flowCost` when the request has a [Request.flow] ([Flow.cost]; slot [slot] of [Request.count]).
+     */
+    private fun value(s: Scored, list: List<Prior>, graph: Graph, request: Request, slot: Int): Double {
+        val base = valueWithoutFlow(s, list, graph, request)
+        val flow = request.flow ?: return base
+        val prev = if (list.isEmpty()) flow.lead else flow.of(list[list.size - 1].rid)
+        return base - Flow.cost(flow, prev, flow.of(s.c.rid), slot, request.count)
+    }
+
+    private fun valueWithoutFlow(s: Scored, list: List<Prior>, graph: Graph, request: Request): Double {
         var maxSim = 0.0
         var back = 1
         val source = request.simSource

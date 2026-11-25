@@ -87,6 +87,8 @@ object StationPlanner {
         val ranking: Ranker.WeightSource? = null,
         /** Stage 3: the arm bandit of 5.10 (null keeps stage 2's choice of the novel candidate, byte for byte). */
         val armPicker: ArmPicker? = null,
+        /** Stage 5: tempo, loudness and energy for the flow cost ([Flow]); null keeps stage 4's lists, byte for byte. */
+        val flow: Flow.Context? = null,
     )
 
     class Pick(
@@ -265,6 +267,7 @@ object StationPlanner {
                 maxPerArtist = request.maxPerArtist,
                 minNewArtistShare = request.minNewArtistShare,
                 armPicker = request.armPicker,
+                flow = request.flow,
             ),
             scored,
             graph,

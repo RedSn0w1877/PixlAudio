@@ -101,6 +101,12 @@ object MixPlanner {
 
         /** A list with its own novelty share (the daypart mix: 0.15, 6.2); negative for the share of its kind. */
         var nuOverride: Double = -1.0
+
+        /**
+         * Stage 5: tempo, loudness and energy by rid ([Flow]). A finite mix (a Daily Mix) also follows the energy arc; Your Mix and
+         * First Listen only step smoothly. Empty keeps stage 4's lists, byte for byte.
+         */
+        var flowFacts: Map<Long, Flow.Facts> = emptyMap()
     }
 
     fun countOf(kind: Int): Int = if (kind == KIND_YOUR) YOUR_COUNT else DAILY_COUNT
@@ -191,6 +197,7 @@ object MixPlanner {
                 minNewArtistShare = if (first) 0.4 else 0.0,
                 ranking = request.ranking,
                 armPicker = request.armPicker,
+                flow = if (request.flowFacts.isEmpty()) null else Flow.Context(request.flowFacts, arc = kind == KIND_DAILY),
             ),
             affinity,
             session,

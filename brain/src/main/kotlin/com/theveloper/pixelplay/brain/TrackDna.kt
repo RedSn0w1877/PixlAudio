@@ -19,6 +19,15 @@ object TrackDna {
     const val GAIN_UNKNOWN = -32768
     const val UNKNOWN = -1
 
+    // Where a tempo came from (3.2 `tempoSource`). Stage 5 adds the on-device measurement ([AudioFeatures]).
+    const val TEMPO_UNKNOWN = 0
+    const val TEMPO_DEEZER = 1
+    const val TEMPO_ACOUSTICBRAINZ = 2
+    /** Measured on the phone with a confidence of at least [AudioFeatures.TRUST_CONF]: preferred over Deezer's. */
+    const val TEMPO_ON_DEVICE = 3
+    /** Measured on the phone below that confidence: used only when no source has a tempo. */
+    const val TEMPO_ON_DEVICE_WEAK = 4
+
     class YearClaim(val source: Int, val year: Int)
 
     class Year(val year: Int, val source: Int) {
@@ -157,6 +166,37 @@ object TrackDna {
         if (energy < 0) energy = 0
         if (energy > 255) energy = 255
         return Feel(energy, if (valence > 255) 255 else valence)
+    }
+
+    /** The tempo nudge on energy is at most this many points either way (stage 5). */
+    const val TEMPO_NUDGE_MAX = 15
+
+    /**
+     * Stage 5 (3.3: energy is "nudged by gain and tempo"): [feel], then `energy += clamp(floor((bpm - mid) / 3), -15, 15)` where
+     * `mid` is the tag-weighted middle of the tags' descriptor tempo bands (`(tempoLo + tempoHi) / 2`), when the tempo is known and
+     * some tag has a band. A track faster than its genres usually are is a little more energetic; one slower, a little less. Integer
+     * arithmetic on bpm x 10. Valence is not nudged: the spec gives no rule for it and tempo says little about mood.
+     */
+    fun feel(atlas: GenreAtlas, tags: Tags.Vector, gainDbX10: Int, tempoBpmX10: Int): Feel {
+        val base = feel(atlas, tags, gainDbX10)
+        if (!base.known || tempoBpmX10 <= 0) return base
+        var num = 0L
+        var den = 0L
+        for (t in tags.tags) {
+            val d = atlas.descriptor(t.atlasId) ?: continue
+            if (d.tempoLo <= 0 || d.tempoHi < d.tempoLo) continue
+            num += t.q.toLong() * (d.tempoLo + d.tempoHi).toLong() * 5L // the middle, x 10
+            den += t.q.toLong()
+        }
+        if (den == 0L) return base
+        val midX10 = (2L * num + den) / (2L * den)
+        var nudge = BrainMath.floorDiv(tempoBpmX10.toLong() - midX10, 30L).toInt()
+        if (nudge < -TEMPO_NUDGE_MAX) nudge = -TEMPO_NUDGE_MAX
+        if (nudge > TEMPO_NUDGE_MAX) nudge = TEMPO_NUDGE_MAX
+        var energy = base.energy + nudge
+        if (energy < 0) energy = 0
+        if (energy > 255) energy = 255
+        return Feel(energy, base.valence)
     }
 
     /** Up to 4 mood ids: the ones the tags' descriptors name most, by summed tag weight (ties: smaller id). */
