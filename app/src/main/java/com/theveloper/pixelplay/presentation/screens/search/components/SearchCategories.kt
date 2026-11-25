@@ -7,7 +7,11 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.shape.RoundedCornerShape
+import com.theveloper.pixelplay.presentation.components.redesign.BadgeShape
+import com.theveloper.pixelplay.presentation.components.redesign.toComposeShape
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -106,33 +110,19 @@ fun SearchCategoryCard(
         label = "categoryPressScale"
     )
 
-    val shape = remember {
-        AbsoluteSmoothCornerShape(
-            cornerRadiusTL = 24.dp, smoothnessAsPercentTL = 60,
-            cornerRadiusTR = 24.dp, smoothnessAsPercentTR = 60,
-            cornerRadiusBR = 24.dp, smoothnessAsPercentBR = 60,
-            cornerRadiusBL = 24.dp, smoothnessAsPercentBL = 60
-        )
-    }
-
-    // Degradado corto sobre el propio color del género: da profundidad sin introducir un
-    // segundo tono que se pelee con la paleta del tema.
-    val gradient = remember(container, isDark) {
-        Brush.linearGradient(
-            listOf(
-                lerp(container, if (isDark) Color.White else Color.Black, 0.06f),
-                container,
-                lerp(container, if (isDark) Color.Black else Color.White, 0.10f)
-            )
-        )
-    }
+    // Redesign 2 (AndroidSearch mockup "Browse"): 96 dp tile, 24 dp corners, 14/16 dp padding,
+    // name 18 sp bold, and an 84 dp expressive shape poking out of the bottom-right corner
+    // (16 dp past the right edge, 18 dp past the bottom) in a tone between the tile and its text.
+    val shape = BrowseTileShape
+    val badge = BrowseBadgeShapes[(category.id.hashCode() and 0x7fffffff) % BrowseBadgeShapes.size]
+    val badgeColor = remember(container, onContainer) { lerp(container, onContainer, 0.45f) }
 
     Box(
         modifier = modifier
-            .aspectRatio(1.45f)
+            .height(96.dp)
             .scale(pressScale)
             .clip(shape)
-            .background(gradient)
+            .background(container)
             .selectable(
                 selected = false,
                 interactionSource = interactionSource,
@@ -140,26 +130,19 @@ fun SearchCategoryCard(
                 onClick = onClick
             )
     ) {
-        // El glifo sale por la esquina a propósito: recortado se lee como textura de la
-        // tarjeta y no como un icono suelto pidiendo que lo pulsen.
-        SmartImage(
-            model = GenreIconProvider.getGenreImageResource(category.name, emptyMap()),
-            contentDescription = null,
+        Box(
             modifier = Modifier
-                .size(96.dp)
                 .align(Alignment.BottomEnd)
-                .padding(start = 8.dp, top = 8.dp)
-                .rotate(-14f)
-                .alpha(0.32f),
-            colorFilter = ColorFilter.tint(onContainer),
-            contentScale = ContentScale.Fit
+                .offset(x = 16.dp, y = 18.dp)
+                .size(84.dp)
+                .clip(badge.toComposeShape())
+                .background(badgeColor)
         )
-
         Text(
             text = category.name,
             style = MaterialTheme.typography.titleLarge,
             fontWeight = FontWeight.Bold,
-            fontSize = 20.sp,
+            fontSize = 18.sp,
             color = onContainer,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
@@ -171,15 +154,23 @@ fun SearchCategoryCard(
     }
 }
 
+private val BrowseTileShape = RoundedCornerShape(24.dp)
+private val BrowseBadgeShapes = listOf(
+    BadgeShape.Flower, BadgeShape.Clover4, BadgeShape.Sunny, BadgeShape.SoftBurst, BadgeShape.Cookie6, BadgeShape.Cookie9
+)
+
 @Composable
 fun SearchSectionHeader(
     title: String,
     modifier: Modifier = Modifier
 ) {
+    // "Browse": 22/28 sp medium (redesign 2).
     Text(
         text = title,
         style = MaterialTheme.typography.titleLarge,
-        fontWeight = FontWeight.SemiBold,
+        fontWeight = FontWeight.Medium,
+        fontSize = 22.sp,
+        lineHeight = 28.sp,
         modifier = modifier.fillMaxWidth()
     )
 }
