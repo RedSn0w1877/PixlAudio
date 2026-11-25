@@ -2,6 +2,7 @@ package com.theveloper.pixelplay.presentation.lyrics.model
 
 import com.theveloper.pixelplay.data.model.Lyrics
 import com.theveloper.pixelplay.data.model.LyricsDoc
+import com.theveloper.pixelplay.data.model.LyricsVoiceIds
 import com.theveloper.pixelplay.data.model.SyncedLine
 import com.theveloper.pixelplay.data.model.SyncedWord
 import com.theveloper.pixelplay.utils.LyricsUtils
@@ -78,6 +79,12 @@ object PreparedLyricsBuilder {
         val source: SyncedLine? = null,
         /** Only for the LRC path: end set by a following empty LRC line. */
         var markerEndMs: Long? = null,
+        /**
+         * Background vocals only: the voice of the line the source nested this vocal in
+         * ([LyricsVoiceIds]). Grouping prefers a line of that voice, so in a duet a vocal never
+         * jumps to the other singer's overlapping line.
+         */
+        val ownerHint: VoiceRole? = null,
     ) {
         var estimatedEndMs: Long = 0L
         var groupLead: Int = -1
@@ -99,6 +106,12 @@ object PreparedLyricsBuilder {
             .forEach { line ->
                 if (line.text.isBlank()) return@forEach
                 val role = VoiceRole.fromRole(doc.voices.find { it.id == line.voiceId }?.role)
+                val ownerHint = when {
+                    role != VoiceRole.BACKGROUND -> null
+                    line.voiceId == LyricsVoiceIds.DUET_BACKGROUND -> VoiceRole.DUET
+                    line.voiceId == LyricsVoiceIds.LEAD_BACKGROUND -> VoiceRole.LEAD
+                    else -> null
+                }
                 val first = line.text.indexOfFirst { !it.isWhitespace() }
                 val last = line.text.indexOfLast { !it.isWhitespace() }
                 val text = line.text.substring(first, last + 1)
@@ -145,6 +158,7 @@ object PreparedLyricsBuilder {
                     syllables = syllables,
                     translation = extras?.translation?.takeIf { it.isNotBlank() },
                     romanization = extras?.romanization?.takeIf { it.isNotBlank() },
+                    ownerHint = ownerHint,
                 )
             }
         if (drafts.isEmpty()) return null
@@ -282,6 +296,15 @@ object PreparedLyricsBuilder {
             if (lead != i) members.getOrPut(lead) { ArrayList() } += i
         }
 
+        // Duet side: a duet line sits on the end side, and a grouped background vocal follows the
+        // line it belongs to. An orphan vocal goes by the voice the source nested it in.
+        val hasDuet = drafts.any { it.role == VoiceRole.DUET }
+        val duetEnd = BooleanArray(drafts.size) { i ->
+            val d = drafts[i]
+            hasDuet && (drafts[d.groupLead].role == VoiceRole.DUET ||
+                (d.groupLead == i && d.ownerHint == VoiceRole.DUET))
+        }
+
         val rows = ArrayList<Row>(drafts.size + 4)
         val interludes = ArrayList<LongArray>()
         var prevEnd = 0L
@@ -293,7 +316,7 @@ object PreparedLyricsBuilder {
                 rows += Row.Interlude(
                     startMs = prevEnd,
                     endMs = groupStart,
-                    alignEnd = drafts[leader].role == VoiceRole.DUET,
+                    alignEnd = duetEnd[leader],
                 )
                 interludes += longArrayOf(prevEnd, groupStart)
             }
@@ -346,6 +369,7 @@ object PreparedLyricsBuilder {
                 }?.toPersistentList(),
                 translation = d.translation,
                 romanization = d.romanization,
+                duetEnd = duetEnd[i],
             )
         }.toPersistentList()
 
@@ -353,7 +377,7 @@ object PreparedLyricsBuilder {
             lines = lines,
             rows = rows.toPersistentList(),
             hasWordTiming = lines.any { it.hasWordTiming },
-            hasDuet = lines.any { it.role == VoiceRole.DUET },
+            hasDuet = hasDuet,
             startsSorted = LongArray(lines.size) { lines[it].startMs },
         )
     }
@@ -407,30 +431,40 @@ object PreparedLyricsBuilder {
     /**
      * §1.7: a background vocal belongs to the lead line whose `[start - 1000, end]` window holds
      * its start. A lead already playing when the vocal starts wins over one about to start.
+     * When the source said which voice the vocal was nested in ([DraftLine.ownerHint]), a line of
+     * that voice wins over the other singer's line; with none in the window, any line will do.
      */
     private fun groupBackgroundVocals(drafts: List<DraftLine>) {
         drafts.forEachIndexed { i, d -> d.groupLead = i; d.bgAbove = false }
         drafts.forEachIndexed { i, d ->
             if (d.role != VoiceRole.BACKGROUND) return@forEachIndexed
-            var playing = -1
-            var upcoming = -1
-            drafts.forEachIndexed { j, lead ->
-                if (lead.role == VoiceRole.BACKGROUND) return@forEachIndexed
-                val inWindow = d.startMs >= lead.startMs - BACKGROUND_GROUP_LEAD_IN_MS && d.startMs <= lead.endMs
-                if (!inWindow) return@forEachIndexed
-                if (lead.startMs <= d.startMs) {
-                    if (playing < 0 || lead.startMs >= drafts[playing].startMs) playing = j
-                } else if (upcoming < 0) {
-                    upcoming = j
-                }
-            }
-            val lead = if (playing >= 0) playing else upcoming
+            val hint = d.ownerHint
+            val lead = (if (hint != null) findGroupLead(drafts, d) { it.role.sameSideAs(hint) } else -1)
+                .takeIf { it >= 0 } ?: findGroupLead(drafts, d) { true }
             if (lead >= 0) {
                 d.groupLead = lead
                 d.bgAbove = d.startMs < drafts[lead].startMs
             }
         }
     }
+
+    private inline fun findGroupLead(drafts: List<DraftLine>, d: DraftLine, accept: (DraftLine) -> Boolean): Int {
+        var playing = -1
+        var upcoming = -1
+        drafts.forEachIndexed { j, lead ->
+            if (lead.role == VoiceRole.BACKGROUND || !accept(lead)) return@forEachIndexed
+            val inWindow = d.startMs >= lead.startMs - BACKGROUND_GROUP_LEAD_IN_MS && d.startMs <= lead.endMs
+            if (!inWindow) return@forEachIndexed
+            if (lead.startMs <= d.startMs) {
+                if (playing < 0 || lead.startMs >= drafts[playing].startMs) playing = j
+            } else if (upcoming < 0) {
+                upcoming = j
+            }
+        }
+        return if (playing >= 0) playing else upcoming
+    }
+
+    private fun VoiceRole.sameSideAs(other: VoiceRole): Boolean = (this == VoiceRole.DUET) == (other == VoiceRole.DUET)
 
     /**
      * Estimated end used for interlude detection: the explicit end when there is one, otherwise
