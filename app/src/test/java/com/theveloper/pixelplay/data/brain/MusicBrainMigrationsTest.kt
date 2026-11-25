@@ -70,7 +70,7 @@ class MusicBrainMigrationsTest {
 
     @Test
     fun `there is one migration for every version step and no destructive path`() {
-        assertEquals(6, MusicBrainMigrations.ALL.size)
+        assertEquals(7, MusicBrainMigrations.ALL.size)
         for ((i, m) in MusicBrainMigrations.ALL.withIndex()) {
             assertEquals(i + 1, m.startVersion)
             assertEquals(i + 2, m.endVersion)
@@ -199,6 +199,21 @@ class MusicBrainMigrationsTest {
     @Test
     fun `the version 7 statement is exactly an add column of what Room wrote`() {
         assertEquals(listOf("ALTER TABLE `play_event` ADD COLUMN `servedX` BLOB"), MusicBrainMigrations.V6_TO_V7)
+    }
+
+    @Test
+    fun `version 8 adds exactly audio_measure, as Room wrote it, and changes nothing that was there`() {
+        assertEquals(8, schema(8)["database"]!!.jsonObject["version"]!!.jsonPrimitive.int)
+        val v7 = entities(7).associateBy(::tableName)
+        val v8 = entities(8).associateBy(::tableName)
+        assertEquals(setOf("audio_measure"), v8.keys - v7.keys)
+        assertTrue((v7.keys - v8.keys).isEmpty(), "no table is removed")
+        for ((name, old) in v7) {
+            assertEquals(createSql(old), createSql(v8[name]!!), "table $name is untouched")
+            assertEquals(indexSql(old, name), indexSql(v8[name]!!, name), "indices of $name are untouched")
+        }
+        val added = v8.getValue("audio_measure")
+        assertEquals(listOf(createSql(added)) + indexSql(added, "audio_measure"), MusicBrainMigrations.V7_TO_V8)
     }
 
     @Test

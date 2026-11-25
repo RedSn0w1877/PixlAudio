@@ -1072,6 +1072,8 @@ class AutoplayController @Inject constructor(
         }
         val kept = AutoplayPolicy.keepPlayable(mediaIds, host.playableOnRemote(items))
         if (kept.size == mediaIds.size) return plan
+        // Stage 5 (7.1): a pick the remote output cannot play is skipped, and said so in the log.
+        Timber.i("autoplay: %d of %d picks left out, not playable on %s", mediaIds.size - kept.size, mediaIds.size, host.remoteOutput())
         val now = clock.nowMs()
         for (id in mediaIds) if (id !in kept) {
             if (failedAtMs.size > FAILED_LIMIT) failedAtMs.clear()
