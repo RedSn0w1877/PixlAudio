@@ -285,13 +285,38 @@ fun RedesignGroupButton(
     }
 }
 
-/** Grouped list row shape: first 20/20/4/4, middle 4, last 4/4/20/20, alone 20. */
-fun groupedRowShape(index: Int, count: Int, outer: Dp = Redesign.RowOuterCorner, inner: Dp = Redesign.RowInnerCorner): Shape = when {
-    count <= 1 -> RoundedCornerShape(outer)
-    index == 0 -> RoundedCornerShape(topStart = outer, topEnd = outer, bottomStart = inner, bottomEnd = inner)
-    index == count - 1 -> RoundedCornerShape(topStart = inner, topEnd = inner, bottomStart = outer, bottomEnd = outer)
-    else -> RoundedCornerShape(inner)
+/**
+ * Grouped list row shape: first 20/20/4/4, middle 4, last 4/4/20/20, alone 20. The default sizes
+ * return shared instances, so a list row asking for its shape on every recomposition allocates
+ * nothing.
+ */
+fun groupedRowShape(index: Int, count: Int, outer: Dp = Redesign.RowOuterCorner, inner: Dp = Redesign.RowInnerCorner): Shape {
+    if (outer == Redesign.RowOuterCorner && inner == Redesign.RowInnerCorner) {
+        return when {
+            count <= 1 -> GroupedSingle
+            index == 0 -> GroupedFirst
+            index == count - 1 -> GroupedLast
+            else -> GroupedMiddle
+        }
+    }
+    return when {
+        count <= 1 -> RoundedCornerShape(outer)
+        index == 0 -> RoundedCornerShape(topStart = outer, topEnd = outer, bottomStart = inner, bottomEnd = inner)
+        index == count - 1 -> RoundedCornerShape(topStart = inner, topEnd = inner, bottomStart = outer, bottomEnd = outer)
+        else -> RoundedCornerShape(inner)
+    }
 }
+
+private val GroupedSingle = RoundedCornerShape(Redesign.RowOuterCorner)
+private val GroupedFirst = RoundedCornerShape(
+    topStart = Redesign.RowOuterCorner, topEnd = Redesign.RowOuterCorner,
+    bottomStart = Redesign.RowInnerCorner, bottomEnd = Redesign.RowInnerCorner
+)
+private val GroupedLast = RoundedCornerShape(
+    topStart = Redesign.RowInnerCorner, topEnd = Redesign.RowInnerCorner,
+    bottomStart = Redesign.RowOuterCorner, bottomEnd = Redesign.RowOuterCorner
+)
+private val GroupedMiddle = RoundedCornerShape(Redesign.RowInnerCorner)
 
 /** The expressive shapes the mockups put behind icons, in the order the Settings frame uses them. */
 enum class BadgeShape { Cookie9, Sunny, Flower, Clover4, SoftBurst, Cookie6, Circle }
