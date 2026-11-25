@@ -83,7 +83,7 @@ class AudioFeaturesTest {
     @Test
     fun `a trusted measurement beats Deezer, Deezer beats an untrusted one`() {
         val strong = AudioFeatures.Result(1280, 800, -90, 40_000)
-        val weak = AudioFeatures.Result(1280, 200, -90, 40_000)
+        val weak = AudioFeatures.Result(1280, 300, -90, 40_000)
         assertEquals(listOf(1280, TrackDna.TEMPO_ON_DEVICE), AudioFeatures.chooseTempo(1200, strong).toList())
         assertEquals(listOf(1200, TrackDna.TEMPO_DEEZER), AudioFeatures.chooseTempo(1200, weak).toList())
         assertEquals(listOf(1280, TrackDna.TEMPO_ON_DEVICE_WEAK), AudioFeatures.chooseTempo(0, weak).toList())

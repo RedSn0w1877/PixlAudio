@@ -64,7 +64,8 @@ object GoldenGenerator {
         files.putAll(Stage4M2Golden.generate())
         files.putAll(EndlessGolden.generate())
         files.putAll(HostVoiceGolden.generate())
-        files["README.md"] = README + Stage2bGolden.README_NOTES.trimIndent() + "\n" + Stage2bM2Golden.README_NOTES.trimIndent() + "\n" + Stage3Golden.README_NOTES.trimIndent() + "\n" + Stage3bGolden.README_NOTES.trimIndent() + "\n" + Stage4Golden.README_NOTES.trimIndent() + "\n" + AssistantGolden.README_NOTES.trimIndent() + "\n" + Stage4M2Golden.README_NOTES.trimIndent() + "\n" + EndlessGolden.README_NOTES.trimIndent() + "\n" + HostVoiceGolden.README_NOTES.trimIndent() + "\n"
+        files.putAll(Stage5Golden.generate(project))
+        files["README.md"] = README + Stage2bGolden.README_NOTES.trimIndent() + "\n" + Stage2bM2Golden.README_NOTES.trimIndent() + "\n" + Stage3Golden.README_NOTES.trimIndent() + "\n" + Stage3bGolden.README_NOTES.trimIndent() + "\n" + Stage4Golden.README_NOTES.trimIndent() + "\n" + AssistantGolden.README_NOTES.trimIndent() + "\n" + Stage4M2Golden.README_NOTES.trimIndent() + "\n" + EndlessGolden.README_NOTES.trimIndent() + "\n" + HostVoiceGolden.README_NOTES.trimIndent() + "\n" + Stage5Golden.README_NOTES.trimIndent() + "\n"
         val manifest = StringBuilder()
         for ((name, content) in files) {
             manifest.append(sha256(content.toByteArray(Charsets.UTF_8))).append("  ").append(name).append('\n')
