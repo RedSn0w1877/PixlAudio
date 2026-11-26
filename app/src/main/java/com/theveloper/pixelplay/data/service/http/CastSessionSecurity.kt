@@ -1,5 +1,6 @@
 package com.theveloper.pixelplay.data.service.http
 
+import com.theveloper.pixelplay.data.stream.CloudStreamSecurity
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import java.net.InetAddress
 import java.security.SecureRandom
@@ -8,7 +9,12 @@ internal data class CastAccessPolicy(
     val authToken: String?,
     val allowedSongIds: Set<String>,
     val allowedClientAddresses: Set<String>,
-    val enforceClientAddressAllowlist: Boolean
+    val enforceClientAddressAllowlist: Boolean,
+    /**
+     * Song id to Spotify track id for the allowed songs that play through [CastStreamRelay] (their
+     * address is `spotify://`). Only ids in [allowedSongIds] are ever looked up here.
+     */
+    val relayTrackIds: Map<String, String> = emptyMap()
 ) {
     companion object {
         val EMPTY = CastAccessPolicy(
@@ -34,7 +40,8 @@ internal object CastSessionSecurity {
         existingToken: String?,
         allowedSongIds: Collection<String>,
         castDeviceIpHint: String?,
-        serverOwnIp: String? = null
+        serverOwnIp: String? = null,
+        relayTrackIds: Map<String, String> = emptyMap()
     ): CastAccessPolicy {
         val normalizedSongIds = allowedSongIds
             .asSequence()
@@ -55,8 +62,43 @@ internal object CastSessionSecurity {
             authToken = existingToken ?: generateAuthToken(),
             allowedSongIds = normalizedSongIds,
             allowedClientAddresses = allowedAddresses,
-            enforceClientAddressAllowlist = castAddressVariants.isNotEmpty()
+            enforceClientAddressAllowlist = castAddressVariants.isNotEmpty(),
+            relayTrackIds = normalizeRelayIds(relayTrackIds, normalizedSongIds)
         )
+    }
+
+    /**
+     * [policy] with more songs allowed (autoplay appended them to a running Cast queue): the same
+     * token and the same client addresses, so nothing already loaded on the receiver stops working.
+     */
+    fun extendAccessPolicy(
+        policy: CastAccessPolicy,
+        addedSongIds: Collection<String>,
+        addedRelayTrackIds: Map<String, String>
+    ): CastAccessPolicy {
+        val songIds = policy.allowedSongIds + addedSongIds.asSequence().map(String::trim).filter(String::isNotEmpty)
+        return policy.copy(
+            authToken = policy.authToken ?: generateAuthToken(),
+            allowedSongIds = songIds,
+            relayTrackIds = normalizeRelayIds(policy.relayTrackIds + addedRelayTrackIds, songIds)
+        )
+    }
+
+    /** The track to relay for [songId], or null when the song is not allowed or is not a streamed one. */
+    fun relayTrackIdFor(songId: String?, policy: CastAccessPolicy): String? {
+        val id = songId?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+        if (id !in policy.allowedSongIds) return null
+        return policy.relayTrackIds[id]
+    }
+
+    private fun normalizeRelayIds(relayTrackIds: Map<String, String>, allowedSongIds: Set<String>): Map<String, String> {
+        if (relayTrackIds.isEmpty()) return emptyMap()
+        val out = HashMap<String, String>(relayTrackIds.size * 2)
+        for ((songId, trackId) in relayTrackIds) {
+            val id = songId.trim()
+            if (id in allowedSongIds && CloudStreamSecurity.validateSpotifyTrackId(trackId)) out[id] = trackId
+        }
+        return out
     }
 
     fun isLoopbackAddress(rawAddress: String?): Boolean {

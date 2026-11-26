@@ -118,7 +118,8 @@ data class AutoplayUiState(
  *  - Tracks the listener queued are never moved or removed.
  *  - A re-score never touches the track that is starting or a track the prefetcher has warmed
  *    (decision D8): it replaces the engine's tail behind them, in one edit, only when it changed.
- *  - Off under repeat, during Cast and Spotify Connect, and while a saved queue is being restored.
+ *  - Off under repeat and while a saved queue is being restored. On a Cast device the trigger reads and
+ *    tops up the device's own queue ([Host.castQueue]); on Spotify Connect, the phone's queue it plays.
  *  - Nothing is decided while the rest of a freshly started queue is still being attached
  *    ([QueueAttachSignal]): a tapped song of a playlist is a one-item queue for a moment, and a top-up
  *    there would cost the listener their playlist.
@@ -174,6 +175,32 @@ class AutoplayController @Inject constructor(
         suspend fun playableOnRemote(items: List<MediaItem>): BooleanArray
 
         fun isRestoringQueue(): Boolean
+
+        /**
+         * While casting: the Cast device's queue as it is now. The phone's own player sits paused with
+         * the queue it had when casting began (a queue started during the session goes to the device
+         * only), so on a Cast device this is the queue that is read and topped up. Null when no Cast
+         * device plays, or its queue cannot be read; with [AutoplayPolicy.RemoteOutput.CAST] and no
+         * queue, nothing is done.
+         */
+        fun castQueue(): CastQueue? = null
+    }
+
+    /** A Cast device's queue, read when asked (see [Host.castQueue]). */
+    interface CastQueue {
+        /** The whole queue, in order. Items the phone cannot name yet have a placeholder media id. */
+        val items: List<MediaItem>
+        /** The current item's index in [items]; the last one after the queue ended; -1 for none. */
+        val currentIndex: Int
+        /** [Player] repeat mode of the device's queue. */
+        val repeatMode: Int
+        /** The device played the last item to its end and stands idle. */
+        val hasEnded: Boolean
+        /** The device plays, or would (it was not paused by the listener). */
+        val playWhenReady: Boolean
+
+        /** Appends [items] to the device's queue; with [playFirst] the device then plays the first of them. */
+        fun append(items: List<MediaItem>, playFirst: Boolean)
     }
 
     private class PoolEntry(
@@ -425,7 +452,7 @@ class AutoplayController @Inject constructor(
     private fun releasePendingAppend(): Boolean {
         val pending = pendingAppend ?: return false
         val host = host
-        val queue = engine.getFullQueue()
+        val queue = queueNow()
         val fits = host != null && active && AutoplayPolicy.heldBatchStillFits(
             decision = decisionFor(host, queue),
             plannedPoolKey = pending.poolKey,
@@ -440,9 +467,7 @@ class AutoplayController @Inject constructor(
             return false
         }
         pendingAppend = null
-        engine.appendToQueueEnd(pending.items)
-        skipToPicksIfAsked()
-        if (queueEndedAtMs != 0L) resumeAfterQueueEnd()
+        appendToQueue(pending.items)
         return true
     }
 
@@ -473,15 +498,35 @@ class AutoplayController @Inject constructor(
     private fun remoteRule(host: Host): AutoplayPolicy.RemoteRule =
         AutoplayPolicy.remoteRule(host.remoteOutput(), BrainSwitch.AUTOPLAY_ON_CONNECT)
 
-    private fun decisionFor(host: Host, queue: List<MediaItem>): AutoplayPolicy.Decision = AutoplayPolicy.decide(
-        autoplayEnabled = active,
-        repeatMode = engine.masterPlayer.repeatMode,
-        isRemoteSession = !remoteRule(host).picks,
-        isRestoring = host.isRestoringQueue(),
-        fullQueueSize = queue.size,
-        currentAbsoluteIndex = engine.getCurrentAbsoluteIndex(),
-        isAttachingQueue = queueAttach.isAttaching,
-    )
+    /** The Cast device's queue while casting, else null (then the engine's queue is the one). */
+    private fun castQueue(host: Host? = this.host): CastQueue? =
+        host?.takeIf { it.remoteOutput() == AutoplayPolicy.RemoteOutput.CAST }?.castQueue()
+
+    /** The queue the trigger reads: the Cast device's while casting, the engine's FULL queue otherwise. */
+    private fun queueNow(cast: CastQueue? = castQueue()): List<MediaItem> = cast?.items ?: engine.getFullQueue()
+
+    private fun indexNow(cast: CastQueue? = castQueue()): Int = cast?.currentIndex ?: engine.getCurrentAbsoluteIndex()
+
+    private fun currentMediaIdNow(cast: CastQueue? = castQueue()): String? =
+        if (cast != null) cast.items.getOrNull(cast.currentIndex)?.mediaId else engine.masterPlayer.currentMediaItem?.mediaId
+
+    private fun hasNextNow(cast: CastQueue? = castQueue()): Boolean =
+        if (cast != null) cast.currentIndex + 1 < cast.items.size else engine.masterPlayer.hasNextMediaItem()
+
+    private fun decisionFor(host: Host, queue: List<MediaItem>): AutoplayPolicy.Decision {
+        val output = host.remoteOutput()
+        val cast = if (output == AutoplayPolicy.RemoteOutput.CAST) host.castQueue() else null
+        return AutoplayPolicy.decide(
+            autoplayEnabled = active,
+            repeatMode = cast?.repeatMode ?: engine.masterPlayer.repeatMode,
+            // Casting with no readable device queue: nothing to read, nothing to top up.
+            isRemoteSession = !remoteRule(host).picks || (output == AutoplayPolicy.RemoteOutput.CAST && cast == null),
+            isRestoring = host.isRestoringQueue(),
+            fullQueueSize = queue.size,
+            currentAbsoluteIndex = cast?.currentIndex ?: engine.getCurrentAbsoluteIndex(),
+            isAttachingQueue = queueAttach.isAttaching,
+        )
+    }
 
     /**
      * Next was pressed with nothing after the current track (a song tapped on its own, skipped before
@@ -492,6 +537,8 @@ class AutoplayController @Inject constructor(
     @MainThread
     private fun onNextWithNothingQueued() {
         val host = host ?: return
+        // A pressed Next on this phone's own player: not what plays while casting.
+        if (castQueue(host) != null) return
         val queue = engine.getFullQueue()
         val index = engine.getCurrentAbsoluteIndex()
         refreshStation(queue)
@@ -536,12 +583,12 @@ class AutoplayController @Inject constructor(
     @MainThread
     fun onQueueEnded() {
         val host = host ?: return
-        val player = engine.masterPlayer
-        val queue = engine.getFullQueue()
-        val index = engine.getCurrentAbsoluteIndex()
+        val cast = castQueue(host)
+        val queue = queueNow(cast)
+        val index = indexNow(cast)
         refreshStation(queue)
         val decision = decisionFor(host, queue)
-        if (decision != AutoplayPolicy.Decision.TOP_UP || player.hasNextMediaItem()) return
+        if (decision != AutoplayPolicy.Decision.TOP_UP || hasNextNow(cast)) return
         val seeding = seedingOf(queue, index)
         if (seeding.anchors.isEmpty()) return
         adoptPoolFor(seeding)
@@ -606,7 +653,7 @@ class AutoplayController @Inject constructor(
             stationBest = played
         }
         val host = host
-        if (host != null) refreshStation(engine.getFullQueue())
+        if (host != null) refreshStation(queueNow())
         // A station stays on its seed: three skips there thin out what was skipped (the session's
         // blocks), they do not turn the station into another one.
         if (reaction.changedDirection && station == null) showDirectionNote()
@@ -792,8 +839,9 @@ class AutoplayController @Inject constructor(
             if (engine.isTransitionRunning()) return
             if (releasePendingAppend()) return
         }
-        val queue = engine.getFullQueue()
-        val index = engine.getCurrentAbsoluteIndex()
+        val cast = castQueue(host)
+        val queue = queueNow(cast)
+        val index = indexNow(cast)
         refreshStation(queue)
         when (decisionFor(host, queue)) {
             AutoplayPolicy.Decision.TOP_UP -> Unit
@@ -1043,7 +1091,7 @@ class AutoplayController @Inject constructor(
             appendJob = null
             if (key != poolKey || this@AutoplayController.host == null || !active) return@launch
             // Someone else changed the queue while the plan was made: the trigger looks again.
-            if (engine.getFullQueue().size != queueSize || queueAttach.isAttaching) {
+            if (queueNow().size != queueSize || queueAttach.isAttaching) {
                 evaluate(settle = true)
                 return@launch
             }
@@ -1274,7 +1322,7 @@ class AutoplayController @Inject constructor(
         val items = ArrayList<MediaItem>(plan.picks.size)
         val pickedIds = HashSet<String>()
         // The plan was made a moment ago: nothing that reached the queue meanwhile goes in twice.
-        val queue = engine.getFullQueue()
+        val queue = queueNow()
         val queued = HashSet<String>(queue.size * 2)
         for (item in queue) queued.add(item.mediaId)
         for (pick in plan.picks) {
@@ -1321,7 +1369,8 @@ class AutoplayController @Inject constructor(
         }
         // On Spotify Connect a library pick goes in only when it carries an id Spotify gave out: this
         // path has no room for a lookup, and a track saved from YouTube Music may not be on Spotify.
-        val onlySpotifyIds = host?.let { remoteRule(it).onlyWhatTheOutputPlays } == true
+        // A Cast device plays whatever this phone streams, so the rule is Connect's alone.
+        val onlySpotifyIds = host?.let { it.remoteOutput() == AutoplayPolicy.RemoteOutput.CONNECT && remoteRule(it).onlyWhatTheOutputPlays } == true
         val picked = AutoplayPolicy.pickBatch(
             pool = pool.filter { !onlySpotifyIds || AutoplayPolicy.isSpotifyTrackId(it.song.spotifyId) }.map { it.candidate },
             engineTail = if (tail.size > 50) tail.subList(tail.size - 50, tail.size) else tail,
@@ -1353,10 +1402,30 @@ class AutoplayController @Inject constructor(
             // Held with the queue it was planned for: it goes in only if that is still the queue.
             pendingAppend = PendingAppend(items, poolKey, queue.size, queue.lastOrNull()?.mediaId)
         } else {
-            engine.appendToQueueEnd(items)
-            skipToPicksIfAsked()
+            appendToQueue(items)
         }
         _uiState.value = _uiState.value.copy(fromLibrary = poolFromLibrary)
+    }
+
+    /**
+     * One queue edit: the Cast device's queue while casting (which plays the first pick itself when its
+     * queue had ended inside the backstop window), the engine's otherwise.
+     */
+    private fun appendToQueue(items: List<MediaItem>) {
+        val cast = castQueue()
+        if (cast != null) {
+            val endedAt = queueEndedAtMs
+            val resume = endedAt != 0L && cast.hasEnded &&
+                AutoplayPolicy.backstopMayResume(endedAt, clock.nowMs(), cast.playWhenReady)
+            cast.append(items, playFirst = resume)
+            if (resume || !cast.hasEnded) {
+                queueEndedAtMs = 0L
+                if (nextAskedAtMs == 0L) setFinding(false)
+            }
+            return
+        }
+        engine.appendToQueueEnd(items)
+        skipToPicksIfAsked()
         if (queueEndedAtMs != 0L) resumeAfterQueueEnd()
     }
 
@@ -1444,14 +1513,14 @@ class AutoplayController @Inject constructor(
         }
         fillKey = key
         fillPurpose = purpose
-        val currentMediaId = engine.masterPlayer.currentMediaItem?.mediaId
+        val currentMediaId = currentMediaIdNow()
         val station = station
         val anchors = seeding.anchors
         val otherDirection = seeding.otherDirection && station == null
         fillJob = host.scope.launch {
             try {
                 if (settle && !waitUntilSettled(currentMediaId)) return@launch
-                val queue = engine.getFullQueue()
+                val queue = queueNow()
                 // The settle wait is where a tapped song's queue arrives. A pool wanted only because
                 // the queue looked short is not built once it no longer does: building it loads the
                 // library and can spend radio requests, for picks nobody would use.
@@ -1498,7 +1567,7 @@ class AutoplayController @Inject constructor(
             // paused at the start of the track, so there is no position to read. A plain wait keeps
             // the request off the moment of the track change.
             delay(AutoplayPolicy.SETTLE_MS)
-            return engine.masterPlayer.currentMediaItem?.mediaId == mediaId
+            return currentMediaIdNow() == mediaId
         }
         repeat(SETTLE_POLLS) {
             val player = engine.masterPlayer
@@ -1512,8 +1581,8 @@ class AutoplayController @Inject constructor(
 
     private fun onPoolReady() {
         val host = host ?: return
-        val player = engine.masterPlayer
-        val queue = engine.getFullQueue()
+        val cast = castQueue(host)
+        val queue = queueNow(cast)
         val decision = decisionFor(host, queue)
         if (decision != AutoplayPolicy.Decision.TOP_UP || pendingAppend != null) {
             // The queue is long enough, but its engine tail may be from the direction just left.
@@ -1522,7 +1591,8 @@ class AutoplayController @Inject constructor(
         }
         if (queueEndedAtMs != 0L) {
             // Backstop: outside the window, or after a pause, the queue stays ended and nothing is added.
-            if (!AutoplayPolicy.backstopMayResume(queueEndedAtMs, clock.nowMs(), player.playWhenReady)) {
+            val playWhenReady = cast?.playWhenReady ?: engine.masterPlayer.playWhenReady
+            if (!AutoplayPolicy.backstopMayResume(queueEndedAtMs, clock.nowMs(), playWhenReady)) {
                 queueEndedAtMs = 0L
                 setFinding(false)
                 return

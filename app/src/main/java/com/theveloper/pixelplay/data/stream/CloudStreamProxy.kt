@@ -130,6 +130,38 @@ abstract class CloudStreamProxy<K : Any>(
      */
     fun cachedStreamItag(id: K): Int? = urlCache.peek(id)?.let(StreamItag::fromUrl)
 
+    /**
+     * For the Cast relay: resolves [id]'s stream now (matching first when needed, as a play would) and
+     * returns the content type it will be served as, or null when nothing resolves. Starts no server;
+     * the URL lands in the same cache the player and the relay's own request use.
+     */
+    suspend fun prepareForRelay(id: K): String? {
+        if (!validateId(id)) return null
+        val url = try {
+            getOrFetchStreamUrl(id)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Timber.d(e, "$proxyTag relay preparation failed")
+            null
+        }
+        if (url.isNullOrBlank() || !safeUrl(url)) return null
+        return contentTypeFor(id, url)
+    }
+
+    /** The content type of the stream URL cached for [id] right now; null when none is cached. No network. */
+    fun cachedContentType(id: K): String? {
+        if (!validateId(id)) return null
+        val url = urlCache.peek(id) ?: return null
+        return contentTypeFor(id, url)
+    }
+
+    private fun contentTypeFor(id: K, url: String): String {
+        val resolved = resolveResponseContentType(id, url, null).withoutParameters()
+        if (resolved != ContentType.Audio.Any) return resolved.toString()
+        return StreamContentTypes.ofUrl(url)
+    }
+
     @Synchronized
     fun startIfNeeded() {
         if (isReady() || startJob?.isActive == true) return

@@ -268,8 +268,11 @@ class MusicService : MediaLibraryService() {
             }
 
             override suspend fun playableOnRemote(items: List<MediaItem>): BooleanArray =
-                spotifyConnectController.canPlay(items)
+                if (castSyncCoordinator.currentRemoteMediaClient() != null) castAutoplayBridge.playable(items)
+                else spotifyConnectController.canPlay(items)
             override fun isRestoringQueue(): Boolean = isRestoringPlaybackSnapshot
+            override fun castQueue(): com.theveloper.pixelplay.data.service.player.AutoplayController.CastQueue? =
+                castAutoplayBridge.queue()
         }
     }
 
@@ -392,6 +395,23 @@ class MusicService : MediaLibraryService() {
             context = this,
             listeningStatsTracker = listeningStatsTracker,
             requestWidgetUpdate = { force -> widgetUpdateManager.requestFullUpdate(force) },
+            // The phone's player is paused while casting: the receiver's status drives autoplay.
+            onRemoteQueueEvent = { event ->
+                when (event) {
+                    com.theveloper.pixelplay.data.service.cast.CastAutoplayTrigger.Event.TRANSITION -> autoplayController.onTransition()
+                    com.theveloper.pixelplay.data.service.cast.CastAutoplayTrigger.Event.QUEUE_ENDED -> autoplayController.onQueueEnded()
+                    com.theveloper.pixelplay.data.service.cast.CastAutoplayTrigger.Event.NONE -> Unit
+                }
+            },
+        )
+    }
+
+    // Autoplay on a Cast device: its queue, and which picks it can play (their stream resolves).
+    private val castAutoplayBridge by lazy {
+        com.theveloper.pixelplay.data.service.cast.CastAutoplayBridge(
+            session = { castSyncCoordinator.currentSession() },
+            contentResolver = contentResolver,
+            prepareStream = { trackId -> spotifyStreamProxy.prepareForRelay(trackId) },
         )
     }
     // Glance widget + Wear OS update pipeline, extracted to a standalone manager.

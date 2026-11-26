@@ -56,7 +56,7 @@ object AutoplayPolicy {
         /** Repeat-one or repeat-all is on: the queue already never ends. */
         REPEATING,
 
-        /** The output cannot take the engine's picks (Cast): see [remoteRule]. */
+        /** The output cannot take the engine's picks right now: see [remoteRule]. */
         REMOTE,
 
         /** A saved queue is being restored; its own engine items come back with it. */
@@ -106,7 +106,7 @@ object AutoplayPolicy {
         /** This phone. */
         NONE,
 
-        /** A Cast device: it plays a queue of files this phone serves, loaded once when the session starts. */
+        /** A Cast device: it plays a queue of urls this phone serves (files, or streams relayed from the proxy). */
         CAST,
 
         /** A Spotify Connect device: it streams from Spotify, told what to play by this phone's queue. */
@@ -136,13 +136,15 @@ object AutoplayPolicy {
     )
 
     /**
-     * The trace behind this is in handoff/2026-11-18-music-brain-stage2a.md. In short:
+     * The traces behind this are in handoff/2026-11-18-music-brain-stage2a.md and
+     * handoff/2026-11-25-cast-stream.md. In short:
      *
-     * - **Cast** loads its queue once (`CastPlayer.loadQueue`) as urls of this phone's file server,
-     *   which serves only the song ids named at load time and resolves each through the library's
-     *   `songs` table and then MediaStore. A pick from outside the library has no row there (404), and
-     *   nothing appends to a loaded Cast queue. So no picks and no station while casting; the queue
-     *   says so.
+     * - **Cast** plays a queue of urls of this phone's file server. Streamed songs reach it through the
+     *   relay from the stream proxy, so any track this phone can stream plays there, library or pick.
+     *   The trigger reads the Cast device's own queue (the phone's player sits paused with the queue it
+     *   had when casting began), and picks are appended to that queue. A pick goes in only when its
+     *   stream resolves; one that does not is skipped. The tail is never replaced there: that means
+     *   sending the receiver a new list, which is audible.
      * - **Spotify Connect** plays the phone's own queue, entry by entry, as Spotify track URIs. An
      *   entry without a Spotify id is looked up by title, artist and length and skipped when Spotify
      *   has no strict match. So picks can run there, limited to what Spotify has; [connectAllowed] is
@@ -150,7 +152,7 @@ object AutoplayPolicy {
      */
     fun remoteRule(output: RemoteOutput, connectAllowed: Boolean = true): RemoteRule = when (output) {
         RemoteOutput.NONE -> RemoteRule(picks = true, onlyWhatTheOutputPlays = false, rescore = true, settleOnLocalPlayer = true)
-        RemoteOutput.CAST -> RemoteRule(picks = false, onlyWhatTheOutputPlays = false, rescore = false, settleOnLocalPlayer = false)
+        RemoteOutput.CAST -> RemoteRule(picks = true, onlyWhatTheOutputPlays = true, rescore = false, settleOnLocalPlayer = false)
         RemoteOutput.CONNECT -> RemoteRule(
             picks = connectAllowed,
             onlyWhatTheOutputPlays = true,

@@ -75,4 +75,49 @@ class CastSessionSecurityTest {
         assertTrue(policy.authToken!!.length >= 32)
         assertFalse(policy.enforceClientAddressAllowlist)
     }
+
+    // ── The relay for streamed songs (handoff/2026-11-25-cast-stream.md) ──
+
+    private val trackA = "4uLU6hMCjMI75M1A2tKUQC"
+    private val trackB = "1301WleyT98MSxVHPZCA6M"
+
+    @Test
+    fun `relay tracks are kept only for allowed songs with valid track ids`() {
+        val policy = CastSessionSecurity.buildAccessPolicy(
+            existingToken = "t",
+            allowedSongIds = listOf("1", "2"),
+            castDeviceIpHint = null,
+            relayTrackIds = mapOf("1" to trackA, "2" to "not-a-track", "9" to trackB)
+        )
+        assertEquals(mapOf("1" to trackA), policy.relayTrackIds)
+        assertEquals(trackA, CastSessionSecurity.relayTrackIdFor("1", policy))
+        assertEquals(null, CastSessionSecurity.relayTrackIdFor("2", policy))
+        assertEquals(null, CastSessionSecurity.relayTrackIdFor("9", policy), "not in the allowlist")
+        assertEquals(null, CastSessionSecurity.relayTrackIdFor(null, policy))
+    }
+
+    @Test
+    fun `appended picks join the allowlist under the same token and addresses`() {
+        val policy = CastSessionSecurity.buildAccessPolicy(
+            existingToken = "token-1",
+            allowedSongIds = listOf("1"),
+            castDeviceIpHint = "192.168.1.50",
+            relayTrackIds = mapOf("1" to trackA)
+        )
+        val extended = CastSessionSecurity.extendAccessPolicy(policy, listOf("7"), mapOf("7" to trackB))
+        assertEquals("token-1", extended.authToken)
+        assertEquals(policy.allowedClientAddresses, extended.allowedClientAddresses)
+        assertTrue(extended.enforceClientAddressAllowlist)
+        assertEquals(setOf("1", "7"), extended.allowedSongIds)
+        assertEquals(mapOf("1" to trackA, "7" to trackB), extended.relayTrackIds)
+        assertTrue(CastSessionSecurity.isAuthorizedSongRequest("token-1", "7", extended))
+        assertFalse(CastSessionSecurity.isAuthorizedSongRequest("other", "7", extended))
+    }
+
+    @Test
+    fun `extending a session that had no token yet makes one`() {
+        val extended = CastSessionSecurity.extendAccessPolicy(CastAccessPolicy.EMPTY, listOf("7"), mapOf("7" to trackB))
+        assertNotNull(extended.authToken)
+        assertEquals(trackB, CastSessionSecurity.relayTrackIdFor("7", extended))
+    }
 }

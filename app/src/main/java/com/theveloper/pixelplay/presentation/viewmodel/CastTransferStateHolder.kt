@@ -21,6 +21,7 @@ import com.theveloper.pixelplay.data.model.Song
 import com.theveloper.pixelplay.data.service.cast.CastRemotePlaybackState
 import com.theveloper.pixelplay.data.service.http.CastSessionSecurity
 import com.theveloper.pixelplay.data.service.http.MediaFileHttpServerService
+import com.theveloper.pixelplay.data.service.http.CastStreamRelay
 import com.theveloper.pixelplay.data.service.player.CastPlayer
 import com.theveloper.pixelplay.data.service.player.DualPlayerEngine
 
@@ -604,7 +605,8 @@ class CastTransferStateHolder @Inject constructor(
 
             val accessPolicy = MediaFileHttpServerService.configureCastSessionAccess(
                 allowedSongIds = currentQueue.map(Song::id),
-                castDeviceIpHint = castDeviceIpHint
+                castDeviceIpHint = castDeviceIpHint,
+                relayTrackIds = CastStreamRelay.relayTrackIdsOf(currentQueue)
             )
             val preflightSong = currentQueue.getOrNull(safeStartIndex)
             if (preflightSong != null && !waitForSongEndpointReady(serverAddress, preflightSong, accessPolicy.authToken)) {
@@ -900,7 +902,8 @@ class CastTransferStateHolder @Inject constructor(
             ?: castStateHolder.remotePosition.value.coerceAtLeast(0L)
         val accessPolicy = MediaFileHttpServerService.configureCastSessionAccess(
             allowedSongIds = queue.map(Song::id),
-            castDeviceIpHint = castDeviceIpHint
+            castDeviceIpHint = castDeviceIpHint,
+            relayTrackIds = CastStreamRelay.relayTrackIdsOf(queue)
         )
 
         Log.w(
@@ -1354,7 +1357,8 @@ class CastTransferStateHolder @Inject constructor(
         if (castPlayer != null) {
             val accessPolicy = MediaFileHttpServerService.configureCastSessionAccess(
                 allowedSongIds = songsToPlay.map(Song::id),
-                castDeviceIpHint = castDeviceIpHint
+                castDeviceIpHint = castDeviceIpHint,
+                relayTrackIds = CastStreamRelay.relayTrackIdsOf(songsToPlay)
             )
             val completionDeferred = CompletableDeferred<Boolean>()
             castPlayer.loadQueue(

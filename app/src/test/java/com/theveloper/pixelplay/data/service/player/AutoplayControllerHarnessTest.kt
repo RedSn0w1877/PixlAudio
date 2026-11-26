@@ -71,6 +71,24 @@ class AutoplayControllerHarnessTest {
         override fun remoteOutput() = output
         override suspend fun playableOnRemote(items: List<MediaItem>) = BooleanArray(items.size) { true }
         override fun isRestoringQueue() = false
+
+        /** The Cast device's queue the test owns; null is a device whose queue cannot be read. */
+        var cast: FakeCastQueue? = null
+        override fun castQueue(): AutoplayController.CastQueue? = cast
+    }
+
+    /** A Cast device's queue: what the receiver holds, and what was appended to it. */
+    private class FakeCastQueue(
+        override var items: List<MediaItem>,
+        override var currentIndex: Int,
+        override var hasEnded: Boolean = false,
+    ) : AutoplayController.CastQueue {
+        override val repeatMode: Int = Player.REPEAT_MODE_OFF
+        override val playWhenReady: Boolean = true
+        val appended = CopyOnWriteArrayList<Pair<List<MediaItem>, Boolean>>()
+        override fun append(items: List<MediaItem>, playFirst: Boolean) {
+            appended.add(items to playFirst)
+        }
     }
 
     private inner class Harness(autoplayOn: Boolean = true, repeatMode: Int = Player.REPEAT_MODE_OFF, station: Station? = null) {
@@ -225,18 +243,55 @@ class AutoplayControllerHarnessTest {
     }
 
     @Test
-    fun `on a Cast device no picks are asked for, on a Spotify Connect device they are`() {
+    fun `on a Cast device whose queue cannot be read no picks are asked for, on a Spotify Connect device they are`() {
         val cast = Harness()
         cast.host.output = AutoplayPolicy.RemoteOutput.CAST
         cast.queue = cast.items(2)
         cast.controller.onTransition()
-        assertTrue(cast.staysQuiet(), "cast")
+        assertTrue(cast.staysQuiet(), "cast without a readable queue")
 
         val connect = Harness()
         connect.host.output = AutoplayPolicy.RemoteOutput.CONNECT
         connect.queue = connect.items(2)
         connect.controller.onTransition()
         assertTrue(connect.waitFor { connect.radioSeeds.isNotEmpty() }, "connect")
+    }
+
+    @Test
+    fun `on a Cast device the trigger reads the device's queue, not the paused phone's`() {
+        // The phone's player sits paused with a long queue; the device plays a short one near its end.
+        val h = Harness()
+        h.host.output = AutoplayPolicy.RemoteOutput.CAST
+        h.queue = h.items(9)
+        h.index = 0
+        h.host.cast = FakeCastQueue(items = h.items(3), currentIndex = 1)
+        h.controller.onTransition()
+        assertTrue(h.waitFor { h.radioSeeds.isNotEmpty() }, "a radio was asked for the device's short queue")
+        assertEquals("Song B", h.radioSeeds.first().title, "seeded from the track the device plays")
+        // Nothing went into the phone's own queue.
+        assertTrue(h.appended.isEmpty())
+    }
+
+    @Test
+    fun `on a Cast device with plenty queued nothing is asked for, though the phone's queue is short`() {
+        val h = Harness()
+        h.host.output = AutoplayPolicy.RemoteOutput.CAST
+        h.queue = h.items(1)
+        h.index = 0
+        h.host.cast = FakeCastQueue(items = h.items(8), currentIndex = 0)
+        h.controller.onTransition()
+        assertTrue(h.staysQuiet(), "eight on the device")
+    }
+
+    @Test
+    fun `a Cast queue that ended is looked at by the backstop`() {
+        val h = Harness()
+        h.host.output = AutoplayPolicy.RemoteOutput.CAST
+        h.host.cast = FakeCastQueue(items = h.items(3), currentIndex = 2, hasEnded = true)
+        h.controller.onQueueEnded()
+        assertTrue(h.waitFor { h.radioSeeds.isNotEmpty() }, "the backstop asked for picks")
+        assertEquals("Song C", h.radioSeeds.first().title)
+        assertTrue(h.appended.isEmpty())
     }
 
     @Test

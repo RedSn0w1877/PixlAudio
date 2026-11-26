@@ -25,6 +25,7 @@ import com.theveloper.pixelplay.data.model.Song
 import com.theveloper.pixelplay.data.service.cast.CastAudioMimeUtils
 import com.theveloper.pixelplay.data.service.cast.IsoBmffAudioCodecDetector
 import com.theveloper.pixelplay.data.service.http.CastSessionSecurity
+import com.theveloper.pixelplay.data.service.http.CastStreamRelay
 import org.json.JSONObject
 import timber.log.Timber
 import java.util.Locale
@@ -298,6 +299,8 @@ class CastPlayer(
                     // The server transcodes ALAC or FLAC → AAC ADTS (audio/aac).
                     for (index in songs.indices) {
                         val song = songs[index]
+                        // A streamed song is relayed from the stream proxy: there is no file to probe.
+                        if (CastStreamRelay.trackIdOf(song.contentUriString) != null) continue
                         val ext = song.path.substringAfterLast('.', "").lowercase(Locale.ROOT)
                         val mimeL = song.mimeType?.lowercase(Locale.ROOT)
 
@@ -516,12 +519,15 @@ class CastPlayer(
         val mediaMetadata = MediaMetadata(MediaMetadata.MEDIA_TYPE_MUSIC_TRACK)
         mediaMetadata.putString(MediaMetadata.KEY_TITLE, this.title)
         mediaMetadata.putString(MediaMetadata.KEY_ARTIST, this.displayArtist)
-        val artUrl = CastSessionSecurity.buildArtUrl(
-            serverAddress = serverAddress,
-            songId = this.id,
-            streamRevision = streamRevision,
-            authToken = authToken
-        )
+        // Streamed songs carry their cover as a public https address (Spotify's image CDN): the
+        // receiver loads it itself. The file server's /art only knows covers of files on this phone.
+        val artUrl = albumArtUriString?.takeIf { it.startsWith("https://") }
+            ?: CastSessionSecurity.buildArtUrl(
+                serverAddress = serverAddress,
+                songId = this.id,
+                streamRevision = streamRevision,
+                authToken = authToken
+            )
         mediaMetadata.addImage(WebImage(Uri.parse(artUrl)))
 
         val mediaUrl = CastSessionSecurity.buildSongUrl(
@@ -565,6 +571,8 @@ class CastPlayer(
     }
 
     private fun Song.resolveCastContentType(): String {
+        // Streamed songs: what the stream proxy knows of the stream (its URL's mime or itag), no I/O.
+        CastStreamRelay.trackIdOf(contentUriString)?.let { trackId -> return CastStreamRelay.contentTypeHint(trackId) }
         val metadataMimeType = mimeType
             ?.trim()
             ?.takeIf { it.isNotEmpty() }
@@ -644,6 +652,59 @@ class CastPlayer(
 
     private fun String.toCastSupportedMimeTypeOrNull(): String? {
         return CastAudioMimeUtils.toCastSupportedMimeTypeOrNull(this)
+    }
+
+    /**
+     * Autoplay's picks at the end of the loaded queue (handoff/2026-11-25-cast-stream.md). With
+     * [playFirst] (the queue had already ended) the receiver then jumps to the first of them. Main
+     * thread; the songs must already be in the file server's allowlist. Streamed songs only need no
+     * probing, so the items are built right here.
+     */
+    fun appendSongs(
+        songs: List<Song>,
+        serverAddress: String,
+        authToken: String?,
+        playFirst: Boolean,
+        onComplete: (Boolean) -> Unit
+    ) {
+        val client = remoteMediaClient
+        if (client == null || songs.isEmpty()) {
+            onComplete(false)
+            return
+        }
+        val nonce = SystemClock.elapsedRealtime().toString(36)
+        val items = try {
+            songs.map { it.toMediaQueueItem(serverAddress = serverAddress, authToken = authToken, queueLoadNonce = nonce) }.toTypedArray()
+        } catch (e: Exception) {
+            Timber.tag(castLogTag).e(e, "appendSongs: building items failed")
+            onComplete(false)
+            return
+        }
+        val idsBefore = client.mediaQueue.itemIds.toHashSet()
+        try {
+            client.queueInsertItems(items, MediaQueueItem.INVALID_ITEM_ID, null).setResultCallback { result ->
+                if (!result.status.isSuccess) {
+                    Timber.tag(castLogTag).w("appendSongs failed status=%d", result.status.statusCode)
+                    onComplete(false)
+                    return@setResultCallback
+                }
+                Timber.tag(castLogTag).i("appendSongs appended=%d playFirst=%s", items.size, playFirst)
+                if (playFirst) {
+                    val firstSongId = songs.first().id
+                    val status = client.mediaStatus
+                    val newItemId = status?.queueItems
+                        ?.firstOrNull { it.itemId !in idsBefore && it.customData?.optString("songId") == firstSongId }
+                        ?.itemId
+                        ?: client.mediaQueue.itemIds.firstOrNull { it !in idsBefore }
+                    if (newItemId != null) client.queueJumpToItem(newItemId, 0L, null)
+                }
+                client.requestStatus()
+                onComplete(true)
+            }
+        } catch (e: Exception) {
+            Timber.tag(castLogTag).e(e, "appendSongs threw")
+            onComplete(false)
+        }
     }
 
     fun canSeekCurrentItem(): Boolean {

@@ -11,6 +11,7 @@ import com.google.android.gms.cast.framework.CastSession
 import com.google.android.gms.cast.framework.SessionManager
 import com.google.android.gms.cast.framework.SessionManagerListener
 import com.google.android.gms.cast.framework.media.RemoteMediaClient
+import com.theveloper.pixelplay.data.service.cast.CastAutoplayTrigger
 import com.theveloper.pixelplay.data.service.cast.CastRemotePlaybackState
 import com.theveloper.pixelplay.presentation.viewmodel.ListeningStatsTracker
 import timber.log.Timber
@@ -54,6 +55,8 @@ internal class CastSyncCoordinator(
     private val context: Context,
     private val listeningStatsTracker: ListeningStatsTracker,
     private val requestWidgetUpdate: (force: Boolean) -> Unit,
+    /** The receiver moved to another item, or played its queue to the end: autoplay looks (main thread). */
+    private val onRemoteQueueEvent: (CastAutoplayTrigger.Event) -> Unit = {},
 ) {
     private companion object {
         private const val TAG = "MusicService_PixelPlay"
@@ -65,6 +68,18 @@ internal class CastSyncCoordinator(
     private var observedSession: CastSession? = null
     private var activeStatsOccurrenceId: String? = null
     private var activePlaybackIntent: Boolean = false
+    private val autoplayTrigger = CastAutoplayTrigger()
+
+    /** The observed Cast session, if any. */
+    fun currentSession(): CastSession? = observedSession ?: sessionManager?.currentCastSession
+
+    private fun reportQueueEvent() {
+        val status = currentRemoteMediaClient()?.mediaStatus ?: return
+        val event = autoplayTrigger.onStatus(status.currentItemId, status.playerState, status.idleReason)
+        if (event != CastAutoplayTrigger.Event.NONE) {
+            runCatching { onRemoteQueueEvent(event) }.onFailure { Timber.tag(TAG).w(it, "Cast autoplay event failed") }
+        }
+    }
 
     /** The active remote media client, if any, preferring the observed session. */
     fun currentRemoteMediaClient(): RemoteMediaClient? =
@@ -83,6 +98,7 @@ internal class CastSyncCoordinator(
             override fun onStatusUpdated() {
                 syncListeningStatsFromRemote()
                 requestWidgetUpdate(false)
+                reportQueueEvent()
             }
 
             override fun onMetadataUpdated() {
@@ -93,6 +109,7 @@ internal class CastSyncCoordinator(
             override fun onQueueStatusUpdated() {
                 syncListeningStatsFromRemote()
                 requestWidgetUpdate(false)
+                reportQueueEvent()
             }
 
             override fun onPreloadStatusUpdated() {
@@ -145,6 +162,7 @@ internal class CastSyncCoordinator(
         }
 
         observedSession = session
+        autoplayTrigger.reset()
         session?.remoteMediaClient?.let { remoteClient ->
             remoteClientCallback?.let { callback ->
                 runCatching { remoteClient.registerCallback(callback) }

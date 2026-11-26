@@ -96,6 +96,25 @@ class MediaFileHttpServerService : Service() {
     @Inject
     lateinit var musicRepository: MusicRepository
 
+    // Streamed songs reach the receiver through the stream proxy (CastStreamRelay). Lazy: a session
+    // of local files never builds it.
+    @Inject
+    lateinit var streamProxy: dagger.Lazy<com.theveloper.pixelplay.data.spotify.SpotifyStreamProxy>
+
+    // A plain client: the relay only ever talks to the proxy on 127.0.0.1 (never inject the default
+    // one, whose interceptor rewrites User-Agent). No call timeout: a song streams for minutes.
+    private val relayForwarder by lazy {
+        CastRelayForwarder(
+            OkHttpRelayTransport(
+                okhttp3.OkHttpClient.Builder()
+                    .connectTimeout(5, TimeUnit.SECONDS)
+                    .readTimeout(60, TimeUnit.SECONDS)
+                    .retryOnConnectionFailure(false)
+                    .build()
+            )
+        )
+    }
+
     private var server: EmbeddedServer<CIOApplicationEngine, CIOApplicationEngine.Configuration>? = null
     @Volatile
     private var startInProgress = false
@@ -179,7 +198,9 @@ class MediaFileHttpServerService : Service() {
 
         internal fun configureCastSessionAccess(
             allowedSongIds: Collection<String>,
-            castDeviceIpHint: String?
+            castDeviceIpHint: String?,
+            // Streamed songs (`spotify://`): song id to track id, served through [CastStreamRelay].
+            relayTrackIds: Map<String, String> = emptyMap()
         ): CastAccessPolicy {
             val updatedPolicy = CastSessionSecurity.buildAccessPolicy(
                 existingToken = castAccessPolicy.authToken,
@@ -188,8 +209,23 @@ class MediaFileHttpServerService : Service() {
                 // Always whitelist the server's own LAN IP so that on-device services
                 // (widget updates, notification art) that connect to http://serverIp:PORT/...
                 // via the LAN interface are authorized, even when the allowlist is enforced.
-                serverOwnIp = serverHostAddress
+                serverOwnIp = serverHostAddress,
+                relayTrackIds = relayTrackIds
             )
+            castAccessPolicy = updatedPolicy
+            return updatedPolicy
+        }
+
+        /**
+         * Songs autoplay appended to a running Cast queue join the allowlist; the token and the
+         * client addresses stay as they are, so what the receiver already has keeps playing.
+         */
+        @Synchronized
+        internal fun extendCastSessionAccess(
+            addedSongIds: Collection<String>,
+            addedRelayTrackIds: Map<String, String>
+        ): CastAccessPolicy {
+            val updatedPolicy = CastSessionSecurity.extendAccessPolicy(castAccessPolicy, addedSongIds, addedRelayTrackIds)
             castAccessPolicy = updatedPolicy
             return updatedPolicy
         }
@@ -292,6 +328,7 @@ class MediaFileHttpServerService : Service() {
     override fun onCreate() {
         super.onCreate()
         startForegroundService()
+        CastStreamRelay.cachedTypeLookup = { trackId -> streamProxy.get().cachedContentType(trackId) }
         // A killed process never ran onDestroy, so the temp files of its transcodes (tens of MB
         // each) would sit in the cache directory until the system trims it. Nothing is cached yet.
         runCatching {
@@ -435,6 +472,10 @@ class MediaFileHttpServerService : Service() {
                                     return@get
                                 }
                                 if (!call.ensureAuthorizedCastMediaRequest(songId)) return@get
+                                CastSessionSecurity.relayTrackIdFor(songId, currentCastAccessPolicy())?.let { trackId ->
+                                    call.respondRelayedStream(songId, trackId, headOnly = false)
+                                    return@get
+                                }
 
                                 val song = resolveSongForServing(songId)
                                 if (song == null) {
@@ -610,6 +651,10 @@ class MediaFileHttpServerService : Service() {
                                     return@head
                                 }
                                 if (!call.ensureAuthorizedCastMediaRequest(songId)) return@head
+                                CastSessionSecurity.relayTrackIdFor(songId, currentCastAccessPolicy())?.let { trackId ->
+                                    call.respondRelayedStream(songId, trackId, headOnly = true)
+                                    return@head
+                                }
 
                                 val song = resolveSongForServing(songId)
                                 if (song == null) {
@@ -1089,6 +1134,73 @@ class MediaFileHttpServerService : Service() {
         }
 
         return false
+    }
+
+    /**
+     * A streamed song (`spotify://`) for the receiver: the stream proxy's bytes, relayed. The token and
+     * the allowlist were checked by the caller; here the client must be on the LAN, and the only
+     * place the relay talks to is the proxy's loopback route (CastStreamRelay).
+     */
+    private suspend fun ApplicationCall.respondRelayedStream(songId: String, trackId: String, headOnly: Boolean) {
+        val remoteAddress = request.origin.remoteHost
+        if (!CastStreamRelay.isLanClientAddress(remoteAddress)) {
+            Timber.tag(castHttpLogTag).w("Rejected relay request from a client off the LAN client=%s songId=%s", remoteAddress, songId)
+            respond(HttpStatusCode.Forbidden, "Forbidden")
+            return
+        }
+        val proxy = streamProxy.get()
+        if (!proxy.ensureReady()) {
+            respond(HttpStatusCode.ServiceUnavailable, "Stream not ready")
+            return
+        }
+        if (headOnly) {
+            // The proxy has no HEAD: the type comes from resolving the stream (which warms the GET).
+            val type = proxy.prepareForRelay(trackId)
+            if (type == null) {
+                respond(HttpStatusCode.ServiceUnavailable)
+                return
+            }
+            response.header(HttpHeaders.ContentType, type)
+            response.header(HttpHeaders.AcceptRanges, "bytes")
+            respond(HttpStatusCode.OK)
+            return
+        }
+        val rangeHeader = request.headers[HttpHeaders.Range]
+        val outcome = withContext(Dispatchers.IO) { relayForwarder.open(proxy.getProxyUrl(trackId), rangeHeader) }
+        when (outcome) {
+            is RelayOutcome.Refused -> {
+                Timber.tag(castHttpLogTag).w("GET /song relay refused songId=%s status=%d reason=%s", songId, outcome.status, outcome.reason)
+                respond(HttpStatusCode.fromValue(outcome.status), outcome.reason)
+            }
+            is RelayOutcome.Forwarded -> outcome.upstream.use { upstream ->
+                val status = HttpStatusCode.fromValue(upstream.status)
+                val contentType = upstream.headers["content-type"]
+                    ?.let { runCatching { ContentType.parse(it) }.getOrNull() }
+                    ?: ContentType.parse(CastStreamRelay.contentTypeHint(trackId))
+                upstream.headers["content-range"]?.let { response.header(HttpHeaders.ContentRange, it) }
+                upstream.headers["accept-ranges"]?.let { response.header(HttpHeaders.AcceptRanges, it) }
+                upstream.headers["content-length"]?.let { response.header(HttpHeaders.ContentLength, it) }
+                Timber.tag(castHttpLogTag).i(
+                    "GET /song relay songId=%s status=%d range=%s type=%s", songId, upstream.status, rangeHeader, contentType
+                )
+                val body = upstream.body
+                if (body == null || upstream.status >= 400) {
+                    respond(status, "")
+                    return@use
+                }
+                try {
+                    respondOutputStream(contentType, status) {
+                        body.copyTo(this, DEFAULT_BUFFER_SIZE)
+                    }
+                } catch (e: Exception) {
+                    if (e.isClientAbortDuringResponse()) {
+                        Timber.tag(castHttpLogTag).d("GET /song relay client disconnected songId=%s", songId)
+                        return@use
+                    }
+                    throw e
+                }
+            }
+        }
     }
 
     private fun resolveAudioStreamSource(song: Song, uri: Uri): AudioStreamSource? {
@@ -2987,6 +3099,7 @@ class MediaFileHttpServerService : Service() {
         serverPrefixLength = -1
         castDeviceIpHint = null
         clearCastSessionAccess()
+        CastStreamRelay.cachedTypeLookup = null
         synchronized(serverStartLock) {
             startInProgress = false
         }

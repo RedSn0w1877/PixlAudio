@@ -106,14 +106,17 @@ class AutoplayPolicyTest {
     }
 
     @Test
-    fun `no picks and no station while casting - a cast queue is loaded once and serves library files only`() {
+    fun `picks run while casting, only ones whose stream resolves, and the tail is never replaced there`() {
         val rule = AutoplayPolicy.remoteRule(AutoplayPolicy.RemoteOutput.CAST)
-        assertFalse(rule.picks)
+        assertTrue(rule.picks)
+        assertTrue(rule.onlyWhatTheOutputPlays)
+        // Replacing what the receiver was told to play means sending it the list again, which is audible.
         assertFalse(rule.rescore)
-        // The trigger reads the rule: a cast session is the one output that reports REMOTE.
-        assertEquals(Decision.REMOTE, decide(remote = !rule.picks, size = 1, index = 0))
-        // The switch for Spotify Connect does not open Cast.
-        assertFalse(AutoplayPolicy.remoteRule(AutoplayPolicy.RemoteOutput.CAST, connectAllowed = true).picks)
+        // The phone's own player sits paused during a session: no position to wait for.
+        assertFalse(rule.settleOnLocalPlayer)
+        assertEquals(Decision.TOP_UP, decide(remote = !rule.picks, size = 3, index = 1))
+        // The switch for Spotify Connect does not close Cast.
+        assertTrue(AutoplayPolicy.remoteRule(AutoplayPolicy.RemoteOutput.CAST, connectAllowed = false).picks)
     }
 
     @Test
