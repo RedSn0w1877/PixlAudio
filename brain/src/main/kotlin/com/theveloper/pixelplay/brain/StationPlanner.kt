@@ -131,6 +131,8 @@ object StationPlanner {
         val nowMs = request.nowMs
         val p0 = Affinity.p0(affinity, nowMs)
         val weights = request.ranking?.weights(p0) ?: Ranker.weights(p0)
+        // 6.5, two lanes: the familiar lane is ordered by the choice scorer, the novel lane by the finish scorer.
+        val choiceWeights = Ranker.choiceWeights(weights)
         val precision = request.ranking?.precision()
         val cooc = Retrieval.cooc(request.seeds, affinity, nowMs, p0)
         val homeRow = request.mode == MODE_HOME_ROW
@@ -200,19 +202,25 @@ object StationPlanner {
             val bestRank = entry?.bestRank ?: 0
             Features.compute(c, armCodes[i], pct[i], bestRank, affinity, session, graph, nowMs, p0, homeRow || firstListen, x, request.islands)
             var z = Ranker.z(weights, x)
+            // A track the listener has is ordered by the choice scorer (only its familiar-lane value is read).
+            var zc = if (c.inLibrary) Ranker.z(choiceWeights, x) else z
             if (station && stationSeed != null) {
                 val s = if (request.closestOfSeeds) closestSeed(graph, c, request.seeds)
                 else Similarity.sim(graph, c.rid, c.aid, stationSeed.seedRid, stationSeed.seedAid)
-                z += 1.2 * (0.6 * s + 0.4 * x[Features.SESS_POS_SIM])
+                val pull = 1.2 * (0.6 * s + 0.4 * x[Features.SESS_POS_SIM])
+                z += pull
+                zc += pull
             }
             // The listener's boost / reduce is applied after scoring, outside the model (5.11).
             z += c.boostLn
+            zc += c.boostLn
+            val p = if (precision != null) Ranker.p(z, x, precision) else Ranker.p(z, x)
             scored.add(
                 ListBuilder.Scored(
                     c = c,
                     arm = armCodes[i],
                     z = z,
-                    p = if (precision != null) Ranker.p(z, x, precision) else Ranker.p(z, x),
+                    p = p,
                     novel = !c.inLibrary,
                     bestRank = bestRank,
                     bestSeed = entry?.bestSeed ?: -1,
@@ -224,6 +232,8 @@ object StationPlanner {
                         request.jitter * (BrainHash.unit(BrainHash.splitmix64(c.rid xor request.tieSeed)) - 0.5)
                     } else 0.0,
                     idx = i,
+                    zChoice = zc,
+                    pChoice = if (!c.inLibrary) p else if (precision != null) Ranker.p(zc, x, precision) else Ranker.p(zc, x),
                 )
             )
         }

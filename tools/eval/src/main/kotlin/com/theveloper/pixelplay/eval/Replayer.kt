@@ -51,6 +51,8 @@ class Run(
     val model: RankerModel,
     /** Per scorer: the summed share of the top 20 artists the listener had played at most [Replayer.RARE_PLAYS] times (over [artistPoints]). */
     val rareShare: DoubleArray = DoubleArray(3),
+    /** The composed lists of [Compose], when the run was given a choice prior. */
+    val composed: Compose.Stats? = null,
 )
 
 object Replayer {
@@ -94,7 +96,7 @@ object Replayer {
      * three predictions of every labelled held-out play. With [ranking] it also ranks the listener's known artists and genres before
      * every held-out play that changes artist.
      */
-    fun run(l: Listener, cfg: Config, ranking: Boolean = false): Run {
+    fun run(l: Listener, cfg: Config, ranking: Boolean = false, choice: DoubleArray? = null): Run {
         val events = l.events
         val cut = cutOf(events.size)
         val affinity = Affinity.State()
@@ -103,6 +105,10 @@ object Replayer {
         val m0 = cfg.m0.copyOf().also { it[0] = 0.0 }
         val q0 = Ranker.priorPrecision()
         val model = RankerModel(m0.copyOf(), q0.copyOf(), m0, LearnReplay.dayOf(events[0], events[0].startedAtMs))
+        // [Compose]: a second learner started from the choice prior, on the same events.
+        val mc = choice?.copyOf()?.also { it[0] = 0.0 }
+        val choiceModel = if (mc != null) RankerModel(mc.copyOf(), q0.copyOf(), mc, LearnReplay.dayOf(events[0], events[0].startedAtMs)) else null
+        val composed = if (mc != null) Compose.Stats() else null
         val x = DoubleArray(Ranker.D)
         val sess = ArrayList<Long>()
         val fin = ArrayList<Boolean>()
@@ -132,12 +138,14 @@ object Replayer {
             extra(cfg, affinity, e.primaryAid, t, x)
             val bias = Ranker.biasOf(p0)
             Ranker.forget(model, day)
+            if (choiceModel != null) Ranker.forget(choiceModel, day)
             if (i >= cut) {
                 if (ranking && e.primaryAid != prevAid && pool.isNotEmpty()) {
                     artistPoints++
                     val hasTop = tags != null && !tags.isEmpty
                     if (hasTop) genrePoints++
                     rank(l, cfg, pool, poolN, affinity, session, t, p0, bias, model, m0, y, e, tags, artistHits, genreHits, plays, rare)
+                    if (composed != null) Compose.measure(l, cfg, mc!!, pool, poolN, plays, affinity, session, t, p0, bias, model, choiceModel!!, m0, e, composed)
                 }
                 if (l.label[i] != Listener.UNKNOWN && g.c > 0.0) {
                     sess.add(e.sessionId)
@@ -148,6 +156,7 @@ object Replayer {
                 }
             }
             Ranker.applyEvent(model, x, g.r, g.c, bias, day, e.eventId, cfg.stepClip, cfg.hFloor)
+            if (choiceModel != null) Ranker.applyEvent(choiceModel, x, g.r, g.c, bias, day, e.eventId, cfg.stepClip, cfg.hFloor)
             val novel = !Affinity.isHeard(affinity, Family.TRACK, e.rid)
             Affinity.applyEvent(affinity, e, g, t)
             if (tags != null) Affinity.applyTags(affinity, e, g, tags, t)
@@ -161,7 +170,7 @@ object Replayer {
         }
         return Run(
             sess.toLongArray(), fin.toBooleanArray(), pp.toDoubleArray(), pl.toDoubleArray(), pa.toDoubleArray(),
-            artistHits, artistPoints, genreHits, genrePoints, model, rare,
+            artistHits, artistPoints, genreHits, genrePoints, model, rare, composed,
         )
     }
 

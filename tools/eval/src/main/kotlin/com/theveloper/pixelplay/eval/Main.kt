@@ -31,13 +31,17 @@ fun main(args: Array<String>) {
     if (cmd == "eval" || cmd == "all") println(Report.baseline(users))
     if (cmd == "hitcheck") println(Report.hitCheck(Tune.split(users).second))
     if (cmd == "pair") println(Report.pair(users, opts["split"] ?: "test", opts["set"] ?: ""))
-    if (cmd == "ablate") Report.ablate(users, opts["split"] ?: "tune", opts["set"] ?: "")
+    if (cmd == "compose") println(Report.compose(users, opts["split"] ?: "test", opts["set"] ?: CHOICE_SET))
+    if (cmd == "ablate")Report.ablate(users, opts["split"] ?: "tune", opts["set"] ?: "")
     if (cmd == "tune" || cmd == "all") {
         val text = Tune.run(users)
         File(root, "RESULTS.md").writeText(text)
         println(text)
     }
 }
+
+/** The 2026-11-26 candidate prior, used as the choice scorer's prior by `compose` unless `--set` says otherwise. */
+const val CHOICE_SET = "12:0,13:0,14:0,15:0,16:0,1:0.4,3:1.0,4:0.4,24:-0.5"
 
 private fun fetch(lb: Lb, cache: File, repo: File, target: Int) {
     val atlas = Dataset.loadAtlas(repo)
@@ -184,6 +188,55 @@ object Report {
         val wl = a.indices.count { (a[it].ll[1] - b[it].ll[1]) / a[it].ll[1] < -0.01 }
         appendLine()
         appendLine("Listeners worse by more than 1% log-loss: prior $wp, learned $wl of ${a.size}.")
+    }
+
+    /**
+     * `compose --split=test --set=...`: the two-lane lists of [Compose] (the familiar lane ordered by the choice prior [set], the
+     * discovery lane by the finish scorer, merged by ListBuilder itself) against the shipped single-scorer lists and the baselines.
+     */
+    fun compose(users: List<Listener>, split: String, set: String): String = buildString {
+        val (tune, test) = Tune.split(users)
+        val us = when (split) { "tune" -> tune; "all" -> users; else -> test }
+        val choice = parseSet(set).m0
+        val runs = us.parallelStream().map { it.id to Replayer.run(it, Config.DEFAULT, ranking = true, choice = choice) }.toList().sortedBy { it.first }
+        val s = runs.map { Metrics.score(it.first, it.second) }
+        val plain = scores(us, Config.DEFAULT, ranking = true)
+        val c = runs.map { it.second.composed!! }
+        fun hit(k: Int, u: Int) = if (c[u].artistPoints == 0) 0.0 else c[u].artistHits[k].toDouble() / c[u].artistPoints
+        fun gen(k: Int, u: Int) = if (c[u].genrePoints == 0) 0.0 else c[u].genreHits[k].toDouble() / c[u].genrePoints
+        fun cold(k: Int, u: Int) = if (c[u].artistPoints == 0) 0.0 else c[u].cold[k] / c[u].artistPoints
+        val n = us.size
+        fun med(sel: (Int) -> Double) = Metrics.bootstrap(DoubleArray(n) { sel(it) })
+        fun pairMean(sel: (Int) -> Double) = Metrics.bootstrap(DoubleArray(n) { sel(it) }, Metrics::mean)
+        appendLine("Composed lists, $split split (${n} listeners), choice prior: ${Tune.describeM0(parseSet(set))}")
+        appendLine()
+        appendLine("| list (ListBuilder, nu = session) | next-artist hit@20 | next-genre hit@20 | cold share of top 20 |")
+        appendLine("|---|---|---|---|")
+        for (k in 0 until Compose.LISTS) appendLine("| ${Compose.NAMES[k]} | ${med { hit(k, it) }} | ${med { gen(k, it) }} | ${med { cold(k, it) }} |")
+        appendLine("| plain ranking: prior | ${med { plain[it].artistHit[0] }} | ${med { plain[it].genreHit[0] }} | ${med { plain[it].rare[0] }} |")
+        appendLine("| plain ranking: learned | ${med { plain[it].artistHit[1] }} | ${med { plain[it].genreHit[1] }} | ${med { plain[it].rare[1] }} |")
+        appendLine("| plain ranking: artist rate (the baseline) | ${med { plain[it].artistHit[2] }} | ${med { plain[it].genreHit[2] }} | ${med { plain[it].rare[2] }} |")
+        appendLine()
+        appendLine("Paired per listener (mean difference, 95% CI over resampled listeners):")
+        appendLine()
+        appendLine("| comparison | next-artist hit@20 | next-genre hit@20 | cold share |")
+        appendLine("|---|---|---|---|")
+        fun row(name: String, a: Int, b: Int) = appendLine(
+            "| $name | ${pairMean { hit(a, it) - hit(b, it) }} | ${pairMean { gen(a, it) - gen(b, it) }} | ${pairMean { cold(a, it) - cold(b, it) }} |",
+        )
+        fun rowBase(name: String, a: Int) = appendLine(
+            "| $name | ${pairMean { hit(a, it) - plain[it].artistHit[2] }} | ${pairMean { gen(a, it) - plain[it].genreHit[2] }} | ${pairMean { cold(a, it) - plain[it].rare[2] }} |",
+        )
+        row("two lanes prior - shipped prior", Compose.TWO_LANE_PRIOR, Compose.SHIPPED_PRIOR)
+        for (k in intArrayOf(Compose.TWO_LANE_FIXED, Compose.TWO_LANE_OFFSET, Compose.TWO_LANE_LEARNER)) row("${Compose.NAMES[k]} - shipped learned", k, Compose.SHIPPED_LEARNED)
+        for (k in intArrayOf(Compose.TWO_LANE_PRIOR, Compose.TWO_LANE_FIXED, Compose.TWO_LANE_OFFSET, Compose.TWO_LANE_LEARNER)) {
+            row("${Compose.NAMES[k]} - artist rate (same lists)", k, Compose.ARTIST_RATE)
+            rowBase("${Compose.NAMES[k]} - artist rate (plain ranking)", k)
+        }
+        row("shipped learned (lists) - artist rate (lists)", Compose.SHIPPED_LEARNED, Compose.ARTIST_RATE)
+        appendLine()
+        val sameLl = s.indices.all { s[it].ll[0] == plain[it].ll[0] && s[it].ll[1] == plain[it].ll[1] && s[it].auc[0] == plain[it].auc[0] && s[it].auc[1] == plain[it].auc[1] }
+        appendLine("Finish scorer (skip prediction, reward) in the same run: log-loss prior ${med { s[it].ll[0] }}, learned ${med { s[it].ll[1] }}; AUC prior ${med { s[it].auc[0] }}, learned ${med { s[it].auc[1] }}; identical to a run without the choice scorer, every listener: $sameLl")
     }
 
     /** Paired before/after (old trust vs the shipped one) on [users]: every metric, mean difference with its interval over listeners. */
