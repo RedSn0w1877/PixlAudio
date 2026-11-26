@@ -1590,7 +1590,7 @@ On-device tempo and loudness from decoded audio (flow ordering, the energy secti
 | Whether Spotify still fills artist `genres` for this client id | 1 |
 | YouTube Music radio from a phone on a Vietnamese or European network, and on cellular (all probes were one US IP) | 1 |
 | Radio continuation paging and chip ids beyond the 13 seeds probed (the reviewer's 3 extra seeds showed pages that repeat earlier rows) | 1 |
-| Every hyperparameter. None of `M0`, the trust factors of 4.3, or the session constants of 5.5 has been run against a real listener; stage 1 ships them behind radio order (an empty state *is* radio order) and stage 2's harness is the first measurement | 2 |
+| Every hyperparameter. First real measurement 2026-11-25 (tools/eval, 70 public ListenBrainz listeners, a skip proxy; tools/eval/RESULTS.md): nothing changed. A fitted `M0` raised AUC but not the prior's log-loss and hurt 4 of 21 held-out listeners; a trust/skip-strength change (own skip 0.6 -> 1.5, `passiveRun >= 12` 0.25 -> 0.5, `h` under half 0.2 -> 0.4) won 2-3% log-loss but lowered next-artist and next-genre hit@20; the learner's step clip and curvature floor showed no gain. Engine-surface trust bases, flow, graph, island and context weights are unmeasured: the data has no engine picks or audio features | 2 |
 | Phone timings for every budget in 12.1 | 1-2 |
 | MusicBrainz genre relationship coverage beyond 35 sampled pages | 2 |
 | Real DNA coverage on a real library | 2 |
