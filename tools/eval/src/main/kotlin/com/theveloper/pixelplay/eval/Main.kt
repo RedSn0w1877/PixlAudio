@@ -29,6 +29,7 @@ fun main(args: Array<String>) {
     val users = Store.load(cache)
     System.err.println("listeners: ${users.size}")
     if (cmd == "eval" || cmd == "all") println(Report.baseline(users))
+    if (cmd == "hitcheck") println(Report.hitCheck(Tune.split(users).second))
     if (cmd == "tune" || cmd == "all") {
         val text = Tune.run(users)
         File(root, "RESULTS.md").writeText(text)
@@ -137,6 +138,25 @@ object Report {
             "| ${u.id} | ${u.n} | ${f(u.skipShare, 2)} | ${f(u.ll[0], 3)} | ${f(u.ll[1], 3)} | ${f(u.ll[2], 3)} | ${f(u.auc[0], 3)} | ${f(u.auc[1], 3)} | ${f(u.auc[2], 3)} | " +
                 "${f(u.gain, 4)} [${f(u.gainLow, 4)}, ${f(u.gainHigh, 4)}] | ${f(u.artistHit[0], 2)}/${f(u.artistHit[1], 2)}/${f(u.artistHit[2], 2)} |",
         )
+    }
+
+    /** The trust constants before the 2026-11-25 tuning, for the paired before/after check. */
+    val TRUST_BEFORE = Reward.Trust(ownSkipped = 0.6, passive12 = 0.25, hUnderHalf = 0.2)
+
+    /** Paired before/after (old trust vs the shipped one) on [users]: every metric, mean difference with its interval over listeners. */
+    fun hitCheck(users: List<Listener>): String = buildString {
+        val a = scores(users, Config(trust = TRUST_BEFORE), ranking = true)
+        val b = scores(users, Config.DEFAULT, ranking = true)
+        fun d(name: String, sel: (UserScore) -> Double) =
+            appendLine("| $name | ${Metrics.bootstrap(DoubleArray(a.size) { sel(b[it]) - sel(a[it]) }, Metrics::mean)} |")
+        appendLine("Paired after minus before, ${a.size} report listeners (mean, 95% CI over listeners)")
+        appendLine()
+        appendLine("| metric | after - before |")
+        appendLine("|---|---|")
+        d("log-loss prior") { it.ll[0] }; d("log-loss learned") { it.ll[1] }; d("log-loss artist rate") { it.ll[2] }
+        d("AUC prior") { it.auc[0] }; d("AUC learned") { it.auc[1] }; d("AUC artist rate") { it.auc[2] }
+        d("next-artist hit@20 prior") { it.artistHit[0] }; d("next-artist hit@20 learned") { it.artistHit[1] }; d("next-artist hit@20 artist rate") { it.artistHit[2] }
+        d("next-genre hit@20 prior") { it.genreHit[0] }; d("next-genre hit@20 learned") { it.genreHit[1] }; d("next-genre hit@20 artist rate") { it.genreHit[2] }
     }
 
     fun baseline(users: List<Listener>): String = buildString {

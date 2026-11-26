@@ -58,5 +58,6 @@ Medians over listeners with 95% intervals from 2,000 resamples of listeners; per
 70% of listeners (fixed hash split) tune, 30% report. Coordinate search: A, the prior means of the features this data can move
 (1-4, 12-18, 22-26) on the prior's log-loss; B, the trust factors of 4.3 and skip strengths of 5.5 this data exercises; C, the
 learner's step clip and curvature floor. A default changes only if the report listeners show at least 1% log-loss or 0.01 AUC with an
-interval not crossing 0 and nothing worse. Not measurable here: the engine-surface trust bases, `prev`/seek/like/explore factors,
+interval not crossing 0 and nothing worse, the ranking metrics included: `eval hitcheck` compares the pre-tuning trust constants
+(`Report.TRUST_BEFORE`) with the shipped ones on the report listeners, every metric paired. Not measurable here: the engine-surface trust bases, `prev`/seek/like/explore factors,
 graph, island, popularity, context and flow weights (no engine picks, no audio features in this data).

@@ -19,8 +19,7 @@ object Reward {
     class Trust(
         /** Base `c` of a live play the listener picked: finished (`r >= 0.5`) and not (`r < 0.5`, often "not now"). */
         val ownKept: Double = 1.0,
-        // 0.6 until 2026-11-25; 1.5 from the ListenBrainz replay (tools/eval/RESULTS.md, handoff/2026-11-25-brain-tuning.md).
-        val ownSkipped: Double = 1.5,
+        val ownSkipped: Double = 0.6,
         /** Base `c` of a live engine pick: finished (it was put in front of them) and not (an active rejection). */
         val engineKept: Double = 0.6,
         val engineSkipped: Double = 1.0,
@@ -32,11 +31,11 @@ object Reward {
         val lovedSkipFactor: Double = 0.3,
         /** Completion with `passiveRun >= 6` and `>= 12`. */
         val passive6: Double = 0.5,
-        val passive12: Double = 0.5, // 0.25 until 2026-11-25 (tools/eval)
+        val passive12: Double = 0.25,
         /** Session skip strength `h`: under 10 s, under 30 s, under half the track (5.5). */
         val hUnder10: Double = 1.0,
         val hUnder30: Double = 0.6,
-        val hUnderHalf: Double = 0.4, // 0.2 until 2026-11-25 (tools/eval)
+        val hUnderHalf: Double = 0.2,
     ) {
         companion object {
             val DEFAULT = Trust()
@@ -60,7 +59,7 @@ object Reward {
         /** Which of the nine `r` rules fired, 1..9. */
         val rule: Int,
         val isSkip: Boolean,
-        /** Skip strength for the session: 1.0 under 10 s, 0.6 under 30 s, 0.4 under half; 0 when not a skip. */
+        /** Skip strength for the session: 1.0 under 10 s, 0.6 under 30 s, 0.2 under half; 0 when not a skip. */
         val h: Double,
     ) {
         val isCompletion: Boolean get() = r >= COMPLETION_R
