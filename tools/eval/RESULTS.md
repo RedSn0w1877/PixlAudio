@@ -158,3 +158,59 @@ learned +0.053 [0.038, 0.070]; next-genre prior +0.075 [0.039, 0.117], learned +
 log-loss +0.013 [-0.010, 0.044] with 9 of 21 listeners >1% worse, and the cold share of the top 20 falls 0.108 -> 0.053 (prior) and
 0.195 -> 0.051 (learned): it wins by moving to the artists already in rotation. The bar (learned AUC kept, discovery kept) is not met,
 so M0 is unchanged.
+
+## Two lanes (2026-11-26, `eval compose`): shipped
+
+The familiar lane of every list is now ordered by a "choice" score, the finish weights plus `Ranker.choiceShift` (so its prior is the
+candidate above: since_last 12-16 -> 0, track_aff 0.4, artist_aff_recent 1.0, tag_aff 0.4, sess_tag_pen -0.5); the discovery lane,
+skip prediction and the reward keep the finish scorer. `eval compose` runs the listener's known tracks through `ListBuilder.build`
+itself before every held-out artist change: discovery lane = artists played at most 2 times or not in 30 days (this data has no
+library or unheard catalogue), novelty share = the session's `nu`, the 4 h rule, one track per artist (20 picks = 20 artists),
+genre hit over the first 20 distinct genres of a 60-pick list. "Choice offset" is what ships with the learned weights on, "two
+lanes, prior" what ships with the prior on; "fixed choice" and "choice learner" (a second model from the choice prior) are alternatives.
+
+Report listeners (21):
+
+```
+| list (ListBuilder, nu = session) | next-artist hit@20 | next-genre hit@20 | cold share of top 20 |
+|---|---|---|---|
+| shipped, prior | 0.1471 [0.1174, 0.2453] | 0.6264 [0.5452, 0.7572] | 0.2497 [0.2379, 0.2500] |
+| shipped, learned | 0.1366 [0.1229, 0.1931] | 0.6537 [0.5573, 0.7169] | 0.2497 [0.2379, 0.2500] |
+| artist rate | 0.1603 [0.1248, 0.2791] | 0.6655 [0.5633, 0.7316] | 0.2497 [0.2379, 0.2500] |
+| two lanes, prior | 0.1614 [0.1463, 0.2854] | 0.6977 [0.5721, 0.7702] | 0.2497 [0.2379, 0.2500] |
+| two lanes, fixed choice | 0.1667 [0.1502, 0.2876] | 0.7038 [0.5920, 0.7716] | 0.2497 [0.2379, 0.2500] |
+| two lanes, choice offset | 0.1970 [0.1526, 0.2870] | 0.6354 [0.5688, 0.7660] | 0.2497 [0.2379, 0.2500] |
+| two lanes, choice learner | 0.1502 [0.1321, 0.2854] | 0.6333 [0.5598, 0.7316] | 0.2497 [0.2379, 0.2500] |
+| plain ranking: prior | 0.1461 [0.1193, 0.2867] | 0.6511 [0.5483, 0.7874] | 0.1082 [0.0611, 0.3633] |
+| plain ranking: learned | 0.2673 [0.1541, 0.3106] | 0.7243 [0.6129, 0.8000] | 0.1947 [0.0849, 0.3099] |
+| plain ranking: artist rate (the baseline) | 0.2839 [0.1872, 0.4488] | 0.7500 [0.6097, 0.8149] | 0.0650 [0.0183, 0.1665] |
+
+| comparison | next-artist hit@20 | next-genre hit@20 | cold share |
+|---|---|---|---|
+| two lanes prior - shipped prior | 0.0497 [0.0325, 0.0703] | 0.0217 [0.0087, 0.0366] | 0.0000 [0.0000, 0.0000] |
+| two lanes, fixed choice - shipped learned | 0.0558 [0.0358, 0.0790] | 0.0139 [-0.0002, 0.0271] | 0.0000 [0.0000, 0.0000] |
+| two lanes, choice offset - shipped learned | 0.0660 [0.0426, 0.0922] | 0.0162 [-0.0083, 0.0378] | 0.0000 [0.0000, 0.0000] |
+| two lanes, choice learner - shipped learned | 0.0303 [0.0164, 0.0451] | 0.0045 [-0.0030, 0.0117] | 0.0000 [0.0000, 0.0000] |
+| two lanes, prior - artist rate (same lists) | 0.0237 [0.0106, 0.0388] | 0.0173 [-0.0079, 0.0398] | 0.0000 [0.0000, 0.0000] |
+| two lanes, prior - artist rate (plain ranking) | -0.1049 [-0.1809, -0.0483] | -0.0449 [-0.1040, -0.0005] | 0.0977 [0.0454, 0.1498] |
+| two lanes, fixed choice - artist rate (same lists) | 0.0246 [0.0117, 0.0395] | 0.0187 [-0.0061, 0.0415] | 0.0000 [0.0000, 0.0000] |
+| two lanes, fixed choice - artist rate (plain ranking) | -0.1040 [-0.1797, -0.0474] | -0.0436 [-0.1022, 0.0002] | 0.0977 [0.0454, 0.1498] |
+| two lanes, choice offset - artist rate (same lists) | 0.0348 [0.0188, 0.0536] | 0.0210 [0.0028, 0.0369] | 0.0000 [0.0000, 0.0000] |
+| two lanes, choice offset - artist rate (plain ranking) | -0.0938 [-0.1707, -0.0324] | -0.0412 [-0.1020, 0.0047] | 0.0977 [0.0454, 0.1498] |
+| two lanes, choice learner - artist rate (same lists) | -0.0010 [-0.0247, 0.0190] | 0.0092 [-0.0118, 0.0287] | 0.0000 [0.0000, 0.0000] |
+| two lanes, choice learner - artist rate (plain ranking) | -0.1296 [-0.2039, -0.0712] | -0.0530 [-0.1109, -0.0096] | 0.0977 [0.0454, 0.1498] |
+| shipped learned (lists) - artist rate (lists) | -0.0312 [-0.0538, -0.0105] | 0.0048 [-0.0145, 0.0241] | 0.0000 [0.0000, 0.0000] |
+
+Finish scorer (skip prediction, reward) in the same run: log-loss prior 0.6766 [0.4781, 0.8111], learned 0.7672 [0.5022, 0.9025]; AUC prior 0.5708 [0.5132, 0.6135], learned 0.5925 [0.5748, 0.6426]; identical to a run without the choice scorer, every listener: true
+```
+
+Tuning listeners (49), paired mean [95% CI]: choice offset - shipped learned: artist +0.0585 [0.0442, 0.0742], genre +0.0219
+[0.0137, 0.0302]; choice offset - artist rate (same lists): artist +0.0258 [0.0169, 0.0350], genre +0.0215 [0.0092, 0.0337]; two lanes
+prior - artist rate (same lists): +0.0151 [0.0076, 0.0227] / +0.0240 [0.0106, 0.0365].
+
+Reading it: against the artist-rate scorer composed the same way, the shipped two-lane lists are better on both hit metrics with
+intervals above 0 (learned on; with the prior on, genre crosses 0 on the report split, above 0 on the tuning split). The cold share is
+the novelty share by construction in every list (0.25, same as the shipped lists, not collapsed). The finish scorer's log-loss and AUC are
+bit-identical. Every list, the shipped one included, is well below the plain artist-rate ranking (0.284 / 0.750): a list may not
+repeat a track played in the last 4 hours and gives a quarter of its slots to discovery, and the plain ranking does neither. So the
+bar was read against the baseline built the same way; nothing reaches the plain number while those rules hold.

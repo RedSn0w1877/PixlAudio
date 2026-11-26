@@ -53,3 +53,22 @@ keep the same defaults.
   `eval pair --split=test --set=...` (paired before/after on one split). Run hits now also report the cold share of the top 20.
 - If someone ships the candidate later: bump `LearnReplay.VERSION` (saved learners replay from the new prior), regenerate goldens, and
   iOS must copy M0 and the version. The trade it buys is familiarity for discovery; the owner should pick it, not the metric.
+
+## 2026-11-26 (later): two lanes, shipped
+
+- **`:brain` behaviour change.** Every list StationPlanner builds (autoplay, stations, mixes, Endless) now orders its familiar lane
+  (`inLibrary`) by a choice score: `Ranker.choiceWeights(w) = w + CHOICE_SHIFT` with `w` the weights that rank the list (prior, learned
+  mean or posterior sample). `CHOICE_SHIFT`: [1] -0.8, [3] +0.6, [4] -0.4, [12] +1.5, [13] +0.6, [14] +0.1, [15] -0.1, [16] -0.2,
+  [24] +0.5 (prior = the 11-26 candidate M0). Station pull and `boostLn` are added to it like to `z`. `ListBuilder.Scored` has
+  `zChoice` / `pChoice` (default `z` / `p`) and `laneZ` / `laneP`; opener, bridge, familiar, closer and liked slots read the lane score,
+  novel slots read `z` / `p`. Home rows and First Listen are all novel: unchanged.
+- **Unchanged by construction:** skip prediction, reward, served `pQ`, the learner and `LearnReplay` (no second model, so
+  `LearnReplay.VERSION` stays). The learner moves the choice score through the shared weights (why no second model: the eval's
+  "choice learner" variant did worse than the offset and would need a new persisted model on both apps).
+- Goldens regenerated: lists, mixes, session, stage2a, eval (+ MANIFEST). Spec 5.7 ("Two lanes") and 6.5 ("lanes").
+- **iOS must port:** `choiceShift` values (literals, add in index order), `zChoice`/`pChoice` on its Scored, the lane rule in its list
+  builder and planner, then match the new goldens.
+- Tool: `eval compose` (tools/eval/Compose.kt); numbers in RESULTS.md "Two lanes". Composed lists beat the artist-rate scorer composed
+  the same way on next-artist and next-genre hit@20 (report split: +0.035 [0.019, 0.054] / +0.021 [0.003, 0.037]); cold share stays the
+  novelty share (0.25); finish log-loss / AUC identical. All lists are below the plain artist-rate ranking (0.284) because of the 4 h rule
+  and the discovery slots; read RESULTS.md before quoting.
