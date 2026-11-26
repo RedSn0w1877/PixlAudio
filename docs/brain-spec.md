@@ -475,7 +475,7 @@ The 30 s and 80% lines are the ones the app already uses [R]. Rule 3 exists beca
 
 | Base (exactly one) | Value |
 |---|---|
-| live, the listener picked it (`album`, `playlist`, `liked`, `artist`, `search`, `manualQueue`, `external`, `unknown`) | 1.0 when `r >= 0.5`; 0.6 when `r < 0.5` (skipping inside one's own playlist is often "not now") |
+| live, the listener picked it (`album`, `playlist`, `liked`, `artist`, `search`, `manualQueue`, `external`, `unknown`) | 1.0 when `r >= 0.5`; 1.5 when `r < 0.5` (was 0.6 on the guess that skipping inside one's own playlist is often "not now"; the ListenBrainz replay of 2026-11-25 says the listener's own early skips are the strongest evidence, see 14.6) |
 | live, an engine surface (`homeShelf`, mixes, `station`, `autoplay`, `assistant`) | 0.6 when `r >= 0.5` (it was put in front of them); 1.0 when `r < 0.5` (an active rejection) |
 | `migratedHistory` (the app's own older plays) | 0.8 |
 | imported | `0.5 * sourceWeight`; `sourceWeight` 1.0 Spotify, 0.35 YouTube Music (the existing constants [R]) |
@@ -489,7 +489,7 @@ The 30 s and 80% lines are the ones the app already uses [R]. Rule 3 exists beca
 | skip inside a streak of 3 or more skips within 60 s | x 0.3 |
 | skip under 2 s directly after a skip | x 0.3 |
 | skip of a track with 3 or more past completions | x 0.3 for every key except the track's own |
-| completion with `passiveRun >= 6` | x 0.5; x 0.25 at `>= 12` |
+| completion with `passiveRun >= 6` | x 0.5 (also at `>= 12`; was x 0.25 there until the 2026-11-25 replay) |
 | `exploreSlot` | x 1.5 |
 | `neverAudible` | x 0 |
 | `learnExcluded` (private session, "Don't learn from this") | x 0 |
@@ -615,7 +615,7 @@ In memory; reset after 30 minutes without a play.
 | Field | Update |
 |---|---|
 | `recentPos` (up to 5 rids, newest first) | pushed on `r >= 0.8` |
-| `recentNeg` (up to 5 `(rid, h)`) | pushed on a skip with strength `h > 0`: `h = 1.0` under 10 s, `0.6` under 30 s, `0.2` under half the track, else 0 |
+| `recentNeg` (up to 5 `(rid, h)`) | pushed on a skip with strength `h > 0`: `h = 1.0` under 10 s, `0.6` under 30 s, `0.4` under half the track (0.2 until the 2026-11-25 replay), else 0 |
 | `tagPen[atlasId]` (stage 2: no track has tags before) | on a skip: `+= h * w/255` for the track's top 5 tags, three times that if the previous skipped track shared its top tag; on a completion: all entries `*= 0.7` |
 | `artistBlock[aid]` | 10 tracks when `h >= 0.6`; the rest of the session after a second skip of that artist; counts down per track played. **The seed artist of a station is exempt** (the listener asked for that artist): a skip there lowers the artist's share to 1 track in 6 for the next 10 tracks, a second skip to none for 10 tracks, never for the rest of the session |
 | `skipRun` | +1 per skip with `h >= 0.6`; 0 on a completion |
@@ -1590,7 +1590,7 @@ On-device tempo and loudness from decoded audio (flow ordering, the energy secti
 | Whether Spotify still fills artist `genres` for this client id | 1 |
 | YouTube Music radio from a phone on a Vietnamese or European network, and on cellular (all probes were one US IP) | 1 |
 | Radio continuation paging and chip ids beyond the 13 seeds probed (the reviewer's 3 extra seeds showed pages that repeat earlier rows) | 1 |
-| Every hyperparameter. None of `M0`, the trust factors of 4.3, or the session constants of 5.5 has been run against a real listener; stage 1 ships them behind radio order (an empty state *is* radio order) and stage 2's harness is the first measurement | 2 |
+| Every hyperparameter. First real measurement 2026-11-25 (tools/eval, 70 public ListenBrainz listeners, skip proxy): three trust/skip constants changed (4.3, 5.5); a fitted `M0` raised AUC but was not adopted (prior log-loss not clearly better, 4 of 21 held-out listeners worse); the learner's step clip and curvature floor showed no clear gain. Engine-surface trust bases, flow weights and graph/island/context weights are still unmeasured: the data has no engine picks and no audio features | 2 |
 | Phone timings for every budget in 12.1 | 1-2 |
 | MusicBrainz genre relationship coverage beyond 35 sampled pages | 2 |
 | Real DNA coverage on a real library | 2 |

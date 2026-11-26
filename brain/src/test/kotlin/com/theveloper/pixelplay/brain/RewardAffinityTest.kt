@@ -91,7 +91,7 @@ class RewardAffinityTest {
         assertTrue(g.isSkip)
         assertEquals(1.0, g.h)
         assertEquals(0.0, g.r)
-        assertEquals(0.6, g.c) // the listener's own playlist: often "not now"
+        assertEquals(1.5, g.c) // the listener's own early skip: the strongest evidence (tools/eval, 2026-11-25)
         assertEquals(1.0, grade(event(2_000, surface = Surface.AUTOPLAY, arm = Arm.RADIO)).c) // an active rejection
     }
 
@@ -104,7 +104,7 @@ class RewardAffinityTest {
         assertTrue(Reward.isSkip(event(20_000, durationMs = 0, endReason = EndReason.PICKED_OTHER)))
         assertFalse(Reward.isSkip(event(31_000, durationMs = 0, endReason = EndReason.QUEUE_EDIT)))
         assertEquals(0.6, Reward.skipStrength(event(15_000), 0))
-        assertEquals(0.2, Reward.skipStrength(event(60_000), 0))
+        assertEquals(0.4, Reward.skipStrength(event(60_000), 0))
         assertEquals(0.3, Reward.skipStrength(event(1_000), 3))
     }
 
@@ -122,7 +122,7 @@ class RewardAffinityTest {
         assertEquals(4.5, grade(event(100_000, surface = Surface.AUTOPLAY, flags = EventFlags.NOT_FOR_ME or EventFlags.EXPLORE_SLOT or EventFlags.SEEK_BACK)).c)
         assertEquals(0.0, grade(event(200_000, endReason = EndReason.TRACK_DONE, flags = EventFlags.NEVER_AUDIBLE)).c)
         assertEquals(0.5, grade(event(200_000, endReason = EndReason.TRACK_DONE, passiveRun = 6)).c)
-        assertEquals(0.25, grade(event(200_000, endReason = EndReason.TRACK_DONE, passiveRun = 12)).c)
+        assertEquals(0.5, grade(event(200_000, endReason = EndReason.TRACK_DONE, passiveRun = 12)).c)
     }
 
     @Test

@@ -239,6 +239,7 @@ object Tune {
             "A prior M0 only" to cfgA,
             "B trust only" to Config(trust = cfgB.trust),
             "C learner only" to Config(stepClip = cfgC.stepClip, hFloor = cfgC.hFloor),
+            "A+B" to cfgB,
             "A+B+C" to cfgC,
         )
 
@@ -266,8 +267,8 @@ object Tune {
             appendLine()
             appendLine("## Held-out check (report listeners): old constants -> candidate, paired per listener")
             appendLine()
-            appendLine("| change | rel. LL gain prior (mean, CI) | rel. LL gain learned | AUC diff prior | AUC diff learned | clear? |")
-            appendLine("|---|---|---|---|---|---|")
+            appendLine("| change | rel. LL gain prior (mean, CI) | rel. LL gain learned | AUC diff prior | AUC diff learned | listeners worse by >1% LL (prior / learned) | clear? |")
+            appendLine("|---|---|---|---|---|---|---|")
             for ((name, c) in groups) {
                 val s = Report.scores(test, c)
                 fun rel(m: Int) = Metrics.bootstrap(DoubleArray(s.size) { (base[it].ll[m] - s[it].ll[m]) / base[it].ll[m] }, Metrics::mean)
@@ -275,7 +276,9 @@ object Tune {
                 val rp = rel(0); val rl = rel(1); val ap = dauc(0); val al = dauc(1)
                 val gain = (rp.value >= 0.01 && rp.low > 0) || (rl.value >= 0.01 && rl.low > 0) || (ap.value >= 0.01 && ap.low > 0) || (al.value >= 0.01 && al.low > 0)
                 val worse = rp.high < 0 || rl.high < 0 || ap.high < 0 || al.high < 0
-                appendLine("| $name | $rp | $rl | $ap | $al | ${if (gain && !worse) "yes" else "no"} |")
+                val wp = s.indices.count { (base[it].ll[0] - s[it].ll[0]) / base[it].ll[0] < -0.01 }
+                val wl = s.indices.count { (base[it].ll[1] - s[it].ll[1]) / base[it].ll[1] < -0.01 }
+                appendLine("| $name | $rp | $rl | $ap | $al | $wp / $wl of ${s.size} | ${if (gain && !worse) "yes" else "no"} |")
             }
             appendLine()
             appendLine("Candidate values: M0 ${describeM0(cfgA)}; trust ${describeTrust(cfgB.trust)}; stepClip ${cfgC.stepClip}, hFloor ${cfgC.hFloor}.")

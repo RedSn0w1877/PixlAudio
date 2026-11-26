@@ -59,7 +59,7 @@ class SessionPlannerTest {
         play(1L, 10L, 60_000)
         assertFalse(session.isBlocked(10L))
         assertEquals(0, session.skipRun)
-        assertEquals(0.2, session.recentNegH[0])
+        assertEquals(0.4, session.recentNegH[0])
     }
 
     @Test
