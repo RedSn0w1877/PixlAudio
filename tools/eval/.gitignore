@@ -1,0 +1,4 @@
+# Raw ListenBrainz downloads and per-user intermediates: never committed (no user data in git).
+cache/
+build/
+cache-fetch.log
