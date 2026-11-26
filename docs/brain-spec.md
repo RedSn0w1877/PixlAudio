@@ -877,7 +877,9 @@ within slot  value(i) = lambda * z_i - (1 - lambda) * max over chosen j of sim(i
              lambda = 0.75 inside one island, 0.6 across islands ;  kappa = 0.4 (0 before stage 2)
 calibGain(i) = KL(P || Q_without) - KL(P || Q_with_i)
              P(c) = W_c^0.75 normalised over islands, floor 0.03 ;  Q = island mix of the list so far, smoothed 0.99 Q + 0.01 P
-flowCost(i)  = 0.15 * max(0, tempoDist(prev, i) - 0.17) + 0.05 * max(0, abs(gainPrev - gain_i) - 4) / 4 ;  unknown values cost 0
+flowCost(i)  = 0.15 * max(0, tempoDist(prev, i) - 0.17) + min(0.15, 0.05 * max(0, abs(gainPrev - gain_i) - 4) / 4) ;  unknown values cost 0
+             stage 5 adds + min(0.1, 0.1 * max(0, |energyPrev - energy_i| - 32) / 64) and, on finite lists, the energy arc
+             min(0.1, 0.1 * max(0, |energy_i - target(t)| - 20) / 64), target = medianEnergy + 36 * shape(t) (Flow.kt)
 tempoDist    = min over k in {0.5, 1, 2} of abs( log2( bpm_a * k / bpm_b ) )
 servedPen(i) = 0.4 * min(1, timesServedLast30Days / 3)          (generated lists only)
 order key    floor(value * 2^20 + 0.5), descending ;  ties: splitmix64(rid xor seed) ascending, then rid ascending
@@ -1571,6 +1573,8 @@ Not in stage 1 (moved to stage 2 on review; see section 16): new music inside Da
 ### Stage 5 (optional)
 
 On-device tempo and loudness from decoded audio (flow ordering, the energy section). A shared read-through cache for public artist facts on the existing Worker, no listener data. Autoplay during Cast and Connect sessions.
+
+**Built (Android, 2026-11-25, branch `brain-stage5`):** `AudioFeatures` (estimator), `Flow` (flow cost and energy arc), the tempo nudge on energy (`TrackDna.feel` with tempo), `audio_measure` in brain.db 8, golden files `audiofeatures.jsonl` and `flow.jsonl`. Connect autoplay was already on since stage 2a. Cast autoplay is not built: this fork's Cast file server cannot serve a streamed track at all (see `handoff/2026-11-25-music-brain-stage5.md`). The shared Worker cache waits for the owner.
 
 ### 14.6 Things nobody has verified yet
 
