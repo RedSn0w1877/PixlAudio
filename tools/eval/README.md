@@ -9,7 +9,10 @@ listener.
 ./gradlew :eval:run --args="all"        # fetch (cached), evaluate, tune, write RESULTS.md
 ./gradlew :eval:run --args="tune"       # from the cache only
 ./gradlew :eval:run --args="all --offline --users=70"
+./gradlew :eval:run --args="ablate --split=tune --set=12:0,13:0;1:0"   # prior M0 experiments, shipped first
+./gradlew :eval:run --args="pair --split=test --set=12:0,13:0"        # shipped vs one candidate, paired per listener
 ```
+(Faster for many runs: `./gradlew :eval:installDist` once, then `tools/eval/build/install/eval/bin/eval ...` from tools/eval.)
 
 ## Data and politeness
 

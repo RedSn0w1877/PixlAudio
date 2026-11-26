@@ -132,3 +132,29 @@ The rule (clear gain, nothing else worse beyond noise) is not met by any group, 
 | u53 | 1410 | 0.28 | 0.811 | 0.877 | 0.776 | 0.613 | 0.648 | 0.638 | -0.0657 [-0.0777, -0.0491] | 0.22/0.29/0.32 |
 | u55 | 1218 | 0.61 | 0.893 | 0.767 | 0.828 | 0.454 | 0.763 | 0.625 | 0.1258 [0.0761, 0.1682] | 0.07/0.31/0.06 |
 | u64 | 1438 | 0.29 | 0.803 | 0.954 | 0.750 | 0.513 | 0.520 | 0.537 | -0.1511 [-0.1702, -0.1309] | 0.12/0.13/0.15 |
+
+## Next-artist gap (2026-11-26, `eval ablate` / `eval pair`): why, and why nothing shipped
+
+The brain's score is P(finish | it plays); next-artist hit@20 asks it to predict what is chosen. Ablations on the 49 tuning listeners
+(medians; prior / learned / artist rate; "cold" = top-20 share of artists played at most twice or not in 30 days):
+
+| prior M0 change | LL | AUC | next-artist | next-genre | cold share |
+|---|---|---|---|---|---|
+| shipped | 0.579 / 0.519 / 0.540 | 0.561 / 0.590 / 0.571 | 0.160 / 0.165 / 0.245 | 0.620 / 0.663 / 0.674 | 0.085 / 0.134 / 0.049 |
+| since_last 12, 13 -> 0 | 0.584 / 0.519 | 0.573 / 0.594 | 0.263 / 0.198 | 0.678 / 0.675 | 0.003* |
+| track_aff 1 -> 0 | 0.550 / 0.513 | 0.543 / 0.585 | 0.145 / 0.168 | 0.639 / 0.629 | |
+| sess sim 22, 23 -> 0 | 0.547 / 0.519 | 0.572 / 0.592 | 0.159 / 0.170 | 0.619 / 0.640 | |
+| artist-share feature (slot 9, eval only), w 2.0 | 0.664 / 0.524 | 0.557 / 0.596 | 0.217 / 0.194 | 0.669 / 0.663 | 0.056 / 0.100 |
+| 12-16 -> 0, 1 -> 0.4, 4 -> 0.4, 24 -> -0.5, 3 -> 1.0 (best) | 0.537 / 0.516 | 0.548 / 0.598 | 0.311 / 0.256 | 0.715 / 0.686 | 0.035 / 0.039 |
+
+(*first run used the plays-only definition of "cold".) Cause: the since_last one-hots (-1.5 under 2 h, -0.6 under 24 h) push down
+every artist whose recent tracks were just played, i.e. the artists people actually go back to; the learner only moves feature 12 to
+-0.83 from that prior (it settles near -0.1 when started at 0). A count/share familiarity feature does not help: it is not predictive of
+finishing, so it costs the prior log-loss and the learner does not keep it.
+
+Best candidate on the 21 report listeners, paired after minus before (mean, 95% CI): next-artist hit@20 prior +0.150 [0.105, 0.210],
+learned +0.053 [0.038, 0.070]; next-genre prior +0.075 [0.039, 0.117], learned +0.028 [0.008, 0.058]; medians now 0.301 / 0.328 vs
+0.284 (artist) and 0.772 / 0.761 vs 0.750 (genre). But learned AUC median 0.5925 -> 0.5821 (paired -0.0063 [-0.0138, 0.0015]), prior
+log-loss +0.013 [-0.010, 0.044] with 9 of 21 listeners >1% worse, and the cold share of the top 20 falls 0.108 -> 0.053 (prior) and
+0.195 -> 0.051 (learned): it wins by moving to the artists already in rotation. The bar (learned AUC kept, discovery kept) is not met,
+so M0 is unchanged.

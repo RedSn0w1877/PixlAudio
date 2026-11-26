@@ -37,3 +37,19 @@ keep the same defaults.
   features 5-11, 19-21, 27-47 and the flow weights were not measurable.
 - Next step that would actually settle M0: run `tools/eval` logic on the owner's own export (`RealExportTest6` path) or on Spotify
   extended history, which has real `ms_played`.
+
+## 2026-11-26: the next-artist gap (no constants changed)
+
+- Why the brain trails the artist-rate baseline on next-artist / next-genre hit@20: the since_last one-hots (features 12-13, -1.5 / -0.6)
+  sink every artist whose last tracks were played in the last day, which is most of the artists people go back to. The score predicts
+  "will they finish it", not "will they pick it", and the 4 h hard constraint of 6.4 already keeps just-played tracks out of lists.
+- Tried (tuning listeners) and measured on the report listeners: since_last 12-16 -> 0, track_aff 1.2 -> 0.4, artist_aff_recent
+  0.4 -> 1.0, tag_aff 0.8 -> 0.4, sess_tag_pen -1.0 -> -0.5. It beats the baseline on both hit metrics (prior and learned), but learned
+  AUC falls (0.5925 -> 0.5821 median), prior log-loss is +1.3% (noise, 9/21 listeners worse) and the share of cold or barely known
+  artists in the top 20 drops from 0.195 to 0.051 (learned). Not shipped. Numbers: tools/eval/RESULTS.md, last section.
+- An artist listening-share feature (21-day or 120-day, log scale) was tried in the eval only (slot 9): it raises hits less and costs the
+  prior log-loss; the learner does not keep its weight. Not added (a new feature means D 51 -> 52 and a learner reset on both apps).
+- Tool only: `eval ablate --split=tune --set="12:0,13:0;..."` (prior M0 experiments, prints the medians and the learned weights) and
+  `eval pair --split=test --set=...` (paired before/after on one split). Run hits now also report the cold share of the top 20.
+- If someone ships the candidate later: bump `LearnReplay.VERSION` (saved learners replay from the new prior), regenerate goldens, and
+  iOS must copy M0 and the version. The trade it buys is familiarity for discovery; the owner should pick it, not the metric.
