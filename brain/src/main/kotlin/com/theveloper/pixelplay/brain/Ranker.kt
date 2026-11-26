@@ -73,6 +73,33 @@ object Ranker {
 
     fun m0(index: Int): Double = M0[index]
 
+    /**
+     * The "choice" scorer of 6.5 (two lanes): what orders the familiar lane of every list. It is the finish scorer's weights (prior or
+     * learned, whatever ranks the list) plus this fixed shift, so its prior is `M0 + CHOICE_SHIFT` (the 2026-11-26 candidate of
+     * tools/eval: since_last 12-16 -> 0, track_aff 0.4, artist_aff_recent 1.0, tag_aff 0.4, sess_tag_pen -0.5) and the learner moves
+     * it with the same events, without a second model. The discovery lane, skip prediction and the reward keep [weights] as they are.
+     */
+    private val CHOICE_SHIFT = DoubleArray(D).also {
+        it[1] = -0.8
+        it[3] = 0.6
+        it[4] = -0.4
+        it[12] = 1.5
+        it[13] = 0.6
+        it[14] = 0.1
+        it[15] = -0.1
+        it[16] = -0.2
+        it[24] = 0.5
+    }
+
+    fun choiceShift(index: Int): Double = CHOICE_SHIFT[index]
+
+    /** The choice weights for the finish weights [w] (from [weights] or a [WeightSource]): `w + CHOICE_SHIFT`, a new array. */
+    fun choiceWeights(w: DoubleArray): DoubleArray {
+        val c = w.copyOf()
+        for (i in 0 until D) c[i] += CHOICE_SHIFT[i]
+        return c
+    }
+
     fun sd0(index: Int): Double = SD0[index]
 
     /** The weight vector for a listener whose base completion rate is [p0]. */

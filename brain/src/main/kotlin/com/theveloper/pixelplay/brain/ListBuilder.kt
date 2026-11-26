@@ -56,7 +56,18 @@ object ListBuilder {
         val noise: Double = 0.0,
         /** Index into the planner's kept candidates (stage 4: the planner re-reads this candidate's features for the served vector); -1 for none. */
         val idx: Int = -1,
-    )
+        /**
+         * The "choice" score of 6.5 (two lanes): what orders this candidate when it competes for a familiar slot. Defaults to [z] / [p],
+         * so a caller without a choice scorer builds exactly the list it built before. A novel candidate is always ordered by [z] / [p].
+         */
+        val zChoice: Double = z,
+        val pChoice: Double = p,
+    ) {
+        /** The score of this candidate's lane: [z] when novel, [zChoice] when familiar. */
+        val laneZ: Double get() = if (novel) z else zChoice
+
+        val laneP: Double get() = if (novel) p else pChoice
+    }
 
     /** A slot already in the list (the engine's own tail of the queue), oldest first. */
     class Prior(val rid: Long, val aid: Long, val albumKey: Long, val novel: Boolean)
@@ -149,7 +160,7 @@ object ListBuilder {
                 var bestKey = 0L
                 for (s in scored) {
                     if (s.novel || s.c.rid in used || !contains(aids, s.c.aid) || !okSlot(s.c)) continue
-                    val key = BrainMath.orderKey(s.p)
+                    val key = BrainMath.orderKey(s.laneP)
                     if (best == null || better(key, s.c.rid, bestKey, best.c.rid, request.tieSeed)) {
                         best = s
                         bestKey = key
@@ -211,7 +222,7 @@ object ListBuilder {
                 for (s in scored) {
                     if (s.novel || s.c.rid in used || !okSlot(s.c)) continue
                     if (s.lastMs != 0L && BrainMath.localDay(s.lastMs, request.tzOffsetMin) == today) continue
-                    val key = BrainMath.orderKey(s.p - s.servedPen + s.noise)
+                    val key = BrainMath.orderKey(s.laneP - s.servedPen + s.noise)
                     if (chosen == null || better(key, s.c.rid, chosenKey, chosen.c.rid, request.tieSeed)) {
                         chosen = s
                         chosenKey = key
@@ -223,7 +234,7 @@ object ListBuilder {
             if (chosen == null && kind == SLOT_CLOSER) {
                 for (s in scored) {
                     if (s.novel || s.c.rid in used || !okSlot(s.c)) continue
-                    val key = BrainMath.orderKey(s.p - s.servedPen + s.noise)
+                    val key = BrainMath.orderKey(s.laneP - s.servedPen + s.noise)
                     if (chosen == null || better(key, s.c.rid, chosenKey, chosen.c.rid, request.tieSeed)) {
                         chosen = s
                         chosenKey = key
@@ -310,7 +321,7 @@ object ListBuilder {
         }
         val calib = request.calibration
         val gain = if (calib != null) request.kappa * calib.gain(s.c.islandIdx) else 0.0
-        return request.lambda * s.z - (1.0 - request.lambda) * maxSim + gain - s.servedPen + s.noise
+        return request.lambda * s.laneZ - (1.0 - request.lambda) * maxSim + gain - s.servedPen + s.noise
     }
 
     /** True when [c] may take the next slot: the spacing rules of 6.4, and the cap per artist when the list has one. */

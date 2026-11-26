@@ -18,6 +18,8 @@ class UserScore(
     val gainHigh: Double,
     val artistHit: DoubleArray,
     val genreHit: DoubleArray,
+    /** Share of the top 20 artists that were barely known (played at most [Replayer.RARE_PLAYS] times), per scorer. */
+    val rare: DoubleArray = DoubleArray(3),
 )
 
 object Metrics {
@@ -70,6 +72,7 @@ object Metrics {
             llv[0] - llv[1], gains[(0.025 * resamples).toInt()], gains[(0.975 * resamples).toInt().coerceAtMost(resamples - 1)],
             DoubleArray(3) { if (r.artistPoints == 0) 0.0 else r.artistHits[it].toDouble() / r.artistPoints },
             DoubleArray(3) { if (r.genrePoints == 0) 0.0 else r.genreHits[it].toDouble() / r.genrePoints },
+            DoubleArray(3) { if (r.artistPoints == 0) 0.0 else r.rareShare[it] / r.artistPoints },
         )
     }
 

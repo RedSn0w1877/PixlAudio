@@ -30,12 +30,18 @@ fun main(args: Array<String>) {
     System.err.println("listeners: ${users.size}")
     if (cmd == "eval" || cmd == "all") println(Report.baseline(users))
     if (cmd == "hitcheck") println(Report.hitCheck(Tune.split(users).second))
+    if (cmd == "pair") println(Report.pair(users, opts["split"] ?: "test", opts["set"] ?: ""))
+    if (cmd == "compose") println(Report.compose(users, opts["split"] ?: "test", opts["set"] ?: CHOICE_SET))
+    if (cmd == "ablate")Report.ablate(users, opts["split"] ?: "tune", opts["set"] ?: "")
     if (cmd == "tune" || cmd == "all") {
         val text = Tune.run(users)
         File(root, "RESULTS.md").writeText(text)
         println(text)
     }
 }
+
+/** The 2026-11-26 candidate prior, used as the choice scorer's prior by `compose` unless `--set` says otherwise. */
+const val CHOICE_SET = "12:0,13:0,14:0,15:0,16:0,1:0.4,3:1.0,4:0.4,24:-0.5"
 
 private fun fetch(lb: Lb, cache: File, repo: File, target: Int) {
     val atlas = Dataset.loadAtlas(repo)
@@ -143,6 +149,96 @@ object Report {
     /** The trust constants before the 2026-11-25 tuning, for the paired before/after check. */
     val TRUST_BEFORE = Reward.Trust(ownSkipped = 0.6, passive12 = 0.25, hUnderHalf = 0.2)
 
+    fun parseSet(x: String): Config {
+        var cfg = Config.DEFAULT
+        for (kv in x.split(',').filter { it.isNotBlank() }) {
+            if (kv.trim().startsWith("x")) { cfg = cfg.withExtra(kv.trim().drop(1).toInt()); continue }
+            val (i, v) = kv.split(':')
+            cfg = cfg.withM0(i.trim().toInt(), v.trim().toDouble())
+        }
+        return cfg
+    }
+
+    /** `pair --split=test --set=...`: shipped prior against a candidate prior on one split, every metric paired per listener. */
+    fun pair(users: List<Listener>, split: String, set: String): String = buildString {
+        val (tune, test) = Tune.split(users)
+        val us = when (split) { "tune" -> tune; "all" -> users; else -> test }
+        val a = scores(us, Config.DEFAULT, ranking = true)
+        val b = scores(us, parseSet(set), ranking = true)
+        appendLine(summary("Before (shipped M0), $split", a))
+        appendLine(summary("After ($set), $split", b))
+        appendLine("Barely-known or cold artists (played at most ${Replayer.RARE_PLAYS} times, or not in 30 days) in the top 20, median: before ${f(Metrics.median(a.map { it.rare[0] }.toDoubleArray()), 3)} prior / ${f(Metrics.median(a.map { it.rare[1] }.toDoubleArray()), 3)} learned, after ${f(Metrics.median(b.map { it.rare[0] }.toDoubleArray()), 3)} / ${f(Metrics.median(b.map { it.rare[1] }.toDoubleArray()), 3)}, artist rate ${f(Metrics.median(a.map { it.rare[2] }.toDoubleArray()), 3)}")
+        appendLine()
+        fun d(name: String, sel: (UserScore) -> Double) =
+            appendLine("| $name | ${Metrics.bootstrap(DoubleArray(a.size) { sel(b[it]) - sel(a[it]) }, Metrics::mean)} |")
+        fun vsBase(name: String, sel: (UserScore) -> Double, base: (UserScore) -> Double) =
+            appendLine("| $name | ${Metrics.bootstrap(DoubleArray(b.size) { sel(b[it]) - base(b[it]) }, Metrics::mean)} |")
+        appendLine("| metric, after minus before (mean, 95% CI over listeners) | |")
+        appendLine("|---|---|")
+        d("log-loss prior") { it.ll[0] }; d("log-loss learned") { it.ll[1] }
+        d("AUC prior") { it.auc[0] }; d("AUC learned") { it.auc[1] }
+        d("next-artist hit@20 prior") { it.artistHit[0] }; d("next-artist hit@20 learned") { it.artistHit[1] }
+        d("next-genre hit@20 prior") { it.genreHit[0] }; d("next-genre hit@20 learned") { it.genreHit[1] }
+        d("barely-known share prior") { it.rare[0] }; d("barely-known share learned") { it.rare[1] }
+        vsBase("after: next-artist hit@20 prior minus artist rate", { it.artistHit[0] }, { it.artistHit[2] })
+        vsBase("after: next-artist hit@20 learned minus artist rate", { it.artistHit[1] }, { it.artistHit[2] })
+        vsBase("after: next-genre hit@20 prior minus artist rate", { it.genreHit[0] }, { it.genreHit[2] })
+        vsBase("after: next-genre hit@20 learned minus artist rate", { it.genreHit[1] }, { it.genreHit[2] })
+        val wp = a.indices.count { (a[it].ll[0] - b[it].ll[0]) / a[it].ll[0] < -0.01 }
+        val wl = a.indices.count { (a[it].ll[1] - b[it].ll[1]) / a[it].ll[1] < -0.01 }
+        appendLine()
+        appendLine("Listeners worse by more than 1% log-loss: prior $wp, learned $wl of ${a.size}.")
+    }
+
+    /**
+     * `compose --split=test --set=...`: the two-lane lists of [Compose] (the familiar lane ordered by the choice prior [set], the
+     * discovery lane by the finish scorer, merged by ListBuilder itself) against the shipped single-scorer lists and the baselines.
+     */
+    fun compose(users: List<Listener>, split: String, set: String): String = buildString {
+        val (tune, test) = Tune.split(users)
+        val us = when (split) { "tune" -> tune; "all" -> users; else -> test }
+        val choice = parseSet(set).m0
+        val runs = us.parallelStream().map { it.id to Replayer.run(it, Config.DEFAULT, ranking = true, choice = choice) }.toList().sortedBy { it.first }
+        val s = runs.map { Metrics.score(it.first, it.second) }
+        val plain = scores(us, Config.DEFAULT, ranking = true)
+        val c = runs.map { it.second.composed!! }
+        fun hit(k: Int, u: Int) = if (c[u].artistPoints == 0) 0.0 else c[u].artistHits[k].toDouble() / c[u].artistPoints
+        fun gen(k: Int, u: Int) = if (c[u].genrePoints == 0) 0.0 else c[u].genreHits[k].toDouble() / c[u].genrePoints
+        fun cold(k: Int, u: Int) = if (c[u].artistPoints == 0) 0.0 else c[u].cold[k] / c[u].artistPoints
+        val n = us.size
+        fun med(sel: (Int) -> Double) = Metrics.bootstrap(DoubleArray(n) { sel(it) })
+        fun pairMean(sel: (Int) -> Double) = Metrics.bootstrap(DoubleArray(n) { sel(it) }, Metrics::mean)
+        appendLine("Composed lists, $split split (${n} listeners), choice prior: ${Tune.describeM0(parseSet(set))}")
+        appendLine()
+        appendLine("| list (ListBuilder, nu = session) | next-artist hit@20 | next-genre hit@20 | cold share of top 20 |")
+        appendLine("|---|---|---|---|")
+        for (k in 0 until Compose.LISTS) appendLine("| ${Compose.NAMES[k]} | ${med { hit(k, it) }} | ${med { gen(k, it) }} | ${med { cold(k, it) }} |")
+        appendLine("| plain ranking: prior | ${med { plain[it].artistHit[0] }} | ${med { plain[it].genreHit[0] }} | ${med { plain[it].rare[0] }} |")
+        appendLine("| plain ranking: learned | ${med { plain[it].artistHit[1] }} | ${med { plain[it].genreHit[1] }} | ${med { plain[it].rare[1] }} |")
+        appendLine("| plain ranking: artist rate (the baseline) | ${med { plain[it].artistHit[2] }} | ${med { plain[it].genreHit[2] }} | ${med { plain[it].rare[2] }} |")
+        appendLine()
+        appendLine("Paired per listener (mean difference, 95% CI over resampled listeners):")
+        appendLine()
+        appendLine("| comparison | next-artist hit@20 | next-genre hit@20 | cold share |")
+        appendLine("|---|---|---|---|")
+        fun row(name: String, a: Int, b: Int) = appendLine(
+            "| $name | ${pairMean { hit(a, it) - hit(b, it) }} | ${pairMean { gen(a, it) - gen(b, it) }} | ${pairMean { cold(a, it) - cold(b, it) }} |",
+        )
+        fun rowBase(name: String, a: Int) = appendLine(
+            "| $name | ${pairMean { hit(a, it) - plain[it].artistHit[2] }} | ${pairMean { gen(a, it) - plain[it].genreHit[2] }} | ${pairMean { cold(a, it) - plain[it].rare[2] }} |",
+        )
+        row("two lanes prior - shipped prior", Compose.TWO_LANE_PRIOR, Compose.SHIPPED_PRIOR)
+        for (k in intArrayOf(Compose.TWO_LANE_FIXED, Compose.TWO_LANE_OFFSET, Compose.TWO_LANE_LEARNER)) row("${Compose.NAMES[k]} - shipped learned", k, Compose.SHIPPED_LEARNED)
+        for (k in intArrayOf(Compose.TWO_LANE_PRIOR, Compose.TWO_LANE_FIXED, Compose.TWO_LANE_OFFSET, Compose.TWO_LANE_LEARNER)) {
+            row("${Compose.NAMES[k]} - artist rate (same lists)", k, Compose.ARTIST_RATE)
+            rowBase("${Compose.NAMES[k]} - artist rate (plain ranking)", k)
+        }
+        row("shipped learned (lists) - artist rate (lists)", Compose.SHIPPED_LEARNED, Compose.ARTIST_RATE)
+        appendLine()
+        val sameLl = s.indices.all { s[it].ll[0] == plain[it].ll[0] && s[it].ll[1] == plain[it].ll[1] && s[it].auc[0] == plain[it].auc[0] && s[it].auc[1] == plain[it].auc[1] }
+        appendLine("Finish scorer (skip prediction, reward) in the same run: log-loss prior ${med { s[it].ll[0] }}, learned ${med { s[it].ll[1] }}; AUC prior ${med { s[it].auc[0] }}, learned ${med { s[it].auc[1] }}; identical to a run without the choice scorer, every listener: $sameLl")
+    }
+
     /** Paired before/after (old trust vs the shipped one) on [users]: every metric, mean difference with its interval over listeners. */
     fun hitCheck(users: List<Listener>): String = buildString {
         val a = scores(users, Config(trust = TRUST_BEFORE), ranking = true)
@@ -157,6 +253,35 @@ object Report {
         d("AUC prior") { it.auc[0] }; d("AUC learned") { it.auc[1] }; d("AUC artist rate") { it.auc[2] }
         d("next-artist hit@20 prior") { it.artistHit[0] }; d("next-artist hit@20 learned") { it.artistHit[1] }; d("next-artist hit@20 artist rate") { it.artistHit[2] }
         d("next-genre hit@20 prior") { it.genreHit[0] }; d("next-genre hit@20 learned") { it.genreHit[1] }; d("next-genre hit@20 artist rate") { it.genreHit[2] }
+    }
+
+    /**
+     * Ranking ablations: `ablate --split=tune|test|all --set="12:0,13:0;2:2"`. Each `;`-separated experiment sets prior means (index:value)
+     * and prints the medians of every metric, the barely-known share of the top 20 included. The empty experiment is the shipped prior.
+     */
+    fun ablate(users: List<Listener>, split: String, set: String) {
+        val (tune, test) = Tune.split(users)
+        val us = when (split) { "test" -> test; "all" -> users; else -> tune }
+        val exps = listOf("") + set.split(';').map { it.trim() }.filter { it.isNotEmpty() }
+        for (x in exps) {
+            var cfg = Config.DEFAULT
+            for (kv in x.split(',').filter { it.isNotBlank() }) {
+                if (kv.trim().startsWith("x")) { cfg = cfg.withExtra(kv.trim().drop(1).toInt()); continue }
+                val (i, v) = kv.split(':')
+                cfg = cfg.withM0(i.trim().toInt(), v.trim().toDouble())
+            }
+            val runs = us.parallelStream().map { it.id to Replayer.run(it, cfg, true) }.toList().sortedBy { it.first }
+            val s = runs.map { Metrics.score(it.first, it.second) }
+            val idxs = intArrayOf(1, 2, 3, 4, 9, 12, 13, 14, 15, 16, 22, 23, 24, 25, 26)
+            System.out.println("  learned m (median): " + idxs.joinToString(" ") { i -> "$i=" + f(Metrics.median(runs.map { it.second.model.m[i] }.toDoubleArray()), 2) })
+            fun m(sel: (UserScore) -> Double) = f(Metrics.median(s.map(sel).toDoubleArray()), 3)
+            fun mn(sel: (UserScore) -> Double) = f(Metrics.mean(s.map(sel).toDoubleArray()), 3)
+            println(
+                "[${if (x.isEmpty()) "shipped" else x}] LL ${m { it.ll[0] }}/${m { it.ll[1] }}/${m { it.ll[2] }}  AUC ${m { it.auc[0] }}/${m { it.auc[1] }}/${m { it.auc[2] }}  " +
+                    "artist ${m { it.artistHit[0] }}/${m { it.artistHit[1] }}/${m { it.artistHit[2] }} (mean ${mn { it.artistHit[0] }}/${mn { it.artistHit[1] }}/${mn { it.artistHit[2] }})  " +
+                    "genre ${m { it.genreHit[0] }}/${m { it.genreHit[1] }}/${m { it.genreHit[2] }}  rare ${m { it.rare[0] }}/${m { it.rare[1] }}/${m { it.rare[2] }}",
+            )
+        }
     }
 
     fun baseline(users: List<Listener>): String = buildString {

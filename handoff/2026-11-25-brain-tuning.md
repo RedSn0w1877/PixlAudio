@@ -37,3 +37,38 @@ keep the same defaults.
   features 5-11, 19-21, 27-47 and the flow weights were not measurable.
 - Next step that would actually settle M0: run `tools/eval` logic on the owner's own export (`RealExportTest6` path) or on Spotify
   extended history, which has real `ms_played`.
+
+## 2026-11-26: the next-artist gap (no constants changed)
+
+- Why the brain trails the artist-rate baseline on next-artist / next-genre hit@20: the since_last one-hots (features 12-13, -1.5 / -0.6)
+  sink every artist whose last tracks were played in the last day, which is most of the artists people go back to. The score predicts
+  "will they finish it", not "will they pick it", and the 4 h hard constraint of 6.4 already keeps just-played tracks out of lists.
+- Tried (tuning listeners) and measured on the report listeners: since_last 12-16 -> 0, track_aff 1.2 -> 0.4, artist_aff_recent
+  0.4 -> 1.0, tag_aff 0.8 -> 0.4, sess_tag_pen -1.0 -> -0.5. It beats the baseline on both hit metrics (prior and learned), but learned
+  AUC falls (0.5925 -> 0.5821 median), prior log-loss is +1.3% (noise, 9/21 listeners worse) and the share of cold or barely known
+  artists in the top 20 drops from 0.195 to 0.051 (learned). Not shipped. Numbers: tools/eval/RESULTS.md, last section.
+- An artist listening-share feature (21-day or 120-day, log scale) was tried in the eval only (slot 9): it raises hits less and costs the
+  prior log-loss; the learner does not keep its weight. Not added (a new feature means D 51 -> 52 and a learner reset on both apps).
+- Tool only: `eval ablate --split=tune --set="12:0,13:0;..."` (prior M0 experiments, prints the medians and the learned weights) and
+  `eval pair --split=test --set=...` (paired before/after on one split). Run hits now also report the cold share of the top 20.
+- If someone ships the candidate later: bump `LearnReplay.VERSION` (saved learners replay from the new prior), regenerate goldens, and
+  iOS must copy M0 and the version. The trade it buys is familiarity for discovery; the owner should pick it, not the metric.
+
+## 2026-11-26 (later): two lanes, shipped
+
+- **`:brain` behaviour change.** Every list StationPlanner builds (autoplay, stations, mixes, Endless) now orders its familiar lane
+  (`inLibrary`) by a choice score: `Ranker.choiceWeights(w) = w + CHOICE_SHIFT` with `w` the weights that rank the list (prior, learned
+  mean or posterior sample). `CHOICE_SHIFT`: [1] -0.8, [3] +0.6, [4] -0.4, [12] +1.5, [13] +0.6, [14] +0.1, [15] -0.1, [16] -0.2,
+  [24] +0.5 (prior = the 11-26 candidate M0). Station pull and `boostLn` are added to it like to `z`. `ListBuilder.Scored` has
+  `zChoice` / `pChoice` (default `z` / `p`) and `laneZ` / `laneP`; opener, bridge, familiar, closer and liked slots read the lane score,
+  novel slots read `z` / `p`. Home rows and First Listen are all novel: unchanged.
+- **Unchanged by construction:** skip prediction, reward, served `pQ`, the learner and `LearnReplay` (no second model, so
+  `LearnReplay.VERSION` stays). The learner moves the choice score through the shared weights (why no second model: the eval's
+  "choice learner" variant did worse than the offset and would need a new persisted model on both apps).
+- Goldens regenerated: lists, mixes, session, stage2a, eval (+ MANIFEST). Spec 5.7 ("Two lanes") and 6.5 ("lanes").
+- **iOS must port:** `choiceShift` values (literals, add in index order), `zChoice`/`pChoice` on its Scored, the lane rule in its list
+  builder and planner, then match the new goldens.
+- Tool: `eval compose` (tools/eval/Compose.kt); numbers in RESULTS.md "Two lanes". Composed lists beat the artist-rate scorer composed
+  the same way on next-artist and next-genre hit@20 (report split: +0.035 [0.019, 0.054] / +0.021 [0.003, 0.037]); cold share stays the
+  novelty share (0.25); finish log-loss / AUC identical. All lists are below the plain artist-rate ranking (0.284) because of the 4 h rule
+  and the discovery slots; read RESULTS.md before quoting.
