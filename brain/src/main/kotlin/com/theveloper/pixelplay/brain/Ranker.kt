@@ -184,7 +184,16 @@ object Ranker {
      * NaN weight under an active feature would otherwise be turned into the edge of its box by the clip. On exit every value is
      * checked again; the step is computed into temporaries and only committed when all of it is finite.
      */
-    fun update(model: RankerModel, x: DoubleArray, r: Double, c: Double, bias: Double = 0.0): Int {
+    fun update(
+        model: RankerModel,
+        x: DoubleArray,
+        r: Double,
+        c: Double,
+        bias: Double = 0.0,
+        /** [STEP_CLIP] and [H_FLOOR] unless the evaluation tool (tools/eval) replays under other values. */
+        stepClip: Double = STEP_CLIP,
+        hFloor: Double = H_FLOOR,
+    ): Int {
         if (!model.isValid()) {
             model.resetToPrior()
             return UPDATE_RESET
@@ -202,7 +211,7 @@ object Ranker {
         val s = s(q, x)
         val pHat = BrainMath.sigmoid(zz)
         var h = pHat * (1.0 - pHat)
-        if (h < H_FLOOR) h = H_FLOOR
+        if (h < hFloor) h = hFloor
         val denom = 1.0 + cc * h * s
         val err = target - pHat
         val nm = DoubleArray(D)
@@ -213,7 +222,7 @@ object Ranker {
             val xi = x[i]
             if (xi == 0.0) continue
             val qi = q[i]
-            val step = BrainMath.clip((xi / qi) * cc * err / denom, -STEP_CLIP, STEP_CLIP)
+            val step = BrainMath.clip((xi / qi) * cc * err / denom, -stepClip, stepClip)
             val lo = model.m0[i] - BOX_SD * SD0[i]
             val hi = model.m0[i] + BOX_SD * SD0[i]
             nm[i] = BrainMath.clip(m[i] + step, lo, hi)
@@ -264,10 +273,20 @@ object Ranker {
      * anchor to [day] and the watermark to [eventId]. An event at or below the watermark was applied already and changes nothing,
      * so a catch-up after a rebuild can never apply a play twice.
      */
-    fun applyEvent(model: RankerModel, x: DoubleArray, r: Double, c: Double, bias: Double, day: Long, eventId: Long): Int {
+    fun applyEvent(
+        model: RankerModel,
+        x: DoubleArray,
+        r: Double,
+        c: Double,
+        bias: Double,
+        day: Long,
+        eventId: Long,
+        stepClip: Double = STEP_CLIP,
+        hFloor: Double = H_FLOOR,
+    ): Int {
         if (eventId <= model.lastEventId) return UPDATE_SKIPPED
         forget(model, day)
-        val result = update(model, x, r, c, bias)
+        val result = update(model, x, r, c, bias, stepClip, hFloor)
         model.anchorDay = day
         model.forgetDone = 0
         model.lastEventId = eventId

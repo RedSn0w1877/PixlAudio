@@ -37,7 +37,7 @@ class LibraryFacts(
  * track was finished, and the run of skips directly before a play. The live recorder and [Replay] use
  * the same class, so replaying the log gives the state the live path built.
  */
-class GradeTracker(private val completions: Map<Long, Int>) {
+class GradeTracker(private val completions: Map<Long, Int>, private val trust: Reward.Trust = Reward.Trust.DEFAULT) {
     private var streak = 0
     private var lastSkipEndMs = 0L
     private var lastSessionId = 0L
@@ -51,7 +51,7 @@ class GradeTracker(private val completions: Map<Long, Int>) {
         }
         val gap = e.endedAtMs - lastSkipEndMs
         val streakNow = if (live && streak > 0 && gap >= 0L && gap <= SKIP_STREAK_GAP_MS) streak else 0
-        val g = Reward.grade(e, Reward.Context(completions[e.rid] ?: 0, streakNow))
+        val g = Reward.grade(e, Reward.Context(completions[e.rid] ?: 0, streakNow), trust)
         if (live) {
             if (g.isSkip) {
                 streak = streakNow + 1

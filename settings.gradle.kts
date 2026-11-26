@@ -37,3 +37,6 @@ include(":wear")
 include(":baselineprofile")
 include(":brain")
 include(":songtap")
+// The Music Brain's offline evaluation and tuning tool (tools/eval/README.md). JVM only, uses :brain, never the app.
+include(":eval")
+project(":eval").projectDir = file("tools/eval")
