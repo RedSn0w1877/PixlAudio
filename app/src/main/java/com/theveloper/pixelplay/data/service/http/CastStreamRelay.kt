@@ -88,8 +88,10 @@ internal object CastStreamRelay {
         if (v4.count { it == '.' } == 3 && v4.all { it.isDigit() || it == '.' }) {
             return CloudStreamSecurity.isPrivateIpv4Literal(v4) && !v4.startsWith("0.")
         }
-        if (address.contains(':') && address.all { it.isDigit() || it in 'a'..'f' || it == ':' || it == '%' || it == '.' }) {
-            return CloudStreamSecurity.isLocalOrPrivateHost(address.substringBefore('%'))
+        // An IPv6 literal, without its zone (`fe80::1%wlan0`).
+        val v6 = address.substringBefore('%')
+        if (v6.contains(':') && v6.all { it.isDigit() || it in 'a'..'f' || it == ':' || it == '.' }) {
+            return CloudStreamSecurity.isLocalOrPrivateHost(v6)
         }
         return false
     }
